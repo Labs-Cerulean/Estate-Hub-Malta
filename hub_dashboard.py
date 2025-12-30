@@ -9,7 +9,7 @@ USERS = {
 
 st.set_page_config(
     page_title="Estate Hub", 
-    page_icon="https://raw.githubusercontent.com/nicholasvpra/Estate-Hub-Malta/main/logo.png",
+    page_icon="./logo.png",
     layout="wide"
 )
 
