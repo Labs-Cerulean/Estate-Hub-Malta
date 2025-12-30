@@ -3,9 +3,8 @@
 define('DB_HOST', getenv('MYSQLHOST') ?: 'mysql.railway.internal');
 define('DB_USER', getenv('MYSQLUSER') ?: 'root');
 define('DB_PASS', getenv('MYSQLPASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
-define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');  // Note: MYSQL_DATABASE (underscore)
+define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
 
-// Test connection + create table
 function getDB() {
     static $pdo = null;
     if ($pdo === null) {
@@ -16,23 +15,34 @@ function getDB() {
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
             ]);
             
-            // Create table if not exists
-            $pdo->exec("CREATE TABLE IF NOT EXISTS projects (
+            // CLIENTS TABLE
+            $pdo->exec("CREATE TABLE IF NOT EXISTS clients (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 name VARCHAR(255) NOT NULL,
-                client VARCHAR(255) NOT NULL,
+                city VARCHAR(100),
+                contact VARCHAR(255),
+                type ENUM('in-house','3rd-party') DEFAULT '3rd-party',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_name (name)
+            )");
+            
+            // PROJECTS TABLE (Updated with client_id)
+            $pdo->exec("CREATE TABLE IF NOT EXISTS projects (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                client_id INT NOT NULL,
+                name VARCHAR(255) NOT NULL,
                 city VARCHAR(100) NOT NULL,
                 pa_number VARCHAR(50),
                 bca_status VARCHAR(50),
                 status ENUM('Pending','In Process','Mobilised') DEFAULT 'Pending',
                 type ENUM('in-house','3rd-party') NOT NULL,
                 finish_level ENUM('Common Parts Only','Semi Finished','Finished') NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
             )");
             
         } catch (PDOException $e) {
-            die("❌ Database Error: " . $e->getMessage() . "<br>
-                 Check Railway Variables: MYSQLHOST, MYSQLUSER, MYSQLPASSWORD, MYSQLDATABASE");
+            die("❌ Database Error: " . $e->getMessage());
         }
     }
     return $pdo;
