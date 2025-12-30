@@ -9,7 +9,7 @@ USERS = {
 
 st.set_page_config(
     page_title="Estate Hub", 
-    page_icon="https://raw.githubusercontent.com/nicholasvpra/Estate-Hub-Malta/main/logo.png",
+    page_icon="https://github.com/nicholasvpra/Estate-Hub-Malta/blob/3307637268ef03681a7ddab5de212b36c83c8426/logo.png",
     layout="wide"
 )
 
@@ -20,7 +20,7 @@ if 'logged_in' not in st.session_state:
 def landing_page():
     st.markdown("""
     <div style='text-align: center; padding: 2rem'>
-        <img src="https://raw.githubusercontent.com/nicholasvpra/Estate-Hub-Malta/main/logo.png" width="200">
+        <img src="https://github.com/nicholasvpra/Estate-Hub-Malta/blob/3307637268ef03681a7ddab5de212b36c83c8426/logo.png" width="200">
         <h2 style='color: #666; font-size: 2rem;'>Project Central</h2>
     </div>
     """, unsafe_allow_html=True)
