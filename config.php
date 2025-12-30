@@ -1,9 +1,9 @@
 <?php
-// Railway MySQL - Get from Railway → Variables tab
-define('DB_HOST', getenv('MYSQLHOST') ?: 'localhost');
+// Railway MySQL - YOUR exact variables
+define('DB_HOST', getenv('MYSQLHOST') ?: 'mysql.railway.internal');
 define('DB_USER', getenv('MYSQLUSER') ?: 'root');
-define('DB_PASS', getenv('MYSQLPASSWORD') ?: '');
-define('DB_NAME', getenv('MYSQLDATABASE') ?: 'railway');
+define('DB_PASS', getenv('MYSQLPASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
+define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');  // Note: MYSQL_DATABASE (underscore)
 
 // Test connection + create table
 function getDB() {
