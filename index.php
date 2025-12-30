@@ -26,7 +26,7 @@ if ($_POST) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Estate Hub Malta</title>
-    <link rel="icon" href="logoicon.png">
+    <link rel="icon" href="logo_icon.png">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
