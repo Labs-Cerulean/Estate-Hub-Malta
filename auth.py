@@ -1,28 +1,21 @@
-"""
-PRA Construction - Modular Authentication System
-Scalable for multi-company, role-based access
-"""
 import streamlit as st
 import streamlit_authenticator as stauth
 import yaml
 import os
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from dataclasses import dataclass
 
 @dataclass
 class User:
-    """Scalable user schema with company/role"""
     username: str
     name: str
     company: str
-    role: str  # admin, manager, viewer, site_supervisor
+    role: str
     email: Optional[str] = None
     phone: Optional[str] = None
     active: bool = True
 
 class AuthManager:
-    """Modular authentication manager"""
-    
     def __init__(self, config_file: str = "config.yaml"):
         self.config_file = config_file
         self.authenticator = None
@@ -30,19 +23,19 @@ class AuthManager:
         self._load_config()
     
     def _load_config(self):
-        """Load users from YAML config"""
         try:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
                     config = yaml.safe_load(f)
                 self._parse_users(config['credentials']['usernames'])
                 self._init_authenticator(config)
+            else:
+                self._create_default_config()
         except Exception as e:
             st.error(f"Config error: {e}")
             self._create_default_config()
     
-    def _parse_users(self, usernames_dict: Dict[str, Any]):
-        """Convert YAML users to User objects"""
+    def _parse_users(self, usernames_dict: Dict):
         for username, data in usernames_dict.items():
             self.users[username] = User(
                 username=username,
@@ -55,11 +48,13 @@ class AuthManager:
             )
     
     def _init_authenticator(self, config: Dict):
-        """Initialize Streamlit Authenticator"""
-        credentials = {'usernames': {k: {'name': v.name, 'password': v.password} 
-                                   for k, v in self.users.items()}}
+        credentials = {
+            'usernames': {
+                k: {'name': v.name, 'password': list(config['credentials']['usernames'][k]['password'].values())[0]}
+                for k, v in self.users.items()
+            }
+        }
         cookie_config = config['cookie']
-        
         self.authenticator = stauth.Authenticate(
             credentials,
             cookie_config['name'],
@@ -69,7 +64,6 @@ class AuthManager:
         )
     
     def _create_default_config(self):
-        """Create default config.yaml"""
         default_config = {
             'credentials': {
                 'usernames': {
@@ -94,7 +88,7 @@ class AuthManager:
                     'viewer': {
                         'name': 'Viewer',
                         'password': stauth.Hasher(['View2026!']).generate()[0],
-                        'company': 'PRA Construction', 
+                        'company': 'PRA Construction',
                         'role': 'viewer',
                         'email': 'viewer@pra.mt',
                         'phone': '99999997',
@@ -109,10 +103,27 @@ class AuthManager:
             },
             'preauthorized': None
         }
-        
         with open(self.config_file, 'w') as f:
             yaml.dump(default_config, f)
-        st.success(f"Created {self.config_file}. Update passwords and restart!")
     
     def login_ui(self) -> bool:
-        """Display login UI and handle
+        return self.authenticator.login_ui()
+    
+    def login(self, username: str, password: str) -> bool:
+        return self.authenticator.login(username, password)
+    
+    def logout(self):
+        self.authenticator.logout()
+    
+    def get_current_user(self) -> Optional[User]:
+        if st.session_state.get('authenticated'):
+            username = st.session_state['username']
+            return self.users.get(username)
+        return None
+    
+    def can_access(self, required_role: str, user_role: str) -> bool:
+        role_hierarchy = {'admin': 4, 'manager': 3, 'viewer': 1}
+        return role_hierarchy.get(user_role, 0) >= role_hierarchy.get(required_role, 0)
+
+# Global instance
+auth_manager = AuthManager()
