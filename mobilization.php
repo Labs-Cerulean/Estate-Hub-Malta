@@ -1,28 +1,34 @@
 <?php
 session_start();
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || !isset($_SESSION['user']) || $_SESSION['user'] !== 'admin') {
+
+// FIXED: Match dashboard.php exactly (looser validation)
+if (!isset($_SESSION['loggedin']) || !$_SESSION['loggedin'] || !isset($_SESSION['user']) || $_SESSION['user'] !== 'admin') {
     session_destroy();
     header('Location: index.php');
     exit;
 }
 
 require_once 'config.php';
+$pdo = getDB();
+$is_admin = $_SESSION['user'] === 'admin';
 
-$error = '';
-if ($_POST) {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-    
-    if ($username === 'admin' && $password === 'admin') {
-        $_SESSION['loggedin'] = true;
-        $_SESSION['user'] = 'admin';
-        header('Location: mobilization.php');
-        exit;
-    } else {
-        $error = 'Invalid username or password';
-    }
-}
+// FIXED QUERY - matches your config.php schema
+$stats = [
+    'total' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn(),
+    'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Mobilised'")->fetchColumn(),
+    'pending' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Pending'")->fetchColumn(),
+    'in_process' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='In Process'")->fetchColumn(),
+];
+
+$projects = $pdo->query("
+    SELECT p.*, c.name as client_name 
+    FROM projects p 
+    JOIN clients c ON p.client_id = c.id 
+    ORDER BY p.created_at DESC 
+    LIMIT 10
+")->fetchAll(PDO::FETCH_ASSOC);
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
