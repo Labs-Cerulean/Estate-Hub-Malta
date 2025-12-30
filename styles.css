@@ -1,7 +1,8 @@
-/* Estate Hub Malta Design */
+/* Estate Hub Malta - Professional Agius Group Design System v2.0 */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+
 :root {
     --bg-primary: #0a0e17;
     --bg-secondary: rgba(255,255,255,0.02);
@@ -35,8 +36,11 @@ body {
     max-width: 1440px; margin: 0 auto; padding: 0 2rem; 
     display: flex; justify-content: space-between; align-items: center; 
 }
+.header-left { display: flex; align-items: center; gap: 1rem; }
 .logo-nav { width: 48px; height: 48px; border-radius: 12px; }
 .header-right { display: flex; align-items: center; gap: 1.5rem; }
+.header-title { font-size: 1.4rem; font-weight: 700; }
+.header-subtitle { font-size: 0.85rem; color: var(--text-muted); }
 
 /* Navigation */
 .nav-link { 
@@ -81,6 +85,9 @@ body {
     font-size: clamp(2.5rem, 8vw, 4.5rem); font-weight: 700; 
     color: var(--text-primary); margin-bottom: 0.5rem; 
 }
+.stat-number.mobilised { color: var(--success) !important; }
+.stat-number.pending { color: var(--warning) !important; }
+.stat-number.in-process { color: var(--info) !important; }
 .stat-label { 
     color: var(--text-secondary); font-size: 1rem; font-weight: 500; 
     text-transform: uppercase; letter-spacing: 1px; 
@@ -92,7 +99,7 @@ body {
     padding: 3rem; backdrop-filter: blur(20px); 
     border: 1px solid var(--border-glass); margin-bottom: 3rem; 
 }
-.projects-header { 
+.projects-header, .clients-header { 
     display: flex; justify-content: space-between; align-items: center; 
     margin-bottom: 2.5rem; 
 }
@@ -106,7 +113,7 @@ body {
 .project-card, .client-card { 
     background: var(--bg-card); border: 1px solid var(--border-glass); 
     border-radius: 20px; padding: 2rem; transition: all 0.3s ease; 
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px); text-decoration: none; color: inherit; display: block;
 }
 .project-card:hover, .client-card:hover { 
     border-color: rgba(255,255,255,0.2); transform: translateY(-4px); 
@@ -119,6 +126,7 @@ body {
 }
 .project-name, .client-name { 
     font-size: 1.4rem; font-weight: 600; color: var(--text-primary); 
+    margin: 0;
 }
 
 /* Status Badges */
@@ -126,9 +134,94 @@ body {
     padding: 0.5rem 1.2rem; border-radius: 50px; font-size: 0.85rem; 
     font-weight: 600; backdrop-filter: blur(10px); border: 1px solid transparent;
 }
-.status.Mobilised { 
+.status-Mobilised { 
     background: rgba(34,197,94,0.2); color: var(--success); 
     border-color: rgba(34,197,94,0.3); 
 }
-.status.Pending { 
-    background
+.status-Pending { 
+    background: rgba(251,191,36,0.2); color: var(--warning); 
+    border-color: rgba(251,191,36,0.3); 
+}
+.status-In-Process { 
+    background: rgba(59,130,246,0.2); color: var(--info); 
+    border-color: rgba(59,130,246,0.3); 
+}
+
+/* Forms */
+.form-grid { 
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+    gap: 1.5rem; margin-bottom: 2rem; 
+}
+.form-group { display: flex; flex-direction: column; }
+.form-group label { 
+    font-weight: 500; color: var(--text-secondary); margin-bottom: 0.5rem; 
+}
+input, select, textarea { 
+    background: rgba(255,255,255,0.1); border: 1px solid var(--border-glass); 
+    border-radius: 12px; padding: 1rem; color: var(--text-primary); 
+    width: 100%; backdrop-filter: blur(10px); font-size: 1rem;
+    transition: all 0.3s ease;
+}
+input::placeholder { color: var(--text-muted); }
+input:focus, select:focus, textarea:focus { 
+    outline: none; border-color: var(--accent-blue); 
+    box-shadow: 0 0 0 3px rgba(79,70,229,0.2); 
+}
+
+/* Buttons */
+.btn, button[type="submit"] { 
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); 
+    color: white; border: none; padding: 1rem 2.5rem; 
+    border-radius: 12px; font-weight: 600; cursor: pointer; 
+    transition: all 0.3s ease; font-size: 1rem; width: 100%;
+}
+.btn:hover, button[type="submit"]:hover { 
+    transform: translateY(-2px); box-shadow: 0 10px 25px rgba(79,70,229,0.4); 
+}
+
+/* Meta Items */
+.project-meta, .client-meta { 
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+    gap: 1rem; font-size: 0.95rem; 
+}
+.meta-item { color: var(--text-secondary); }
+.meta-label { 
+    font-weight: 500; color: var(--text-muted); display: block; 
+    font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.client-type { 
+    padding: 0.25rem 0.75rem; background: var(--bg-glass); 
+    border-radius: 12px; font-size: 0.8rem; width: fit-content; 
+}
+
+/* Messages */
+.message { 
+    padding: 1rem 2rem; border-radius: 12px; margin-bottom: 2rem; 
+    font-weight: 500; backdrop-filter: blur(10px);
+}
+.message.success { 
+    background: rgba(34,197,94,0.2); color: var(--success); 
+    border: 1px solid rgba(34,197,94,0.3); 
+}
+
+/* Empty States */
+.empty-state { 
+    grid-column: 1 / -1; text-align: center; padding: 4rem 2rem; 
+    color: var(--text-muted); border: 2px dashed var(--border-glass); 
+    border-radius: 20px; backdrop-filter: blur(10px);
+}
+
+/* Login Page Override */
+body[style*="linear-gradient"] > div {
+    background: white !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) { 
+    .main-container { padding: 2rem 1rem; } 
+    .projects-grid, .clients-grid { grid-template-columns: 1fr; }
+    .header-container, .projects-header, .form-grid { 
+        flex-direction: column; gap: 1rem; align-items: stretch; 
+    }
+    .nav-link { padding: 0.5rem 1rem; font-size: 0.85rem; }
+}
