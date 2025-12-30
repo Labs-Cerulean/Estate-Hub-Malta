@@ -36,8 +36,8 @@ $is_admin = $_SESSION['user'] === 'admin';
                 <div class="header-title">Estate Hub Malta</div>
                 <div class="header-subtitle">Project Overview</div>
             </div>
-            <div class="header-right">
-                <a href="mobilization.php" class="nav-link">Mobilization</a>
+           <div class="header-right">
+                <a href="mobilization.php" class="nav-link">Mobilization</a>  <!-- Points to detailed projects -->
                 <?php if ($is_admin): ?>
                     <a href="clients.php" class="nav-link">Clients</a>
                     <a href="create-project.php" class="nav-link">New Project</a>
