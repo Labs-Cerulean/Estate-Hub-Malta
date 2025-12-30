@@ -1,7 +1,5 @@
 <?php
 session_start();
-
-// FIXED: Match dashboard.php exactly (looser validation)
 if (!isset($_SESSION['loggedin']) || !$_SESSION['loggedin'] || !isset($_SESSION['user']) || $_SESSION['user'] !== 'admin') {
     session_destroy();
     header('Location: index.php');
@@ -12,7 +10,6 @@ require_once 'config.php';
 $pdo = getDB();
 $is_admin = $_SESSION['user'] === 'admin';
 
-// FIXED QUERY - matches your config.php schema
 $stats = [
     'total' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn(),
     'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Mobilised'")->fetchColumn(),
@@ -20,53 +17,122 @@ $stats = [
     'in_process' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='In Process'")->fetchColumn(),
 ];
 
+// BULLETPROOF: Get projects WITHOUT client JOIN first
 $projects = $pdo->query("
-    SELECT p.*, c.name as client_name 
-    FROM projects p 
-    JOIN clients c ON p.client_id = c.id 
-    ORDER BY p.created_at DESC 
+    SELECT id, name, city, pa_number, bca_status, status, type, finish_level, created_at, client_id
+    FROM projects 
+    ORDER BY created_at DESC 
     LIMIT 10
 ")->fetchAll(PDO::FETCH_ASSOC);
-?>
 
+// Add client names SAFELY (no JOIN)
+foreach ($projects as &$project) {
+    $stmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
+    $stmt->execute([$project['client_id']]);
+    $client = $stmt->fetch();
+    $project['client_name'] = $client ? $client['name'] : 'Unknown Client';
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Estate Hub Malta</title>
+    <title>Mobilization Dashboard - Estate Hub Malta</title>
     <link rel="icon" href="logoicon.png">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="main-container" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem;">
-        <div class="login-card">
-            <div class="login-header">
-                <img src="logo.png" alt="Estate Hub Malta" class="login-logo" onerror="this.src='logoicon.png'">
-                <h1 class="login-title">Estate Hub Malta</h1>
-                <p class="login-subtitle">Project Management System</p>
+    <header class="header">
+        <div class="header-container">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <img src="logo.jpg" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo_icon.jpg'">
+                <div>
+                    <div style="font-size: 1.4rem; font-weight: 700;">Estate Hub Malta</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Mobilization Dashboard</div>
+                </div>
             </div>
-            
-            <?php if ($error): ?>
-                <div class="message error"><?php echo htmlspecialchars($error); ?></div>
-            <?php endif; ?>
-            
-            <form method="POST" class="login-form">
-                <div class="form-group">
-                    <label>Username</label>
-                    <input type="text" name="username" required placeholder="Enter username" 
-                           value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>">
-                </div>
-                <div class="form-group">
-                    <label>Password</label>
-                    <input type="password" name="password" required placeholder="Enter password">
-                </div>
-                <button type="submit" class="btn">Sign In</button>
-            </form>
-            <div class="login-footer">
-                <p>Demo: <strong>admin</strong> / <strong>admin</strong></p>
+            <div class="header-right">
+                <a href="dashboard.php" class="nav-link">Overview</a>
+                <?php if ($is_admin): ?>
+                    <a href="clients.php" class="nav-link">Clients</a>
+                    <a href="create-project.php" class="nav-link">Projects</a>
+                <?php endif; ?>
+                <a href="apiauth.php?logout=1" class="nav-link">Logout</a>
             </div>
         </div>
+    </header>
+
+    <div class="main-container">
+        <h1 class="page-title">Mobilization Dashboard</h1>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number"><?php echo number_format($stats['total']); ?></div>
+                <div class="stat-label">Total Projects</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color: var(--success);"><?php echo number_format($stats['mobilised']); ?></div>
+                <div class="stat-label">Mobilised</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color: var(--warning);"><?php echo number_format($stats['pending']); ?></div>
+                <div class="stat-label">Pending</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color: var(--info);"><?php echo number_format($stats['in_process']); ?></div>
+                <div class="stat-label">In Process</div>
+            </div>
+        </div>
+
+        <section class="projects-section">
+            <div class="projects-header">
+                <div class="section-title">Recent Projects</div>
+                <?php if ($is_admin): ?>
+                    <a href="create-project.php" class="nav-link" style="padding: 0.75rem 2rem;">+ New Project</a>
+                <?php endif; ?>
+            </div>
+            <div class="projects-grid">
+                <?php foreach ($projects as $project): ?>
+                    <div class="project-card">
+                        <div class="project-header">
+                            <div class="project-name"><?php echo htmlspecialchars($project['name']); ?></div>
+                            <span class="status-badge status-<?php echo str_replace(' ', '-', $project['status']); ?>">
+                                <?php echo $project['status']; ?>
+                            </span>
+                        </div>
+                        <div class="project-meta">
+                            <div class="meta-item">
+                                <span class="meta-label">Client</span>
+                                <?php echo htmlspecialchars($project['client_name']); ?>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">Location</span>
+                                <?php echo htmlspecialchars($project['city']); ?>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">PA Number</span>
+                                <?php echo htmlspecialchars($project['pa_number'] ?? 'N/A'); ?>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">BCA Status</span>
+                                <?php echo htmlspecialchars($project['bca_status'] ?? 'N/A'); ?>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">Type</span>
+                                <span class="client-type"><?php echo ucwords(str_replace('-', ' ', $project['type'])); ?></span>
+                            </div>
+                            <?php if ($project['finish_level']): ?>
+                                <div class="meta-item">
+                                    <span class="meta-label">Finish Level</span>
+                                    <?php echo $project['finish_level']; ?>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </section>
     </div>
 </body>
 </html>
