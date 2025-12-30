@@ -1,4 +1,6 @@
-/* Estate Hub Malta - Agius Group Professional Design */
+/* Estate Hub Malta Design */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
     --bg-primary: #0a0e17;
@@ -85,7 +87,7 @@ body {
 }
 
 /* Sections */
-.projects-section, .clients-section { 
+.projects-section, .clients-section, .form-section { 
     background: var(--bg-secondary); border-radius: 24px; 
     padding: 3rem; backdrop-filter: blur(20px); 
     border: 1px solid var(--border-glass); margin-bottom: 3rem; 
@@ -96,7 +98,7 @@ body {
 }
 .section-title { font-size: 2rem; font-weight: 600; color: var(--text-primary); }
 
-/* Project/Client Cards */
+/* Grids */
 .projects-grid, .clients-grid { 
     display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); 
     gap: 2rem; 
@@ -109,7 +111,9 @@ body {
 .project-card:hover, .client-card:hover { 
     border-color: rgba(255,255,255,0.2); transform: translateY(-4px); 
 }
-.project-header { 
+
+/* Cards Content */
+.project-header, .client-header { 
     display: flex; justify-content: space-between; align-items: flex-start; 
     margin-bottom: 1.5rem; 
 }
@@ -127,74 +131,4 @@ body {
     border-color: rgba(34,197,94,0.3); 
 }
 .status.Pending { 
-    background: rgba(251,191,36,0.2); color: var(--warning); 
-    border-color: rgba(251,191,36,0.3); 
-}
-.status[data-status="In Process"] { 
-    background: rgba(59,130,246,0.2); color: var(--info); 
-    border-color: rgba(59,130,246,0.3); 
-}
-
-/* Forms */
-.form-grid { 
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
-    gap: 1.5rem; margin-bottom: 2rem; 
-}
-input, select, textarea { 
-    background: rgba(255,255,255,0.1); border: 1px solid var(--border-glass); 
-    border-radius: 12px; padding: 1rem; color: var(--text-primary); 
-    width: 100%; backdrop-filter: blur(10px); font-size: 1rem;
-    transition: all 0.3s ease;
-}
-input::placeholder { color: var(--text-muted); }
-input:focus, select:focus, textarea:focus { 
-    outline: none; border-color: var(--accent-blue); 
-    box-shadow: 0 0 0 3px rgba(79,70,229,0.2); 
-}
-
-/* Buttons */
-.btn { 
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); 
-    color: white; border: none; padding: 1rem 2.5rem; 
-    border-radius: 12px; font-weight: 600; cursor: pointer; 
-    transition: all 0.3s ease; font-size: 1rem; width: 100%;
-}
-.btn:hover { 
-    transform: translateY(-2px); box-shadow: 0 10px 25px rgba(79,70,229,0.4); 
-}
-
-/* Meta Items */
-.project-meta, .client-meta { 
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-    gap: 1rem; font-size: 0.95rem; 
-}
-.meta-item { color: var(--text-secondary); }
-.meta-label { 
-    font-weight: 500; color: var(--text-muted); display: block; 
-    font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;
-}
-
-/* Empty States */
-.empty-state { 
-    grid-column: 1 / -1; text-align: center; padding: 4rem 2rem; 
-    color: var(--text-muted); border: 2px dashed var(--border-glass); 
-    border-radius: 20px; backdrop-filter: blur(10px);
-}
-
-/* Messages */
-.message { 
-    padding: 1rem 2rem; border-radius: 12px; margin-bottom: 2rem; 
-    font-weight: 500; backdrop-filter: blur(10px);
-}
-.message.success { 
-    background: rgba(34,197,94,0.2); color: var(--success); 
-    border: 1px solid rgba(34,197,94,0.3); 
-}
-
-/* Responsive */
-@media (max-width: 768px) { 
-    .main-container { padding: 2rem 1rem; } 
-    .projects-grid, .clients-grid { grid-template-columns: 1fr; }
-    .projects-header, .form-grid { flex-direction: column; gap: 1rem; align-items: stretch; }
-    .header-container { flex-direction: column; gap: 1rem; padding: 1rem; }
-}
+    background
