@@ -9,7 +9,7 @@ USERS = {
 
 st.set_page_config(
     page_title="Estate Hub", 
-    page_icon="./logo.png",
+    page_icon="./logo_icon.png",
     layout="wide"
 )
 
