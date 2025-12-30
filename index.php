@@ -1,7 +1,5 @@
 <?php
 session_start();
-
-// ONLY redirect if valid admin session
 if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true && isset($_SESSION['user']) && $_SESSION['user'] === 'admin') {
     header('Location: dashboard.php');
     exit;
@@ -11,7 +9,6 @@ $error = '';
 if ($_POST) {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
-    
     if ($username === 'admin' && $password === 'admin') {
         $_SESSION['loggedin'] = true;
         $_SESSION['user'] = 'admin';
@@ -40,26 +37,19 @@ if ($_POST) {
                 <h1 class="login-title">Estate Hub Malta</h1>
                 <p class="login-subtitle">Project Management System</p>
             </div>
-            
-            <?php if ($error): ?>
-                <div class="message error"><?php echo htmlspecialchars($error); ?></div>
-            <?php endif; ?>
-            
+            <?php if ($error): ?><div class="message error"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
             <form method="POST" class="login-form">
                 <div class="form-group">
                     <label>Username</label>
-                    <input type="text" name="username" required placeholder="Enter username" 
-                           value="<?php echo htmlspecialchars($_POST['username'] ?? 'admin'); ?>">
+                    <input type="text" name="username" required placeholder="admin" value="admin">
                 </div>
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" name="password" required placeholder="Enter password" value="">
+                    <input type="password" name="password" required placeholder="admin">
                 </div>
                 <button type="submit" class="btn">Sign In</button>
             </form>
-            <div class="login-footer">
-                <p>Demo: <strong>admin</strong> / <strong>admin</strong></p>
-            </div>
+            <div class="login-footer"><p>Demo: <strong>admin</strong> / <strong>admin</strong></p></div>
         </div>
     </div>
 </body>
