@@ -25,18 +25,18 @@ function getDB() {
         )");
         
         // PROJECTS TABLE
-        $pdo->exec("CREATE TABLE IF NOT EXISTS projects (
+       $pdo->exec("CREATE TABLE IF NOT EXISTS projects (
             id INT PRIMARY KEY AUTO_INCREMENT,
-            client_id INT NOT NULL,
+            clientid INT NOT NULL,          -- ← Match your existing
             name VARCHAR(255) NOT NULL,
             city VARCHAR(100) NOT NULL,
-            pa_number VARCHAR(50),
-            bca_status VARCHAR(50),
+            panumber VARCHAR(50),
+            bcastatus VARCHAR(50),
             status ENUM('Pending','In Process','Mobilised') DEFAULT 'Pending',
             type ENUM('in-house','3rd-party') NOT NULL,
-            finish_level ENUM('Common Parts Only','Semi Finished','Finished') NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+            finishlevel ENUM('Common Parts Only','Semi Finished','Finished') NULL,
+            createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (clientid) REFERENCES clients(id) ON DELETE CASCADE
         )");
     }
     return $pdo;
