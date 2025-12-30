@@ -1,0 +1,41 @@
+credentials:
+  usernames:
+    admin:
+      name: "PRA Admin"
+      password: "$2b$12$..."  # Hashed password from auth.py
+      company: "PRA Construction"
+      role: "admin"
+      email: "admin@pra.mt"
+      phone: "99999999"
+      active: true
+    manager:
+      name: "Site Manager"
+      password: "$2b$12$..."
+      company: "PRA Construction"
+      role: "manager"
+      email: "manager@pra.mt"
+      phone: "99999998"
+      active: true
+    gozo_manager:
+      name: "Gozo Manager"
+      password: "$2b$12$..."
+      company: "PRA Gozo Branch"
+      role: "manager"
+      email: "gozo@pra.mt"
+      phone: "99999996"
+      active: true
+    viewer:
+      name: "Viewer"
+      password: "$2b$12$..."
+      company: "PRA Construction"
+      role: "viewer"
+      email: "viewer@pra.mt"
+      phone: "99999997"
+      active: true
+
+cookie:
+  name: "pra_mobilization"
+  key: "pra_cookie_key_2026_super_secure_random_key_change_me_123456"
+  expiry_days: 30
+
+preauthorized: null
