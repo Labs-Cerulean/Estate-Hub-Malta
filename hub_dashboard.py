@@ -4,7 +4,7 @@ import sqlite3
 
 USERS = {'admin': 'Pra2026!', 'manager': 'Site2026!', 'viewer': 'View2026!'}
 
-st.set_page_config(page_title="Estate Hub Malta", page_icon="logo.png", layout="wide")
+st.set_page_config(page_title="Estate Hub Malta", page_icon="./logo.png", layout="wide")
 
 # INLINE DATABASE CLASS - NO IMPORTS!
 class Database:
