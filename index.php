@@ -1,8 +1,36 @@
 <?php
 session_start();
+
+// Redirect if already logged in
 if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']) {
-    header('Location: dashboard.php');
+    header('Location: mobilization.php');
     exit;
+}
+
+// Handle login form submission
+$message = '';
+$error = '';
+
+if ($_POST) {
+    require_once 'config.php';
+    $pdo = getDB();
+    
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+    
+    if ($username && $password) {
+        // Simple admin check (admin/admin in production use hashed passwords)
+        if ($username === 'admin' && $password === 'admin') {
+            $_SESSION['loggedin'] = true;
+            $_SESSION['user'] = 'admin';
+            header('Location: mobilization.php');
+            exit;
+        } else {
+            $error = 'Invalid username or password';
+        }
+    } else {
+        $error = 'Please enter username and password';
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -15,9 +43,38 @@ if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']) {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="main-container" style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
-        <div class="login-form" style="background: var(--bg-card); padding: 3rem; border-radius: 24px; border: 1px solid var(--border-glass); min-width: 400px;">
-            <!-- Your login form here with class="form-grid" inputs/buttons -->
+    <div class="main-container" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem;">
+        <div class="login-card">
+            <div class="login-header">
+                <img src="logo.png" alt="Estate Hub Malta" class="login-logo" onerror="this.src='logoicon.png'">
+                <h1 class="login-title">Estate Hub Malta</h1>
+                <p class="login-subtitle">Project Management System</p>
+            </div>
+            
+            <?php if ($error): ?>
+                <div class="message error"><?php echo htmlspecialchars($error); ?></div>
+            <?php endif; ?>
+            
+            <form method="POST" class="login-form">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" name="username" required 
+                           placeholder="Enter username" 
+                           value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>">
+                </div>
+                
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" name="password" required 
+                           placeholder="Enter password">
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Sign In</button>
+            </form>
+            
+            <div class="login-footer">
+                <p>Demo: <strong>admin</strong> / <strong>admin</strong></p>
+            </div>
         </div>
     </div>
 </body>
