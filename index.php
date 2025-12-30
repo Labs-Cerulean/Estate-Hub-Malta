@@ -1,35 +1,25 @@
 <?php
 session_start();
 
-// Redirect if already logged in
-if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']) {
-    header('Location: mobilization.php');
+// ONLY redirect if valid admin session
+if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true && isset($_SESSION['user']) && $_SESSION['user'] === 'admin') {
+    header('Location: dashboard.php');
     exit;
 }
 
-// Handle login form submission
-$message = '';
 $error = '';
-
 if ($_POST) {
-    require_once 'config.php';
-    $pdo = getDB();
-    
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
     
-    if ($username && $password) {
-        // Simple admin check (admin/admin in production use hashed passwords)
-        if ($username === 'admin' && $password === 'admin') {
-            $_SESSION['loggedin'] = true;
-            $_SESSION['user'] = 'admin';
-            header('Location: mobilization.php');
-            exit;
-        } else {
-            $error = 'Invalid username or password';
-        }
+    if ($username === 'admin' && $password === 'admin') {
+        $_SESSION['loggedin'] = true;
+        $_SESSION['user'] = 'admin';
+        header('Location: dashboard.php');
+        exit;
     } else {
-        $error = 'Please enter username and password';
+        $error = 'Invalid username or password';
+        session_destroy();
     }
 }
 ?>
@@ -58,20 +48,15 @@ if ($_POST) {
             <form method="POST" class="login-form">
                 <div class="form-group">
                     <label>Username</label>
-                    <input type="text" name="username" required 
-                           placeholder="Enter username" 
-                           value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>">
+                    <input type="text" name="username" required placeholder="Enter username" 
+                           value="<?php echo htmlspecialchars($_POST['username'] ?? 'admin'); ?>">
                 </div>
-                
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" name="password" required 
-                           placeholder="Enter password">
+                    <input type="password" name="password" required placeholder="Enter password" value="">
                 </div>
-                
-                <button type="submit" class="btn btn-primary">Sign In</button>
+                <button type="submit" class="btn">Sign In</button>
             </form>
-            
             <div class="login-footer">
                 <p>Demo: <strong>admin</strong> / <strong>admin</strong></p>
             </div>
