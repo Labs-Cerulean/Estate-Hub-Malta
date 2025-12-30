@@ -5,19 +5,19 @@ credentials:
       password: "$2b$12$..."  # Hashed password from auth.py
       company: "PRA Construction"
       role: "admin"
-      email: "admin@pra.mt"
+      email: "nicholasv@pramalta.com"
       phone: "99999999"
       active: true
     manager:
-      name: "Site Manager"
+      name: "Senior Manager"
       password: "$2b$12$..."
       company: "PRA Construction"
       role: "manager"
       email: "manager@pra.mt"
       phone: "99999998"
       active: true
-    gozo_manager:
-      name: "Gozo Manager"
+    clerical:
+      name: "Clerical"
       password: "$2b$12$..."
       company: "PRA Gozo Branch"
       role: "manager"
