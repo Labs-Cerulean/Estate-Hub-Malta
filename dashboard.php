@@ -1,16 +1,22 @@
 <?php
 session_start();
-if (!isset($_SESSION['logged_in']) || !$_SESSION['logged_in']) {
-    header('Location: index.php'); exit;
-}
-require_once 'config.php';
 
+// STRICT session validation
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || !isset($_SESSION['user']) || $_SESSION['user'] !== 'admin') {
+    session_destroy();
+    header('Location: index.php');
+    exit;
+}
+
+require_once 'config.php';
 $pdo = getDB();
+
 $stats = [
     'projects' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn(),
     'clients' => $pdo->query("SELECT COUNT(*) FROM clients")->fetchColumn(),
     'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Mobilised'")->fetchColumn()
 ];
+
 $is_admin = $_SESSION['user'] === 'admin';
 ?>
 <!DOCTYPE html>
@@ -19,30 +25,28 @@ $is_admin = $_SESSION['user'] === 'admin';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Overview - Estate Hub Malta</title>
-    <link rel="icon" href="logo_icon.png">
+    <link rel="icon" href="logoicon.png">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header class="header">
         <div class="header-container">
             <div class="header-left">
-                <img src="logo.png" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo_icon.png'">
-                <div>
-                    <div class="header-title">Estate Hub Malta</div>
-                    <div class="header-subtitle">Project Overview</div>
-                </div>
+                <img src="logo.png" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logoicon.png'">
+                <div class="header-title">Estate Hub Malta</div>
+                <div class="header-subtitle">Project Overview</div>
             </div>
             <div class="header-right">
-                <a href="mobilization.php" class="nav-link">📊 Mobilization</a>
+                <a href="mobilization.php" class="nav-link">Mobilization</a>
                 <?php if ($is_admin): ?>
-                    <a href="clients.php" class="nav-link">👥 Clients</a>
-                    <a href="create-project.php" class="nav-link">➕ New Project</a>
+                    <a href="clients.php" class="nav-link">Clients</a>
+                    <a href="create-project.php" class="nav-link">New Project</a>
                 <?php endif; ?>
-                <a href="api/auth.php?logout=1" class="nav-link">🚪 Logout</a>
+                <a href="apiauth.php?logout=1" class="nav-link">Logout</a>
             </div>
         </div>
     </header>
-    
+
     <main class="main-container">
         <h1 class="page-title">Project Overview</h1>
         
@@ -60,7 +64,7 @@ $is_admin = $_SESSION['user'] === 'admin';
                 <div class="stat-label">Mobilised</div>
             </div>
         </div>
-        
+
         <section class="projects-section">
             <div class="projects-header">
                 <h2 class="section-title">Quick Actions</h2>
@@ -69,20 +73,20 @@ $is_admin = $_SESSION['user'] === 'admin';
                 <?php if ($is_admin): ?>
                     <a href="create-project.php" class="project-card" style="text-decoration: none; display: block;">
                         <div class="project-header">
-                            <h3 class="project-name">➕ New Project</h3>
+                            <h3 class="project-name">New Project</h3>
                         </div>
                         <p style="color: var(--text-secondary);">Create a new project</p>
                     </a>
                     <a href="clients.php" class="project-card" style="text-decoration: none; display: block;">
                         <div class="project-header">
-                            <h3 class="project-name">👥 Manage Clients</h3>
+                            <h3 class="project-name">Manage Clients</h3>
                         </div>
                         <p style="color: var(--text-secondary);">Add and manage clients</p>
                     </a>
                 <?php else: ?>
                     <div class="project-card">
                         <div class="project-header">
-                            <h3 class="project-name">📊 View Mobilization</h3>
+                            <h3 class="project-name">View Mobilization</h3>
                         </div>
                         <a href="mobilization.php" class="nav-link" style="width: 100%; text-align: center; margin-top: 1rem;">Go to Dashboard</a>
                     </div>
