@@ -19,7 +19,7 @@ $projects = $pdo->query("
     SELECT p.*, c.name as client_name 
     FROM projects p 
     JOIN clients c ON p.clientid = c.id
-    ORDER BY p.createdat DESC 
+    ORDER BY p.created_at DESC 
     LIMIT 10
 ")->fetchAll(PDO::FETCH_ASSOC)
 ?>
