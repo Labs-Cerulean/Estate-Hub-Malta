@@ -55,7 +55,7 @@ if 'logged_in' not in st.session_state:
 def landing_page():
     st.markdown("""
     <div style='text-align: center; padding: 2rem'>
-        <img src="logo.png" width="250">
+        <img src="./logo.png" width="250">
         <h1 style='color: #1f77b4; font-size: 3rem;'>Estate Hub Malta</h1>
         <p style='color: #666;'>Malta's Premier Property Dashboard</p>
     </div>
