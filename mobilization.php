@@ -1,9 +1,12 @@
 <?php
 session_start();
-if (isset($_SESSION['loggedin']) && $_SESSION['loggedin']) {
-    header('Location: mobilization.php');
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || !isset($_SESSION['user']) || $_SESSION['user'] !== 'admin') {
+    session_destroy();
+    header('Location: index.php');
     exit;
 }
+
+require_once 'config.php';
 
 $error = '';
 if ($_POST) {
