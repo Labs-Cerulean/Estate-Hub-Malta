@@ -20,9 +20,8 @@ if 'logged_in' not in st.session_state:
 def landing_page():
     st.markdown("""
     <div style='text-align: center; padding: 2rem'>
-        <h1 style='color: #1f77b4; font-size: 3.5rem;'>🏗️ PRA Construction Hub</h1>
-        <h2 style='color: #ff6b6b; font-size: 2rem;'>Project Management Central</h2>
-        <p style='color: #666; font-size: 1.2rem;'>Malta's Premier Construction Dashboard</p>
+        <img src="https://github.com/nicholasvpra/Estate-Hub-Malta/edit/main/Estate Hub Malta.png" width="200">
+        <h2 style='color: #666; font-size: 2rem;'>Project Central</h2>
     </div>
     """, unsafe_allow_html=True)
     
