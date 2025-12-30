@@ -8,8 +8,8 @@ USERS = {
 }
 
 st.set_page_config(
-    page_title="PRA Construction Hub", 
-    page_icon="🏗️",
+    page_title="Estate Hub", 
+    page_icon="https://github.com/nicholasvpra/Estate-Hub-Malta/edit/main/Estate Hub Malta.png",
     layout="wide"
 )
 
