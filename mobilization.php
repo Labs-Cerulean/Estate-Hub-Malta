@@ -10,27 +10,44 @@ require_once 'config.php';
 $pdo = getDB();
 $is_admin = $_SESSION['user'] === 'admin';
 
+// SAFE STATS - COUNT(*) never fails
 $stats = [
-    'total' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn(),
-    'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Mobilised'")->fetchColumn(),
-    'pending' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Pending'")->fetchColumn(),
-    'in_process' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='In Process'")->fetchColumn(),
+    'total' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn() ?: 0,
+    'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Mobilised'")->fetchColumn() ?: 0,
+    'pending' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Pending'")->fetchColumn() ?: 0,
+    'in_process' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='In Process'")->fetchColumn() ?: 0,
 ];
 
-// BULLETPROOF: Get projects WITHOUT client JOIN first
-$projects = $pdo->query("
-    SELECT id, name, city, pa_number, bca_status, status, type, finish_level, created_at, client_id
-    FROM projects 
-    ORDER BY created_at DESC 
-    LIMIT 10
-")->fetchAll(PDO::FETCH_ASSOC);
+// ULTRA SAFE: Get ALL columns dynamically - NO HARDCODING
+$columns_result = $pdo->query("DESCRIBE projects");
+$columns = [];
+while ($row = $columns_result->fetch(PDO::FETCH_ASSOC)) {
+    $columns[] = $row['Field'];
+}
 
-// Add client names SAFELY (no JOIN)
+// Build safe SELECT with ONLY existing columns
+$safe_columns = implode(', ', $columns);
+$projects = $pdo->query("SELECT $safe_columns FROM projects ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+
+// Add client names using dynamic client column detection
 foreach ($projects as &$project) {
-    $stmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
-    $stmt->execute([$project['client_id']]);
-    $client = $stmt->fetch();
-    $project['client_name'] = $client ? $client['name'] : 'Unknown Client';
+    // Try common client column names
+    $client_col = null;
+    foreach (['client_id', 'clientid', 'clientId', 'fk_client_id'] as $possible) {
+        if (isset($project[$possible]) && $project[$possible]) {
+            $client_col = $possible;
+            break;
+        }
+    }
+    
+    if ($client_col && $project[$client_col]) {
+        $stmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
+        $stmt->execute([$project[$client_col]]);
+        $client = $stmt->fetch();
+        $project['client_name'] = $client ? $client['name'] : 'Unknown';
+    } else {
+        $project['client_name'] = 'No Client';
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -39,10 +56,11 @@ foreach ($projects as &$project) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mobilization Dashboard - Estate Hub Malta</title>
-    <link rel="icon" href="logoicon.png">
+    <link rel="icon" href="logo_icon.jpg">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- SAME HTML AS BEFORE - header, stats-grid, projects-section -->
     <header class="header">
         <div class="header-container">
             <div style="display: flex; align-items: center; gap: 1rem;">
@@ -87,50 +105,42 @@ foreach ($projects as &$project) {
 
         <section class="projects-section">
             <div class="projects-header">
-                <div class="section-title">Recent Projects</div>
+                <div class="section-title">Recent Projects (<?php echo count($projects); ?>)</div>
                 <?php if ($is_admin): ?>
                     <a href="create-project.php" class="nav-link" style="padding: 0.75rem 2rem;">+ New Project</a>
                 <?php endif; ?>
             </div>
             <div class="projects-grid">
-                <?php foreach ($projects as $project): ?>
-                    <div class="project-card">
-                        <div class="project-header">
-                            <div class="project-name"><?php echo htmlspecialchars($project['name']); ?></div>
-                            <span class="status-badge status-<?php echo str_replace(' ', '-', $project['status']); ?>">
-                                <?php echo $project['status']; ?>
-                            </span>
-                        </div>
-                        <div class="project-meta">
-                            <div class="meta-item">
-                                <span class="meta-label">Client</span>
-                                <?php echo htmlspecialchars($project['client_name']); ?>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">Location</span>
-                                <?php echo htmlspecialchars($project['city']); ?>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">PA Number</span>
-                                <?php echo htmlspecialchars($project['pa_number'] ?? 'N/A'); ?>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">BCA Status</span>
-                                <?php echo htmlspecialchars($project['bca_status'] ?? 'N/A'); ?>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">Type</span>
-                                <span class="client-type"><?php echo ucwords(str_replace('-', ' ', $project['type'])); ?></span>
-                            </div>
-                            <?php if ($project['finish_level']): ?>
-                                <div class="meta-item">
-                                    <span class="meta-label">Finish Level</span>
-                                    <?php echo $project['finish_level']; ?>
-                                </div>
-                            <?php endif; ?>
-                        </div>
+                <?php if (empty($projects)): ?>
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <h3>No projects yet</h3>
+                        <p>Get started by creating your first project.</p>
+                        <?php if ($is_admin): ?>
+                            <a href="create-project.php" class="nav-link" style="padding: 1rem 2.5rem;">Create First Project</a>
+                        <?php endif; ?>
                     </div>
-                <?php endforeach; ?>
+                <?php else: ?>
+                    <?php foreach ($projects as $project): ?>
+                        <div class="project-card">
+                            <div class="project-header">
+                                <div class="project-name"><?php echo htmlspecialchars($project['name'] ?? 'Unnamed'); ?></div>
+                                <span class="status-badge status-<?php echo str_replace(' ', '-', $project['status'] ?? 'pending'); ?>">
+                                    <?php echo htmlspecialchars($project['status'] ?? 'Pending'); ?>
+                                </span>
+                            </div>
+                            <div class="project-meta">
+                                <div class="meta-item">
+                                    <span class="meta-label">Client</span>
+                                    <?php echo htmlspecialchars($project['client_name'] ?? 'No Client'); ?>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Location</span>
+                                    <?php echo htmlspecialchars($project['city'] ?? 'N/A'); ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
         </section>
     </div>
