@@ -19,6 +19,9 @@
     --info: #3b82f6;
     --shadow: 0 20px 40px rgba(0,0,0,0.1);
     --shadow-hover: 0 30px 60px rgba(0,0,0,0.15);
+    --corporate-blue: #3b82f6;     /* Lighter professional blue */
+    --corporate-grey: #6b7280;     /* Slate grey */
+    --corporate-gradient: linear-gradient(135deg, #3b82f6, #1e40af);
 }
 
 body { 
@@ -76,7 +79,7 @@ body {
 }
 .stat-card::before { 
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; 
-    background: linear-gradient(90deg, var(--accent-blue), #ec4899, #f59e0b); 
+    background: var(--corporate-gradient) !important;
 }
 .stat-card:hover { 
     transform: translateY(-8px); border-color: rgba(255,255,255,0.2); 
@@ -170,13 +173,14 @@ input:focus, select:focus, textarea:focus {
 
 /* Buttons */
 .btn, button[type="submit"] { 
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); 
+    background: var(--corporate-gradient) !important;
     color: white; border: none; padding: 1rem 2.5rem; 
     border-radius: 12px; font-weight: 600; cursor: pointer; 
     transition: all 0.3s ease; font-size: 1rem; width: 100%;
 }
 .btn:hover, button[type="submit"]:hover { 
-    transform: translateY(-2px); box-shadow: 0 10px 25px rgba(79,70,229,0.4); 
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(59, 130, 246, 0.4);
 }
 
 /* Meta Items */
