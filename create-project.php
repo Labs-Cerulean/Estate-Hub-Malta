@@ -1,6 +1,6 @@
 <?php
 session_start();
-if (!isset($_SESSION['logged_in']) || $_SESSION['user'] !== 'admin') {
+if (!isset($_SESSION['loggedin']) || $_SESSION['user'] !== 'admin') {
     header('Location: mobilization.php'); exit;
 }
 require_once 'config.php';
