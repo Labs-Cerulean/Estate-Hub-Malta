@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'], $_POST['p
     
     if (isset($users[$username]) && password_verify($password, $users[$username])) {
         $_SESSION['user'] = $username;
-        $_SESSION['logged_in'] = true;
+        $_SESSION['loggedin'] = true;
         header('Location: ../dashboard.php');
         exit;
     } else {
