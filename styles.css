@@ -302,3 +302,19 @@ body[style*="linear-gradient"] > div {
     }
 }
 
+/* Dark theme dropdown fix */
+select option {
+    background: #1a1f2e !important;  /* Darker than body bg */
+    color: #ffffff !important;      /* White text */
+    padding: 0.5rem;
+}
+
+select option:checked {
+    background: #4f46e5 !important;  /* Accent blue when selected */
+    color: #ffffff !important;
+}
+
+select:focus option:hover {
+    background: #5b21b6 !important;  /* Hover state */
+}
+
