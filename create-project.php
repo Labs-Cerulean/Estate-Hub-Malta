@@ -154,8 +154,8 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 'Naxxar',
                 'Rabat',
                 'San Pawl il-Baħar'
-                },
-                { label: 'Central', cities: 
+                ]},
+                { label: 'Central', cities: [
                 'Attard',
                 'Balzan',
                 'Birżebbuġa',
@@ -171,8 +171,8 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 'Swieqi',
                 'Valletta',
                 'Ta' Xbiex'
-                },
-                { label: 'Southern', cities:
+                ]},
+                { label: 'Southern', cities: [
                 'Birgu',
                 'Bormla',
                 'Fgura',
@@ -194,10 +194,10 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 'Żebbuġ',
                 'Żejtun',
                 'Qrendi',
-                'Żurrieq'
-                }
-            ],
+                'Żurrieq'       
+            ]},
             'Gozo': [
+                { label: 'Mainland', cities: [
                 'Fontana',
                 'Għajnsielem',
                 'Għarb',
@@ -212,7 +212,7 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 'Xagħra',
                 'Xewkija',
                 'Żebbuġ (Gozo)'
-            ]
+            ]}
         };
         
         // 2) Call this on island change
