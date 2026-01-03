@@ -73,8 +73,18 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                     <input name="name" placeholder="Project name" required>
                 </div>
                 <div class="form-group">
-                    <label>City *</label>
-                    <input name="city" placeholder="City" required>
+                    <label>Island</label>
+                    <select name="island" id="island-select" onchange="updateCities()" required>
+                        <option value="">Select Island</option>
+                        <option value="Malta">Malta</option>
+                        <option value="Gozo">Gozo</option>
+                    </select>
+                </div>
+               <div class="form-group">
+                    <label>City/Locality</label>
+                    <select name="city" id="city-select" required>
+                        <option value="">Select Island first</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>PA Number</label>
@@ -132,6 +142,123 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 finishLevel.value = '';
             }
         }
+
+        // 1) Configure your localities here
+        const locations = {
+            'Malta': [
+                { label: 'Northern', cities: [
+                'Għargħur',
+                'Mellieħa',
+                'Mġarr',
+                'Mosta',
+                'Naxxar',
+                'Rabat',
+                'San Pawl il-Baħar'
+                },
+                { label: 'Central', cities: 
+                'Attard',
+                'Balzan',
+                'Birżebbuġa',
+                'Gżira',
+                'Iklin',
+                'Lija',
+                'Ħal Luqa',
+                'Ħamrun',
+                'Pembroke',
+                'Qormi',
+                'San Ġiljan',
+                'Sliema',
+                'Swieqi',
+                'Valletta',
+                'Ta' Xbiex'
+                },
+                { label: 'Southern', cities:
+                'Birgu',
+                'Bormla',
+                'Fgura',
+                'Ħal Għaxaq',
+                'Ħal Kirkop',
+                'Ħal Safi',
+                'Ħaż-Żebbuġ',
+                'Luqa',
+                'Marsascala',
+                'Marsaxlokk',
+                'Mqabba',
+                'Paola',
+                'Santa Luċija',
+                'Senglea',
+                'Siġġiewi',
+                'Tarxien',
+                'Xgħajra',
+                'Żabbar',
+                'Żebbuġ',
+                'Żejtun',
+                'Qrendi',
+                'Żurrieq'
+                }
+            ],
+            'Gozo': [
+                'Fontana',
+                'Għajnsielem',
+                'Għarb',
+                'Għasri',
+                'Kerċem',
+                'Munxar',
+                'Nadur',
+                'Qala',
+                'Rabat (Victoria)',
+                'San Lawrenz',
+                'Sannat',
+                'Xagħra',
+                'Xewkija',
+                'Żebbuġ (Gozo)'
+            ]
+        };
+        
+        // 2) Call this on island change
+        function updateCities() {
+        const islandSelect = document.getElementById('island-select');
+        const citySelect = document.getElementById('city-select');
+    
+        const island = islandSelect ? islandSelect.value : '';
+        const list = locations[island] || [];
+    
+        // Reset options
+        citySelect.innerHTML = '<option value="">Select City/Locality</option>';
+    
+        // Group and populate options
+        list.forEach(function(group) {
+            if (group.label && group.cities) {
+                // Create optgroup label (non-selectable)
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = group.label;
+                group.cities.forEach(function(city) {
+                    const opt = document.createElement('option');
+                    opt.value = city;
+                    opt.textContent = city;
+                    optgroup.appendChild(opt);
+                });
+                citySelect.appendChild(optgroup);
+            } else {
+                // Fallback for plain city strings
+                const opt = document.createElement('option');
+                opt.value = group;
+                opt.textContent = group;
+                citySelect.appendChild(opt);
+            }
+        });
+    
+        // Disable if empty
+        citySelect.disabled = list.length === 0;
+    }
+        
+        // 3) Optional: initialise on page load (keeps state on validation errors)
+        document.addEventListener('DOMContentLoaded', function () {
+            const islandSelect = document.getElementById('island-select');
+            if (!islandSelect) return;
+        
+            updateCities(); // populate if an island is already selected (e.g. after POST-back)
+        });
     </script>
 </body>
 </html>
