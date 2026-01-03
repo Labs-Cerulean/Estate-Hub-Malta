@@ -13,10 +13,10 @@ $message = '';
 
 // CREATE PROJECT
 if ($_POST['action'] ?? '' === 'create') {
-    $stmt = $pdo->prepare("INSERT INTO projects (client_id, name, city, pa_number, bca_status, type, finish_level, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO projects (client_id, name, city, pa_number, pa_status, type, finish_level, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Not Started')");
     $stmt->execute([
         $_POST['client_id'], $_POST['name'], $_POST['city'], 
-        $_POST['pa_number'], $_POST['bca_status'],
+        $_POST['pa_number'], $_POST['pa_status'],
         $_POST['type'], $_POST['type'] === 'in-house' ? $_POST['finish_level'] : null,
         $_POST['status'] ?? 'Pending'
     ]);
@@ -87,12 +87,16 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>PA Number</label>
-                    <input name="pa_number" placeholder="PA Number">
+                    <label>PA Numbers (comma-separated)</label>
+                    <textarea name="" placeholder="PA123, PA456"></textarea>
                 </div>
                 <div class="form-group">
-                    <label>BCA Status</label>
-                    <input name="bca_status" placeholder="BCA Status">
+                    <label>PA Status</label>
+                    <select name="pa_status">
+                        <option value="Pending">Pending</option>
+                        <option value="Approved">Approved</option>
+                        <option value="Rejected">Rejected</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>Project Type *</label>
