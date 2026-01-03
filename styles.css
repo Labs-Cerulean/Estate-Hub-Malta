@@ -313,10 +313,21 @@ select option {
     padding: 0.5rem;
 }
 
-select label {
+#city-select optgroup {
     background: #1a1f2e !important;  /* Darker than body bg */
-    color: #d3d3d3 !important;      /* grey text */
-    padding: 0.5rem;
+    color: #d3d3d3 !important;
+}
+
+/* Optional: Enhance contrast and padding */
+#city-select optgroup option {
+    background: #16213e;  /* Slightly lighter for options */
+    color: #ffffff;
+    padding: 8px 12px;
+}
+
+/* Hover effect for better UX */
+#city-select optgroup option:hover {
+    background: #0f3460 !important;
 }
 
 select option:checked {
