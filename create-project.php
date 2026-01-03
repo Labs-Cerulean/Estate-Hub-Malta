@@ -195,7 +195,8 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 'Żejtun',
                 'Qrendi',
                 'Żurrieq'       
-            ]},
+            ]}
+            ],
             'Gozo': [
                 { label: 'Mainland', cities: [
                 'Fontana',
@@ -213,6 +214,7 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 'Xewkija',
                 'Żebbuġ (Gozo)'
             ]}
+            ]
         };
         
         // 2) Call this on island change
