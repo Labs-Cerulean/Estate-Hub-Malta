@@ -251,14 +251,18 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
         // Disable if empty
         citySelect.disabled = list.length === 0;
     }
-        
-        // 3) Optional: initialise on page load (keeps state on validation errors)
-        document.addEventListener('DOMContentLoaded', function () {
+
+        document.addEventListener('DOMContentLoaded', function() {
             const islandSelect = document.getElementById('island-select');
-            if (!islandSelect) return;
-        
-            updateCities(); // populate if an island is already selected (e.g. after POST-back)
+            if (islandSelect) {
+                islandSelect.addEventListener('change', updateCities);
+                updateCities(); // Initial call
+            } else {
+                updateCities(); // populate if an island is already selected (e.g. after POST-back)
+            }
         });
+        
+
     </script>
 </body>
 </html>
