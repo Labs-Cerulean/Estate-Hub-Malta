@@ -170,7 +170,7 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
                 'Sliema',
                 'Swieqi',
                 'Valletta',
-                'Ta' Xbiex'
+                'Ta Xbiex'
                 ]},
                 { label: 'Southern', cities: [
                 'Birgu',
