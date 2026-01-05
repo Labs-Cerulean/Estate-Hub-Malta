@@ -4,7 +4,6 @@
  * Updated with new mobilisation and user management tables
  */
 
-<?php
 define('DB_HOST', getenv('MYSQLHOST') ?: 'mysql.railway.internal');
 define('DB_USER', getenv('MYSQLUSER') ?: 'root');
 define('DB_PASS', getenv('MYSQLPASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
