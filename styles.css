@@ -738,59 +738,33 @@ select.form-control {
 }
 
 /* END PERPLEXITY DESIGN SYSTEM */
-```css
-/* ========== DESIGN SYSTEM ========== */
+/* ========== PERPLEXITY-ADAPTED DESIGN SYSTEM ========== */
 :root {
-    /* Colors - Primitive */
+    /* Colors - Using Perplexity Palette */
     --color-primary: var(--color-teal-500);
     --color-primary-hover: var(--color-teal-600);
     --color-primary-dark: var(--color-teal-700);
+    --color-primary-light: var(--color-teal-400);
+    --color-primary-lighter: var(--color-teal-300);
+    
     --color-secondary: var(--color-secondary);
     --color-text: var(--color-text);
     --color-text-secondary: var(--color-text-secondary);
     --color-border: var(--color-border);
     --color-surface: var(--color-surface);
     --color-background: var(--color-background);
+    
     --color-success: var(--color-success);
     --color-warning: var(--color-warning);
     --color-error: var(--color-error);
     --color-info: var(--color-info);
-
-    /* Spacing */
-    --space-4: 4px;
-    --space-6: 6px;
-    --space-8: 8px;
-    --space-10: 10px;
-    --space-12: 12px;
-    --space-16: 16px;
-    --space-20: 20px;
-    --space-24: 24px;
-    --space-32: 32px;
-    --space-40: 40px;
-
-    /* Border Radius */
-    --radius-sm: var(--radius-sm);
-    --radius-base: var(--radius-base);
-    --radius-lg: var(--radius-lg);
-
-    /* Shadows */
-    --shadow-sm: var(--shadow-sm);
-    --shadow-md: var(--shadow-md);
-    --shadow-lg: var(--shadow-lg);
+    
+    /* Progress bar colors with gradients */
+    --color-progress-bg: rgba(var(--color-teal-500-rgb), 0.1);
+    --color-progress-fill: linear-gradient(90deg, var(--color-teal-500) 0%, var(--color-teal-400) 100%);
 
     /* Typography */
     --font-base: var(--font-family-base);
-    --font-size-xs: var(--font-size-xs);
-    --font-size-sm: var(--font-size-sm);
-    --font-size-base: var(--font-size-base);
-    --font-size-md: var(--font-size-md);
-    --font-size-lg: var(--font-size-lg);
-    --font-size-xl: var(--font-size-xl);
-    --font-size-2xl: var(--font-size-2xl);
-    --font-size-3xl: var(--font-size-3xl);
-
-    /* Duration */
-    --duration: var(--duration-normal);
 }
 
 /* ========== RESET ========== */
@@ -821,7 +795,7 @@ html, body {
 }
 
 .header-container {
-    max-width: 1400px;
+    max-width: var(--container-xl);
     margin: 0 auto;
     padding: 0 var(--space-32);
     display: flex;
@@ -876,6 +850,7 @@ html, body {
     transition: all var(--duration-normal) var(--ease-standard);
     cursor: pointer;
     white-space: nowrap;
+    box-shadow: var(--shadow-inset-sm);
 }
 
 .nav-link:hover {
@@ -898,24 +873,24 @@ html, body {
 
 .login-container {
     background: var(--color-surface);
-    padding: var(--space-40);
+    padding: var(--space-48);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     width: 100%;
-    max-width: 380px;
+    max-width: 420px;
     border: 1px solid var(--color-card-border);
 }
 
 .login-header {
     text-align: center;
-    margin-bottom: var(--space-32);
+    margin-bottom: var(--space-40);
 }
 
 .login-logo {
-    width: 60px;
-    height: 60px;
+    width: 70px;
+    height: 70px;
     border-radius: var(--radius-base);
-    margin: 0 auto var(--space-20);
+    margin: 0 auto var(--space-24);
     display: block;
     object-fit: contain;
 }
@@ -937,7 +912,7 @@ html, body {
 .login-form {
     display: flex;
     flex-direction: column;
-    gap: var(--space-16);
+    gap: var(--space-20);
 }
 
 .form-group {
@@ -979,11 +954,11 @@ html, body {
     border: none;
     border-radius: var(--radius-base);
     font-size: var(--font-size-base);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-bold);
     cursor: pointer;
     transition: all var(--duration-normal) var(--ease-standard);
     margin-top: var(--space-8);
-    box-shadow: var(--shadow-inset-sm);
+    box-shadow: var(--shadow-sm);
 }
 
 .login-button:hover {
@@ -992,8 +967,13 @@ html, body {
     box-shadow: var(--shadow-md);
 }
 
+.login-button:active {
+    background: var(--color-primary-active);
+    transform: translateY(0);
+}
+
 .demo-credentials {
-    margin-top: var(--space-32);
+    margin-top: var(--space-40);
     padding-top: var(--space-24);
     border-top: 1px solid var(--color-border);
     text-align: center;
@@ -1002,17 +982,17 @@ html, body {
 }
 
 .demo-credentials p {
-    margin: var(--space-4) 0;
+    margin: var(--space-6) 0;
 }
 
 .demo-credentials strong {
     color: var(--color-text);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-bold);
 }
 
 /* ========== MAIN CONTAINER ========== */
 .main-container {
-    max-width: 1400px;
+    max-width: var(--container-xl);
     margin: 0 auto;
     padding: var(--space-32);
 }
@@ -1121,7 +1101,7 @@ html, body {
 .project-card,
 .client-card {
     background: var(--color-secondary);
-    border: 1px solid var(--color-card-border-inner);
+    border: 1px solid var(--color-card-border);
     border-radius: var(--radius-lg);
     padding: var(--space-20);
     transition: all var(--duration-normal) var(--ease-standard);
@@ -1161,7 +1141,7 @@ html, body {
     padding: var(--space-6) var(--space-12);
     border-radius: var(--radius-full);
     font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-bold);
     text-transform: uppercase;
     letter-spacing: 0.4px;
     border: 1px solid;
@@ -1183,6 +1163,43 @@ html, body {
     background: rgba(var(--color-info-rgb), var(--status-bg-opacity));
     color: var(--color-info);
     border-color: rgba(var(--color-info-rgb), var(--status-border-opacity));
+}
+
+/* ========== PROGRESS BARS ========== */
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--color-progress-bg);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    box-shadow: var(--shadow-inset-sm);
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: var(--color-progress-fill);
+    border-radius: var(--radius-full);
+    transition: width var(--duration-normal) var(--ease-standard);
+    box-shadow: 0 0 12px rgba(var(--color-teal-500-rgb), 0.3);
+}
+
+.progress-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-12);
+}
+
+.progress-label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text);
+}
+
+.progress-percentage {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-primary);
 }
 
 /* ========== FORMS ========== */
@@ -1215,6 +1232,7 @@ input:focus, select:focus, textarea:focus {
     box-shadow: var(--focus-ring);
 }
 
+/* ========== SELECT DROPDOWN ========== */
 select {
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -1224,6 +1242,7 @@ select {
     background-position: right var(--space-12) center;
     background-size: 16px;
     padding-right: var(--space-32);
+    cursor: pointer;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1247,12 +1266,12 @@ select {
     border: none;
     padding: var(--space-12) var(--space-24);
     border-radius: var(--radius-base);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-bold);
     cursor: pointer;
     transition: all var(--duration-normal) var(--ease-standard);
     font-size: var(--font-size-base);
     width: 100%;
-    box-shadow: var(--shadow-inset-sm);
+    box-shadow: var(--shadow-sm);
 }
 
 .btn:hover, button[type="submit"]:hover {
@@ -1286,7 +1305,7 @@ thead {
 th {
     padding: var(--space-16);
     text-align: left;
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-bold);
     color: var(--color-text);
     font-size: var(--font-size-sm);
 }
@@ -1300,6 +1319,56 @@ td {
 
 tbody tr:hover {
     background: var(--color-secondary);
+}
+
+/* ========== ACTION BUTTONS IN TABLES ========== */
+.action-btn {
+    padding: var(--space-6) var(--space-12);
+    margin: 0 var(--space-4);
+    font-size: var(--font-size-xs);
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    display: inline-block;
+    transition: all var(--duration-fast) var(--ease-standard);
+    border: 1px solid;
+    cursor: pointer;
+    background: none;
+}
+
+.action-btn.view {
+    background: rgba(var(--color-success-rgb), var(--status-bg-opacity));
+    color: var(--color-success);
+    border-color: rgba(var(--color-success-rgb), var(--status-border-opacity));
+}
+
+.action-btn.view:hover {
+    background: var(--color-success);
+    color: var(--color-btn-primary-text);
+    border-color: var(--color-success);
+}
+
+.action-btn.edit {
+    background: rgba(var(--color-info-rgb), var(--status-bg-opacity));
+    color: var(--color-info);
+    border-color: rgba(var(--color-info-rgb), var(--status-border-opacity));
+}
+
+.action-btn.edit:hover {
+    background: var(--color-info);
+    color: var(--color-btn-primary-text);
+    border-color: var(--color-info);
+}
+
+.action-btn.delete {
+    background: rgba(var(--color-error-rgb), var(--status-bg-opacity));
+    color: var(--color-error);
+    border-color: rgba(var(--color-error-rgb), var(--status-border-opacity));
+}
+
+.action-btn.delete:hover {
+    background: var(--color-error);
+    color: var(--color-surface);
+    border-color: var(--color-error);
 }
 
 /* ========== MESSAGES ========== */
@@ -1409,6 +1478,15 @@ tbody tr:hover {
         padding: 0 var(--space-16);
     }
 
+    .header-left {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .header-right {
+        width: 100%;
+    }
+
     .logo-nav {
         width: 40px;
         height: 40px;
@@ -1416,10 +1494,12 @@ tbody tr:hover {
 
     .header-title {
         font-size: var(--font-size-lg);
+        text-align: center;
     }
 
     .header-subtitle {
         font-size: var(--font-size-xs);
+        text-align: center;
     }
 
     .main-container {
@@ -1433,6 +1513,7 @@ tbody tr:hover {
 
     .stats-grid {
         gap: var(--space-12);
+        grid-template-columns: 1fr;
     }
 
     .stat-card {
@@ -1457,6 +1538,7 @@ tbody tr:hover {
 
     .projects-grid, .clients-grid {
         gap: var(--space-16);
+        grid-template-columns: 1fr;
     }
 
     .project-card, .client-card {
@@ -1478,8 +1560,8 @@ tbody tr:hover {
     }
 
     .login-logo {
-        width: 52px;
-        height: 52px;
+        width: 56px;
+        height: 56px;
     }
 
     input, select, textarea {
@@ -1488,9 +1570,30 @@ tbody tr:hover {
 
     table {
         font-size: var(--font-size-sm);
+        display: block;
+        overflow-x: auto;
     }
 
     th, td {
         padding: var(--space-12);
+        white-space: nowrap;
+    }
+
+    .action-btn {
+        padding: var(--space-4) var(--space-8);
+        font-size: var(--font-size-xs);
+        margin: var(--space-2);
+        display: inline-block;
+    }
+
+    .projects-header, .clients-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--space-12);
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr;
+        gap: var(--space-16);
     }
 }
