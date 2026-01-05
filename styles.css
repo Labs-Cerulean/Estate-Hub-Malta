@@ -1205,3 +1205,383 @@ select.form-control {
   background: #0a0e17 !important;
   color: #ffffff !important;
 }
+
+/* Estate Hub Malta - Clean Dark Glassmorphism v3.0 - Matches mobilisation_detail look */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: rgba(255,255,255,0.02);
+  --bg-card: rgba(255,255,255,0.05);
+  --bg-glass: rgba(255,255,255,0.08);
+  --border-glass: rgba(255,255,255,0.1);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255,255,255,0.7);
+  --text-muted: rgba(255,255,255,0.5);
+  --accent-blue: #4f46e5;
+  --accent-purple: #7c3aed;
+  --success: #22c55e;
+  --warning: #fbbc2b;
+  --info: #3b82f6;
+  --corporate-gradient: linear-gradient(135deg, #3b82f6, #1e40af);
+  --shadow: 0 20px 40px rgba(0,0,0,0.1);
+  --shadow-hover: 0 30px 60px rgba(0,0,0,0.15);
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* Header - Consistent across all pages */
+.header {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-glass);
+  padding: 1.5rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo-nav {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--corporate-gradient);
+}
+
+.header-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.header-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Navigation */
+.nav-link {
+  color: var(--text-primary);
+  text-decoration: none;
+  padding: 0.75rem 1.5rem;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  white-space: nowrap;
+}
+
+.nav-link:hover {
+  background: rgba(255,255,255,0.15);
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.2);
+}
+
+/* Main Layout */
+.main-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 4rem 2rem 2rem;
+}
+
+.page-title {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 700;
+  margin-bottom: 3rem;
+  background: var(--corporate-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Stats Cards - Dashboard & Mobilization */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2rem;
+  margin-bottom: 4rem;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  border-radius: 24px;
+  padding: 3rem;
+  text-align: center;
+  transition: all 0.4s ease;
+  position: relative;
+  overflow: hidden;
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--corporate-gradient);
+}
+
+.stat-card:hover {
+  transform: translateY(-8px);
+  border-color: rgba(255,255,255,0.2);
+  box-shadow: var(--shadow-hover);
+}
+
+.stat-number {
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.stat-number.mobilised { color: var(--success) !important; }
+.stat-number.pending { color: var(--warning) !important; }
+.stat-number.in-process { color: var(--info) !important; }
+
+.stat-label {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Sections - Projects, Forms, PA Numbers */
+.projects-section, .gateway-section, .pa-section {
+  background: var(--bg-secondary);
+  border-radius: 24px;
+  padding: 3rem;
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  margin-bottom: 3rem;
+}
+
+.section-title {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2rem;
+}
+
+/* Gateway/PA Numbers Specific */
+.gateways, .pa-numbers {
+  display: grid;
+  gap: 2rem;
+}
+
+.gateways > div, .pa-numbers > div {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  padding: 2rem;
+  backdrop-filter: blur(20px);
+}
+
+.pa-numbers label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+/* Forms */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+input, select, textarea {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 1rem;
+  color: var(--text-primary);
+  width: 100%;
+  backdrop-filter: blur(10px);
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+input::placeholder {
+  color: var(--text-muted);
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.2);
+}
+
+/* Buttons */
+.btn, button[type='submit'] {
+  background: var(--corporate-gradient) !important;
+  color: white;
+  border: none;
+  padding: 1rem 2.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+  width: 100%;
+}
+
+.btn:hover, button[type='submit']:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(59,130,246,0.4);
+}
+
+/* Status Badges */
+.status-badge {
+  padding: 0.5rem 1.2rem;
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+  border: 1px solid transparent;
+}
+
+.status-Mobilised {
+  background: rgba(34,197,94,0.2);
+  color: var(--success);
+  border-color: rgba(34,197,94,0.3);
+}
+
+.status-Pending {
+  background: rgba(251,191,36,0.2);
+  color: var(--warning);
+  border-color: rgba(251,191,36,0.3);
+}
+
+.status-In-Process {
+  background: rgba(59,130,246,0.2);
+  color: var(--info);
+  border-color: rgba(59,130,246,0.3);
+}
+
+/* Login Page - Fixed to match dark theme */
+.login-container, .login-page > div {
+  background: var(--bg-card) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--border-glass) !important;
+  border-radius: 24px !important;
+  padding: 3rem;
+  max-width: 420px;
+  margin: 4rem auto;
+  box-shadow: var(--shadow);
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.login-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  margin-bottom: 1rem;
+  background: var(--corporate-gradient);
+}
+
+.login-title {
+  font-size: 2rem;
+  font-weight: 700;
+  background: var(--corporate-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.5rem;
+}
+
+.login-subtitle {
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Messages */
+.message {
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  font-weight: 500;
+  backdrop-filter: blur(10px);
+}
+
+.message.success {
+  background: rgba(34,197,94,0.2);
+  color: var(--success);
+  border: 1px solid rgba(34,197,94,0.3);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .main-container {
+    padding: 2rem 1rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .projects-section, .gateway-section, .pa-section {
+    padding: 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-container {
+    margin: 1rem;
+    padding: 2rem;
+  }
+}
