@@ -1,10 +1,10 @@
 <?php
 session_start();
 
-$host = getenv('DB_HOST') ?: 'localhost';
-$db = getenv('DB_NAME') ?: 'estate_hub';
-$user = getenv('DB_USER') ?: 'root';
-$pass = getenv('DB_PASSWORD') ?: '';
+$host = getenv('MYSQLHOST') ?: 'mysql.railway.internal';
+$db = getenv('MYSQLDATABASE') ?: 'railway';
+$user = getenv('MYSQLUSER') ?: 'root';
+$pass = getenv('MYSQLPASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ';
 $port = getenv('DB_PORT') ?: 3306;
 
 try {
