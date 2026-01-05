@@ -16,7 +16,7 @@ require_once 'config.php';
 $pdo = getDB();
 
 // Check admin access
-$isAdmin = $_SESSION['user'] === 'admin' ? true : false;
+$isAdmin = $_SESSION['role'] === 'admin' ? true : false;
 
 // SAFE STATS - Using mobilization table for accurate counts
 $stats = [
