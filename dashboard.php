@@ -27,14 +27,14 @@ $isadmin = $_SESSION['user'] === 'admin';
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Overview – Estate Hub Malta</title>
-  <link rel="icon" href="logo.jpg">
+  <link rel="icon" href="logo.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="header">
     <div class="header-container">
       <div class="header-left">
-        <img src="logo.jpg" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.jpg'">
+        <img src="logo.png" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.png'">
         <div class="header-title">Estate Hub Malta</div>
         <div class="header-subtitle">Project Overview</div>
       </div>
