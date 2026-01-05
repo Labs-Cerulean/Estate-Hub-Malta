@@ -64,8 +64,11 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
     
     $respForm = $_POST['responsibility_form'] ?? $mob['responsibility_form'] ?? 'Not Complete';
     
-    // Final Clearance unlock: ALL sequential Complete AND Responsibility Form Complete
-    $canFinal = $allSequentialComplete && $respForm === 'Complete';
+    // Final Clearance section unlock: ALL sequential Complete (Responsibility Form not required)
+    $canFinal = $allSequentialComplete;
+    
+    // BCA Clearance field unlock: Responsibility Form Complete
+    $canBCA = $respForm === 'Complete';
     
     // Build update statement
     $updates = [];
@@ -86,8 +89,8 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
       }
     }
 
-    // ONLY allow BCA update if prerequisites met
-    if ($canFinal && isset($_POST['bca_clearance'])) {
+    // ONLY allow BCA update if Responsibility Form Complete
+    if ($canBCA && isset($_POST['bca_clearance'])) {
       $updates[] = "bca_clearance = ?";
       $values[] = $_POST['bca_clearance'];
     }
@@ -149,6 +152,7 @@ foreach ($seqFields as $field) {
 }
 $respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 $canFinal = $allSeqComplete && $canSequential;
+$canBCA = $respComplete;
 
 ?>
 <!DOCTYPE html>
@@ -397,7 +401,7 @@ $canFinal = $allSeqComplete && $canSequential;
 
             <div class="form-group">
               <label>BCA Clearance (Manual)</label>
-              <select name="bca_clearance" <?php echo !$canFinal ? 'disabled' : ''; ?>>
+              <select name="bca_clearance" <?php echo !$canBCA ? 'disabled' : ''; ?>>
                 <option value="No" <?php echo ($mob['bca_clearance'] ?? 'No') === 'No' ? 'selected' : ''; ?>>No</option>
                 <option value="Yes" <?php echo ($mob['bca_clearance'] ?? 'No') === 'Yes' ? 'selected' : ''; ?>>Yes</option>
               </select>
