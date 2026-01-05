@@ -5,8 +5,9 @@
  */
 
 session_start();
+require_once 'session-check.php';
 require_once 'config.php';
-require_once 'api/user-functions.php';
+require_once 'user-functions.php';
 
 // Require login - users must be logged in
 requireLogin();
