@@ -1648,3 +1648,94 @@ td {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(59,130,246,0.3);
 }
+
+
+/* Login Page - Remove White Strip & Perfect Dark Fix */
+body.login-page,
+.login-page * {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.login-page .header,
+.login-page nav,
+.login-page .header-container {
+  display: none !important;
+}
+
+.login-container {
+  background: var(--bg-card) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--border-glass) !important;
+  border-radius: 24px !important;
+  padding: 3rem !important;
+  max-width: 420px;
+  margin: 6rem auto 2rem !important;
+  box-shadow: var(--shadow) !important;
+  position: relative;
+  z-index: 10;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.login-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  margin: 0 auto 1rem;
+  background: var(--corporate-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: white;
+}
+
+.login-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  background: var(--corporate-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.25rem;
+}
+
+.login-header p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.login-button {
+  background: var(--corporate-gradient) !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  height: 52px;
+  margin-top: 0.5rem;
+}
+
+.error-message {
+  background: rgba(239,68,68,0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Ensure no margins/padding leaks */
+.login-page body,
+.login-page html {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
