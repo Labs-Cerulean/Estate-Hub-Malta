@@ -40,12 +40,12 @@ if (isset($_GET['error'])) {
         <form method="POST" action="api/auth.php" class="login-form">
             <div class="form-group">
                 <label for="username">Username</label>
-                <input type="text" id="username" name="username" placeholder="admin" required autofocus>
+                <input type="text" id="username" name="username" required autofocus>
             </div>
 
             <div class="form-group">
                 <label for="password">Password</label>
-                <input type="password" id="password" name="password" placeholder="Admin123!" required>
+                <input type="password" id="password" name="password" required>
             </div>
 
             <button type="submit" class="login-button">Sign In</button>
