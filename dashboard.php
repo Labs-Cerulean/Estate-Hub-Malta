@@ -134,7 +134,7 @@ $mobilisedCount = $pdo->query("
                 <?php endif; ?>
                 
                 <!-- Logout Button -->
-                <a href="includes/auth.php?logout" class="btn btn--outline">Logout</a>
+                <a href="api/logout.php" class="nav-link">Logout</a>
             </div>
         </header>
 
