@@ -1,27 +1,72 @@
 <?php
+/**
+ * Database Configuration & Setup
+ * Estate Hub - Project Management System
+ */
 
+// Database configuration from environment variables (Railway)
 define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.railway.internal');
 define('DB_USER', getenv('MYSQL_USER') ?: 'root');
 define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
 define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
 
 function getDB() {
-  static $pdo = null;
-  
-  if ($pdo === null) {
-    $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-      PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-      PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-    ]);
-  }
-  
-  return $pdo;
+    $charset = 'utf8mb4';
+    $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . $charset;
+    
+    try {
+        return new PDO($dsn, DB_USER, DB_PASS, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        ]);
+    } catch (PDOException $e) {
+        die('Database connection failed: ' . $e->getMessage());
+    }
 }
 
-// CLIENTS TABLE
-getDB()->exec("
-  CREATE TABLE IF NOT EXISTS clients (
+$pdo = getDB();
+
+// ===== USERS TABLE =====
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('admin', 'manager', 'architect', 'viewer') NOT NULL DEFAULT 'viewer',
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    is_active ENUM('Yes', 'No') DEFAULT 'Yes',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_login TIMESTAMP NULL,
+    INDEX idx_username (username),
+    INDEX idx_role (role),
+    INDEX idx_active (is_active)
+)");
+
+// ===== USER PROJECT ACCESS TABLE =====
+// Links users to projects and defines their access level per project
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS user_project_access (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    project_id INT NOT NULL,
+    access_level ENUM('admin', 'manager', 'architect', 'viewer') NOT NULL DEFAULT 'viewer',
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    assigned_by INT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE KEY unique_user_project (user_id, project_id),
+    INDEX idx_user_id (user_id),
+    INDEX idx_project_id (project_id),
+    INDEX idx_access_level (access_level)
+)");
+
+// ===== CLIENTS TABLE =====
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS clients (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255) NOT NULL,
     city VARCHAR(100),
@@ -29,12 +74,11 @@ getDB()->exec("
     type ENUM('in-house', '3rd-party') DEFAULT '3rd-party',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY unique_name (name)
-  )
-");
+)");
 
-// PROJECTS TABLE
-getDB()->exec("
-  CREATE TABLE IF NOT EXISTS projects (
+// ===== PROJECTS TABLE =====
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS projects (
     id INT PRIMARY KEY AUTO_INCREMENT,
     clientid INT NOT NULL,
     name VARCHAR(255) NOT NULL,
@@ -43,12 +87,11 @@ getDB()->exec("
     finishlevel ENUM('Common Parts Only', 'Semi Finished', 'Finished') NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (clientid) REFERENCES clients(id) ON DELETE CASCADE
-  )
-");
+)");
 
-// PROJECT PA NUMBERS TABLE
-getDB()->exec("
-  CREATE TABLE IF NOT EXISTS project_pa_numbers (
+// ===== PROJECT PA NUMBERS TABLE =====
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS project_pa_numbers (
     id INT PRIMARY KEY AUTO_INCREMENT,
     project_id INT NOT NULL,
     pa_number VARCHAR(50) NOT NULL,
@@ -56,12 +99,11 @@ getDB()->exec("
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
     UNIQUE KEY unique_pa_per_project (project_id, pa_number)
-  )
-");
+)");
 
-// PROJECT MOBILISATION TABLE
-getDB()->exec("
-  CREATE TABLE IF NOT EXISTS project_mobilisation (
+// ===== PROJECT MOBILISATION TABLE =====
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS project_mobilisation (
     project_id INT PRIMARY KEY,
     acquisition_complete ENUM('Yes', 'No') DEFAULT 'No',
     acquisition_date DATE NULL,
@@ -79,80 +121,75 @@ getDB()->exec("
     bca_clearance ENUM('Yes', 'No') DEFAULT 'No',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-  )
-");
+)");
 
 /**
  * Derive mobilisation status from project_mobilisation
  * Rules: If BCA=Yes → Mobilised; else if any In Progress/Awaiting → In Process; else Pending
  */
 function deriveMobilisationStatus($pdo, $projectId) {
-  try {
-    $stmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
-    $stmt->execute([$projectId]);
-    $mob = $stmt->fetch();
-    
-    if (!$mob) return 'Pending';
-    
-    if ($mob['bca_clearance'] === 'Yes') {
-      return 'Mobilised';
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
+        $stmt->execute([$projectId]);
+        $mob = $stmt->fetch();
+        
+        if (!$mob) return 'Pending';
+        if ($mob['bca_clearance'] === 'Yes') return 'Mobilised';
+        
+        $inProgressFields = [
+            'condition_report_contacts', 'condition_reports', 'geological_test',
+            'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee'
+        ];
+        
+        foreach ($inProgressFields as $field) {
+            if (isset($mob[$field]) && $mob[$field] === 'In Process') return 'In Process';
+        }
+        
+        if (isset($mob['geological_test']) && $mob['geological_test'] === 'Awaiting Result') {
+            return 'In Process';
+        }
+        
+        return 'Pending';
+    } catch (Exception $e) {
+        return 'Pending';
     }
-    
-    $inProgressFields = [
-      'condition_report_contacts', 'condition_reports', 'geological_test',
-      'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee'
-    ];
-    
-    foreach ($inProgressFields as $field) {
-      if (isset($mob[$field]) && $mob[$field] === 'In Process') {
-        return 'In Process';
-      }
-    }
-    
-    if (isset($mob['geological_test']) && $mob['geological_test'] === 'Awaiting Result') {
-      return 'In Process';
-    }
-    
-    return 'Pending';
-  } catch (Exception $e) {
-    return 'Pending';
-  }
 }
 
 /**
  * Get all PA numbers for a project
  */
 function getProjectPANumbers($pdo, $projectId) {
-  try {
-    $stmt = $pdo->prepare("
-      SELECT id, pa_number, pa_status 
-      FROM project_pa_numbers 
-      WHERE project_id = ? 
-      ORDER BY created_at ASC
-    ");
-    $stmt->execute([$projectId]);
-    return $stmt->fetchAll();
-  } catch (Exception $e) {
-    return [];
-  }
+    try {
+        $stmt = $pdo->prepare("
+            SELECT id, pa_number, pa_status
+            FROM project_pa_numbers
+            WHERE project_id = ?
+            ORDER BY created_at ASC
+        ");
+        $stmt->execute([$projectId]);
+        return $stmt->fetchAll();
+    } catch (Exception $e) {
+        return [];
+    }
 }
 
 /**
  * Get project with client info
  */
 function getProjectWithClient($pdo, $projectId) {
-  try {
-    $stmt = $pdo->prepare("
-      SELECT p.*, c.name as client_name, c.type as client_type
-      FROM projects p
-      LEFT JOIN clients c ON p.clientid = c.id
-      WHERE p.id = ?
-    ");
-    $stmt->execute([$projectId]);
-    return $stmt->fetch();
-  } catch (Exception $e) {
-    return null;
-  }
+    try {
+        $stmt = $pdo->prepare("
+            SELECT p.*, c.name as client_name, c.type as client_type
+            FROM projects p
+            LEFT JOIN clients c ON p.clientid = c.id
+            WHERE p.id = ?
+        ");
+        $stmt->execute([$projectId]);
+        return $stmt->fetch();
+    } catch (Exception $e) {
+        return null;
+    }
 }
 
+return $pdo;
 ?>
