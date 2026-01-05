@@ -65,7 +65,7 @@ try {
         </div>
     </header>
 
-    <nav style="background: white; border-bottom: 1px solid #e1e4e8; padding: 1rem 2rem;">
+    <nav style="border-bottom: 1px solid #e1e4e8; padding: 1rem 2rem;">
         <div style="max-width: 1440px; margin: 0 auto; display: flex; gap: 1rem;">
             <a href="dashboard.php" class="nav-link" style="background: #2563eb; color: white; border-color: #2563eb;">Dashboard</a>
             <a href="clients.php" class="nav-link">Clients</a>
