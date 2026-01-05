@@ -1,5 +1,4 @@
 <?php
-// START: Login Page (index.php)
 session_start();
 
 // Already logged in? Go to dashboard
@@ -27,34 +26,36 @@ if (isset($_GET['error'])) {
 <body class="login-page">
     <div class="login-container">
         <div class="login-header">
-            <img src="logo.jpg" alt="Logo" class="login-logo" style="width: 64px; height: 64px; margin-bottom: 1rem;">
+            <img src="logo.png" alt="Estate Hub Logo" class="login-logo">
             <h1>Estate Hub</h1>
             <p>Project Management System</p>
         </div>
+
         <?php if ($error): ?>
-            <div class="error-message" style="background: #fee; color: #c33; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border-left: 4px solid #c33;">
+            <div class="error-message">
                 <?php echo htmlspecialchars($error); ?>
             </div>
         <?php endif; ?>
+
         <form method="POST" action="api/auth.php" class="login-form">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" placeholder="admin" required autofocus>
             </div>
+
             <div class="form-group">
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" placeholder="Admin123!" required>
             </div>
+
             <button type="submit" class="login-button">Sign In</button>
         </form>
-        <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #ddd; text-align: center; color: #666; font-size: 0.9rem;">
-            <p><strong>Demo Credentials</strong></p>
+
+        <div class="demo-credentials">
+            <p><strong>Demo Credentials:</strong></p>
             <p>Username: <strong>admin</strong></p>
             <p>Password: <strong>Admin123!</strong></p>
         </div>
     </div>
 </body>
 </html>
-<?php
-// END: index.php - NO requires, NO session-check
-?>
