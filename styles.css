@@ -1179,3 +1179,29 @@ select.form-control {
     padding: var(--space-16);
   }
 }
+
+.projects-section .projects-grid .card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-glass) !important;
+  color: var(--text-primary) !important;
+}
+
+.projects-section .projects-grid .card .card__body {
+  padding: 1.5rem;
+}
+
+.projects-section .projects-grid .card .form-group label {
+  color: var(--text-primary) !important;
+}
+
+.projects-section .projects-grid .card select,
+.projects-section .projects-grid .card input {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-glass) !important;
+}
+
+.projects-section .projects-grid .card select option {
+  background: #0a0e17 !important;
+  color: #ffffff !important;
+}
