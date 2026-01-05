@@ -32,7 +32,7 @@ $whereConditions = [];
 $params = [];
 
 if ($filterClient) {
-  $whereConditions[] = "p.client_id = ?";
+  $whereConditions[] = "p.clientid = ?";
   $params[] = $filterClient;
 }
 
@@ -68,7 +68,7 @@ $projects = $stmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
 foreach ($projects as &$project) {
   // Get client name
   $clientStmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
-  $clientStmt->execute([$project['client_id'] ?? null]);
+  $clientStmt->execute([$project['clientid'] ?? null]);
   $client = $clientStmt->fetch();
   $project['client_name'] = $client ? $client['name'] : 'No Client';
   
