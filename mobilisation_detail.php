@@ -64,9 +64,6 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
     
     $respForm = $_POST['responsibility_form'] ?? $mob['responsibility_form'] ?? 'Not Complete';
     
-    // Final Clearance section unlock: ALL sequential Complete (Responsibility Form not required)
-    $canFinal = $allSeqComplete;
-    
     // BCA Clearance field unlock: Responsibility Form Complete
     $canBCA = $respForm === 'Complete';
     
@@ -136,15 +133,15 @@ if (($_POST['action'] ?? null) === 'update_pa') {
 
 $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
 
-// Recalculate unlock states for display - use current form values
+// Recalculate unlock states for display
 $geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
 $condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete';
 $canSequential = $geoComplete && $condComplete;
 
-$seqFields = ['method_statements', 'insurance_status', 'pavement_guarantee', 
-              'wellbeing_guarantee', 'umbrella_guarantee'];
+$seqFieldsDisplay = ['method_statements', 'insurance_status', 'pavement_guarantee', 
+                      'wellbeing_guarantee', 'umbrella_guarantee'];
 $allSeqComplete = true;
-foreach ($seqFields as $field) {
+foreach ($seqFieldsDisplay as $field) {
   if (($mob[$field] ?? 'Not Complete') !== 'Complete') {
     $allSeqComplete = false;
     break;
@@ -337,7 +334,7 @@ $canBCA = $respComplete;
               <label>Method Statements</label>
               <select name="method_statements" <?php echo !$canSequential ? 'disabled' : ''; ?>>
                 <option value="Not Complete" <?php echo ($mob['method_statements'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
-                <option value="Completed" <?php echo ($mob['method_statements'] ?? 'Not Complete') === 'Completed' ? 'selected' : ''; ?>>Completed</option>
+                <option value="Complete" <?php echo ($mob['method_statements'] ?? 'Not Complete') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
               </select>
             </div>
 
