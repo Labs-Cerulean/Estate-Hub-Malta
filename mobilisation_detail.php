@@ -171,7 +171,8 @@ $canBCA = $respComplete;
       </div>
       <div class="header-right">
         <a href="mobilization.php" class="nav-link">← Back</a>
-        <a href="apiauth.php?logout=1" class="nav-link">Logout</a>
+        <!-- Logout Button -->
+                <a href="api/logout.php" class="nav-link">Logout</a>
       </div>
     </div>
   </header>
