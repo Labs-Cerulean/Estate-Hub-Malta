@@ -329,7 +329,8 @@ foreach ($projects as &$project) {
           <a href="clients.php" class="nav-link">Clients</a>
           <a href="create-project.php" class="nav-link">Projects</a>
         <?php endif; ?>
-        <a href="apiauth.php?logout=1" class="nav-link">Logout</a>
+        <!-- Logout Button -->
+                <a href="api/logout.php" class="nav-link">Logout</a>
       </div>
     </div>
   </header>
