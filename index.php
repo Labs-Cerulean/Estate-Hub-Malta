@@ -51,11 +51,6 @@ if (isset($_GET['error'])) {
             <button type="submit" class="login-button">Sign In</button>
         </form>
 
-        <div class="demo-credentials">
-            <p><strong>Demo Credentials:</strong></p>
-            <p>Username: <strong>admin</strong></p>
-            <p>Password: <strong>Admin123!</strong></p>
-        </div>
     </div>
 </body>
 </html>
