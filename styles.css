@@ -876,26 +876,28 @@ select.form-control {
 
 /* Card component */
 .card {
-  background-color: var(--color-surface);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-card-border);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
-  transition: box-shadow var(--duration-normal) var(--ease-standard);
-}
-
-.card:hover {
-  box-shadow: var(--shadow-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  padding: 1.5rem;
+  color: var(--text-primary);
 }
 
 .card__body {
-  padding: var(--space-16);
+  padding: 0; /* or keep 1.5rem if you prefer */
 }
 
-.card__header,
-.card__footer {
-  padding: var(--space-16);
-  border-bottom: 1px solid var(--color-card-border-inner);
+.card select,
+.card input,
+.card textarea {
+  background: rgba(10, 14, 23, 0.9); /* darker than card */
+  color: var(--text-primary);
+  border-color: var(--border-glass);
+}
+
+.card select option {
+  background: #0a0e17;
+  color: #ffffff;
 }
 
 /* Status indicators - simplified with CSS variables */
