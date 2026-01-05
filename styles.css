@@ -1583,3 +1583,68 @@ input:focus, select:focus, textarea:focus {
     padding: 2rem;
   }
 }
+
+/* Tables matching meta items style */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  font-size: 0.95rem;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+thead {
+  background: rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--border-glass);
+}
+
+thead tr {
+  border: none;
+}
+
+th {
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1rem 1.5rem;
+  text-align: left;
+  border: none;
+}
+
+tbody tr {
+  border-top: 1px solid var(--border-glass);
+  transition: background 0.3s ease;
+}
+
+tbody tr:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+td {
+  color: var(--text-primary);
+  padding: 1rem 1.5rem;
+  border: none;
+}
+
+.action-btn {
+  background: var(--corporate-gradient);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  display: inline-block;
+}
+
+.action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59,130,246,0.3);
+}
