@@ -165,6 +165,6 @@ if ($template_count === 0) {
         }
     }
 }
-
+    }
 return $pdo;
 ?>
