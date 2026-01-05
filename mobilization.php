@@ -1,4 +1,5 @@
 <?php
+session_start();
 require_once 'config.php';
 
 // Check if user has permission to update
