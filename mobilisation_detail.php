@@ -114,6 +114,65 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
   <link rel="icon" href="logo.jpg">
   <link rel="stylesheet" href="styles.css">
 </head>
+
+     <script>
+    // Mobilisation Workflow Validation
+    function validateWorkflow() {
+      // Get prerequisite states
+      const geoTest = document.querySelector('[name="geological_test"]').value;
+      const condReports = document.querySelector('[name="condition_reports"]').value;
+      
+      // Sequential Chain unlocks when: Geo=Complete/NA AND Condition=Complete
+      const canSequential = (geoTest === 'Complete' || geoTest === 'NA') && condReports === 'Complete';
+      
+      // Sequential Chain fields
+      const seqFields = [
+        'method_statements', 'insurance_status', 
+        'pavement_guarantee', 'wellbeing_guarantee', 
+        'umbrella_guarantee'
+      ];
+      
+      // Check if ALL sequential fields are Complete (ignore disabled)
+      const allSequentialComplete = seqFields.every(field => {
+        const select = document.querySelector(`[name="${field}"]`);
+        return select.disabled ? true : select.value === 'Complete';
+      });
+      
+      // Final Clearance unlocks when: Sequential ALL Complete AND Responsibility Form Complete
+      const respFormComplete = document.querySelector('[name="responsibility_form"]').value === 'Complete';
+      const canFinal = allSequentialComplete && respFormComplete;
+      
+      // Update Sequential Chain fieldset
+      const seqFieldset = document.querySelector('fieldset:nth-of-type(2)'); // Sequential chain
+      if (canSequential) {
+        seqFieldset.style.opacity = '1';
+        seqFields.forEach(field => document.querySelector(`[name="${field}"]`).disabled = false);
+      } else {
+        seqFieldset.style.opacity = '0.6';
+        seqFields.forEach(field => document.querySelector(`[name="${field}"]`).disabled = true);
+      }
+      
+      // Update Final Clearance fieldset
+      const finalFieldset = document.querySelector('fieldset:last-of-type');
+      if (canFinal) {
+        finalFieldset.style.opacity = '1';
+        document.querySelector('[name="bca_clearance"]').disabled = false;
+      } else {
+        finalFieldset.style.opacity = '0.6';
+        document.querySelector('[name="bca_clearance"]').disabled = true;
+      }
+    }
+    
+    // Listen for ALL select changes
+    document.addEventListener('change', function(e) {
+      if (e.target.matches('select[name]')) {
+        setTimeout(validateWorkflow, 50);
+      }
+    });
+    
+    // Initial validation
+    document.addEventListener('DOMContentLoaded', validateWorkflow);
+    </script>   
 <body>
   <header class="header">
     <div class="header-container">
@@ -282,7 +341,7 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
             🔗 Sequential Chain
             <?php if (!$canSequential): ?>
               <span style="font-size: 0.9rem; color: var(--warning); font-weight: 400;">
-                (Unlock when Geological Test & Condition Reports both Complete)
+                (Unlock when Geological Test Complete/NA & Condition Reports Complete)
               </span>
             <?php endif; ?>
           </legend>
@@ -337,7 +396,9 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
         <!-- FINAL CLEARANCE -->
         <fieldset style="grid-column: 1 / -1; border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; background: var(--bg-card);">
           <legend style="font-weight: 600; margin-bottom: 1rem;">✓ Final Clearance</legend>
-          
+          <span style="font-size: 0.9rem; color: var(--warning); font-weight: 400;">
+              (Unlock when ALL Sequential Chain + Responsibility Form Complete)
+            </span>
           <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
             <div class="form-group">
               <label>Responsibility Form</label>
