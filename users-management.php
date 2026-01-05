@@ -313,7 +313,8 @@ if (isset($_GET['user_id'])) {
             </div>
             <div class="user-info">
                 <span><?php echo getCurrentUserFullName(); ?></span>
-                <a href="includes/auth.php?logout" class="btn btn--outline btn--sm">Logout</a>
+                <!-- Logout Button -->
+                <a href="api/logout.php" class="nav-link">Logout</a>
             </div>
         </header>
 
