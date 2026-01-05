@@ -1,44 +1,158 @@
 <?php
-define('DB_HOST', getenv('MYSQLHOST') ?: 'mysql.railway.internal');
-define('DB_USER', getenv('MYSQLUSER') ?: 'root');
-define('DB_PASS', getenv('MYSQLPASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
-define('DB_NAME', getenv('MYSQLDATABASE') ?: 'railway');
+
+define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.railway.internal');
+define('DB_USER', getenv('MYSQL_USER') ?: 'root');
+define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
+define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
 
 function getDB() {
-    static $pdo = null;
-    if ($pdo === null) {
-        $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-        ]);
-
-        // CLIENTS TABLE
-        $pdo->exec("CREATE TABLE IF NOT EXISTS clients (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            name VARCHAR(255) NOT NULL,
-            city VARCHAR(100),
-            contact VARCHAR(255),
-            type ENUM('in-house','3rd-party') DEFAULT '3rd-party',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_name (name)
-        )");
-
-        // PROJECTS TABLE - FIXED CONSISTENT NAMES
-        $pdo->exec("CREATE TABLE IF NOT EXISTS projects (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            client_id INT NOT NULL,
-            name VARCHAR(255) NOT NULL,
-            city VARCHAR(100) NOT NULL,
-            pa_number VARCHAR(50),
-            bca_status VARCHAR(50),
-            status ENUM('Pending','In Process','Mobilised') DEFAULT 'Pending',
-            type ENUM('in-house','3rd-party') NOT NULL,
-            finish_level ENUM('Common Parts Only','Semi Finished','Finished') NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
-        )");
-    }
-    return $pdo;
+  static $pdo = null;
+  
+  if ($pdo === null) {
+    $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
+    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+      PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+      PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+    ]);
+  }
+  
+  return $pdo;
 }
+
+// CLIENTS TABLE
+getDB()->exec("
+  CREATE TABLE IF NOT EXISTS clients (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL,
+    city VARCHAR(100),
+    contact VARCHAR(255),
+    type ENUM('in-house', '3rd-party') DEFAULT '3rd-party',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_name (name)
+  )
+");
+
+// PROJECTS TABLE
+getDB()->exec("
+  CREATE TABLE IF NOT EXISTS projects (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    clientid INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    city VARCHAR(100) NOT NULL,
+    type ENUM('in-house', '3rd-party') NOT NULL,
+    finishlevel ENUM('Common Parts Only', 'Semi Finished', 'Finished') NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (clientid) REFERENCES clients(id) ON DELETE CASCADE
+  )
+");
+
+// PROJECT PA NUMBERS TABLE
+getDB()->exec("
+  CREATE TABLE IF NOT EXISTS project_pa_numbers (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    project_id INT NOT NULL,
+    pa_number VARCHAR(50) NOT NULL,
+    pa_status ENUM('Endorsed', 'Approved', 'Fee Payment', 'Not Approved') DEFAULT 'Endorsed',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_pa_per_project (project_id, pa_number)
+  )
+");
+
+// PROJECT MOBILISATION TABLE
+getDB()->exec("
+  CREATE TABLE IF NOT EXISTS project_mobilisation (
+    project_id INT PRIMARY KEY,
+    acquisition_complete ENUM('Yes', 'No') DEFAULT 'No',
+    acquisition_date DATE NULL,
+    archaeologist_assigned ENUM('Yes', 'No', 'NA') DEFAULT 'NA',
+    change_of_applicant ENUM('Complete', 'Not Complete', 'NA') DEFAULT 'NA',
+    geological_test ENUM('Complete', 'Not Complete', 'Awaiting Result', 'NA') DEFAULT 'NA',
+    condition_report_contacts ENUM('Complete', 'In Process', 'Not Started') DEFAULT 'Not Started',
+    condition_reports ENUM('Complete', 'In Process', 'Not Started') DEFAULT 'Not Started',
+    method_statements ENUM('Completed', 'Not Complete') DEFAULT 'Not Complete',
+    insurance_status ENUM('Complete', 'In Process', 'Not Started') DEFAULT 'Not Started',
+    pavement_guarantee ENUM('Complete', 'In Process', 'Not Started') DEFAULT 'Not Started',
+    wellbeing_guarantee ENUM('Complete', 'In Process', 'Not Started') DEFAULT 'Not Started',
+    umbrella_guarantee ENUM('Complete', 'In Process', 'Not Started') DEFAULT 'Not Started',
+    responsibility_form ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    bca_clearance ENUM('Yes', 'No') DEFAULT 'No',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  )
+");
+
+/**
+ * Derive mobilisation status from project_mobilisation
+ * Rules: If BCA=Yes → Mobilised; else if any In Progress/Awaiting → In Process; else Pending
+ */
+function deriveMobilisationStatus($pdo, $projectId) {
+  try {
+    $stmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
+    $stmt->execute([$projectId]);
+    $mob = $stmt->fetch();
+    
+    if (!$mob) return 'Pending';
+    
+    if ($mob['bca_clearance'] === 'Yes') {
+      return 'Mobilised';
+    }
+    
+    $inProgressFields = [
+      'condition_report_contacts', 'condition_reports', 'geological_test',
+      'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee'
+    ];
+    
+    foreach ($inProgressFields as $field) {
+      if (isset($mob[$field]) && $mob[$field] === 'In Process') {
+        return 'In Process';
+      }
+    }
+    
+    if (isset($mob['geological_test']) && $mob['geological_test'] === 'Awaiting Result') {
+      return 'In Process';
+    }
+    
+    return 'Pending';
+  } catch (Exception $e) {
+    return 'Pending';
+  }
+}
+
+/**
+ * Get all PA numbers for a project
+ */
+function getProjectPANumbers($pdo, $projectId) {
+  try {
+    $stmt = $pdo->prepare("
+      SELECT id, pa_number, pa_status 
+      FROM project_pa_numbers 
+      WHERE project_id = ? 
+      ORDER BY created_at ASC
+    ");
+    $stmt->execute([$projectId]);
+    return $stmt->fetchAll();
+  } catch (Exception $e) {
+    return [];
+  }
+}
+
+/**
+ * Get project with client info
+ */
+function getProjectWithClient($pdo, $projectId) {
+  try {
+    $stmt = $pdo->prepare("
+      SELECT p.*, c.name as client_name, c.type as client_type
+      FROM projects p
+      LEFT JOIN clients c ON p.clientid = c.id
+      WHERE p.id = ?
+    ");
+    $stmt->execute([$projectId]);
+    return $stmt->fetch();
+  } catch (Exception $e) {
+    return null;
+  }
+}
+
 ?>
