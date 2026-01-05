@@ -107,7 +107,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS activity_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 )");
-
+    }
 return $pdo;
     }
 ?>
