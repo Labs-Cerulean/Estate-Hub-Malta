@@ -67,7 +67,7 @@ $query = "SELECT * FROM projects p $whereClause ORDER BY p.id DESC";
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $projects = $stmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
-var_dump($projects)
+var_dump($projects);
 // Enrich project data with client names and mobilization progress
 foreach ($projects as &$project) {
   // Get client name
