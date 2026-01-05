@@ -6,7 +6,7 @@
 
 session_start();
 require_once 'config.php';
-require_once 'includes/user-functions.php';
+require_once 'api/user-functions.php';
 
 // Require login - users must be logged in
 requireLogin();
