@@ -18,15 +18,16 @@ $isAdmin = $_SESSION['user'] === 'admin' ? true : false;
 $stats = [
   'total' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn() ?? 0,
   'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects p JOIN project_mobilisation m ON p.id = m.project_id WHERE m.bca_clearance = 'Yes'")->fetchColumn() ?? 0,
-  'pending' => $pdo->query("SELECT COUNT(*) FROM projects p LEFT JOIN project_mobilisation m ON p.id = m.project_id WHERE m.bca_clearance IS NULL OR m.bca_clearance = 'No'")->fetchColumn() ?? 0,
-  'inprocess' => $pdo->query("SELECT COUNT(*) FROM projects p JOIN project_mobilisation m ON p.id = m.project_id WHERE m.bca_clearance IS NULL OR m.bca_clearance = 'No'")->fetchColumn() ?? 0,
+  'pending' => $pdo->query("SELECT COUNT(*) FROM projects p WHERE p.id NOT IN (SELECT DISTINCT project_id FROM project_mobilisation WHERE bca_clearance = 'Yes')")->fetchColumn() ?? 0,
+  'inprocess' => $pdo->query("SELECT COUNT(*) FROM projects p JOIN project_mobilisation m ON p.id = m.project_id WHERE m.bca_clearance IS NULL OR (m.bca_clearance != 'Yes' AND m.bca_clearance != '')")->fetchColumn() ?? 0,
 ];
 
 // Get filter values from GET
 $filterClient = $_GET['client'] ?? '';
 $filterCity = $_GET['city'] ?? '';
+$filterStatus = $_GET['status'] ?? '';
 
-// Build dynamic WHERE clause - NO status filter since it doesn't exist
+// Build dynamic WHERE clause with status filter
 $whereConditions = [];
 $params = [];
 
@@ -38,6 +39,15 @@ if ($filterClient) {
 if ($filterCity) {
   $whereConditions[] = "p.city = ?";
   $params[] = $filterCity;
+}
+
+// Status filter using mobilization data
+if ($filterStatus === 'Mobilised') {
+  $whereConditions[] = "EXISTS (SELECT 1 FROM project_mobilisation m WHERE m.project_id = p.id AND m.bca_clearance = 'Yes')";
+} elseif ($filterStatus === 'Pending') {
+  $whereConditions[] = "NOT EXISTS (SELECT 1 FROM project_mobilisation m WHERE m.project_id = p.id AND m.bca_clearance = 'Yes')";
+} elseif ($filterStatus === 'In Process') {
+  $whereConditions[] = "EXISTS (SELECT 1 FROM project_mobilisation m WHERE m.project_id = p.id AND (m.bca_clearance IS NULL OR (m.bca_clearance != 'Yes' AND m.bca_clearance != '')))";
 }
 
 $whereClause = !empty($whereConditions) ? "WHERE " . implode(" AND ", $whereConditions) : "";
@@ -62,7 +72,7 @@ foreach ($projects as &$project) {
   $client = $clientStmt->fetch();
   $project['client_name'] = $client ? $client['name'] : 'No Client';
   
-  // Calculate mobilization progress
+  // Calculate mobilization progress and status
   $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
   $mobStmt->execute([$project['id']]);
   $mob = $mobStmt->fetch();
@@ -91,8 +101,22 @@ foreach ($projects as &$project) {
     if ($mob['bca_clearance'] === 'Yes') $completedSteps++;
     
     $project['mobilization_progress'] = round(($completedSteps / $totalSteps) * 100);
+    
+    // Determine status badge
+    if ($mob['bca_clearance'] === 'Yes') {
+      $project['status_badge'] = 'Mobilised';
+      $project['status_class'] = 'status-Mobilised';
+    } elseif ($mob['bca_clearance'] === 'No' || $mob['responsibility_form'] === 'Complete') {
+      $project['status_badge'] = 'In Process';
+      $project['status_class'] = 'status-In-Process';
+    } else {
+      $project['status_badge'] = 'Pending';
+      $project['status_class'] = 'status-Pending';
+    }
   } else {
     $project['mobilization_progress'] = 0;
+    $project['status_badge'] = 'Pending';
+    $project['status_class'] = 'status-Pending';
   }
 }
 
@@ -361,6 +385,16 @@ foreach ($projects as &$project) {
               <?php endforeach; ?>
             </select>
           </div>
+          
+          <div class="filter-group">
+            <label for="filter-status">Status</label>
+            <select name="status" id="filter-status">
+              <option value="">All Statuses</option>
+              <option value="Mobilised" <?php echo $filterStatus === 'Mobilised' ? 'selected' : ''; ?>>Mobilised</option>
+              <option value="Pending" <?php echo $filterStatus === 'Pending' ? 'selected' : ''; ?>>Pending</option>
+              <option value="In Process" <?php echo $filterStatus === 'In Process' ? 'selected' : ''; ?>>In Process</option>
+            </select>
+          </div>
         </div>
         
         <div class="filter-actions">
@@ -396,14 +430,14 @@ foreach ($projects as &$project) {
             <h3>No projects found</h3>
             <p>
               <?php 
-                if (!empty($filterClient) || !empty($filterCity)) {
+                if (!empty($filterClient) || !empty($filterCity) || !empty($filterStatus)) {
                   echo "Try adjusting your filter criteria.";
                 } else {
                   echo "Get started by creating your first project.";
                 }
               ?>
             </p>
-            <?php if ($isAdmin && empty($filterClient) && empty($filterCity)): ?>
+            <?php if ($isAdmin && empty($filterClient) && empty($filterCity) && empty($filterStatus)): ?>
               <a href="create-project.php" class="nav-link" style="padding: 1rem 2.5rem;">Create First Project</a>
             <?php endif; ?>
           </div>
@@ -426,6 +460,9 @@ foreach ($projects as &$project) {
                     </div>
                   </div>
                 </div>
+                <span class="<?php echo $project['status_class']; ?>">
+                  <?php echo htmlspecialchars($project['status_badge']); ?>
+                </span>
               </div>
 
               <!-- Visual Status Summary -->
