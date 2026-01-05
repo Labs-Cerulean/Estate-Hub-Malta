@@ -9,6 +9,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true ||
   exit;
 }
 
+require_once 'session-check.php';
 require_once 'config.php';
 $pdo = getDB();
 $message = '';
