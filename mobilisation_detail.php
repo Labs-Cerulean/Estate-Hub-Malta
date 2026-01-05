@@ -148,7 +148,7 @@ foreach ($seqFields as $field) {
   }
 }
 $respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
-$canFinal = $allSeqComplete && $respComplete && $canSequential;
+$canFinal = $allSeqComplete && $canSequential;
 
 ?>
 <!DOCTYPE html>
@@ -381,7 +381,7 @@ $canFinal = $allSeqComplete && $respComplete && $canSequential;
             ✓ Final Clearance
             <?php if (!$canFinal): ?>
               <span style="font-size: 0.9rem; color: var(--warning); font-weight: 400;">
-                (Unlock when ALL Sequential Chain + Responsibility Form Complete)
+                (Unlock when ALL Sequential Chain Complete)
               </span>
             <?php endif; ?>
           </legend>
