@@ -65,14 +65,14 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Create Project – Estate Hub Malta</title>
-  <link rel="icon" href="logo.jpg">
+  <link rel="icon" href="logo.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="header">
     <div class="header-container">
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <img src="logo.jpg" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.jpg'">
+        <img src="logo.png" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.png'">
         <div style="font-size: 1.4rem; font-weight: 700;">Estate Hub Malta</div>
       </div>
       <div class="header-right">
