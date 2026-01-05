@@ -1,13 +1,17 @@
 <?php
+session_start();
 
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
-    !isset($_SESSION['user']) || $_SESSION['user'] !== 'admin') {
-  session_destroy();
-  header("Location: index.php");
-  exit;
+if (empty($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header('Location: index.php');
+    exit;
 }
 
-require_once 'session-check.php';
+if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
+    session_destroy();
+    header('Location: index.php');
+    exit;
+}
+
 require_once 'config.php';
 $pdo = getDB();
 
