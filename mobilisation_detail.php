@@ -65,7 +65,7 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
     $respForm = $_POST['responsibility_form'] ?? $mob['responsibility_form'] ?? 'Not Complete';
     
     // Final Clearance section unlock: ALL sequential Complete (Responsibility Form not required)
-    $canFinal = $allSequentialComplete;
+    $canFinal = $allSeqComplete;
     
     // BCA Clearance field unlock: Responsibility Form Complete
     $canBCA = $respForm === 'Complete';
@@ -136,7 +136,7 @@ if (($_POST['action'] ?? null) === 'update_pa') {
 
 $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
 
-// Recalculate unlock states for display
+// Recalculate unlock states for display - use current form values
 $geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
 $condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete';
 $canSequential = $geoComplete && $condComplete;
@@ -151,7 +151,7 @@ foreach ($seqFields as $field) {
   }
 }
 $respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
-$canFinal = $allSeqComplete && $canSequential;
+$canFinal = $allSeqComplete;
 $canBCA = $respComplete;
 
 ?>
