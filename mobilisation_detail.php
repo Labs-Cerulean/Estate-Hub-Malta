@@ -191,19 +191,19 @@ $canBCA = $respComplete;
     <div class="projects-section" style="margin-bottom: 2rem;">
       <div class="project-meta">
         <div class="meta-item">
-          <span class="meta-label">Client</span>
+          <span class="meta-label">Client: </span>
           <span><?php echo htmlspecialchars($project['client_name'] ?? 'Unknown'); ?></span>
         </div>
         <div class="meta-item">
-          <span class="meta-label">Type</span>
+          <span class="meta-label">Type: </span>
           <span><?php echo ucwords(str_replace('-', ' ', $project['type'])); ?></span>
         </div>
         <div class="meta-item">
-          <span class="meta-label">City</span>
+          <span class="meta-label">City: </span>
           <span><?php echo htmlspecialchars($project['city']); ?></span>
         </div>
         <div class="meta-item">
-          <span class="meta-label">Mobilisation Status</span>
+          <span class="meta-label">Mobilisation Status: </span>
           <span class="status-badge status-<?php echo strtolower(str_replace(' ', '-', $mobilisationStatus)); ?>">
             <?php echo htmlspecialchars($mobilisationStatus); ?>
           </span>
