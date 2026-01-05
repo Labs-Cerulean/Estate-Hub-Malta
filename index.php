@@ -1,6 +1,15 @@
 <?php
-session_start();
-require_once 'config.php';
+/**
+ * LOGIN PAGE - index.php
+ * 
+ * IMPORTANT: Do NOT include session-check.php here!
+ * This is the PUBLIC login page - anyone should access it.
+ */
+
+// Start session only on login page
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // If already logged in, redirect to dashboard
 if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true) {
@@ -8,55 +17,44 @@ if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true) {
     exit;
 }
 
-$error = isset($_GET['error']) ? true : false;
-$errorMessage = isset($_SESSION['login_error']) ? $_SESSION['login_error'] : '';
-unset($_SESSION['login_error']); // Clear error after displaying
+// Get any error message from previous login attempt
+$error = isset($_GET['error']) ? $_SESSION['login_error'] ?? '' : '';
+if ($error) {
+    unset($_SESSION['login_error']); // Clear after using
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Estate Hub - Login</title>
+    <title>Login - Estate Hub</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body class="login-page">
     <div class="login-container">
         <div class="login-header">
+            <img src="logo.jpg" alt="Estate Hub Logo" class="login-logo">
             <h1>Estate Hub</h1>
             <p>Project Management System</p>
         </div>
 
-        <?php if ($error && $errorMessage): ?>
+        <?php if ($error): ?>
             <div class="error-message">
-                <?php echo htmlspecialchars($errorMessage); ?>
+                <?php echo htmlspecialchars($error); ?>
             </div>
         <?php endif; ?>
 
-        <form method="POST" action="api/auth.php">
+        <form method="POST" action="api/auth.php" class="login-form">
             <div class="form-group">
                 <label for="username">Username</label>
-                <input 
-                    type="text" 
-                    id="username" 
-                    name="username" 
-                    required 
-                    autofocus
-                    autocomplete="username"
-                    placeholder="Enter your username"
-                >
+                <input type="text" id="username" name="username" placeholder="Enter your username" required autofocus>
             </div>
 
             <div class="form-group">
                 <label for="password">Password</label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    name="password" 
-                    required
-                    autocomplete="current-password"
-                    placeholder="Enter your password"
-                >
+                <input type="password" id="password" name="password" placeholder="Enter your password" required>
             </div>
 
             <button type="submit" class="login-button">Sign In</button>
