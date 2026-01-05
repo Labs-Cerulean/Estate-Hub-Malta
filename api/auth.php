@@ -2,8 +2,6 @@
 /**
  * Authentication Handler
  * Estate Hub - Project Management System
- * 
- * Handles user login, logout, and session management
  */
 
 session_start();
