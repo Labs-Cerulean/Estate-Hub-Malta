@@ -109,4 +109,5 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS activity_log (
 )");
 
 return $pdo;
+    }
 ?>
