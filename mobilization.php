@@ -127,7 +127,7 @@ foreach ($projects as &$project) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mobilization Dashboard - Estate Hub Malta</title>
-  <link rel="icon" href="logo.png">
+  <link rel="icon" href="logo.jpg">
   <link rel="stylesheet" href="styles.css">
   <style>
     /* Enhanced styles for visual status and filters */
@@ -318,7 +318,7 @@ foreach ($projects as &$project) {
   <header class="header">
     <div class="header-container">
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <img src="logo.png" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.png'">
+        <img src="logo.jpg" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.jpg'">
         <div style="font-size: 1.4rem; font-weight: 700;">Estate Hub Malta</div>
         <div style="font-size: 0.85rem; color: var(--text-muted);">Mobilization Dashboard</div>
       </div>
