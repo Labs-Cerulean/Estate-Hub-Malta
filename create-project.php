@@ -79,7 +79,8 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll()
       <div class="header-right">
         <a href="mobilization.php" class="nav-link">Dashboard</a>
         <a href="clients.php" class="nav-link">Clients</a>
-        <a href="apiauth.php?logout=1" class="nav-link">Logout</a>
+        <!-- Logout Button -->
+                <a href="api/logout.php" class="nav-link">Logout</a>
       </div>
     </div>
   </header>
