@@ -1,5 +1,4 @@
 <?php
-// START: Login Processor (api/auth.php)
 session_start();
 
 require_once __DIR__ . '/../config.php';
@@ -18,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['username']) && !empt
         $user = $stmt->fetch();
 
         if ($user && password_verify($password, $user['password_hash'])) {
-            // SUCCESS: Set session and redirect
+            // SUCCESS: Set session
             $_SESSION['loggedin'] = true;
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
@@ -31,11 +30,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['username']) && !empt
             $update = $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
             $update->execute([$user['id']]);
 
-            // CRITICAL: Redirect to dashboard
             header('Location: ../dashboard.php');
             exit;
         } else {
-            // FAILED: Set error and redirect back
+            // FAILED
             $_SESSION['login_error'] = 'Invalid username or password';
             header('Location: ../index.php?error=1');
             exit;
@@ -46,9 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['username']) && !empt
         exit;
     }
 } else {
-    http_response_code(400);
     header('Location: ../index.php');
     exit;
 }
 ?>
-// END: api/auth.php
