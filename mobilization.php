@@ -14,36 +14,30 @@ $pdo = getDB();
 // Check admin access
 $isAdmin = $_SESSION['user'] === 'admin' ? true : false;
 
-// SAFE STATS - COUNT never fails
+// SAFE STATS - Using mobilization table for accurate counts
 $stats = [
   'total' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn() ?? 0,
-  'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Mobilised'")->fetchColumn() ?? 0,
-  'pending' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Pending'")->fetchColumn() ?? 0,
-  'inprocess' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='In Process'")->fetchColumn() ?? 0,
+  'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects p JOIN project_mobilisation m ON p.id = m.project_id WHERE m.bca_clearance = 'Yes'")->fetchColumn() ?? 0,
+  'pending' => $pdo->query("SELECT COUNT(*) FROM projects p LEFT JOIN project_mobilisation m ON p.id = m.project_id WHERE m.bca_clearance IS NULL OR m.bca_clearance = 'No'")->fetchColumn() ?? 0,
+  'inprocess' => $pdo->query("SELECT COUNT(*) FROM projects p JOIN project_mobilisation m ON p.id = m.project_id WHERE m.bca_clearance IS NULL OR m.bca_clearance = 'No'")->fetchColumn() ?? 0,
 ];
 
 // Get filter values from GET
 $filterClient = $_GET['client'] ?? '';
 $filterCity = $_GET['city'] ?? '';
-$filterStatus = $_GET['status'] ?? '';
 
-// Build dynamic WHERE clause
+// Build dynamic WHERE clause - NO status filter since it doesn't exist
 $whereConditions = [];
 $params = [];
 
 if ($filterClient) {
-  $whereConditions[] = "projects.client_id = ?";
+  $whereConditions[] = "p.client_id = ?";
   $params[] = $filterClient;
 }
 
 if ($filterCity) {
-  $whereConditions[] = "projects.city = ?";
+  $whereConditions[] = "p.city = ?";
   $params[] = $filterCity;
-}
-
-if ($filterStatus) {
-  $whereConditions[] = "projects.status = ?";
-  $params[] = $filterStatus;
 }
 
 $whereClause = !empty($whereConditions) ? "WHERE " . implode(" AND ", $whereConditions) : "";
@@ -55,12 +49,12 @@ $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(P
 $cities = $pdo->query("SELECT DISTINCT city FROM projects WHERE city IS NOT NULL AND city != '' ORDER BY city")->fetchAll(PDO::FETCH_COLUMN) ?? [];
 
 // Get projects with filters applied
-$query = "SELECT * FROM projects $whereClause ORDER BY id DESC";
+$query = "SELECT * FROM projects p $whereClause ORDER BY p.id DESC";
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $projects = $stmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
-// Enrich project data with client names and mobilization status
+// Enrich project data with client names and mobilization progress
 foreach ($projects as &$project) {
   // Get client name
   $clientStmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
@@ -76,9 +70,9 @@ foreach ($projects as &$project) {
   if ($mob) {
     // Count completed mobilization steps
     $completedSteps = 0;
-    $totalSteps = 11; // Non-sequential + 5 sequential + responsibility + BCA
+    $totalSteps = 12; // Total mobilization steps
     
-    // Non-sequential tasks (these don't block)
+    // Non-sequential tasks
     if ($mob['archaeologist_assigned'] === 'Yes' || $mob['archaeologist_assigned'] === 'NA') $completedSteps++;
     if ($mob['change_of_applicant'] === 'Complete' || $mob['change_of_applicant'] === 'NA') $completedSteps++;
     if ($mob['geological_test'] === 'Complete' || $mob['geological_test'] === 'NA') $completedSteps++;
@@ -193,6 +187,9 @@ foreach ($projects as &$project) {
       cursor: pointer;
       transition: all 0.3s ease;
       font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
     }
     
     .btn-reset:hover {
@@ -291,11 +288,6 @@ foreach ($projects as &$project) {
       color: var(--text-primary);
       margin-bottom: 0.5rem;
     }
-    
-    .filter-active {
-      background: rgba(79, 70, 229, 0.1);
-      border-color: var(--accent-blue) !important;
-    }
   </style>
 </head>
 <body>
@@ -369,21 +361,11 @@ foreach ($projects as &$project) {
               <?php endforeach; ?>
             </select>
           </div>
-          
-          <div class="filter-group">
-            <label for="filter-status">Status</label>
-            <select name="status" id="filter-status">
-              <option value="">All Statuses</option>
-              <option value="Pending" <?php echo $filterStatus === 'Pending' ? 'selected' : ''; ?>>Pending</option>
-              <option value="In Process" <?php echo $filterStatus === 'In Process' ? 'selected' : ''; ?>>In Process</option>
-              <option value="Mobilised" <?php echo $filterStatus === 'Mobilised' ? 'selected' : ''; ?>>Mobilised</option>
-            </select>
-          </div>
         </div>
         
         <div class="filter-actions">
           <button type="submit" class="btn-filter">Apply Filters</button>
-          <a href="mobilization.php" class="btn-reset" style="text-decoration: none; display: inline-flex; align-items: center;">Reset Filters</a>
+          <a href="mobilization.php" class="btn-reset">Reset Filters</a>
         </div>
       </form>
     </div>
@@ -414,14 +396,14 @@ foreach ($projects as &$project) {
             <h3>No projects found</h3>
             <p>
               <?php 
-                if (!empty($filterClient) || !empty($filterCity) || !empty($filterStatus)) {
+                if (!empty($filterClient) || !empty($filterCity)) {
                   echo "Try adjusting your filter criteria.";
                 } else {
                   echo "Get started by creating your first project.";
                 }
               ?>
             </p>
-            <?php if ($isAdmin && empty($filterClient) && empty($filterCity) && empty($filterStatus)): ?>
+            <?php if ($isAdmin && empty($filterClient) && empty($filterCity)): ?>
               <a href="create-project.php" class="nav-link" style="padding: 1rem 2.5rem;">Create First Project</a>
             <?php endif; ?>
           </div>
@@ -444,9 +426,6 @@ foreach ($projects as &$project) {
                     </div>
                   </div>
                 </div>
-                <span class="status-badge status-<?php echo strtolower(str_replace(' ', '-', $project['status'] ?? 'pending')); ?>">
-                  <?php echo htmlspecialchars($project['status'] ?? 'Pending'); ?>
-                </span>
               </div>
 
               <!-- Visual Status Summary -->
