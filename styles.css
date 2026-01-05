@@ -1266,7 +1266,6 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: var(--corporate-gradient);
 }
 
 .header-title {
@@ -1525,7 +1524,6 @@ input:focus, select:focus, textarea:focus {
   height: 64px;
   border-radius: 16px;
   margin-bottom: 1rem;
-  background: var(--corporate-gradient);
 }
 
 .login-title {
