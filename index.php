@@ -33,14 +33,14 @@ if ($_POST) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login – Estate Hub Malta</title>
-  <link rel="icon" href="logo.jpg">
+  <link rel="icon" href="logo.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="main-container" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem;">
     <div class="login-card">
       <div class="login-header">
-        <img src="logo.jpg" alt="Estate Hub Malta" class="login-logo" onerror="this.src='logo.jpg'">
+        <img src="logo.png" alt="Estate Hub Malta" class="login-logo" onerror="this.src='logo.png'">
         <h1 class="login-title">Estate Hub Malta</h1>
         <p class="login-subtitle">Project Management System</p>
       </div>
