@@ -11,44 +11,96 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true ||
 require_once 'config.php';
 $pdo = getDB();
 
-// Stats
-$total = $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn() ?? 0;
-$mobilised = $pdo->query("SELECT COUNT(*) FROM project_mobilisation WHERE bca_clearance = 'Yes'")->fetchColumn() ?? 0;
-$inprocess = $pdo->query("
-  SELECT COUNT(*) FROM project_mobilisation 
-  WHERE bca_clearance = 'No' 
-    AND (condition_report_contacts = 'In Process' 
-      OR condition_reports = 'In Process' 
-      OR geological_test IN ('In Process', 'Awaiting Result')
-      OR insurance_status = 'In Process'
-      OR pavement_guarantee = 'In Process'
-      OR wellbeing_guarantee = 'In Process'
-      OR umbrella_guarantee = 'In Process')
-")->fetchColumn() ?? 0;
-$pending = $total - $mobilised - $inprocess;
+// Check admin access
+$isAdmin = $_SESSION['user'] === 'admin' ? true : false;
 
+// SAFE STATS - COUNT never fails
 $stats = [
-  'total' => $total,
-  'mobilised' => $mobilised,
-  'pending' => $pending,
-  'inprocess' => $inprocess
+  'total' => $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn() ?? 0,
+  'mobilised' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Mobilised'")->fetchColumn() ?? 0,
+  'pending' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='Pending'")->fetchColumn() ?? 0,
+  'inprocess' => $pdo->query("SELECT COUNT(*) FROM projects WHERE status='In Process'")->fetchColumn() ?? 0,
 ];
 
-// Get projects
-$projects = $pdo->query("SELECT * FROM projects ORDER BY id DESC LIMIT 10")->fetchAll();
+// Get filter values from GET
+$filterClient = $_GET['client'] ?? '';
+$filterCity = $_GET['city'] ?? '';
+$filterStatus = $_GET['status'] ?? '';
 
-// Enrich each project with derived status and PA info
-foreach ($projects as &$project) {
-  $project['mobilisation_status'] = deriveMobilisationStatus($pdo, $project['id']);
-  $project['pa_numbers'] = getProjectPANumbers($pdo, $project['id']);
-  
-  // Add client name
-  $clientStmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
-  $clientStmt->execute([$project['clientid']]);
-  $client = $clientStmt->fetch();
-  $project['client_name'] = $client['name'] ?? 'Unknown';
+// Build dynamic WHERE clause
+$whereConditions = [];
+$params = [];
+
+if ($filterClient) {
+  $whereConditions[] = "projects.client_id = ?";
+  $params[] = $filterClient;
 }
-unset($project);
+
+if ($filterCity) {
+  $whereConditions[] = "projects.city = ?";
+  $params[] = $filterCity;
+}
+
+if ($filterStatus) {
+  $whereConditions[] = "projects.status = ?";
+  $params[] = $filterStatus;
+}
+
+$whereClause = !empty($whereConditions) ? "WHERE " . implode(" AND ", $whereConditions) : "";
+
+// Get all clients for filter dropdown
+$clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC) ?? [];
+
+// Get all unique cities for filter dropdown
+$cities = $pdo->query("SELECT DISTINCT city FROM projects WHERE city IS NOT NULL AND city != '' ORDER BY city")->fetchAll(PDO::FETCH_COLUMN) ?? [];
+
+// Get projects with filters applied
+$query = "SELECT * FROM projects $whereClause ORDER BY id DESC";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$projects = $stmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
+
+// Enrich project data with client names and mobilization status
+foreach ($projects as &$project) {
+  // Get client name
+  $clientStmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
+  $clientStmt->execute([$project['client_id'] ?? null]);
+  $client = $clientStmt->fetch();
+  $project['client_name'] = $client ? $client['name'] : 'No Client';
+  
+  // Calculate mobilization progress
+  $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
+  $mobStmt->execute([$project['id']]);
+  $mob = $mobStmt->fetch();
+  
+  if ($mob) {
+    // Count completed mobilization steps
+    $completedSteps = 0;
+    $totalSteps = 11; // Non-sequential + 5 sequential + responsibility + BCA
+    
+    // Non-sequential tasks (these don't block)
+    if ($mob['archaeologist_assigned'] === 'Yes' || $mob['archaeologist_assigned'] === 'NA') $completedSteps++;
+    if ($mob['change_of_applicant'] === 'Complete' || $mob['change_of_applicant'] === 'NA') $completedSteps++;
+    if ($mob['geological_test'] === 'Complete' || $mob['geological_test'] === 'NA') $completedSteps++;
+    if ($mob['condition_report_contacts'] === 'Complete') $completedSteps++;
+    if ($mob['condition_reports'] === 'Complete') $completedSteps++;
+    
+    // Sequential chain
+    if ($mob['method_statements'] === 'Complete') $completedSteps++;
+    if ($mob['insurance_status'] === 'Complete') $completedSteps++;
+    if ($mob['pavement_guarantee'] === 'Complete') $completedSteps++;
+    if ($mob['wellbeing_guarantee'] === 'Complete') $completedSteps++;
+    if ($mob['umbrella_guarantee'] === 'Complete') $completedSteps++;
+    
+    // Final clearance
+    if ($mob['responsibility_form'] === 'Complete') $completedSteps++;
+    if ($mob['bca_clearance'] === 'Yes') $completedSteps++;
+    
+    $project['mobilization_progress'] = round(($completedSteps / $totalSteps) * 100);
+  } else {
+    $project['mobilization_progress'] = 0;
+  }
+}
 
 ?>
 <!DOCTYPE html>
@@ -56,24 +108,210 @@ unset($project);
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mobilization Dashboard – Estate Hub Malta</title>
-  <link rel="icon" href="logo.png">
+  <title>Mobilization Dashboard - Estate Hub Malta</title>
+  <link rel="icon" href="logo.jpg">
   <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Enhanced styles for visual status and filters */
+    .filter-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border-glass);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-bottom: 2.5rem;
+      backdrop-filter: blur(20px);
+    }
+    
+    .filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .filter-group label {
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .filter-group select {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--border-glass);
+      border-radius: 12px;
+      padding: 0.75rem;
+      color: var(--text-primary);
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+      font-size: 0.95rem;
+    }
+    
+    .filter-group select:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+    }
+    
+    .filter-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-start;
+    }
+    
+    .btn-filter {
+      padding: 0.75rem 2rem;
+      background: var(--accent-blue);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 0.95rem;
+    }
+    
+    .btn-filter:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px rgba(79, 70, 229, 0.4);
+    }
+    
+    .btn-reset {
+      padding: 0.75rem 2rem;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-primary);
+      border: 1px solid var(--border-glass);
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 0.95rem;
+    }
+    
+    .btn-reset:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: var(--border-glass);
+    }
+    
+    /* Progress bar styling */
+    .progress-section {
+      margin-top: 1.5rem;
+    }
+    
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+      font-size: 0.85rem;
+    }
+    
+    .progress-label-left {
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    
+    .progress-label-right {
+      font-weight: 700;
+      color: var(--accent-blue);
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border-glass);
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+      border-radius: 12px;
+      transition: width 0.4s ease;
+      width: var(--progress-width, 0%);
+    }
+    
+    .progress-status {
+      margin-top: 0.75rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.8rem;
+    }
+    
+    .status-dot {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.75rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      border: 1px solid var(--border-glass);
+    }
+    
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    
+    .dot-complete { background: var(--success); }
+    .dot-pending { background: var(--warning); }
+    .dot-in-progress { background: var(--info); }
+    
+    /* Enhanced card styling */
+    .project-card {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    
+    .project-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1.5rem;
+    }
+    
+    .project-info {
+      flex: 1;
+    }
+    
+    .project-name {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+    
+    .filter-active {
+      background: rgba(79, 70, 229, 0.1);
+      border-color: var(--accent-blue) !important;
+    }
+  </style>
 </head>
 <body>
   <header class="header">
     <div class="header-container">
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <img src="logo.png" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.png'">
-        <div>
-          <div style="font-size: 1.4rem; font-weight: 700;">Estate Hub Malta</div>
-          <div style="font-size: 0.85rem; color: var(--text-muted);">Mobilization Dashboard</div>
-        </div>
+        <img src="logo.jpg" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.jpg'">
+        <div style="font-size: 1.4rem; font-weight: 700;">Estate Hub Malta</div>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">Mobilization Dashboard</div>
       </div>
       <div class="header-right">
         <a href="dashboard.php" class="nav-link">Overview</a>
-        <a href="clients.php" class="nav-link">Clients</a>
-        <a href="create-project.php" class="nav-link">New Project</a>
+        <?php if ($isAdmin): ?>
+          <a href="clients.php" class="nav-link">Clients</a>
+          <a href="create-project.php" class="nav-link">Projects</a>
+        <?php endif; ?>
         <a href="apiauth.php?logout=1" class="nav-link">Logout</a>
       </div>
     </div>
@@ -89,82 +327,167 @@ unset($project);
         <div class="stat-label">Total Projects</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number" style="color: var(--success);"><?php echo number_format($stats['mobilised']); ?></div>
+        <div class="stat-number mobilised" style="color: var(--success);"><?php echo number_format($stats['mobilised']); ?></div>
         <div class="stat-label">Mobilised</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number" style="color: var(--warning);"><?php echo number_format($stats['pending']); ?></div>
+        <div class="stat-number pending" style="color: var(--warning);"><?php echo number_format($stats['pending']); ?></div>
         <div class="stat-label">Pending</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number" style="color: var(--info);"><?php echo number_format($stats['inprocess']); ?></div>
+        <div class="stat-number in-process" style="color: var(--info);"><?php echo number_format($stats['inprocess']); ?></div>
         <div class="stat-label">In Process</div>
       </div>
+    </div>
+
+    <!-- Filter Section -->
+    <div class="filter-section">
+      <div class="section-title" style="margin-bottom: 1.5rem;">Filter Projects</div>
+      
+      <form method="GET" action="mobilization.php">
+        <div class="filter-grid">
+          <div class="filter-group">
+            <label for="filter-client">Client</label>
+            <select name="client" id="filter-client">
+              <option value="">All Clients</option>
+              <?php foreach ($clients as $client): ?>
+                <option value="<?php echo $client['id']; ?>" <?php echo $filterClient == $client['id'] ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($client['name']); ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          
+          <div class="filter-group">
+            <label for="filter-city">Location</label>
+            <select name="city" id="filter-city">
+              <option value="">All Locations</option>
+              <?php foreach ($cities as $city): ?>
+                <option value="<?php echo htmlspecialchars($city); ?>" <?php echo $filterCity === $city ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($city); ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          
+          <div class="filter-group">
+            <label for="filter-status">Status</label>
+            <select name="status" id="filter-status">
+              <option value="">All Statuses</option>
+              <option value="Pending" <?php echo $filterStatus === 'Pending' ? 'selected' : ''; ?>>Pending</option>
+              <option value="In Process" <?php echo $filterStatus === 'In Process' ? 'selected' : ''; ?>>In Process</option>
+              <option value="Mobilised" <?php echo $filterStatus === 'Mobilised' ? 'selected' : ''; ?>>Mobilised</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="filter-actions">
+          <button type="submit" class="btn-filter">Apply Filters</button>
+          <a href="mobilization.php" class="btn-reset" style="text-decoration: none; display: inline-flex; align-items: center;">Reset Filters</a>
+        </div>
+      </form>
     </div>
 
     <!-- Projects Section -->
     <section class="projects-section">
       <div class="projects-header">
-        <div class="section-title">Recent Projects (<?php echo count($projects); ?>)</div>
-        <a href="create-project.php" class="nav-link" style="padding: 0.75rem 2rem;">+ New Project</a>
+        <div class="section-title">
+          Projects 
+          <?php 
+            $displayCount = count($projects);
+            $totalCount = $pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn() ?? 0;
+            if ($displayCount != $totalCount) {
+              echo "(" . $displayCount . " of " . $totalCount . ")";
+            } else {
+              echo "(" . $displayCount . ")";
+            }
+          ?>
+        </div>
+        <?php if ($isAdmin): ?>
+          <a href="create-project.php" class="nav-link" style="padding: 0.75rem 2rem;">+ New Project</a>
+        <?php endif; ?>
       </div>
 
       <div class="projects-grid">
         <?php if (empty($projects)): ?>
-          <div class="empty-state" style="grid-column: 1/-1;">
-            <h3>No projects yet</h3>
-            <p>Get started by creating your first project.</p>
-            <a href="create-project.php" class="nav-link" style="padding: 1rem 2.5rem; display: inline-block;">Create First Project</a>
+          <div class="empty-state" style="grid-column: 1 / -1;">
+            <h3>No projects found</h3>
+            <p>
+              <?php 
+                if (!empty($filterClient) || !empty($filterCity) || !empty($filterStatus)) {
+                  echo "Try adjusting your filter criteria.";
+                } else {
+                  echo "Get started by creating your first project.";
+                }
+              ?>
+            </p>
+            <?php if ($isAdmin && empty($filterClient) && empty($filterCity) && empty($filterStatus)): ?>
+              <a href="create-project.php" class="nav-link" style="padding: 1rem 2.5rem;">Create First Project</a>
+            <?php endif; ?>
           </div>
         <?php else: ?>
           <?php foreach ($projects as $project): ?>
             <div class="project-card">
               <div class="project-header">
-                <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" style="color: inherit; text-decoration: none;">
-                  <h3 class="project-name"><?php echo htmlspecialchars($project['name'] ?? 'Unnamed'); ?></h3>
-                </a>
-                <span class="status-badge status-<?php echo strtolower(str_replace(' ', '-', $project['mobilisation_status'])); ?>">
-                  <?php echo htmlspecialchars($project['mobilisation_status']); ?>
+                <div class="project-info">
+                  <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" style="text-decoration: none; color: inherit;">
+                    <div class="project-name"><?php echo htmlspecialchars($project['name'] ?? 'Unnamed'); ?></div>
+                  </a>
+                  <div class="project-meta">
+                    <div class="meta-item">
+                      <span class="meta-label">Client</span>
+                      <span><?php echo htmlspecialchars($project['client_name'] ?? 'No Client'); ?></span>
+                    </div>
+                    <div class="meta-item">
+                      <span class="meta-label">Location</span>
+                      <span><?php echo htmlspecialchars($project['city'] ?? 'N/A'); ?></span>
+                    </div>
+                  </div>
+                </div>
+                <span class="status-badge status-<?php echo strtolower(str_replace(' ', '-', $project['status'] ?? 'pending')); ?>">
+                  <?php echo htmlspecialchars($project['status'] ?? 'Pending'); ?>
                 </span>
               </div>
 
-              <div class="project-meta">
-                <div class="meta-item">
-                  <span class="meta-label">Client</span>
-                  <span><?php echo htmlspecialchars($project['client_name']); ?></span>
+              <!-- Visual Status Summary -->
+              <div class="progress-section">
+                <div class="progress-label">
+                  <span class="progress-label-left">Mobilization Progress</span>
+                  <span class="progress-label-right"><?php echo $project['mobilization_progress']; ?>%</span>
                 </div>
-                <div class="meta-item">
-                  <span class="meta-label">Location</span>
-                  <span><?php echo htmlspecialchars($project['city'] ?? 'N/A'); ?></span>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="--progress-width: <?php echo $project['mobilization_progress']; ?>%"></div>
                 </div>
-                <div class="meta-item">
-                  <span class="meta-label">Type</span>
-                  <span><?php echo ucwords(str_replace('-', ' ', $project['type'])); ?></span>
+                <div class="progress-status">
+                  <div class="status-dot">
+                    <div class="dot dot-complete"></div>
+                    <span><?php echo $project['mobilization_progress']; ?>% Complete</span>
+                  </div>
                 </div>
               </div>
 
-              <?php if (!empty($project['pa_numbers'])): ?>
-                <div class="meta-item" style="margin-top: 1rem;">
-                  <span class="meta-label">PA Numbers</span>
-                  <div class="pa-list">
-                    <?php foreach ($project['pa_numbers'] as $pa): ?>
-                      <span class="pa-badge pa-status-<?php echo strtolower(str_replace(' ', '-', $pa['pa_status'])); ?>">
-                        <?php echo htmlspecialchars($pa['pa_number']); ?> (<?php echo htmlspecialchars($pa['pa_status']); ?>)
-                      </span>
-                    <?php endforeach; ?>
-                  </div>
-                </div>
-              <?php endif; ?>
-
-              <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" class="nav-link" style="display: block; margin-top: 1rem; text-align: center; padding: 0.75rem;">
-                View Details
-              </a>
+              <!-- View Details Button -->
+              <div style="margin-top: auto; padding-top: 1.5rem;">
+                <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" class="btn" style="width: 100%; text-align: center; text-decoration: none;">
+                  View Details
+                </a>
+              </div>
             </div>
           <?php endforeach; ?>
         <?php endif; ?>
       </div>
     </section>
-
   </div>
+
+  <script>
+    // Optional: Auto-submit form on filter change
+    const filterSelects = document.querySelectorAll('.filter-group select');
+    filterSelects.forEach(select => {
+      select.addEventListener('change', function() {
+        // You can enable auto-submit here if desired
+        // this.closest('form').submit();
+      });
+    });
+  </script>
 </body>
 </html>
