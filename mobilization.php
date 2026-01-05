@@ -67,9 +67,9 @@ $query = "SELECT * FROM projects p $whereClause ORDER BY p.id DESC";
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $projects = $stmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
-var_dump($projects);
+
 // Enrich project data with client names and mobilization progress
-foreach ($projects as &$project) {
+foreach ($projects as $index => &$project) {
   // Get client name
   $clientStmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
   $clientStmt->execute([$project['clientid'] ?? null]);
@@ -123,7 +123,7 @@ foreach ($projects as &$project) {
     $project['status_class'] = 'status-Pending';
   }
 }
-
+unset($project);  // Break reference safety
 ?>
 <!DOCTYPE html>
 <html lang="en">
