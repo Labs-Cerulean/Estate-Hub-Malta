@@ -30,7 +30,6 @@ $mobStmt->execute([$projectId]);
 $mob = $mobStmt->fetch();
 
 if (!$mob) {
-  // Create if missing
   $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)")->execute([$projectId]);
   $mobStmt->execute([$projectId]);
   $mob = $mobStmt->fetch();
@@ -39,19 +38,45 @@ if (!$mob) {
 // Get PA numbers
 $paNumbers = getProjectPANumbers($pdo, $projectId);
 
-// Handle updates
+// Handle updates - SERVER-SIDE VALIDATION
 $message = '';
 if (($_POST['action'] ?? null) === 'update_mobilisation') {
   try {
+    // Get prerequisite states for validation
+    $geoTest = $_POST['geological_test'] ?? $mob['geological_test'] ?? 'NA';
+    $condReports = $_POST['condition_reports'] ?? $mob['condition_reports'] ?? 'Not Started';
+    
+    // Sequential Chain unlock condition: Geo = Complete OR NA, AND Condition = Complete
+    $canSequential = ($geoTest === 'Complete' || $geoTest === 'NA') && $condReports === 'Complete';
+    
+    // Check if ALL sequential fields are Complete
+    $seqFields = ['method_statements', 'insurance_status', 'pavement_guarantee', 
+                  'wellbeing_guarantee', 'umbrella_guarantee'];
+    $allSequentialComplete = true;
+    
+    foreach ($seqFields as $field) {
+      $value = $_POST[$field] ?? $mob[$field] ?? 'Not Complete';
+      if ($value !== 'Complete') {
+        $allSequentialComplete = false;
+        break;
+      }
+    }
+    
+    $respForm = $_POST['responsibility_form'] ?? $mob['responsibility_form'] ?? 'Not Complete';
+    
+    // Final Clearance unlock: ALL sequential Complete AND Responsibility Form Complete
+    $canFinal = $allSequentialComplete && $respForm === 'Complete';
+    
+    // Build update statement
     $updates = [];
     $values = [];
     $allowedFields = [
       'acquisition_complete', 'acquisition_date',
-      'archaeologist_assigned', 'change_of_applicant', 'geological_test',
-      'condition_report_contacts', 'condition_reports',
+      'archaeologist_assigned', 'change_of_applicant', 
+      'geological_test', 'condition_report_contacts', 'condition_reports',
       'method_statements', 'insurance_status', 'pavement_guarantee',
       'wellbeing_guarantee', 'umbrella_guarantee',
-      'responsibility_form', 'bca_clearance'
+      'responsibility_form'
     ];
 
     foreach ($allowedFields as $field) {
@@ -59,6 +84,12 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
         $updates[] = "$field = ?";
         $values[] = $_POST[$field];
       }
+    }
+
+    // ONLY allow BCA update if prerequisites met
+    if ($canFinal && isset($_POST['bca_clearance'])) {
+      $updates[] = "bca_clearance = ?";
+      $values[] = $_POST['bca_clearance'];
     }
 
     if (!empty($updates)) {
@@ -93,8 +124,6 @@ if (($_POST['action'] ?? null) === 'update_pa') {
       ")->execute([$paStatus, $paId, $projectId]);
       
       $message = 'PA status updated!';
-      
-      // Refresh
       $paNumbers = getProjectPANumbers($pdo, $projectId);
     }
   } catch (PDOException $e) {
@@ -103,6 +132,23 @@ if (($_POST['action'] ?? null) === 'update_pa') {
 }
 
 $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
+
+// Recalculate unlock states for display
+$geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
+$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete';
+$canSequential = $geoComplete && $condComplete;
+
+$seqFields = ['method_statements', 'insurance_status', 'pavement_guarantee', 
+              'wellbeing_guarantee', 'umbrella_guarantee'];
+$allSeqComplete = true;
+foreach ($seqFields as $field) {
+  if (($mob[$field] ?? 'Not Complete') !== 'Complete') {
+    $allSeqComplete = false;
+    break;
+  }
+}
+$respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
+$canFinal = $allSeqComplete && $respComplete && $canSequential;
 
 ?>
 <!DOCTYPE html>
@@ -114,65 +160,6 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
   <link rel="icon" href="logo.jpg">
   <link rel="stylesheet" href="styles.css">
 </head>
-
-     <script>
-    // Mobilisation Workflow Validation
-    function validateWorkflow() {
-      // Get prerequisite states
-      const geoTest = document.querySelector('[name="geological_test"]').value;
-      const condReports = document.querySelector('[name="condition_reports"]').value;
-      
-      // Sequential Chain unlocks when: Geo=Complete/NA AND Condition=Complete
-      const canSequential = (geoTest === 'Complete' || geoTest === 'NA') && condReports === 'Complete';
-      
-      // Sequential Chain fields
-      const seqFields = [
-        'method_statements', 'insurance_status', 
-        'pavement_guarantee', 'wellbeing_guarantee', 
-        'umbrella_guarantee'
-      ];
-      
-      // Check if ALL sequential fields are Complete (ignore disabled)
-      const allSequentialComplete = seqFields.every(field => {
-        const select = document.querySelector(`[name="${field}"]`);
-        return select.disabled ? true : select.value === 'Complete';
-      });
-      
-      // Final Clearance unlocks when: Sequential ALL Complete AND Responsibility Form Complete
-      const respFormComplete = document.querySelector('[name="responsibility_form"]').value === 'Complete';
-      const canFinal = allSequentialComplete && respFormComplete;
-      
-      // Update Sequential Chain fieldset
-      const seqFieldset = document.querySelector('fieldset:nth-of-type(2)'); // Sequential chain
-      if (canSequential) {
-        seqFieldset.style.opacity = '1';
-        seqFields.forEach(field => document.querySelector(`[name="${field}"]`).disabled = false);
-      } else {
-        seqFieldset.style.opacity = '0.6';
-        seqFields.forEach(field => document.querySelector(`[name="${field}"]`).disabled = true);
-      }
-      
-      // Update Final Clearance fieldset
-      const finalFieldset = document.querySelector('fieldset:last-of-type');
-      if (canFinal) {
-        finalFieldset.style.opacity = '1';
-        document.querySelector('[name="bca_clearance"]').disabled = false;
-      } else {
-        finalFieldset.style.opacity = '0.6';
-        document.querySelector('[name="bca_clearance"]').disabled = true;
-      }
-    }
-    
-    // Listen for ALL select changes
-    document.addEventListener('change', function(e) {
-      if (e.target.matches('select[name]')) {
-        setTimeout(validateWorkflow, 50);
-      }
-    });
-    
-    // Initial validation
-    document.addEventListener('DOMContentLoaded', validateWorkflow);
-    </script>   
 <body>
   <header class="header">
     <div class="header-container">
@@ -331,11 +318,6 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
         </fieldset>
 
         <!-- SEQUENTIAL CHAIN -->
-        <?php
-          $geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete';
-          $condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete';
-          $canSequential = $geoComplete && $condComplete;
-        ?>
         <fieldset style="grid-column: 1 / -1; border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; background: var(--bg-card); opacity: <?php echo $canSequential ? '1' : '0.6'; ?>; margin-bottom: 1.5rem;">
           <legend style="font-weight: 600; margin-bottom: 1rem;">
             🔗 Sequential Chain
@@ -394,15 +376,20 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
         </fieldset>
 
         <!-- FINAL CLEARANCE -->
-        <fieldset style="grid-column: 1 / -1; border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; background: var(--bg-card);">
-          <legend style="font-weight: 600; margin-bottom: 1rem;">✓ Final Clearance</legend>
-          <span style="font-size: 0.9rem; color: var(--warning); font-weight: 400;">
-              (Unlock when ALL Sequential Chain + Responsibility Form Complete)
-            </span>
+        <fieldset style="grid-column: 1 / -1; border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; background: var(--bg-card); opacity: <?php echo $canFinal ? '1' : '0.6'; ?>;">
+          <legend style="font-weight: 600; margin-bottom: 1rem;">
+            ✓ Final Clearance
+            <?php if (!$canFinal): ?>
+              <span style="font-size: 0.9rem; color: var(--warning); font-weight: 400;">
+                (Unlock when ALL Sequential Chain + Responsibility Form Complete)
+              </span>
+            <?php endif; ?>
+          </legend>
+          
           <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
             <div class="form-group">
               <label>Responsibility Form</label>
-              <select name="responsibility_form">
+              <select name="responsibility_form" <?php echo !$canFinal ? 'disabled' : ''; ?>>
                 <option value="Not Complete" <?php echo ($mob['responsibility_form'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
                 <option value="Complete" <?php echo ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
               </select>
@@ -410,7 +397,7 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
 
             <div class="form-group">
               <label>BCA Clearance (Manual)</label>
-              <select name="bca_clearance">
+              <select name="bca_clearance" <?php echo !$canFinal ? 'disabled' : ''; ?>>
                 <option value="No" <?php echo ($mob['bca_clearance'] ?? 'No') === 'No' ? 'selected' : ''; ?>>No</option>
                 <option value="Yes" <?php echo ($mob['bca_clearance'] ?? 'No') === 'Yes' ? 'selected' : ''; ?>>Yes</option>
               </select>
