@@ -9,7 +9,8 @@
 session_start();
 
 // Include database configuration
-require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../user-functions.php';
 
 // Handle logout
 if (isset($_GET['logout'])) {
