@@ -232,4 +232,3 @@ if (isset($_GET['edit'])) {
         </div>
     </div>
 </div>
-<?php include 'footer.php'; ?>
