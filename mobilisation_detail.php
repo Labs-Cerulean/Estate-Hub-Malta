@@ -240,7 +240,7 @@ $canBCA = $respComplete;
 
               <div class="form-group">
                 <label>Date <?php echo ($mob['acquisition_complete'] ?? 'No') === 'No' ? '(Target)' : '(Actual)'; ?></label>
-                <input type="date" name="acquisition_date" value="<?php echo $mob['acquisition_date'] ?? ''; ?>">
+                <input type="date" name="acquisition_date" value="<?php echo $mob['acquisition_date'] ?? ''; ?>" <?php echo $disabledAttr; ?>>
               </div>
             </div>
           </fieldset>
@@ -387,9 +387,9 @@ $canBCA = $respComplete;
           </div>
         </fieldset>
 
-        <?php if ($canEdit): ?> <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;"> <?php endif; ?>
+        <?php if ($canEdit): ?> <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;"> 
           Save All Changes
-        </button>
+        </button><?php endif; ?>
       </form>
     </section>
 
