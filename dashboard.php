@@ -10,8 +10,36 @@ $isAdmin = isAdmin();
 
 try {
     // Get projects
-    $stmt = $pdo->query("SELECT * FROM projects ORDER BY name");
-    $projects = $stmt->fetchAll();
+    $sql = "
+        SELECT 
+            p.*,
+            pan.pa_number,
+            pan.pa_status,
+            arch.name AS architect_name,
+            se.name AS structural_engineer_name
+        FROM projects p
+        LEFT JOIN project_pa_numbers pan 
+            ON pan.project_id = p.id
+            AND pan.id = (
+                SELECT MIN(pan2.id)
+                FROM project_pa_numbers pan2
+                WHERE pan2.project_id = p.id
+            )
+        LEFT JOIN project_professionals ppa_arch
+            ON ppa_arch.project_id = p.id
+        LEFT JOIN professionals arch
+            ON arch.id = ppa_arch.professional_id
+            AND arch.role_type = 'architect'
+        LEFT JOIN project_professionals ppa_se
+            ON ppa_se.project_id = p.id
+        LEFT JOIN professionals se
+            ON se.id = ppa_se.professional_id
+            AND se.role_type = 'structural_engineer'
+        ORDER BY p.name
+    ";
+    
+    $stmt = $pdo->query($sql);
+    $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Get stats
     $projectCount = count($projects);
@@ -71,21 +99,35 @@ try {
                             <th>Project Name</th>
                             <th>City</th>
                             <th>Type</th>
+                            <th>PA Number</th>
+                            <th>PA Status</th>
+                            <th>Architect</th>
+                            <th>Structural Engineer</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($projects as $project): ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($project['name']); ?></td>
-                                <td><?php echo htmlspecialchars($project['city']); ?></td>
-                                <td><?php echo htmlspecialchars($project['type']); ?></td>
-                                <td>
-                                    <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" class="action-btn view">View</a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
+                        <?php if (count($projects) > 0): ?>
+                            <?php foreach ($projects as $project): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($project['name']) ?></td>
+                                    <td><?= htmlspecialchars($project['city']) ?></td>
+                                    <td><?= htmlspecialchars($project['type']) ?></td>
+                        
+                                    <td><?= htmlspecialchars(!empty($project['pa_number']) ? $project['pa_number'] : 'TBC') ?></td>
+                                    <td><?= htmlspecialchars(!empty($project['pa_status']) ? $project['pa_status'] : 'TBC') ?></td>
+                                    <td><?= htmlspecialchars(!empty($project['architect_name']) ? $project['architect_name'] : 'TBC') ?></td>
+                                    <td><?= htmlspecialchars(!empty($project['structural_engineer_name']) ? $project['structural_engineer_name'] : 'TBC') ?></td>
+                        
+                                    <td>
+                                        <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary">View</a>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr><td colspan="8" class="text-center">No projects yet.</td></tr>
+                        <?php endif; ?>
+                        </tbody>
                 </table>
             <?php else: ?>
                 <div class="empty-state">
