@@ -9,31 +9,32 @@ $userRole = getCurrentRole();
 $isAdmin = isAdmin();
 
 try {
-    // Get projects
-    $sql = "
-            SELECT 
-            p.*,
+    // Get all projects
+    $sql = "SELECT * FROM projects ORDER BY name";
+    $stmt = $pdo->query($sql);
+    $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get all PA numbers grouped by project
+    $paSql = "
+        SELECT 
+            pan.project_id,
             pan.pa_number,
             pan.pa_status,
             arch.name AS architect_name,
             se.name AS structural_engineer_name
-        FROM projects p
-        LEFT JOIN project_pa_numbers pan 
-            ON pan.project_id = p.id
-            AND pan.id = (
-                SELECT MIN(pan2.id)
-                FROM project_pa_numbers pan2
-                WHERE pan2.project_id = p.id
-            )
-        LEFT JOIN professionals arch
-            ON arch.id = pan.architect_id
-        LEFT JOIN professionals se
-            ON se.id = pan.structural_engineer_id
-        ORDER BY p.name
+        FROM project_pa_numbers pan
+        LEFT JOIN professionals arch ON arch.id = pan.architect_id
+        LEFT JOIN professionals se ON se.id = pan.structural_engineer_id
+        ORDER BY pan.project_id, pan.id
     ";
+    $paStmt = $pdo->query($paSql);
+    $paNumbers = $paStmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $stmt = $pdo->query($sql);
-    $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Group PA numbers by project_id
+    $paByProject = [];
+    foreach ($paNumbers as $pa) {
+        $paByProject[$pa['project_id']][] = $pa;
+    }
 
     // Get stats
     $projectCount = count($projects);
@@ -42,6 +43,7 @@ try {
 
 } catch (Exception $e) {
     $projects = [];
+    $paByProject = [];
     $projectCount = 0;
     $userCount = 0;
     $mobilisedCount = 0;
@@ -117,42 +119,92 @@ function buildPaUrl(?string $paNumber): ?string {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if (count($projects) > 0): ?>
-                            <?php foreach ($projects as $project): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars($project['name']) ?></td>
-                                    <td><?= htmlspecialchars($project['city']) ?></td>
-                                    <td><?= htmlspecialchars($project['type']) ?></td>
-                        
-                                    <?php
-                                    $paText = !empty($project['pa_number']) ? $project['pa_number'] : 'TBC';
-                                    $paUrl  = buildPaUrl($project['pa_number'] ?? null);
-                                    ?>
-                                    <td>
-                                        <?php if ($paUrl): ?>
-                                            <a href="<?= htmlspecialchars($paUrl) ?>" 
-                                               target="_blank" 
-                                               rel="noopener noreferrer"
-                                               class="text-decoration-none">
-                                                <?= htmlspecialchars($paText) ?>
-                                            </a>
-                                        <?php else: ?>
-                                            <?= htmlspecialchars($paText) ?>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td><?= htmlspecialchars(!empty($project['pa_status']) ? $project['pa_status'] : 'TBC') ?></td>
-                                    <td><?= htmlspecialchars(!empty($project['architect_name']) ? $project['architect_name'] : 'TBC') ?></td>
-                                    <td><?= htmlspecialchars(!empty($project['structural_engineer_name']) ? $project['structural_engineer_name'] : 'TBC') ?></td>
-                        
-                                    <td>
-                                        <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary">View</a>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <tr><td colspan="8" class="text-center">No projects yet.</td></tr>
-                        <?php endif; ?>
-                        </tbody>
+                        <?php foreach ($projects as $project): ?>
+                            <tr>
+                                <td><?= htmlspecialchars($project['name']) ?></td>
+                                <td><?= htmlspecialchars($project['city']) ?></td>
+                                <td><?= htmlspecialchars($project['type']) ?></td>
+                    
+                                <?php
+                                // Get all PA numbers for this project
+                                $projectPAs = $paByProject[$project['id']] ?? [];
+                                ?>
+                                
+                                <!-- PA Number Column -->
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?php 
+                                            $paText = htmlspecialchars($pa['pa_number']);
+                                            $paUrl = buildPaUrl($pa['pa_number']);
+                                            ?>
+                                            <?php if ($paUrl): ?>
+                                                <a href="<?= htmlspecialchars($paUrl) ?>" 
+                                                   target="_blank" 
+                                                   rel="noopener noreferrer"
+                                                   class="text-decoration-none">
+                                                    <?= $paText ?>
+                                                </a>
+                                            <?php else: ?>
+                                                <?= $paText ?>
+                                            <?php endif; ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?>
+                                                <br>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        TBC
+                                    <?php endif; ?>
+                                </td>
+                                
+                                <!-- PA Status Column -->
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?= htmlspecialchars($pa['pa_status']) ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?>
+                                                <br>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        TBC
+                                    <?php endif; ?>
+                                </td>
+                                
+                                <!-- Architect Column -->
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?>
+                                                <br>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        TBC
+                                    <?php endif; ?>
+                                </td>
+                                
+                                <!-- Structural Engineer Column -->
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?>
+                                                <br>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        TBC
+                                    <?php endif; ?>
+                                </td>
+                    
+                                <td>
+                                    <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary">View</a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
                 </table>
             <?php else: ?>
                 <div class="empty-state">
