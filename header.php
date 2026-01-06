@@ -12,14 +12,14 @@ requireLogin(); // Redirects if not logged in[file:10][file:3]
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) . ' - ' : ''; ?>Estate Hub</title>
-    <link rel="icon" href="logo.jpg">
+    <link rel="icon" href="logo.png">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header class="header">
         <div class="header-container">
             <div class="header-left">
-                <img src="logo.jpg" alt="Estate Hub" onerror="this.src='logo_BKP.jpg'">
+                <img src="logo.png" alt="Estate Hub" onerror="this.src='logo.png'">
                 <div>
                     <h1 class="header-title">Estate Hub</h1>
                     <p class="header-subtitle">Project Management System</p>
