@@ -11,7 +11,7 @@ $isAdmin = isAdmin();
 try {
     // Get projects
     $sql = "
-        SELECT 
+            SELECT 
             p.*,
             pan.pa_number,
             pan.pa_status,
@@ -25,16 +25,10 @@ try {
                 FROM project_pa_numbers pan2
                 WHERE pan2.project_id = p.id
             )
-        LEFT JOIN project_professionals ppa_arch
-            ON ppa_arch.project_id = p.id
         LEFT JOIN professionals arch
-            ON arch.id = ppa_arch.professional_id
-            AND arch.role_type = 'architect'
-        LEFT JOIN project_professionals ppa_se
-            ON ppa_se.project_id = p.id
+            ON arch.id = pan.architect_id
         LEFT JOIN professionals se
-            ON se.id = ppa_se.professional_id
-            AND se.role_type = 'structural_engineer'
+            ON se.id = pan.structural_engineer_id
         ORDER BY p.name
     ";
     
