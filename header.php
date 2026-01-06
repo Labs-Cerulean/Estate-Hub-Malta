@@ -36,7 +36,7 @@ requireLogin(); // Redirects if not logged in[file:10][file:3]
         <div style="max-width: 1440px; margin: 0 auto; display: flex; gap: 1rem; padding: 1rem 2rem;">
             <a href="dashboard.php" class="nav-link active">Dashboard</a>
             <a href="clients.php" class="nav-link" <?php if (!hasRole('manager')&&!hasRole('admin')) echo 'style="display:none;"'; ?>>Clients</a>
-            <a href="create-project.php.php" class="nav-link" <?php if (!hasRole('manager')&&!hasRole('admin')) echo 'style="display:none;"'; ?>>New Project</a>
+            <a href="create-project.php" class="nav-link" <?php if (!hasRole('manager')&&!hasRole('admin')) echo 'style="display:none;"'; ?>>New Project</a>
             <a href="mobilisation.php" class="nav-link">Mobilization</a>
             <?php if (isAdmin()): ?>
                 <a href="users-management.php" class="nav-link">Users</a>
