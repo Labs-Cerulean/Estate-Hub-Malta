@@ -40,7 +40,6 @@ requireLogin(); // Redirects if not logged in[file:10][file:3]
             <a href="mobilisation.php" class="nav-link">Mobilization</a>
             <?php if (isAdmin()): ?>
                 <a href="users-management.php" class="nav-link">Users</a>
-                <a href="create-project.php" class="nav-link">New Project</a>
             <?php endif; ?>
         </div>
     </nav>
