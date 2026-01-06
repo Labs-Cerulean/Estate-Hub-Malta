@@ -2,6 +2,7 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+require_once 'config.php';
 require_once 'session-check.php';
 require_once 'user-functions.php';
 requireLogin(); // Redirects if not logged in[file:10][file:3]
