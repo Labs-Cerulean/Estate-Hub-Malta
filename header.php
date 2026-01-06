@@ -19,7 +19,7 @@ requireLogin(); // Redirects if not logged in[file:10][file:3]
     <header class="header">
         <div class="header-container">
             <div class="header-left">
-                <img src="logo.png" alt="Estate Hub" onerror="this.src='logo.png'">
+                <img src="logo.png" alt="Estate Hub" onerror="this.src='logo.png'" class="logo-nav">
                 <div>
                     <h1 class="header-title">Estate Hub</h1>
                     <p class="header-subtitle">Project Management System</p>
