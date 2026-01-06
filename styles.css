@@ -1643,5 +1643,140 @@ td {
   box-shadow: 0 4px 12px rgba(59,130,246,0.3);
 }
 
+/* User management layout */
+.user-management-container {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+.user-list-panel,
+.user-details-panel {
+    /* Remove white card; rely on global background */
+    background: transparent;
+    border-radius: 8px;
+}
+
+/* If you still want a subtle card without white, use something like: */
+/*
+.user-list-panel,
+.user-details-panel {
+    background: #1e1e1e;
+    border-radius: 8px;
+}
+*/
+
+.user-list-panel h2,
+.user-details-panel h2 {
+    margin-bottom: 12px;
+}
+
+.user-list {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* User list items */
+.user-list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.user-list-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.user-list-item.active {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.user-list-item-main {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-list-name {
+    font-weight: 600;
+}
+
+.user-list-meta {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+/* Status badge for active/inactive */
+.user-status-badge {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 999px;
+}
+
+.user-status-active {
+    background-color: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+}
+
+.user-status-inactive {
+    background-color: rgba(231, 76, 60, 0.15);
+    color: #e74c3c;
+}
+
+/* Two-column details panel on the right */
+.user-details-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 24px;
+}
+
+.user-details-section {
+    margin-bottom: 16px;
+}
+
+/* Project assignment list */
+.user-projects-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.user-project-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+.user-project-item:nth-child(odd) {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Forms inside user details */
+.user-form-inline {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.user-form-inline .form-control,
+.user-form-inline select {
+    min-width: 160px;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 992px) {
+    .user-management-container {
+        grid-template-columns: 1fr;
+    }
+
+    .user-details-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 
 
