@@ -88,50 +88,118 @@ $engineers = $pdo->query("
   <link rel="stylesheet" href="styles.css">
   <style>
     .pa-entry {
-      border: 1px solid #ddd;
-      padding: 1rem;
-      margin-bottom: 1rem;
-      border-radius: 4px;
-      background: #f9f9f9;
+      background: var(--bg-card);
+      border: 1px solid var(--border-glass);
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+      border-radius: 20px;
+      backdrop-filter: blur(20px);
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1rem;
+      gap: 1.5rem;
+      transition: all 0.3s ease;
     }
+    
+    .pa-entry:hover {
+      border-color: rgba(255,255,255,0.2);
+      transform: translateY(-2px);
+    }
+    
     .pa-entry-header {
       grid-column: 1 / -1;
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 0.5rem;
-      font-weight: bold;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-glass);
     }
+    
+    .pa-entry-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      background: var(--corporate-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
     .pa-number-field {
       grid-column: 1 / -1;
     }
+    
     .remove-pa-btn {
-      background: #dc3545;
-      color: white;
-      border: none;
-      padding: 0.25rem 0.75rem;
-      border-radius: 4px;
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
       cursor: pointer;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
     }
+    
     .remove-pa-btn:hover {
-      background: #c82333;
+      background: rgba(239, 68, 68, 0.3);
+      transform: translateY(-1px);
     }
+    
     .add-pa-btn {
-      background: #28a745;
-      color: white;
-      border: none;
+      background: rgba(34, 197, 94, 0.2);
+      color: #22c55e;
+      border: 1px solid rgba(34, 197, 94, 0.3);
       padding: 0.75rem 1.5rem;
-      border-radius: 4px;
+      border-radius: 12px;
       cursor: pointer;
       font-size: 1rem;
-      margin-bottom: 1rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
     }
+    
     .add-pa-btn:hover {
-      background: #218838;
+      background: rgba(34, 197, 94, 0.3);
+      transform: translateY(-2px);
+    }
+    
+    .pa-section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-glass);
+    }
+    
+    .pa-section-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    
+    @media (max-width: 768px) {
+      .pa-entry {
+        grid-template-columns: 1fr;
+        padding: 1.5rem;
+      }
+      
+      .pa-entry-header {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+      
+      .remove-pa-btn {
+        width: 100%;
+        text-align: center;
+      }
     }
   </style>
 </head>
@@ -201,23 +269,27 @@ $engineers = $pdo->query("
         </div>
 
         <!-- PA Numbers Section -->
-        <div style="grid-column: 1 / -1; margin-top: 1rem;">
-          <h3>PA Numbers</h3>
-          <button type="button" class="add-pa-btn" onclick="addPAEntry()">+ Add PA Number</button>
+        <div style="grid-column: 1 / -1; margin-top: 2rem;">
+          <div class="pa-section-header">
+            <h3 class="pa-section-title">PA Numbers</h3>
+            <button type="button" class="add-pa-btn" onclick="addPAEntry()">
+              <span>+</span> Add PA Number
+            </button>
+          </div>
           
           <div id="pa-entries-container">
             <!-- PA entries will be added here dynamically -->
           </div>
         </div>
 
-        <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem;">
+        <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 2rem;">
           Create Project
         </button>
       </form>
     </section>
 
     <div style="display: flex; gap: 1rem; margin-top: 2rem;">
-      <a href="mobilization.php" class="nav-link" style="padding: 1rem 2rem; flex: 1; text-align: center;">
+      <a href="dashboard.php" class="nav-link" style="padding: 1rem 2rem; flex: 1; text-align: center;">
         Back to Dashboard
       </a>
     </div>
@@ -237,7 +309,7 @@ $engineers = $pdo->query("
       
       entryDiv.innerHTML = `
         <div class="pa-entry-header">
-          <span>PA Entry ${paEntryCount + 1}</span>
+          <span class="pa-entry-title">PA Entry ${paEntryCount + 1}</span>
           <button type="button" class="remove-pa-btn" onclick="removePAEntry(${paEntryCount})">Remove</button>
         </div>
         
@@ -257,12 +329,14 @@ $engineers = $pdo->query("
           </select>
         </div>
         
+        <div style="grid-column: 1 / -1;"></div>
+        
         <div>
           <label>Architect</label>
           <select name="pa_entries[${paEntryCount}][architect]">
             <option value="">Select Architect (Optional)</option>
             ${architects.map(arch => 
-              `<option value="${arch.id}">${arch.name}${arch.firm_name ? ' - ' + arch.firm_name : ''}</option>`
+              `<option value="${arch.id}">${escapeHtml(arch.name)}${arch.firm_name ? ' - ' + escapeHtml(arch.firm_name) : ''}</option>`
             ).join('')}
           </select>
         </div>
@@ -272,7 +346,7 @@ $engineers = $pdo->query("
           <select name="pa_entries[${paEntryCount}][engineer]">
             <option value="">Select Engineer (Optional)</option>
             ${engineers.map(eng => 
-              `<option value="${eng.id}">${eng.name}${eng.firm_name ? ' - ' + eng.firm_name : ''}</option>`
+              `<option value="${eng.id}">${escapeHtml(eng.name)}${eng.firm_name ? ' - ' + escapeHtml(eng.firm_name) : ''}</option>`
             ).join('')}
           </select>
         </div>
@@ -285,8 +359,16 @@ $engineers = $pdo->query("
     function removePAEntry(index) {
       const entry = document.getElementById(`pa-entry-${index}`);
       if (entry) {
-        entry.remove();
+        entry.style.opacity = '0';
+        entry.style.transform = 'translateY(10px)';
+        setTimeout(() => entry.remove(), 300);
       }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     // Add one PA entry by default when page loads
