@@ -10,8 +10,7 @@ $isAdmin = isAdmin();
 
 try {
     // Get projects
-    $sql = "
-        "SELECT p.*, pan.panumber, pan.pastatus, arch.name AS architectname, se.name AS structuralengineername 
+    $sql = "SELECT p.*, pan.panumber, pan.pastatus, arch.name AS architectname, se.name AS structuralengineername 
         FROM projects p 
         LEFT JOIN project_pa_numbers pan ON pan.projectid = p.id 
         LEFT JOIN professionals arch ON arch.id = pan.architectid 
