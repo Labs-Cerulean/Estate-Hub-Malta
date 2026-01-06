@@ -3,10 +3,10 @@ $pageTitle = 'Dashboard';
 include 'header.php';
 
 // Get current user
-$userId = $_SESSION['user_id'];
-$userName = $_SESSION['first_name'] ?? 'User';
-$userRole = $_SESSION['role'] ?? 'viewer';
-$isAdmin = ($userRole === 'admin');
+$userId = getCurrentUserId();
+$userName = getCurrentUserFullName();
+$userRole = hasRole();
+$isAdmin = isAdmin();
 
 try {
     // Get projects
