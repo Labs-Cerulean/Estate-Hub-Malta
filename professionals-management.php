@@ -4,7 +4,7 @@ include 'header.php';
 $pdo = getDB();
 
 // Only managers and admins
-if (!isAdmin() && getCurrentUserRole() !== 'manager') {
+if (!isAdmin() && getUserRole() !== 'manager') {
     header('Location: dashboard.php');
     exit;
 }
