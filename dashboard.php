@@ -92,7 +92,7 @@ function buildPaUrl(?string $paNumber): ?string {
     }
 
     // Expect format like "PA/04937/22"
-    if (!preg_match('#^PA/(\d{5})/(\d{2})$#', trim($paNumber), $m)) {
+    if (!preg_match('#^PA/(\d{4,5})/(\d{2})$#', trim($paNumber), $m)) {
         return null;
     }
 
