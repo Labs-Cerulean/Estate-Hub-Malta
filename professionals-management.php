@@ -132,7 +132,7 @@ if (isset($_GET['edit'])) {
                         <button type="submit" class="btn"><?= $editing ? 'Update Professional' : 'Add Professional' ?></button>
                         <?php if ($editing): ?>
                             <a href="professionals-management.php" class="btn btn--secondary">Cancel</a>
-                        <?php $editing=null;endif; ?>
+                        <?php endif; ?>
                     </div>
                 </form>
             </div>
