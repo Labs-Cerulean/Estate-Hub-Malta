@@ -35,23 +35,7 @@ try {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <header class="header">
-        <div class="header-container">
-            <div class="header-left">
-                <img src="logo.png" alt="Estate Hub" class="logo-nav">
-                <div>
-                    <h1 class="header-title">Estate Hub</h1>
-                    <p class="header-subtitle">Project Management System</p>
-                </div>
-            </div>
-            <div class="header-right">
-                <span class="header-title"><?php echo htmlspecialchars($userName); ?></span>
-                <span class="header-subtitle"><?php echo htmlspecialchars($userRole); ?></span>
-                <a href="api/logout.php" class="nav-link">Logout</a>
-            </div>
-        </div>
-    </header>
-
+   
     <nav style="border-bottom: 1px solid #e1e4e8; padding: 1rem 2rem;">
         <div style="max-width: 1440px; margin: 0 auto; display: flex; gap: 1rem;">
             <a href="dashboard.php" class="nav-link" style="background: #2563eb; color: white; border-color: #2563eb;">Dashboard</a>
