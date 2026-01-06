@@ -1,7 +1,7 @@
 <?php
-require_once 'config.php';
-require_once 'session-check.php';
-require_once 'user-functions.php';
+$pageTitle = 'Professionals';
+include 'header.php';
+$pdo = getDB();;
 
 // Only managers and admins
 if (!isAdmin() && getCurrentUserRole() !== 'manager') {
