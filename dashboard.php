@@ -20,7 +20,7 @@ try {
         COUNT(ppn.id) as pa_count
     FROM projects p
     LEFT JOIN clients c ON p.clientid = c.id
-    LEFT JOIN projectpanumbers ppn ON p.id = ppn.projectid
+    LEFT JOIN project_pa_numbers ppn ON p.id = ppn.projectid
     LEFT JOIN professionals arch ON ppn.architect_id = arch.id
     LEFT JOIN professionals se ON ppn.structural_engineer_id = se.id
     GROUP BY p.id
