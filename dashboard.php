@@ -85,7 +85,23 @@ try {
                     <a href="create-project.php" class="btn">Add Project</a>
                 <?php endif; ?>
             </div>
+<?php
+function buildPaUrl(?string $paNumber): ?string {
+    if (empty($paNumber)) {
+        return null;
+    }
 
+    // Expect format like "PA/04937/22"
+    if (!preg_match('#^PA/(\d{5})/(\d{2})$#', trim($paNumber), $m)) {
+        return null;
+    }
+
+    $caseNumber = $m[1];
+    $caseYear   = $m[2];
+
+    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseYear={$caseYear}";
+}
+?>
             <?php if (count($projects) > 0): ?>
                 <table>
                     <thead>
@@ -108,7 +124,22 @@ try {
                                     <td><?= htmlspecialchars($project['city']) ?></td>
                                     <td><?= htmlspecialchars($project['type']) ?></td>
                         
-                                    <td><?= htmlspecialchars(!empty($project['pa_number']) ? $project['pa_number'] : 'TBC') ?></td>
+                                    <?php
+                                    $paText = !empty($project['pa_number']) ? $project['pa_number'] : 'TBC';
+                                    $paUrl  = buildPaUrl($project['pa_number'] ?? null);
+                                    ?>
+                                    <td>
+                                        <?php if ($paUrl): ?>
+                                            <a href="<?= htmlspecialchars($paUrl) ?>" 
+                                               target="_blank" 
+                                               rel="noopener noreferrer"
+                                               class="text-decoration-none">
+                                                <?= htmlspecialchars($paText) ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <?= htmlspecialchars($paText) ?>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?= htmlspecialchars(!empty($project['pa_status']) ? $project['pa_status'] : 'TBC') ?></td>
                                     <td><?= htmlspecialchars(!empty($project['architect_name']) ? $project['architect_name'] : 'TBC') ?></td>
                                     <td><?= htmlspecialchars(!empty($project['structural_engineer_name']) ? $project['structural_engineer_name'] : 'TBC') ?></td>
