@@ -35,18 +35,6 @@ try {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-   
-    <nav style="border-bottom: 1px solid #e1e4e8; padding: 1rem 2rem;">
-        <div style="max-width: 1440px; margin: 0 auto; display: flex; gap: 1rem;">
-            <a href="dashboard.php" class="nav-link" style="background: #2563eb; color: white; border-color: #2563eb;">Dashboard</a>
-            <a href="clients.php" class="nav-link">Clients</a>
-            <a href="mobilization.php" class="nav-link">Mobilization</a>
-            <?php if ($isAdmin): ?>
-                <a href="users-management.php" class="nav-link">Users</a>
-                <a href="create-project.php" class="nav-link">New Project</a>
-            <?php endif; ?>
-        </div>
-    </nav>
 
     <div class="main-container">
         <h1 class="page-title">Dashboard</h1>
