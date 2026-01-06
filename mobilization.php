@@ -1,18 +1,6 @@
 <?php
-session_start();
-
-if (empty($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header('Location: index.php');
-    exit;
-}
-
-if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
-    session_destroy();
-    header('Location: index.php');
-    exit;
-}
-
-require_once 'config.php';
+$pageTitle = 'Mobilisation';
+include 'header.php';
 $pdo = getDB();
 
 // Check admin access
@@ -319,24 +307,7 @@ unset($project);  // Break reference safety
   </style>
 </head>
 <body>
-  <header class="header">
-    <div class="header-container">
-      <div style="display: flex; align-items: center; gap: 1rem;">
-        <img src="logo.png" alt="Estate Hub Malta" class="logo-nav" onerror="this.src='logo.png'">
-        <div style="font-size: 1.4rem; font-weight: 700;">Estate Hub Malta</div>
-        <div style="font-size: 0.85rem; color: var(--text-muted);">Mobilization Dashboard</div>
-      </div>
-      <div class="header-right">
-        <a href="dashboard.php" class="nav-link">Overview</a>
-        <?php if ($isAdmin): ?>
-          <a href="clients.php" class="nav-link">Clients</a>
-          <a href="create-project.php" class="nav-link">Projects</a>
-        <?php endif; ?>
-        <!-- Logout Button -->
-                <a href="api/logout.php" class="nav-link">Logout</a>
-      </div>
-    </div>
-  </header>
+  
 
   <div class="main-container">
     <h1 class="page-title">Mobilization Dashboard</h1>
