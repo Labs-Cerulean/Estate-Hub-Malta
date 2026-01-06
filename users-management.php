@@ -164,7 +164,6 @@ if (isset($_GET['user_id'])) {
         }
         
         .user-list {
-            background: var(--color-surface);
             border-radius: 8px;
             padding: 1.5rem;
             border: 1px solid var(--color-border);
@@ -189,7 +188,6 @@ if (isset($_GET['user_id'])) {
         }
         
         .user-details {
-            background: var(--color-surface);
             border-radius: 8px;
             padding: 1.5rem;
             border: 1px solid var(--color-border);
