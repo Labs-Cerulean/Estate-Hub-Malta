@@ -1,8 +1,8 @@
 <?php
 $pageTitle = 'Mobilisation Detail';
 include 'header.php';
-
-
+$canEdit = canEdit();
+$disabledAttr = $canEdit ? '' : 'disabled';
 $pdo = getDB();
 
 $projectId = $_GET['project_id'] ?? null;
@@ -200,7 +200,7 @@ $canBCA = $respComplete;
                 </div>
                 <div class="form-group">
                   <label>Status</label>
-                  <select name="pa_status">
+                  <select name="pa_status" <?php echo $disabledAttr; ?>>
                     <option value="Endorsed" <?php echo $pa['pa_status'] === 'Endorsed' ? 'selected' : ''; ?>>Endorsed</option>
                     <option value="Approved" <?php echo $pa['pa_status'] === 'Approved' ? 'selected' : ''; ?>>Approved</option>
                     <option value="Fee Payment" <?php echo $pa['pa_status'] === 'Fee Payment' ? 'selected' : ''; ?>>Fee Payment</option>
@@ -209,7 +209,7 @@ $canBCA = $respComplete;
                 </div>
                 <input type="hidden" name="action" value="update_pa">
                 <input type="hidden" name="pa_id" value="<?php echo $pa['id']; ?>">
-                <button type="submit" class="btn" style="width: 100%; margin-top: 1rem;">Update</button>
+                <?php if ($canEdit): ?> <button type="submit" class="btn" style="width: 100%; margin-top: 1rem;">Update</button> <?php endif; ?>
               </div>
             </form>
           <?php endforeach; ?>
@@ -232,7 +232,7 @@ $canBCA = $respComplete;
             <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
               <div class="form-group">
                 <label>Status</label>
-                <select name="acquisition_complete">
+                <select name="acquisition_complete" <?php echo $disabledAttr; ?>>
                   <option value="No" <?php echo ($mob['acquisition_complete'] ?? 'No') === 'No' ? 'selected' : ''; ?>>No (Red)</option>
                   <option value="Yes" <?php echo ($mob['acquisition_complete'] ?? 'No') === 'Yes' ? 'selected' : ''; ?>>Yes (Green)</option>
                 </select>
@@ -253,7 +253,7 @@ $canBCA = $respComplete;
           <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
             <div class="form-group">
               <label>Archaeologist Assigned</label>
-              <select name="archaeologist_assigned">
+              <select name="archaeologist_assigned" <?php echo $disabledAttr; ?>>
                 <option value="NA" <?php echo ($mob['archaeologist_assigned'] ?? 'NA') === 'NA' ? 'selected' : ''; ?>>N/A</option>
                 <option value="Yes" <?php echo ($mob['archaeologist_assigned'] ?? 'NA') === 'Yes' ? 'selected' : ''; ?>>Yes</option>
                 <option value="No" <?php echo ($mob['archaeologist_assigned'] ?? 'NA') === 'No' ? 'selected' : ''; ?>>No</option>
@@ -262,7 +262,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Change of Applicant</label>
-              <select name="change_of_applicant">
+              <select name="change_of_applicant" <?php echo $disabledAttr; ?>>
                 <option value="NA" <?php echo ($mob['change_of_applicant'] ?? 'NA') === 'NA' ? 'selected' : ''; ?>>N/A</option>
                 <option value="Complete" <?php echo ($mob['change_of_applicant'] ?? 'NA') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
                 <option value="Not Complete" <?php echo ($mob['change_of_applicant'] ?? 'NA') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
@@ -271,7 +271,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Geological Test</label>
-              <select name="geological_test">
+              <select name="geological_test" <?php echo $disabledAttr; ?>>
                 <option value="NA" <?php echo ($mob['geological_test'] ?? 'NA') === 'NA' ? 'selected' : ''; ?>>N/A</option>
                 <option value="Complete" <?php echo ($mob['geological_test'] ?? 'NA') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
                 <option value="Not Complete" <?php echo ($mob['geological_test'] ?? 'NA') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
@@ -281,7 +281,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Condition Report Contacts</label>
-              <select name="condition_report_contacts">
+              <select name="condition_report_contacts" <?php echo $disabledAttr; ?>>
                 <option value="Not Started" <?php echo ($mob['condition_report_contacts'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['condition_report_contacts'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['condition_report_contacts'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
@@ -290,7 +290,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Condition Reports</label>
-              <select name="condition_reports">
+              <select name="condition_reports" <?php echo $disabledAttr; ?>>
                 <option value="Not Started" <?php echo ($mob['condition_reports'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['condition_reports'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['condition_reports'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
@@ -313,7 +313,7 @@ $canBCA = $respComplete;
           <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
             <div class="form-group">
               <label>Method Statements</label>
-              <select name="method_statements" <?php echo !$canSequential ? 'disabled' : ''; ?>>
+              <select name="method_statements" <?php echo !$canSequential ? 'disabled' : ''; ?> <?php echo $disabledAttr; ?>>
                 <option value="Not Complete" <?php echo ($mob['method_statements'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
                 <option value="Complete" <?php echo ($mob['method_statements'] ?? 'Not Complete') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
               </select>
@@ -321,7 +321,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Insurance</label>
-              <select name="insurance_status" <?php echo !$canSequential ? 'disabled' : ''; ?>>
+              <select name="insurance_status" <?php echo !$canSequential ? 'disabled' : ''; ?> <?php echo $disabledAttr; ?>>
                 <option value="Not Started" <?php echo ($mob['insurance_status'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['insurance_status'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['insurance_status'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
@@ -330,7 +330,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Pavement Guarantee</label>
-              <select name="pavement_guarantee" <?php echo !$canSequential ? 'disabled' : ''; ?>>
+              <select name="pavement_guarantee" <?php echo !$canSequential ? 'disabled' : ''; ?> <?php echo $disabledAttr; ?>>
                 <option value="Not Started" <?php echo ($mob['pavement_guarantee'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['pavement_guarantee'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['pavement_guarantee'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
@@ -339,7 +339,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Wellbeing Guarantee</label>
-              <select name="wellbeing_guarantee" <?php echo !$canSequential ? 'disabled' : ''; ?>>
+              <select name="wellbeing_guarantee" <?php echo !$canSequential ? 'disabled' : ''; ?> <?php echo $disabledAttr; ?>>
                 <option value="Not Started" <?php echo ($mob['wellbeing_guarantee'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['wellbeing_guarantee'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['wellbeing_guarantee'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
@@ -348,7 +348,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>Umbrella Guarantee</label>
-              <select name="umbrella_guarantee" <?php echo !$canSequential ? 'disabled' : ''; ?>>
+              <select name="umbrella_guarantee" <?php echo !$canSequential ? 'disabled' : ''; ?> <?php echo $disabledAttr; ?>>
                 <option value="Not Started" <?php echo ($mob['umbrella_guarantee'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['umbrella_guarantee'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['umbrella_guarantee'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
@@ -371,7 +371,7 @@ $canBCA = $respComplete;
           <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
             <div class="form-group">
               <label>Responsibility Form</label>
-              <select name="responsibility_form" <?php echo !$canFinal ? 'disabled' : ''; ?>>
+              <select name="responsibility_form" <?php echo !$canFinal ? 'disabled' : ''; ?> <?php echo $disabledAttr; ?>>
                 <option value="Not Complete" <?php echo ($mob['responsibility_form'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
                 <option value="Complete" <?php echo ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
               </select>
@@ -379,7 +379,7 @@ $canBCA = $respComplete;
 
             <div class="form-group">
               <label>BCA Clearance (Manual)</label>
-              <select name="bca_clearance" <?php echo !$canBCA ? 'disabled' : ''; ?>>
+              <select name="bca_clearance" <?php echo !$canBCA ? 'disabled' : ''; ?> <?php echo $disabledAttr; ?>>
                 <option value="No" <?php echo ($mob['bca_clearance'] ?? 'No') === 'No' ? 'selected' : ''; ?>>No</option>
                 <option value="Yes" <?php echo ($mob['bca_clearance'] ?? 'No') === 'Yes' ? 'selected' : ''; ?>>Yes</option>
               </select>
@@ -387,7 +387,7 @@ $canBCA = $respComplete;
           </div>
         </fieldset>
 
-        <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;">
+        <?php if ($canEdit): ?> <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;"> <?php endif; ?>
           Save All Changes
         </button>
       </form>
