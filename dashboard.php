@@ -10,7 +10,23 @@ $isAdmin = isAdmin();
 
 try {
     // Get projects
-    $stmt = $pdo->query("SELECT * FROM projects ORDER BY name");
+    $stmt = $pdo->prepare("
+    SELECT 
+        p.*,
+        c.name as clientname, c.type as clienttype,
+        GROUP_CONCAT(DISTINCT ppn.panumber ORDER BY ppn.created_at SEPARATOR ', ') as pa_numbers,
+        GROUP_CONCAT(DISTINCT CONCAT(arch.name, ' (', arch.firm_name, ')') SEPARATOR ', ') as architects,
+        GROUP_CONCAT(DISTINCT CONCAT(se.name, ' (', se.firm_name, ')') SEPARATOR ', ') as engineers,
+        COUNT(ppn.id) as pa_count
+    FROM projects p
+    LEFT JOIN clients c ON p.clientid = c.id
+    LEFT JOIN projectpanumbers ppn ON p.id = ppn.projectid
+    LEFT JOIN professionals arch ON ppn.architect_id = arch.id
+    LEFT JOIN professionals se ON ppn.structural_engineer_id = se.id
+    GROUP BY p.id
+    ORDER BY p.created_at DESC
+");
+    $stmt->execute();
     $projects = $stmt->fetchAll();
     
     // Get stats
@@ -65,28 +81,44 @@ try {
             </div>
 
             <?php if (count($projects) > 0): ?>
-                <table>
-                    <thead>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Project Name</th>
+                        <th>City</th>
+                        <th>Type</th>
+                        <th>PA Numbers (Count)</th>
+                        <th>Architect(s)</th>
+                        <th>Engineer(s)</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($projects as $project): ?>
                         <tr>
-                            <th>Project Name</th>
-                            <th>City</th>
-                            <th>Type</th>
-                            <th>Actions</th>
+                            <td><?php echo htmlspecialchars($project['name']); ?></td>
+                            <td><?php echo htmlspecialchars($project['city']); ?></td>
+                            <td><?php echo htmlspecialchars($project['type']); ?></td>
+                            <td title="<?php echo htmlspecialchars($project['pa_numbers'] ?? 'None'); ?>">
+                                <?php echo htmlspecialchars($project['pa_numbers'] ?? 'No PAs'); ?> 
+                                <span style="font-size: 0.85em; color: #666;">
+                                    (<?php echo $project['pa_count'] ?? 0; ?>)
+                                </span>
+                            </td>
+                            <td style="max-width: 150px; font-size: 0.9em;">
+                                <?php echo htmlspecialchars($project['architects'] ?? 'None'); ?>
+                            </td>
+                            <td style="max-width: 150px; font-size: 0.9em;">
+                                <?php echo htmlspecialchars($project['engineers'] ?? 'None'); ?>
+                            </td>
+                            <td>
+                                <a href="mobilisation_detail.php?projectid=<?php echo $project['id']; ?>" 
+                                   class="action-btn view">View</a>
+                            </td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($projects as $project): ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($project['name']); ?></td>
-                                <td><?php echo htmlspecialchars($project['city']); ?></td>
-                                <td><?php echo htmlspecialchars($project['type']); ?></td>
-                                <td>
-                                    <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" class="action-btn view">View</a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
             <?php else: ?>
                 <div class="empty-state">
                     <p>No projects yet.</p>
