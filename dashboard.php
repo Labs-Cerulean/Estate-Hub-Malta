@@ -5,7 +5,7 @@ include 'header.php';
 // Get current user
 $userId = getCurrentUserId();
 $userName = getCurrentUserFullName();
-$userRole = hasRole();
+$userRole = getCurrentRole();
 $isAdmin = isAdmin();
 
 try {
