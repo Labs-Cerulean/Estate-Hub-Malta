@@ -83,10 +83,11 @@ try {
         <div class="projects-section">
             <div class="projects-header">
                 <h2 class="section-title">Projects</h2>
-                <?php if ($isAdmin): ?>
+                
+            </div>
+        <?php if ($isAdmin): ?>
                     <a href="create-project.php" class="btn">Add Project</a>
                 <?php endif; ?>
-            </div>
 <?php
 function buildPaUrl(?string $paNumber): ?string {
     if (empty($paNumber)) {
