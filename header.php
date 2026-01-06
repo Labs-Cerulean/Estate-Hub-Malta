@@ -27,7 +27,7 @@ requireLogin(); // Redirects if not logged in[file:10][file:3]
             </div>
             <div class="header-right">
                 <span class="header-title"><?php echo htmlspecialchars(getCurrentUserFullName()); ?></span>
-                <span class="header-subtitle"><?php echo htmlspecialchars(SESSION['role'] ?? 'Viewer'); ?></span>
+                <span class="header-subtitle"><?php echo htmlspecialchars(getCurrentRole()); ?></span>
                 <a href="api/logout.php" class="nav-link">Logout</a>
             </div>
         </div>
