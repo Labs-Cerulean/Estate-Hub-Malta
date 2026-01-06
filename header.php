@@ -42,7 +42,7 @@ requireLogin(); // Redirects if not logged in[file:10][file:3]
                 <a href="users-management.php" class="nav-link">Users</a>
             <?php endif; ?>
             <?php if (isAdmin() || getCurrentUserRole() === 'manager'): ?>
-                <li><a href="professionals-management.php" class="nav-link">Professionals</a></li>
+                <a href="professionals-management.php" class="nav-link">Professionals</a>
             <?php endif; ?>
         </div>
     </nav>
