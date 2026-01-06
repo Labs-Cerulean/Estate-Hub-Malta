@@ -28,6 +28,11 @@ function hasRole($role) {
     return isset($_SESSION['role']) && $_SESSION['role'] === $role;
 }
 
+function getCurrentRole() {
+    $userrole = $_SESSION['role'];
+    return ($userrole);
+}
+
 /**
  * Check if current user has admin privileges
  */
