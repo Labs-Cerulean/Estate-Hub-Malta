@@ -1,21 +1,6 @@
 <?php
-session_start();
-
-if (empty($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header('Location: index.php');
-    exit;
-}
-
-if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
-    session_destroy();
-    header('Location: index.php');
-    exit;
-}
-
-require_once 'config.php';
-require_once 'user-functions.php';
-
-requireLogin();
+$pageTitle = 'User Management';
+include 'header.php';
 
 // Only admins can access this page
 if (!isAdmin()) {
