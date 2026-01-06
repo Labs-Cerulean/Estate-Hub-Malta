@@ -10,27 +10,18 @@ $isAdmin = isAdmin();
 
 try {
     // Get projects
-    $sql = "
-            SELECT 
-            p.*,
-            pan.pa_number,
-            pan.pa_status,
-            arch.name AS architect_name,
-            se.name AS structural_engineer_name
-        FROM projects p
-        LEFT JOIN project_pa_numbers pan 
-            ON pan.project_id = p.id
-            AND pan.id = (
-                SELECT MIN(pan2.id)
-                FROM project_pa_numbers pan2
-                WHERE pan2.project_id = p.id
-            )
-        LEFT JOIN professionals arch
-            ON arch.id = pan.architect_id
-        LEFT JOIN professionals se
-            ON se.id = pan.structural_engineer_id
-        ORDER BY p.name
-    ";
+    $sql = "SELECT 
+    p.*,
+    GROUP_CONCAT(pan.panumber ORDER BY pan.id SEPARATOR ', ') AS all_panumbers,
+    GROUP_CONCAT(pan.pastatus ORDER BY pan.id SEPARATOR ', ') AS all_pastatuses,
+    GROUP_CONCAT(arch.name ORDER BY pan.id SEPARATOR ', ') AS all_architectnames,
+    GROUP_CONCAT(se.name ORDER BY pan.id SEPARATOR ', ') AS all_structuralengineernames
+FROM projects p 
+LEFT JOIN project_pa_numbers pan ON pan.projectid = p.id
+LEFT JOIN professionals arch ON arch.id = pan.architectid
+LEFT JOIN professionals se ON se.id = pan.structuralengineerid
+GROUP BY p.id
+ORDER BY p.name";
     
     $stmt = $pdo->query($sql);
     $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -124,23 +115,40 @@ function buildPaUrl(?string $paNumber): ?string {
                                     <td><?= htmlspecialchars($project['city']) ?></td>
                                     <td><?= htmlspecialchars($project['type']) ?></td>
                         
-                                    <?php
-                                    $paText = !empty($project['pa_number']) ? $project['pa_number'] : 'TBC';
-                                    $paUrl  = buildPaUrl($project['pa_number'] ?? null);
-                                    ?>
                                     <td>
-                                        <?php if ($paUrl): ?>
-                                            <a href="<?= htmlspecialchars($paUrl) ?>" 
-                                               target="_blank" 
-                                               rel="noopener noreferrer"
-                                               class="text-decoration-none">
-                                                <?= htmlspecialchars($paText) ?>
-                                            </a>
-                                        <?php else: ?>
-                                            <?= htmlspecialchars($paText) ?>
-                                        <?php endif; ?>
+                                    <?php 
+                                    $paNumbers = !empty($project['all_panumbers']) ? array_filter(explode(', ', $project['all_panumbers'])) : [];
+                                    if (empty($paNumbers)) {
+                                        echo 'TBC';
+                                    } else {
+                                        foreach ($paNumbers as $index => $paNum) {
+                                            $paNum = trim($paNum);
+                                            $paUrl = buildPaUrl($paNum);
+                                            if ($paUrl) {
+                                                echo '<a href="' . htmlspecialchars($paUrl) . '" target="_blank" rel="noopener noreferrer" class="text-decoration-none">' . htmlspecialchars($paNum) . '</a>';
+                                            } else {
+                                                echo htmlspecialchars($paNum);
+                                            }
+                                            if ($index < count($paNumbers) - 1) echo '<br>';
+                                        }
+                                    }
+                                    ?>
                                     </td>
-                                    <td><?= htmlspecialchars(!empty($project['pa_status']) ? $project['pa_status'] : 'TBC') ?></td>
+                                    <td>
+                                    <?php 
+                                    $paStatuses = !empty($project['all_pastatuses']) ? array_filter(explode(', ', $project['all_pastatuses'])) : [];
+                                    if (empty($paStatuses)) {
+                                        echo 'TBC';
+                                    } else {
+                                        foreach ($paStatuses as $index => $status) {
+                                            $status = trim($status);
+                                            if (empty($status)) continue;
+                                            echo htmlspecialchars($status);
+                                            if ($index < count($paStatuses) - 1) echo '<br>';
+                                        }
+                                    }
+                                    ?>
+                                    </td>
                                     <td><?= htmlspecialchars(!empty($project['architect_name']) ? $project['architect_name'] : 'TBC') ?></td>
                                     <td><?= htmlspecialchars(!empty($project['structural_engineer_name']) ? $project['structural_engineer_name'] : 'TBC') ?></td>
                         
