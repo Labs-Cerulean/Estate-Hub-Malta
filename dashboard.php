@@ -1,19 +1,6 @@
 <?php
-session_start();
-
-// Check if logged in
-if (empty($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header('Location: index.php');
-    exit;
-}
-
-if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
-    session_destroy();
-    header('Location: index.php');
-    exit;
-}
-
-require_once 'config.php';
+$pageTitle = 'Dashboard';
+include 'header.php';
 
 // Get current user
 $userId = $_SESSION['user_id'];
