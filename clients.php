@@ -1,5 +1,5 @@
 <?php
-$pageTitle = 'Dashboard';
+$pageTitle = 'Clients';
 include 'header.php';
 $pdo = getDB();
 $message = '';
