@@ -11,6 +11,10 @@ $isAdmin = isAdmin();
 // Get filter and sort parameters
 $filterType = $_GET['filter_type'] ?? 'all';
 $filterStatus = $_GET['filter_status'] ?? 'all';
+$filterCity = $_GET['filter_city'] ?? 'all';
+$filterClient = $_GET['filter_client'] ?? 'all';
+$filterArchitect = $_GET['filter_architect'] ?? 'all';
+$filterEngineer = $_GET['filter_engineer'] ?? 'all';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
@@ -21,6 +25,12 @@ if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
 
 try {
+    // Get filter options
+    $cities = $pdo->query("SELECT DISTINCT city FROM projects ORDER BY city")->fetchAll(PDO::FETCH_COLUMN);
+    $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    $architects = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'architect' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    $engineers = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'structural_engineer' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+
     // Get all projects with client information
     $sql = "SELECT p.*, c.name as client_name 
             FROM projects p
@@ -28,8 +38,21 @@ try {
             WHERE 1=1";
 
     // Apply filters
+    $params = [];
+
     if ($filterType !== 'all') {
         $sql .= " AND p.type = :filter_type";
+        $params['filter_type'] = $filterType;
+    }
+
+    if ($filterCity !== 'all') {
+        $sql .= " AND p.city = :filter_city";
+        $params['filter_city'] = $filterCity;
+    }
+
+    if ($filterClient !== 'all') {
+        $sql .= " AND p.clientid = :filter_client";
+        $params['filter_client'] = $filterClient;
     }
 
     $sql .= " ORDER BY ";
@@ -51,8 +74,8 @@ try {
 
     $stmt = $pdo->prepare($sql);
 
-    if ($filterType !== 'all') {
-        $stmt->bindValue(':filter_type', $filterType);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue(":{$key}", $value);
     }
 
     $stmt->execute();
@@ -63,6 +86,8 @@ try {
                 pan.project_id,
                 pan.pa_number,
                 pan.pa_status,
+                pan.architect_id,
+                pan.structural_engineer_id,
                 arch.name AS architect_name,
                 se.name AS structural_engineer_name
               FROM project_pa_numbers pan
@@ -92,6 +117,32 @@ try {
         });
     }
 
+    // Apply architect filter if needed
+    if ($filterArchitect !== 'all') {
+        $projects = array_filter($projects, function($project) use ($paByProject, $filterArchitect) {
+            $projectPAs = $paByProject[$project['id']] ?? [];
+            foreach ($projectPAs as $pa) {
+                if ($pa['architect_id'] == $filterArchitect) {
+                    return true;
+                }
+            }
+            return empty($projectPAs) && $filterArchitect === 'none';
+        });
+    }
+
+    // Apply engineer filter if needed
+    if ($filterEngineer !== 'all') {
+        $projects = array_filter($projects, function($project) use ($paByProject, $filterEngineer) {
+            $projectPAs = $paByProject[$project['id']] ?? [];
+            foreach ($projectPAs as $pa) {
+                if ($pa['structural_engineer_id'] == $filterEngineer) {
+                    return true;
+                }
+            }
+            return empty($projectPAs) && $filterEngineer === 'none';
+        });
+    }
+
     // Get stats
     $projectCount = count($projects);
     $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
@@ -100,6 +151,10 @@ try {
 } catch (Exception $e) {
     $projects = [];
     $paByProject = [];
+    $cities = [];
+    $clients = [];
+    $architects = [];
+    $engineers = [];
     $projectCount = 0;
     $userCount = 0;
     $mobilisedCount = 0;
@@ -107,13 +162,17 @@ try {
 
 // Helper function to generate sort URL
 function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterStatus;
+    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer;
     $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
     $params = [
         'sort' => $column,
         'order' => $newOrder,
         'filter_type' => $filterType,
-        'filter_status' => $filterStatus
+        'filter_status' => $filterStatus,
+        'filter_city' => $filterCity,
+        'filter_client' => $filterClient,
+        'filter_architect' => $filterArchitect,
+        'filter_engineer' => $filterEngineer
     ];
     return 'dashboard.php?' . http_build_query($params);
 }
@@ -143,17 +202,19 @@ function getSortIndicator($column) {
       margin-bottom: 2rem;
       border-radius: 16px;
       backdrop-filter: blur(20px);
-      display: flex;
+    }
+
+    .filters-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 1rem;
-      align-items: center;
-      flex-wrap: wrap;
+      margin-bottom: 1rem;
     }
 
     .filter-group {
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
-      min-width: 200px;
     }
 
     .filter-group label {
@@ -174,8 +235,8 @@ function getSortIndicator($column) {
     .filter-buttons {
       display: flex;
       gap: 0.5rem;
-      align-items: flex-end;
-      margin-top: 1.5rem;
+      justify-content: flex-start;
+      margin-top: 0.5rem;
     }
 
     .reset-btn {
@@ -187,6 +248,8 @@ function getSortIndicator($column) {
       cursor: pointer;
       font-size: 0.9rem;
       transition: all 0.3s ease;
+      text-decoration: none;
+      display: inline-block;
     }
 
     .reset-btn:hover {
@@ -197,10 +260,19 @@ function getSortIndicator($column) {
       cursor: pointer;
       user-select: none;
       transition: color 0.2s ease;
+      text-decoration: none;
+      color: var(--text-primary);
+      display: block;
     }
 
     .sortable-header:hover {
       color: var(--primary-color);
+    }
+
+    .table-container {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border-glass);
     }
 
     thead th {
@@ -208,6 +280,18 @@ function getSortIndicator($column) {
       top: 0;
       background: var(--bg-card);
       z-index: 10;
+      white-space: nowrap;
+    }
+
+    table {
+      width: 100%;
+      min-width: 1400px; /* Ensure table doesn't shrink too much */
+    }
+
+    @media (max-width: 768px) {
+      .filters-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -246,32 +330,84 @@ function getSortIndicator($column) {
 
     <!-- Filters Section -->
     <div class="filters-section">
-      <form method="GET" style="display: flex; gap: 1rem; flex-wrap: wrap; width: 100%; align-items: flex-end;">
-        <div class="filter-group">
-          <label>Project Type</label>
-          <select name="filter_type" id="filter-type">
-            <option value="all" <?php echo $filterType === 'all' ? 'selected' : ''; ?>>All Types</option>
-            <option value="in-house" <?php echo $filterType === 'in-house' ? 'selected' : ''; ?>>In-House</option>
-            <option value="3rd-party" <?php echo $filterType === '3rd-party' ? 'selected' : ''; ?>>3rd Party</option>
-          </select>
-        </div>
+      <form method="GET">
+        <div class="filters-grid">
+          <div class="filter-group">
+            <label>Project Type</label>
+            <select name="filter_type">
+              <option value="all" <?php echo $filterType === 'all' ? 'selected' : ''; ?>>All Types</option>
+              <option value="in-house" <?php echo $filterType === 'in-house' ? 'selected' : ''; ?>>In-House</option>
+              <option value="3rd-party" <?php echo $filterType === '3rd-party' ? 'selected' : ''; ?>>3rd Party</option>
+            </select>
+          </div>
 
-        <div class="filter-group">
-          <label>PA Status</label>
-          <select name="filter_status" id="filter-status">
-            <option value="all" <?php echo $filterStatus === 'all' ? 'selected' : ''; ?>>All Statuses</option>
-            <option value="Endorsed" <?php echo $filterStatus === 'Endorsed' ? 'selected' : ''; ?>>Endorsed</option>
-            <option value="Decided" <?php echo $filterStatus === 'Decided' ? 'selected' : ''; ?>>Decided</option>
-            <option value="Fee Payment" <?php echo $filterStatus === 'Fee Payment' ? 'selected' : ''; ?>>Fee Payment</option>
-            <option value="Refused" <?php echo $filterStatus === 'Refused' ? 'selected' : ''; ?>>Refused</option>
-            <option value="Pending/Awaiting Decision" <?php echo $filterStatus === 'Pending/Awaiting Decision' ? 'selected' : ''; ?>>Pending/Awaiting Decision</option>
-            <option value="Recommended for Approval" <?php echo $filterStatus === 'Recommended for Approval' ? 'selected' : ''; ?>>Recommended for Approval</option>
-            <option value="Recommended for Refusal" <?php echo $filterStatus === 'Recommended for Refusal' ? 'selected' : ''; ?>>Recommended for Refusal</option>
-            <option value="Under Appeal" <?php echo $filterStatus === 'Under Appeal' ? 'selected' : ''; ?>>Under Appeal</option>
-            <option value="Revoked/Annulled" <?php echo $filterStatus === 'Revoked/Annulled' ? 'selected' : ''; ?>>Revoked/Annulled</option>
-            <option value="Withdrawn" <?php echo $filterStatus === 'Withdrawn' ? 'selected' : ''; ?>>Withdrawn</option>
-            <option value="TBC" <?php echo $filterStatus === 'TBC' ? 'selected' : ''; ?>>TBC</option>
-          </select>
+          <div class="filter-group">
+            <label>Client</label>
+            <select name="filter_client">
+              <option value="all" <?php echo $filterClient === 'all' ? 'selected' : ''; ?>>All Clients</option>
+              <?php foreach ($clients as $client): ?>
+                <option value="<?php echo $client['id']; ?>" <?php echo $filterClient == $client['id'] ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($client['name']); ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>City</label>
+            <select name="filter_city">
+              <option value="all" <?php echo $filterCity === 'all' ? 'selected' : ''; ?>>All Cities</option>
+              <?php foreach ($cities as $city): ?>
+                <option value="<?php echo htmlspecialchars($city); ?>" <?php echo $filterCity === $city ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($city); ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>PA Status</label>
+            <select name="filter_status">
+              <option value="all" <?php echo $filterStatus === 'all' ? 'selected' : ''; ?>>All Statuses</option>
+              <option value="Endorsed" <?php echo $filterStatus === 'Endorsed' ? 'selected' : ''; ?>>Endorsed</option>
+              <option value="Decided" <?php echo $filterStatus === 'Decided' ? 'selected' : ''; ?>>Decided</option>
+              <option value="Fee Payment" <?php echo $filterStatus === 'Fee Payment' ? 'selected' : ''; ?>>Fee Payment</option>
+              <option value="Refused" <?php echo $filterStatus === 'Refused' ? 'selected' : ''; ?>>Refused</option>
+              <option value="Pending/Awaiting Decision" <?php echo $filterStatus === 'Pending/Awaiting Decision' ? 'selected' : ''; ?>>Pending/Awaiting Decision</option>
+              <option value="Recommended for Approval" <?php echo $filterStatus === 'Recommended for Approval' ? 'selected' : ''; ?>>Recommended for Approval</option>
+              <option value="Recommended for Refusal" <?php echo $filterStatus === 'Recommended for Refusal' ? 'selected' : ''; ?>>Recommended for Refusal</option>
+              <option value="Under Appeal" <?php echo $filterStatus === 'Under Appeal' ? 'selected' : ''; ?>>Under Appeal</option>
+              <option value="Revoked/Annulled" <?php echo $filterStatus === 'Revoked/Annulled' ? 'selected' : ''; ?>>Revoked/Annulled</option>
+              <option value="Withdrawn" <?php echo $filterStatus === 'Withdrawn' ? 'selected' : ''; ?>>Withdrawn</option>
+              <option value="TBC" <?php echo $filterStatus === 'TBC' ? 'selected' : ''; ?>>TBC</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Architect</label>
+            <select name="filter_architect">
+              <option value="all" <?php echo $filterArchitect === 'all' ? 'selected' : ''; ?>>All Architects</option>
+              <?php foreach ($architects as $architect): ?>
+                <option value="<?php echo $architect['id']; ?>" <?php echo $filterArchitect == $architect['id'] ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($architect['name']); ?>
+                </option>
+              <?php endforeach; ?>
+              <option value="none" <?php echo $filterArchitect === 'none' ? 'selected' : ''; ?>>Unassigned</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Structural Engineer</label>
+            <select name="filter_engineer">
+              <option value="all" <?php echo $filterEngineer === 'all' ? 'selected' : ''; ?>>All Engineers</option>
+              <?php foreach ($engineers as $engineer): ?>
+                <option value="<?php echo $engineer['id']; ?>" <?php echo $filterEngineer == $engineer['id'] ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($engineer['name']); ?>
+                </option>
+              <?php endforeach; ?>
+              <option value="none" <?php echo $filterEngineer === 'none' ? 'selected' : ''; ?>>Unassigned</option>
+            </select>
+          </div>
         </div>
 
         <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
@@ -301,116 +437,118 @@ function getSortIndicator($column) {
     ?>
 
     <?php if (count($projects) > 0): ?>
-    <table>
-      <thead>
-        <tr>
-          <th><a href="<?php echo getSortUrl('name'); ?>" class="sortable-header">Project Name<?php echo getSortIndicator('name'); ?></a></th>
-          <th><a href="<?php echo getSortUrl('client'); ?>" class="sortable-header">Client<?php echo getSortIndicator('client'); ?></a></th>
-          <th><a href="<?php echo getSortUrl('city'); ?>" class="sortable-header">City<?php echo getSortIndicator('city'); ?></a></th>
-          <th><a href="<?php echo getSortUrl('type'); ?>" class="sortable-header">Type<?php echo getSortIndicator('type'); ?></a></th>
-          <th>PA Number</th>
-          <th>PA Status</th>
-          <th>Architect</th>
-          <th>Structural Engineer</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php foreach ($projects as $project): ?>
-            <tr>
-                <td><?= htmlspecialchars($project['name']) ?></td>
-                <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
-                <td><?= htmlspecialchars($project['city']) ?></td>
-                <td><?= htmlspecialchars($project['type']) ?></td>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th><a href="<?php echo getSortUrl('name'); ?>" class="sortable-header">Project Name<?php echo getSortIndicator('name'); ?></a></th>
+            <th><a href="<?php echo getSortUrl('client'); ?>" class="sortable-header">Client<?php echo getSortIndicator('client'); ?></a></th>
+            <th><a href="<?php echo getSortUrl('city'); ?>" class="sortable-header">City<?php echo getSortIndicator('city'); ?></a></th>
+            <th><a href="<?php echo getSortUrl('type'); ?>" class="sortable-header">Type<?php echo getSortIndicator('type'); ?></a></th>
+            <th>PA Number</th>
+            <th>PA Status</th>
+            <th>Architect</th>
+            <th>Structural Engineer</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($projects as $project): ?>
+              <tr>
+                  <td><?= htmlspecialchars($project['name']) ?></td>
+                  <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
+                  <td><?= htmlspecialchars($project['city']) ?></td>
+                  <td><?= htmlspecialchars($project['type']) ?></td>
 
-                <?php
-                // Get all PA numbers for this project
-                $projectPAs = $paByProject[$project['id']] ?? [];
-                ?>
+                  <?php
+                  // Get all PA numbers for this project
+                  $projectPAs = $paByProject[$project['id']] ?? [];
+                  ?>
 
-                <!-- PA Number Column -->
-                <td>
-                    <?php if (!empty($projectPAs)): ?>
-                        <?php foreach ($projectPAs as $index => $pa): ?>
-                            <?php 
-                            $paText = htmlspecialchars($pa['pa_number']);
-                            $paUrl = buildPaUrl($pa['pa_number']);
-                            ?>
-                            <?php if ($paUrl): ?>
-                                <a href="<?= htmlspecialchars($paUrl) ?>" 
-                                   target="_blank" 
-                                   rel="noopener noreferrer"
-                                   class="text-decoration-none">
-                                    <?= $paText ?>
-                                </a>
-                            <?php else: ?>
-                                <?= $paText ?>
-                            <?php endif; ?>
-                            <?php if ($index < count($projectPAs) - 1): ?>
-                                <br>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        TBC
-                    <?php endif; ?>
-                </td>
+                  <!-- PA Number Column -->
+                  <td>
+                      <?php if (!empty($projectPAs)): ?>
+                          <?php foreach ($projectPAs as $index => $pa): ?>
+                              <?php 
+                              $paText = htmlspecialchars($pa['pa_number']);
+                              $paUrl = buildPaUrl($pa['pa_number']);
+                              ?>
+                              <?php if ($paUrl): ?>
+                                  <a href="<?= htmlspecialchars($paUrl) ?>" 
+                                     target="_blank" 
+                                     rel="noopener noreferrer"
+                                     class="text-decoration-none">
+                                      <?= $paText ?>
+                                  </a>
+                              <?php else: ?>
+                                  <?= $paText ?>
+                              <?php endif; ?>
+                              <?php if ($index < count($projectPAs) - 1): ?>
+                                  <br>
+                              <?php endif; ?>
+                          <?php endforeach; ?>
+                      <?php else: ?>
+                          TBC
+                      <?php endif; ?>
+                  </td>
 
-                <!-- PA Status Column -->
-                <td>
-                    <?php if (!empty($projectPAs)): ?>
-                        <?php foreach ($projectPAs as $index => $pa): ?>
-                            <?= htmlspecialchars($pa['pa_status']) ?>
-                            <?php if ($index < count($projectPAs) - 1): ?>
-                                <br>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        TBC
-                    <?php endif; ?>
-                </td>
+                  <!-- PA Status Column -->
+                  <td>
+                      <?php if (!empty($projectPAs)): ?>
+                          <?php foreach ($projectPAs as $index => $pa): ?>
+                              <?= htmlspecialchars($pa['pa_status']) ?>
+                              <?php if ($index < count($projectPAs) - 1): ?>
+                                  <br>
+                              <?php endif; ?>
+                          <?php endforeach; ?>
+                      <?php else: ?>
+                          TBC
+                      <?php endif; ?>
+                  </td>
 
-                <!-- Architect Column -->
-                <td>
-                    <?php if (!empty($projectPAs)): ?>
-                        <?php foreach ($projectPAs as $index => $pa): ?>
-                            <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
-                            <?php if ($index < count($projectPAs) - 1): ?>
-                                <br>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        TBC
-                    <?php endif; ?>
-                </td>
+                  <!-- Architect Column -->
+                  <td>
+                      <?php if (!empty($projectPAs)): ?>
+                          <?php foreach ($projectPAs as $index => $pa): ?>
+                              <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
+                              <?php if ($index < count($projectPAs) - 1): ?>
+                                  <br>
+                              <?php endif; ?>
+                          <?php endforeach; ?>
+                      <?php else: ?>
+                          TBC
+                      <?php endif; ?>
+                  </td>
 
-                <!-- Structural Engineer Column -->
-                <td>
-                    <?php if (!empty($projectPAs)): ?>
-                        <?php foreach ($projectPAs as $index => $pa): ?>
-                            <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
-                            <?php if ($index < count($projectPAs) - 1): ?>
-                                <br>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        TBC
-                    <?php endif; ?>
-                </td>
+                  <!-- Structural Engineer Column -->
+                  <td>
+                      <?php if (!empty($projectPAs)): ?>
+                          <?php foreach ($projectPAs as $index => $pa): ?>
+                              <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
+                              <?php if ($index < count($projectPAs) - 1): ?>
+                                  <br>
+                              <?php endif; ?>
+                          <?php endforeach; ?>
+                      <?php else: ?>
+                          TBC
+                      <?php endif; ?>
+                  </td>
 
-                <td style="white-space: nowrap;">
-                    <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" 
-                       class="btn btn-sm btn-primary" 
-                       style="padding: 0.4rem 0.8rem; font-size: 0.85rem; min-width: 60px;">View</a>
-                    <?php if (hasRole('admin') || hasRole('manager')): ?>
-                        <a href="edit-project.php?id=<?= $project['id'] ?>" 
-                           class="btn btn-sm" 
-                           style="padding: 0.4rem 0.8rem; font-size: 0.85rem; margin-left: 0.5rem; min-width: 60px;">Edit</a>
-                    <?php endif; ?>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
+                  <td style="white-space: nowrap;">
+                      <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" 
+                         class="btn btn-sm btn-primary" 
+                         style="padding: 0.4rem 0.8rem; font-size: 0.85rem; min-width: 60px;">View</a>
+                      <?php if (hasRole('admin') || hasRole('manager')): ?>
+                          <a href="edit-project.php?id=<?= $project['id'] ?>" 
+                             class="btn btn-sm" 
+                             style="padding: 0.4rem 0.8rem; font-size: 0.85rem; margin-left: 0.5rem; min-width: 60px;">Edit</a>
+                      <?php endif; ?>
+                  </td>
+              </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
     <?php else: ?>
     <div class="empty-state">
       <p>No projects match your filters.</p>
