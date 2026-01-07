@@ -76,7 +76,7 @@ $pageTitle = 'Login';
     <div class="login-container">
         <div class="login-box">
             <div class="login-header">
-                <img src="logo_BKP.png" alt="Estate Hub Logo" class="login-logo">
+                <img src="logo.png" alt="Estate Hub Logo" class="login-logo">
                 <h1 class="login-title">Estate Hub</h1>
                 <p class="login-subtitle">Project Management System</p>
             </div>
