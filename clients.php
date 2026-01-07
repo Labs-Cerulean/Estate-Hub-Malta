@@ -4,24 +4,42 @@ include 'header.php';
 $pdo = getDB();
 $message = '';
 
-// CREATE CLIENT
-if (($_POST['action'] ?? null) === 'create') {
-  try {
-    $stmt = $pdo->prepare("
-      INSERT INTO clients (name, city, contact, type)
-      VALUES (?, ?, ?, ?)
-    ");
-    $stmt->execute([
-      $_POST['name'],
-      $_POST['city'] ?? null,
-      $_POST['contact'] ?? null,
-      $_POST['type']
-    ]);
-    $message = 'Client created successfully!';
-  } catch (PDOException $e) {
-    $message = 'Client name already exists!';
-  }
+// Check if user has permission to manage clients (admin or manager)
+if (!isAdmin() && getCurrentRole() !== 'manager') {
+    header('Location: dashboard.php');
+    exit;
 }
+
+$message = '';
+
+// Handle client creation
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_client') {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO clients (name, city, contact, type)
+            VALUES (?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $_POST['name'],
+            $_POST['city'] ?? null,
+            $_POST['contact'] ?? null,
+            $_POST['type']
+        ]);
+        
+        $clientId = $pdo->lastInsertId();
+        
+        // ===== AUTO-ASSIGN CREATOR TO CLIENT =====
+        autoAssignCreatorToClient($pdo, $clientId);
+        
+        $message = 'Client created successfully! You now have access to this client.';
+    } catch (PDOException $e) {
+        $message = 'Client name already exists!';
+    }
+}
+
+// Get current user
+$userId = getCurrentUserId();
+$isAdmin = isAdmin();
 
 try {
     if ($isAdmin) {
@@ -70,7 +88,7 @@ try {
             ]);
             $clients = $stmt->fetchAll();
         } else {
-            // Other users see assigned clients
+            // Managers and other users see assigned clients
             $stmt = $pdo->prepare("
                 SELECT c.*, COUNT(DISTINCT p.id) as project_count
                 FROM clients c
@@ -87,109 +105,102 @@ try {
 } catch (Exception $e) {
     $clients = [];
 }
-
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clients – Estate Hub Malta</title>
-  <link rel="icon" href="logo.png">
-  <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Management - Estate Hub</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
- 
-
-  <div class="main-container">
-    <h1 class="page-title">Client Management</h1>
-
-    <?php if ($message): ?>
-      <div class="message success"><?php echo htmlspecialchars($message); ?></div>
-    <?php endif; ?>
-
-    <!-- Clients List -->
-    <section class="projects-section">
-      <div class="projects-header">
-        <div class="section-title">All Clients (<?php echo count($clients); ?>)</div>
-        <button class="btn" onclick="document.getElementById('create-form').scrollIntoView({behavior: 'smooth'})" style="padding: 0.75rem 2rem;">
-          + Add Client
-        </button>
-      </div>
-
-      <div class="projects-grid">
-        <?php foreach ($clients as $client): ?>
-          <div class="project-card">
-            <div class="project-header">
-              <div class="project-name"><?php echo htmlspecialchars($client['name']); ?></div>
-              <span class="client-type">
-                <?php echo ucwords(str_replace('-', ' ', $client['type'])); ?>
-              </span>
-            </div>
-
-            <div class="project-meta">
-              <?php if ($client['city']): ?>
-                <div class="meta-item">
-                  <span class="meta-label">City</span>
-                  <span><?php echo htmlspecialchars($client['city']); ?></span>
-                </div>
-              <?php endif; ?>
-
-              <?php if ($client['contact']): ?>
-                <div class="meta-item">
-                  <span class="meta-label">Contact</span>
-                  <span><?php echo htmlspecialchars($client['contact']); ?></span>
-                </div>
-              <?php endif; ?>
-            </div>
-          </div>
-        <?php endforeach; ?>
-
-        <?php if (empty($clients)): ?>
-          <div class="empty-state" style="grid-column: 1/-1;">
-            <h3 style="font-size: 1.5rem; margin-bottom: 1rem;">No clients yet</h3>
-            <p style="font-size: 1.1rem; margin-bottom: 2rem;">Add your first client to get started.</p>
-          </div>
+    <div class="main-container">
+        <h1 class="page-title">Client Management</h1>
+        
+        <?php if ($message): ?>
+            <div class="alert alert-info"><?= htmlspecialchars($message) ?></div>
         <?php endif; ?>
-      </div>
-    </section>
-
-    <!-- Add Client Form -->
-    <section id="create-form" class="form-section">
-      <div class="section-title" style="margin-bottom: 1.5rem;">Add New Client</div>
-      
-      <form method="POST" class="form-grid">
-        <input type="hidden" name="action" value="create">
-
-        <div class="form-group">
-          <label>Client Name</label>
-          <input type="text" name="name" placeholder="Enter client name" required>
+        
+        <div class="clients-section">
+            <div class="clients-header">
+                <h2 class="section-title">All Clients (<?= count($clients) ?>)</h2>
+                <button onclick="showAddClientModal()" class="btn">Add New Client</button>
+            </div>
+            
+            <?php if (count($clients) > 0): ?>
+                <div class="clients-grid">
+                    <?php foreach ($clients as $client): ?>
+                        <div class="client-card">
+                            <h3><?= htmlspecialchars($client['name']) ?></h3>
+                            <div class="client-details">
+                                <p><strong>City:</strong> <?= htmlspecialchars($client['city'] ?? 'N/A') ?></p>
+                                <p><strong>Contact:</strong> <?= htmlspecialchars($client['contact'] ?? 'N/A') ?></p>
+                                <p><strong>Type:</strong> <span class="badge badge-<?= $client['type'] ?>"><?= htmlspecialchars($client['type']) ?></span></p>
+                                <p><strong>Projects:</strong> <?= $client['project_count'] ?></p>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="empty-state">
+                    <h3>No clients yet</h3>
+                    <p>Add your first client to get started.</p>
+                </div>
+            <?php endif; ?>
         </div>
-
-        <div class="form-group">
-          <label>City</label>
-          <input type="text" name="city" placeholder="Enter city">
+    </div>
+    
+    <!-- Add Client Modal -->
+    <div id="addClientModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close" onclick="hideAddClientModal()">&times;</span>
+            <h2>Add New Client</h2>
+            
+            <form method="POST">
+                <input type="hidden" name="action" value="create_client">
+                
+                <div class="form-group">
+                    <label>Client Name:*</label>
+                    <input type="text" name="name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>City:</label>
+                    <input type="text" name="city">
+                </div>
+                
+                <div class="form-group">
+                    <label>Contact Person:</label>
+                    <input type="text" name="contact">
+                </div>
+                
+                <div class="form-group">
+                    <label>Type:*</label>
+                    <select name="type" required>
+                        <option value="in-house">In-House</option>
+                        <option value="3rd-party">3rd Party</option>
+                    </select>
+                </div>
+                
+                <?php if (!$isAdmin): ?>
+                    <p class="info-text">Note: You will automatically be assigned to this client and have access to all its projects.</p>
+                <?php endif; ?>
+                
+                <button type="submit" class="btn btn-primary">Create Client</button>
+            </form>
         </div>
-
-        <div class="form-group">
-          <label>Contact</label>
-          <input type="text" name="contact" placeholder="Contact person / phone">
-        </div>
-
-        <div class="form-group">
-          <label>Type</label>
-          <select name="type" required>
-            <option value="3rd-party">3rd Party</option>
-            <option value="in-house">In-House</option>
-          </select>
-        </div>
-
-        <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem;">
-          Create Client
-        </button>
-      </form>
-    </section>
-
-  </div>
+    </div>
+    
+    <script>
+        function showAddClientModal() {
+            document.getElementById('addClientModal').style.display = 'block';
+        }
+        
+        function hideAddClientModal() {
+            document.getElementById('addClientModal').style.display = 'none';
+        }
+    </script>
 </body>
 </html>
