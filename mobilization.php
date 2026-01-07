@@ -267,7 +267,7 @@ function getSortIndicator($column) {
     return '';
 }
 
-function buildPaUrl(?string $paNumber): ?string {
+function (?string $paNumber): ?string {
     if (empty($paNumber)) return null;
     if (!preg_match('/PA(\d{4,5})\/(\d{2})/', trim($paNumber), $m)) return null;
     $caseNumber = $m[1];
@@ -622,20 +622,7 @@ function buildPaUrl(?string $paNumber): ?string {
       </form>
     </div>
 
-    <?php
-    function buildPaUrl(?string $paNumber): ?string {
-        if (empty($paNumber)) return null;
 
-        if (!preg_match('/PA\/(\d{4,5})\/(\d{2})/', trim($paNumber), $m)) {
-            return null;
-        }
-
-        $caseNumber = $m[1];
-        $caseYear = $m[2];
-
-        return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseYear={$caseYear}";
-    }
-    ?>
 
     <?php if (count($projects) > 0): ?>
     <div class="table-container">
