@@ -12,11 +12,16 @@ $pdo = getDB();
 $message = '';
 $error = '';
 
-// Get project ID from URL
 $projectId = $_GET['id'] ?? null;
 
 if (!$projectId) {
     header('Location: dashboard.php');
+    exit;
+}
+
+// ===== CHECK PROJECT ACCESS =====
+if (!hasProjectAccess($pdo, $projectId)) {
+    header('Location: dashboard.php?error=access_denied');
     exit;
 }
 
