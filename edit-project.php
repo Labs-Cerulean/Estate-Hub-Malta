@@ -71,14 +71,7 @@ $pageTitle = 'Edit Project - ' . $project['name'];
 require_once 'header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Edit Project - Estate Hub Malta</title>
-  <link rel="icon" href="logo.png">
-  <link rel="stylesheet" href="styles.css">
+
   <style>
     .pa-entry {
       background: var(--bg-card);
@@ -195,8 +188,7 @@ require_once 'header.php';
       }
     }
   </style>
-</head>
-<body>
+
 
 <div class="main-container">
   <h1 class="page-title">Edit Project: <?php echo htmlspecialchars($project['name']); ?></h1>
@@ -482,5 +474,4 @@ require_once 'header.php';
   }
 </script>
 
-</body>
-</html>
+<?php require_once 'footer.php'; ?>
