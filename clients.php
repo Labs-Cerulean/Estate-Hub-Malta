@@ -1,8 +1,6 @@
 <?php
-$pageTitle = 'Clients';
-include 'header.php';
-$pdo = getDB();
-$message = '';
+require_once 'init.php';
+require_once 'session-check.php';
 
 // Check if user has permission to manage clients (admin or manager)
 if (!isAdmin() && getCurrentRole() !== 'manager') {
@@ -28,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         $clientId = $pdo->lastInsertId();
         
-        // ===== AUTO-ASSIGN CREATOR TO CLIENT =====
+        // Auto-assign creator to client
         autoAssignCreatorToClient($pdo, $clientId);
         
         $message = 'Client created successfully! You now have access to this client.';
@@ -105,6 +103,12 @@ try {
 } catch (Exception $e) {
     $clients = [];
 }
+
+// Set page title
+$pageTitle = 'Client Management';
+
+// Now output HTML
+require_once 'header.php';
 ?>
 
 <!DOCTYPE html>
