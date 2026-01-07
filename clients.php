@@ -112,9 +112,6 @@ require_once 'header.php';
 ?>
 
 
-    <title>Client Management - Estate Hub</title>
-
-
     <div class="main-container">
         <h1 class="page-title">Client Management</h1>
         
