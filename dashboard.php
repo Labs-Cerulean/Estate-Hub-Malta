@@ -15,6 +15,7 @@ $filterCity = $_GET['filter_city'] ?? 'all';
 $filterClient = $_GET['filter_client'] ?? 'all';
 $filterArchitect = $_GET['filter_architect'] ?? 'all';
 $filterEngineer = $_GET['filter_engineer'] ?? 'all';
+$filterIsland = $_GET['filter_island'] ?? 'all';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
@@ -53,6 +54,11 @@ try {
     if ($filterClient !== 'all') {
         $sql .= " AND p.clientid = :filter_client";
         $params['filter_client'] = $filterClient;
+    }
+
+    if ($filterIsland !== 'all') {
+        $sql .= " AND p.island = :filter_island";
+        $params['filter_island'] = $filterIsland;
     }
 
     $sql .= " ORDER BY ";
@@ -162,7 +168,7 @@ try {
 
 // Helper function to generate sort URL
 function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer;
+    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland;
     $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
     $params = [
         'sort' => $column,
@@ -172,7 +178,8 @@ function getSortUrl($column) {
         'filter_city' => $filterCity,
         'filter_client' => $filterClient,
         'filter_architect' => $filterArchitect,
-        'filter_engineer' => $filterEngineer
+        'filter_engineer' => $filterEngineer,
+        'filter_island' => $filterIsland
     ];
     return 'dashboard.php?' . http_build_query($params);
 }
@@ -230,6 +237,33 @@ function getSortIndicator($column) {
       background: var(--bg-secondary);
       color: var(--text-primary);
       font-size: 0.9rem;
+    }
+
+    .checkbox-group {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .checkbox-item input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: var(--primary-color);
+    }
+
+    .checkbox-item label {
+      cursor: pointer;
+      margin: 0 !important;
+      font-weight: 500 !important;
+      color: var(--text-primary) !important;
+      font-size: 0.9rem !important;
     }
 
     .filter-buttons {
@@ -337,7 +371,7 @@ function getSortIndicator($column) {
         box-shadow: none;
       }
     }
-  
+
 
     /* Vertical button stacking in Actions column */
     table td:nth-child(9) {
@@ -468,6 +502,32 @@ function getSortIndicator($column) {
               <option value="none" <?php echo $filterEngineer === 'none' ? 'selected' : ''; ?>>Unassigned</option>
             </select>
           </div>
+
+          <div class="filter-group">
+            <label>Island</label>
+            <div class="checkbox-group">
+              <div class="checkbox-item">
+                <input 
+                  type="checkbox" 
+                  name="island_malta" 
+                  id="island_malta" 
+                  value="Malta"
+                  <?php echo ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : ''; ?>
+                >
+                <label for="island_malta">Malta</label>
+              </div>
+              <div class="checkbox-item">
+                <input 
+                  type="checkbox" 
+                  name="island_gozo" 
+                  id="island_gozo" 
+                  value="Gozo"
+                  <?php echo ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : ''; ?>
+                >
+                <label for="island_gozo">Gozo</label>
+              </div>
+            </div>
+          </div>
         </div>
 
         <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
@@ -591,6 +651,47 @@ function getSortIndicator($column) {
     <?php endif; ?>
   </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const form = document.querySelector('.filters-section form');
+  const maltaCheckbox = document.getElementById('island_malta');
+  const gozoCheckbox = document.getElementById('island_gozo');
+
+  // Prevent both from being unchecked
+  function validateIslands(e) {
+    if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
+      e.preventDefault();
+      this.checked = true;
+      alert('At least one island must be selected');
+    }
+  }
+
+  maltaCheckbox.addEventListener('change', validateIslands);
+  gozoCheckbox.addEventListener('change', validateIslands);
+
+  // Handle form submission
+  form.addEventListener('submit', function(e) {
+    // Remove any existing filter_island input
+    const existingInput = form.querySelector('input[name="filter_island"]');
+    if (existingInput) existingInput.remove();
+
+    // Determine filter value
+    let filterValue = 'all';
+    if (maltaCheckbox.checked && !gozoCheckbox.checked) {
+      filterValue = 'Malta';
+    } else if (gozoCheckbox.checked && !maltaCheckbox.checked) {
+      filterValue = 'Gozo';
+    }
+
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'filter_island';
+    input.value = filterValue;
+    form.appendChild(input);
+  });
+});
+</script>
 
 </body>
 </html>
