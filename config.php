@@ -64,6 +64,38 @@ CREATE TABLE IF NOT EXISTS user_project_access (
     INDEX idx_access_level (access_level)
 )");
 
+// ===== USER CLIENT ACCESS TABLE =====
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS user_client_access (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  client_id INT NOT NULL,
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  assigned_by INT,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+  FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE KEY unique_user_client (user_id, client_id),
+  INDEX idx_user_id (user_id),
+  INDEX idx_client_id (client_id)
+)");
+
+// ===== USER PROJECT EXCLUSIONS TABLE =====
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS user_project_exclusions (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  project_id INT NOT NULL,
+  excluded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  excluded_by INT,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (excluded_by) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE KEY unique_user_project_exclusion (user_id, project_id),
+  INDEX idx_user_id (user_id),
+  INDEX idx_project_id (project_id)
+)");
+
 // ===== CLIENTS TABLE =====
 $pdo->exec("
 CREATE TABLE IF NOT EXISTS clients (
