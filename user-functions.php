@@ -197,55 +197,9 @@ function getProjectUsers($pdo, $projectId) {
     return $stmt->fetchAll();
 }
 
-/**
- * Create a new user
- */
-function createUser($pdo, $username, $email, $password, $role = 'viewer', $firstName = '', $lastName = '') {
-    try {
-        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-        
-        $stmt = $pdo->prepare("
-            INSERT INTO users (username, email, password_hash, role, first_name, last_name, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, 'Yes')
-        ");
-        
-        $stmt->execute([$username, $email, $passwordHash, $role, $firstName, $lastName]);
-        return $pdo->lastInsertId();
-    } catch (PDOException $e) {
-        return false;
-    }
-}
 
-/**
- * Update user information
- */
-function updateUser($pdo, $userId, $data) {
-    try {
-        $updates = [];
-        $params = [];
-        
-        $allowedFields = ['username', 'email', 'role', 'first_name', 'last_name', 'is_active'];
-        
-        foreach ($data as $field => $value) {
-            if (in_array($field, $allowedFields)) {
-                $updates[] = "$field = ?";
-                $params[] = $value;
-            }
-        }
-        
-        if (empty($updates)) {
-            return false;
-        }
-        
-        $params[] = $userId;
-        $query = "UPDATE users SET " . implode(', ', $updates) . " WHERE id = ?";
-        
-        $stmt = $pdo->prepare($query);
-        return $stmt->execute($params);
-    } catch (PDOException $e) {
-        return false;
-    }
-}
+
+
 
 /**
  * Change user password
