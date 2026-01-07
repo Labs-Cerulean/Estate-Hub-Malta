@@ -276,7 +276,7 @@ function buildPaUrl(?string $paNumber): ?string {
     $caseNumber = $m[1];
     $caseYear = $m[2];
     
-    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseyear={$caseYear}";
+    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseYear={$caseYear}";
 }
 
 // Set page title
