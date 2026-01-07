@@ -1,19 +1,68 @@
 <?php
-session_start();
+require_once 'init.php';
 
-// Already logged in? Go to dashboard
-if (!empty($_SESSION['loggedin']) && $_SESSION['loggedin'] === true && isset($_SESSION['user_id'])) {
+// If already logged in, redirect to dashboard
+if (isLoggedIn()) {
     header('Location: dashboard.php');
     exit;
 }
 
 $error = '';
-if (isset($_GET['error'])) {
-    $error = $_SESSION['login_error'] ?? 'Login failed. Please try again.';
-    if (isset($_SESSION['login_error'])) {
-        unset($_SESSION['login_error']);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $username = $_POST['username'] ?? '';
+    $password = $_POST['password'] ?? '';
+    
+    if (empty($username) || empty($password)) {
+        $error = 'Please enter both username and password';
+    } else {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT id, username, password_hash, role, first_name, last_name, is_active
+                FROM users
+                WHERE username = ? OR email = ?
+            ");
+            $stmt->execute([$username, $username]);
+            $user = $stmt->fetch();
+            
+            if ($user && password_verify($password, $user['password_hash'])) {
+                if ($user['is_active'] === 'Yes') {
+                    // Set session variables
+                    $_SESSION['user_id'] = $user['id'];
+                    $_SESSION['username'] = $user['username'];
+                    $_SESSION['role'] = $user['role'];
+                    $_SESSION['first_name'] = $user['first_name'];
+                    $_SESSION['last_name'] = $user['last_name'];
+                    $_SESSION['last_activity'] = time();
+                    
+                    // Update last login
+                    $updateStmt = $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
+                    $updateStmt->execute([$user['id']]);
+                    
+                    header('Location: dashboard.php');
+                    exit;
+                } else {
+                    $error = 'Your account has been deactivated';
+                }
+            } else {
+                $error = 'Invalid username or password';
+            }
+        } catch (PDOException $e) {
+            $error = 'Login failed. Please try again.';
+        }
     }
 }
+
+// Check for timeout message
+if (isset($_GET['timeout'])) {
+    $error = 'Your session has expired. Please login again.';
+}
+
+// Set page title
+$pageTitle = 'Login';
+
+// Now output HTML
+require_once 'header.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
