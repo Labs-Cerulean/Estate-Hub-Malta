@@ -43,7 +43,7 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                 <div class="nav-user">
                     <span class="user-name"><?= htmlspecialchars(getCurrentUserFullName()) ?></span>
                     <span class="user-role">(<?= htmlspecialchars(getCurrentRole()) ?>)</span>
-                    <a href="logout.php" class="btn-logout">Logout</a>
+                    <a href="api/logout.php" class="btn-logout">Logout</a>
                 </div>
             </div>
         </nav>
