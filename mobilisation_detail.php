@@ -1,10 +1,11 @@
 <?php
-$pageTitle = 'Mobilisation Detail';
-include 'header.php';
-$canEdit = canEdit();
-$disabledAttr = $canEdit ? '' : 'disabled';
-$pdo = getDB();
+// Include initialization (no output)
+require_once 'init.php';
 
+// Check authentication (no output, but may redirect)
+require_once 'session-check.php';
+
+// Get and validate project ID
 $projectId = $_GET['projectid'] ?? null;
 
 if (!$projectId) {
@@ -12,9 +13,8 @@ if (!$projectId) {
     exit;
 }
 
-// ===== CHECK PROJECT ACCESS =====
+// Check project access (may redirect)
 if (!hasProjectAccess($pdo, $projectId)) {
-    // User doesn't have access to this project
     header('Location: dashboard.php?error=access_denied');
     exit;
 }
@@ -26,6 +26,10 @@ if (!$project) {
     header('Location: dashboard.php');
     exit;
 }
+
+// All checks passed, now we can safely output HTML
+$pageTitle = 'Mobilisation - ' . $project['name'];
+require_once 'header.php';
 
 // Get mobilisation data
 $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
