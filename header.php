@@ -21,14 +21,14 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <nav class="main-nav">
-        <div class="nav-container">
-            <div class="nav-brand">
-                <img src="logo.png" alt="Estate Hub Logo" class="nav-logo">
-                <span class="nav-title">Estate Hub</span>
-            </div>
-            
-            <?php if (isLoggedIn()): ?>
+    <?php if (isLoggedIn()): ?>
+        <nav class="main-nav">
+            <div class="nav-container">
+                <div class="nav-brand">
+                    <img src="logo.jpg" alt="Estate Hub Logo" class="nav-logo">
+                    <span class="nav-title">Estate Hub</span>
+                </div>
+                
                 <ul class="nav-links">
                     <li><a href="dashboard.php" class="<?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a></li>
                     <li><a href="mobilization.php" class="<?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilization</a></li>
@@ -45,8 +45,8 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     <span class="user-role">(<?= htmlspecialchars(getCurrentRole()) ?>)</span>
                     <a href="logout.php" class="btn-logout">Logout</a>
                 </div>
-            <?php endif; ?>
-        </div>
-    </nav>
+            </div>
+        </nav>
+    <?php endif; ?>
     
     <main class="main-content">
