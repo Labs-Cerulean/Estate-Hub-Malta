@@ -129,7 +129,7 @@ require_once 'header.php';
                 <div class="clients-grid">
                     <?php foreach ($clients as $client): ?>
                         <div class="client-card">
-                            <h3><?= htmlspecialchars($client['name']) ?></h3>
+                            <h3 class="project-title"><?= htmlspecialchars($client['name']) ?></h3>
                             <div class="client-details">
                                 <p><strong>City:</strong> <?= htmlspecialchars($client['city'] ?? 'N/A') ?></p>
                                 <p><strong>Contact:</strong> <?= htmlspecialchars($client['contact'] ?? 'N/A') ?></p>
