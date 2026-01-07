@@ -323,9 +323,15 @@ $engineers = $pdo->query("
           <label>PA Status</label>
           <select name="pa_entries[${paEntryCount}][status]">
             <option value="Endorsed">Endorsed</option>
-            <option value="Approved">Approved</option>
+            <option value="Decided">Decided</option>
             <option value="Fee Payment">Fee Payment</option>
-            <option value="Not Approved">Not Approved</option>
+            <option value="Refused">Refused</option>
+            <option value="Pending/Awaiting Decision">Pending/Awaiting Decision</option>
+            <option value="Recommended for Approval">Recommended for Approval</option>
+            <option value="Recommended for Refusal">Recommended for Refusal</option>
+            <option value="Under Appeal">Under Appeal</option>
+            <option value="Revoked/Annulled">Revoked/Annulled</option>
+            <option value="Withdrawn">Withdrawn</option>
           </select>
         </div>
         
