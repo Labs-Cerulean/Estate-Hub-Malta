@@ -3,7 +3,7 @@ require_once 'init.php';
 require_once 'session-check.php';
 
 // Get and validate project ID
-$projectId = $_GET['projectid'] ?? null;
+$projectId = $_GET['project_id'] ?? null;
 
 if (!$projectId) {
     header('Location: dashboard.php');
