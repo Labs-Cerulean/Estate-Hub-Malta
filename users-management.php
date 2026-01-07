@@ -1,6 +1,6 @@
 <?php
-$pageTitle = 'User Management';
-include 'header.php';
+require_once 'init.php';
+require_once 'session-check.php';
 
 // Check if user is admin
 if (!isAdmin()) {
@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // ===== NEW: Handle assign all clients =====
+    // Handle assign all clients
     elseif ($_POST['action'] === 'assign_all_clients') {
         $userId = $_POST['user_id'] ?? null;
         
@@ -132,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // ===== NEW: Handle remove all clients =====
+    // Handle remove all clients
     elseif ($_POST['action'] === 'remove_all_clients') {
         $userId = $_POST['user_id'] ?? null;
         
@@ -262,6 +262,12 @@ if (isset($_GET['user_id'])) {
         $userAccessibleProjects = getAccessibleProjects($pdo, $_GET['user_id']);
     }
 }
+
+// Set page title
+$pageTitle = 'User Management';
+
+// Now output HTML
+require_once 'header.php';
 ?>
 
 <!DOCTYPE html>
