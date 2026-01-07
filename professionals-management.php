@@ -93,12 +93,6 @@ require_once 'header.php';
     <main class="main-container">
         <h1 class="page-title">Professionals Management</h1>
 
-        <?php if ($message): ?>
-            <div class="message success"><?= htmlspecialchars($message) ?></div>
-        <?php endif; ?>
-        <?php if ($error): ?>
-            <div class="message error"><?= htmlspecialchars($error) ?></div>
-        <?php endif; ?>
 
         <!-- Add/Edit Form -->
         <div class="card mb-8">
