@@ -16,12 +16,7 @@ function requireLogin() {
     }
 }
 
-/**
- * Check if current user has a specific role
- */
-function hasRole($role) {
-    return isset($_SESSION['role']) && $_SESSION['role'] === $role;
-}
+
 
 function getCurrentRole() {
     $userrole = $_SESSION['role'];
