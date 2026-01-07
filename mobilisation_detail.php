@@ -202,9 +202,15 @@ $canBCA = $respComplete;
                   <label>Status</label>
                   <select name="pa_status" <?php echo $disabledAttr; ?>>
                     <option value="Endorsed" <?php echo $pa['pa_status'] === 'Endorsed' ? 'selected' : ''; ?>>Endorsed</option>
-                    <option value="Approved" <?php echo $pa['pa_status'] === 'Approved' ? 'selected' : ''; ?>>Approved</option>
+                    <option value="Decided" <?php echo $pa['pa_status'] === 'Decided' ? 'selected' : ''; ?>>Decided</option>
                     <option value="Fee Payment" <?php echo $pa['pa_status'] === 'Fee Payment' ? 'selected' : ''; ?>>Fee Payment</option>
-                    <option value="Not Approved" <?php echo $pa['pa_status'] === 'Not Approved' ? 'selected' : ''; ?>>Not Approved</option>
+                    <option value="Refused" <?php echo $pa['pa_status'] === 'Refused' ? 'selected' : ''; ?>>Refused</option>
+                    <option value="Pending/Awaiting Decision" <?php echo $pa['pa_status'] === 'Pending/Awaiting Decision' ? 'selected' : ''; ?>>Pending/Awaiting Decision</option>
+                    <option value="Recommended for Approval" <?php echo $pa['pa_status'] === 'Recommended for Approval' ? 'selected' : ''; ?>>Recommended for Approval</option>
+                    <option value="Recommended for Refusal" <?php echo $pa['pa_status'] === 'Recommended for Refusal' ? 'selected' : ''; ?>>Recommended for Refusal</option>
+                    <option value="Under Appeal" <?php echo $pa['pa_status'] === 'Under Appeal' ? 'selected' : ''; ?>>Under Appeal</option>
+                    <option value="Revoked/Annulled" <?php echo $pa['pa_status'] === 'Revoked/Annulled' ? 'selected' : ''; ?>>Revoked/Annulled</option>
+                    <option value="Withdrawn" <?php echo $pa['pa_status'] === 'Withdrawn' ? 'selected' : ''; ?>>Withdrawn</option>
                   </select>
                 </div>
                 <input type="hidden" name="action" value="update_pa">
