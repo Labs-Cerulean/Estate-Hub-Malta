@@ -8,7 +8,6 @@ $userRole = getCurrentRole();
 
 // Calculate summary stats - based on accessible projects only
 $accessibleProjects = getAccessibleProjects($pdo, $userId);
-$projectIds = array_column($accessibleProjects, 'id');
 
 $stats = [
     'total' => count($accessibleProjects),
@@ -57,8 +56,8 @@ if ($filterStatus) {
     });
 }
 
-// Get all clients for filter dropdown (only accessible ones)
-$clientIds = array_unique(array_column($accessibleProjects, 'clientid'));
+// Get unique clients from accessible projects for filter dropdown
+$clientIds = array_values(array_unique(array_column($accessibleProjects, 'clientid')));
 $clients = [];
 if (!empty($clientIds)) {
     $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
@@ -68,10 +67,10 @@ if (!empty($clientIds)) {
 }
 
 // Get all unique cities from accessible projects
-$cities = array_unique(array_filter(array_column($accessibleProjects, 'city')));
+$cities = array_values(array_unique(array_filter(array_column($accessibleProjects, 'city'))));
 sort($cities);
 
-// Enrich filtered project data with client names and mobilization progress
+// Enrich filtered project data with mobilization progress
 foreach ($filteredProjects as &$project) {
     // Calculate mobilization progress and status
     $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
@@ -87,11 +86,11 @@ foreach ($filteredProjects as &$project) {
         if ($mob['archaeologist_assigned'] === 'Yes' || $mob['archaeologist_assigned'] === 'NA') $completedSteps++;
         if ($mob['change_of_applicant'] === 'Complete' || $mob['change_of_applicant'] === 'NA') $completedSteps++;
         if ($mob['geological_test'] === 'Complete' || $mob['geological_test'] === 'NA') $completedSteps++;
-        if ($mob['condition_report_contacts'] === 'Complete') $completedSteps++;
-        if ($mob['condition_reports'] === 'Complete') $completedSteps++;
+        if ($mob['condition_report_contacts'] === 'Complete' || $mob['condition_report_contacts'] === 'NA') $completedSteps++;
+        if ($mob['condition_reports'] === 'Complete' || $mob['condition_reports'] === 'NA') $completedSteps++;
         
-        // Sequential chain
-        if ($mob['method_statements'] === 'Completed') $completedSteps++;
+        // Sequential chain (note: method_statements uses 'Complete' not 'Completed')
+        if ($mob['method_statements'] === 'Complete') $completedSteps++;
         if ($mob['insurance_status'] === 'Complete') $completedSteps++;
         if ($mob['pavement_guarantee'] === 'Complete') $completedSteps++;
         if ($mob['wellbeing_guarantee'] === 'Complete') $completedSteps++;
