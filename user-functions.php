@@ -4,12 +4,7 @@
  * Estate Hub - Project Management System
  */
 
-/**
- * Check if user is logged in
- */
-function isLoggedIn() {
-    return isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true && isset($_SESSION['user_id']);
-}
+
 
 /**
  * Require user to be logged in
