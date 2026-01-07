@@ -158,16 +158,7 @@ $pageTitle = 'Mobilisation - ' . $project['name'];
 // Now output HTML
 require_once 'header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><?php echo htmlspecialchars($project['name']); ?> – Estate Hub Malta</title>
-  <link rel="icon" href="logo.png">
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
+
   <div class="main-container">
     <h1 class="page-title"><?php echo htmlspecialchars($project['name']); ?></h1>
 
@@ -414,5 +405,4 @@ require_once 'header.php';
     </section>
 
   </div>
-</body>
-</html>
+<?php require_once 'footer.php'; ?>
