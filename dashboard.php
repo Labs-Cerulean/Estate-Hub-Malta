@@ -1,6 +1,6 @@
 <?php
-$pageTitle = "Dashboard";
-include 'header.php';
+require_once 'init.php';
+require_once 'session-check.php';
 
 // Get current user
 $userId = getCurrentUserId();
@@ -275,6 +275,10 @@ function buildPaUrl(?string $paNumber): ?string {
     return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseyear={$caseYear}";
 }
 
+// Set page title
+$pageTitle = 'Dashboard';
+// NOW output HTML
+require_once 'header.php';
 ?>
 
 <!DOCTYPE html>
