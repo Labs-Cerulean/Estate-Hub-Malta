@@ -85,6 +85,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
+    // ===== NEW: Handle assign all clients =====
+    elseif ($_POST['action'] === 'assign_all_clients') {
+        $userId = $_POST['user_id'] ?? null;
+        
+        if ($userId) {
+            try {
+                $currentUserId = getCurrentUserId();
+                
+                // Get all clients
+                $allClients = $pdo->query("SELECT id FROM clients")->fetchAll(PDO::FETCH_COLUMN);
+                
+                $assignedCount = 0;
+                $skippedCount = 0;
+                
+                foreach ($allClients as $clientId) {
+                    // Check if already assigned
+                    $check = $pdo->prepare("
+                        SELECT id FROM user_client_access
+                        WHERE user_id = ? AND client_id = ?
+                    ");
+                    $check->execute([$userId, $clientId]);
+                    
+                    if (!$check->fetch()) {
+                        // Assign if not already assigned
+                        $stmt = $pdo->prepare("
+                            INSERT INTO user_client_access (user_id, client_id, assigned_by)
+                            VALUES (?, ?, ?)
+                        ");
+                        if ($stmt->execute([$userId, $clientId, $currentUserId])) {
+                            $assignedCount++;
+                        }
+                    } else {
+                        $skippedCount++;
+                    }
+                }
+                
+                if ($assignedCount > 0) {
+                    $message = "Successfully assigned {$assignedCount} client(s). {$skippedCount} were already assigned.";
+                } else {
+                    $message = "All clients were already assigned to this user.";
+                }
+            } catch (PDOException $e) {
+                $error = 'Failed to assign all clients: ' . $e->getMessage();
+            }
+        }
+    }
+    
+    // ===== NEW: Handle remove all clients =====
+    elseif ($_POST['action'] === 'remove_all_clients') {
+        $userId = $_POST['user_id'] ?? null;
+        
+        if ($userId) {
+            try {
+                $stmt = $pdo->prepare("
+                    DELETE FROM user_client_access
+                    WHERE user_id = ?
+                ");
+                $stmt->execute([$userId]);
+                $removedCount = $stmt->rowCount();
+                
+                $message = "Successfully removed {$removedCount} client assignment(s).";
+            } catch (PDOException $e) {
+                $error = 'Failed to remove all clients: ' . $e->getMessage();
+            }
+        }
+    }
+    
     // Handle client removal
     elseif ($_POST['action'] === 'remove_client') {
         $userId = $_POST['user_id'] ?? null;
@@ -204,6 +271,39 @@ if (isset($_GET['user_id'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Management - Estate Hub</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .bulk-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border-glass);
+        }
+        
+        .bulk-actions .btn-bulk {
+            flex: 1;
+        }
+        
+        .client-stats {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .client-stats span {
+            color: var(--text-secondary);
+        }
+        
+        .client-stats strong {
+            color: var(--primary-color);
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -343,6 +443,31 @@ if (isset($_GET['user_id'])) {
                             <h3>Client Assignments</h3>
                             <p class="info-text">Assigning a client gives the user access to ALL projects for that client.</p>
                             
+                            <!-- Client Stats -->
+                            <div class="client-stats">
+                                <span>Assigned: <strong><?= count($userClients) ?></strong> of <strong><?= count($clients) ?></strong> total clients</span>
+                            </div>
+                            
+                            <!-- Bulk Actions -->
+                            <div class="bulk-actions">
+                                <form method="POST" style="flex: 1;" onsubmit="return confirm('Assign ALL clients to this user? This will give them access to all projects.');">
+                                    <input type="hidden" name="action" value="assign_all_clients">
+                                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                    <button type="submit" class="btn btn-primary btn-bulk">
+                                        <span>📋</span> Assign All Clients
+                                    </button>
+                                </form>
+                                
+                                <form method="POST" style="flex: 1;" onsubmit="return confirm('Remove ALL client assignments? This will revoke access to all projects.');">
+                                    <input type="hidden" name="action" value="remove_all_clients">
+                                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                    <button type="submit" class="btn btn-danger btn-bulk">
+                                        <span>🗑️</span> Remove All Clients
+                                    </button>
+                                </form>
+                            </div>
+                            
+                            <!-- Individual Client Assignment -->
                             <form method="POST" class="inline-form">
                                 <input type="hidden" name="action" value="assign_client">
                                 <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
@@ -480,7 +605,7 @@ if (isset($_GET['user_id'])) {
         </div>
     </div>
     
-    <!-- Create User Modal -->
+    <!-- Create User Modal (unchanged) -->
     <div id="createUserModal" class="modal" style="display:none;">
         <div class="modal-content">
             <span class="close" onclick="hideCreateUserForm()">&times;</span>
@@ -579,7 +704,5 @@ if (isset($_GET['user_id'])) {
             firmDiv.style.display = (this.value === 'architect') ? 'block' : 'none';
         });
     </script>
-</body>
-</html>
 </body>
 </html>
