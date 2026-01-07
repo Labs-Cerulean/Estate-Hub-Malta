@@ -289,13 +289,13 @@ $engineers = $pdo->query("
       </div>
 
       <div class="form-group">
-        <label>Island</label>
-        <select name="island" id="island" onchange="updateCities()" required>
-          <option value="">Select Island</option>
-          <option value="Malta" <?php echo ($project['island'] ?? '') === 'Malta' ? 'selected' : ''; ?> <?php echo (in_array($project['city'], ['Ghargur', 'Mellieha', 'Mosta', 'Naxxar', 'Rabat', 'San Pawl il-Bahar', 'Attard', 'Balzan', 'Birkirkara', 'Gzira', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex', 'Birgu', 'Bormla', 'Fgura', 'Ghaxaq', 'Kirkop', 'Safi', 'Haz-Zebbug', 'Marsascala', 'Marsaxlokk', 'Mqabba', 'Paola', 'Santa Lucia', 'Senglea', 'Siggiewi', 'Tarxien', 'Xghajra', 'Zabbar', 'Zejtun', 'Qrendi', 'Zurrieq'])) ? 'selected' : ''; ?>>Malta</option>
-          <option value="Gozo" <?php echo ($project['island'] ?? '') === 'Gozo' ? 'selected' : ''; ?><?php echo (in_array($project['city'], ['Fontana', 'Ghajnsielem', 'Gharb', 'Ghasri', 'Kercem', 'Marsalforn', 'Munxar', 'Nadur', 'Qala', 'Rabat Victoria', 'San Lawrenz', 'Sannat', 'Xaghra', 'Xewkija', 'Zebbug Gozo'])) ? 'selected' : ''; ?>>Gozo</option>
-        </select>
-      </div>
+          <label>Island</label>
+          <select name="island" id="island" onchange="updateCities()" required>
+            <option value="">Select Island</option>
+            <option value="Malta" <?php echo (isset($project['island']) && $project['island'] === 'Malta') ? 'selected' : ''; ?>>Malta</option>
+            <option value="Gozo" <?php echo (isset($project['island']) && $project['island'] === 'Gozo') ? 'selected' : ''; ?>>Gozo</option>
+          </select>
+        </div>
 
       <div class="form-group">
         <label>City / Locality</label>
