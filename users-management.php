@@ -2,7 +2,7 @@
 $pageTitle = 'User Management';
 include 'header.php';
 
-// Only admins can access this page
+// Check if user is admin
 if (!isAdmin()) {
     header('Location: dashboard.php');
     exit;
@@ -11,9 +11,8 @@ if (!isAdmin()) {
 $message = '';
 $error = '';
 
-// Handle user creation
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Handle user creation
     if ($_POST['action'] === 'create_user') {
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
@@ -21,20 +20,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $role = $_POST['role'] ?? 'viewer';
         $firstName = trim($_POST['first_name'] ?? '');
         $lastName = trim($_POST['last_name'] ?? '');
+        $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
+        $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
         
-        // Validate inputs
         if (empty($username) || empty($email) || empty($password)) {
             $error = 'Username, email, and password are required';
         } elseif (strlen($password) < 6) {
             $error = 'Password must be at least 6 characters';
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $error = 'Invalid email format';
         } else {
-            $userId = createUser($pdo, $username, $email, $password, $role, $firstName, $lastName);
+            $userId = createUser($pdo, $username, $email, $password, $role, $firstName, $lastName, $architectFirmId, $structuralFirmId);
             if ($userId) {
-                $message = "User '$username' created successfully!";
+                $message = 'User created successfully! Default: No clients or projects assigned.';
             } else {
-                $error = 'Failed to create user (username or email may already exist)';
+                $error = 'Failed to create user. Username or email may already exist.';
             }
         }
     }
@@ -48,11 +46,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $firstName = trim($_POST['first_name'] ?? '');
         $lastName = trim($_POST['last_name'] ?? '');
         $isActive = $_POST['is_active'] ?? 'Yes';
+        $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
+        $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
         
         if (empty($username) || empty($email)) {
             $error = 'Username and email are required';
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $error = 'Invalid email format';
         } else {
             $updated = updateUser($pdo, $userId, [
                 'username' => $username,
@@ -60,12 +58,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'role' => $role,
                 'first_name' => $firstName,
                 'last_name' => $lastName,
-                'is_active' => $isActive
+                'is_active' => $isActive,
+                'assigned_architect_firm_id' => $architectFirmId,
+                'assigned_structural_firm_id' => $structuralFirmId
             ]);
+            
             if ($updated) {
                 $message = 'User updated successfully!';
             } else {
                 $error = 'Failed to update user';
+            }
+        }
+    }
+    
+    // Handle client assignment
+    elseif ($_POST['action'] === 'assign_client') {
+        $userId = $_POST['user_id'] ?? null;
+        $clientId = $_POST['client_id'] ?? null;
+        
+        if ($userId && $clientId) {
+            if (assignUserToClient($pdo, $userId, $clientId)) {
+                $message = 'Client assigned successfully! User now has access to all projects for this client.';
+            } else {
+                $error = 'Failed to assign client';
+            }
+        }
+    }
+    
+    // Handle client removal
+    elseif ($_POST['action'] === 'remove_client') {
+        $userId = $_POST['user_id'] ?? null;
+        $clientId = $_POST['client_id'] ?? null;
+        
+        if ($userId && $clientId) {
+            if (removeUserFromClient($pdo, $userId, $clientId)) {
+                $message = 'Client removed successfully!';
+            } else {
+                $error = 'Failed to remove client';
+            }
+        }
+    }
+    
+    // Handle project exclusion
+    elseif ($_POST['action'] === 'exclude_project') {
+        $userId = $_POST['user_id'] ?? null;
+        $projectId = $_POST['project_id'] ?? null;
+        
+        if ($userId && $projectId) {
+            if (excludeProjectFromUser($pdo, $userId, $projectId)) {
+                $message = 'Project excluded successfully!';
+            } else {
+                $error = 'Failed to exclude project';
+            }
+        }
+    }
+    
+    // Handle project exclusion removal
+    elseif ($_POST['action'] === 'restore_project') {
+        $userId = $_POST['user_id'] ?? null;
+        $projectId = $_POST['project_id'] ?? null;
+        
+        if ($userId && $projectId) {
+            if (removeProjectExclusion($pdo, $userId, $projectId)) {
+                $message = 'Project access restored!';
+            } else {
+                $error = 'Failed to restore project access';
             }
         }
     }
@@ -86,37 +143,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
     
-    // Handle project assignment
-    elseif ($_POST['action'] === 'assign_project') {
-        $userId = $_POST['user_id'] ?? null;
-        $projectId = $_POST['project_id'] ?? null;
-        $accessLevel = $_POST['access_level'] ?? 'viewer';
-        
-        if ($userId && $projectId) {
-            if (assignUserToProject($pdo, $userId, $projectId, $accessLevel)) {
-                $message = 'User assigned to project successfully!';
-            } else {
-                $error = 'Failed to assign project';
-            }
-        } else {
-            $error = 'User and project are required';
-        }
-    }
-    
-    // Handle project removal
-    elseif ($_POST['action'] === 'remove_project') {
-        $userId = $_POST['user_id'] ?? null;
-        $projectId = $_POST['project_id'] ?? null;
-        
-        if ($userId && $projectId) {
-            if (removeUserFromProject($pdo, $userId, $projectId)) {
-                $message = 'User removed from project successfully!';
-            } else {
-                $error = 'Failed to remove user from project';
-            }
-        }
-    }
-    
     // Handle user deletion
     elseif ($_POST['action'] === 'delete_user') {
         $userId = $_POST['user_id'] ?? null;
@@ -133,21 +159,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// Get all users and projects
+// Get all users, clients, projects, and firms
 $users = getAllUsers($pdo);
-$projects = $pdo->query("SELECT id, name FROM projects ORDER BY name")->fetchAll();
+$clients = $pdo->query("SELECT id, name, type FROM clients ORDER BY name")->fetchAll();
+$projects = $pdo->query("SELECT id, name, clientid FROM projects ORDER BY name")->fetchAll();
+$firms = getAllFirms($pdo);
 
-// Get selected user details if editing
-$selectedUser = null;
-$userProjects = [];
-if (isset($_GET['user_id'])) {
-    $selectedUser = getUserById($pdo, $_GET['user_id']);
-    if ($selectedUser) {
-        $userProjects = getUserProjects($pdo, $_GET['user_id']);
+// Get professional IDs for firms
+$architectFirms = [];
+$structuralFirms = [];
+foreach ($firms['architects'] as $firmName) {
+    $profId = getProfessionalIdByFirm($pdo, $firmName, 'architect');
+    if ($profId) {
+        $architectFirms[$profId] = $firmName;
+    }
+}
+foreach ($firms['structural_engineers'] as $firmName) {
+    $profId = getProfessionalIdByFirm($pdo, $firmName, 'structural_engineer');
+    if ($profId) {
+        $structuralFirms[$profId] = $firmName;
     }
 }
 
+// Get selected user details
+$selectedUser = null;
+$userClients = [];
+$userExcludedProjects = [];
+$userAccessibleProjects = [];
+
+if (isset($_GET['user_id'])) {
+    $selectedUser = getUserById($pdo, $_GET['user_id']);
+    if ($selectedUser) {
+        $userClients = getUserClients($pdo, $_GET['user_id']);
+        $userExcludedProjects = getUserExcludedProjects($pdo, $_GET['user_id']);
+        $userAccessibleProjects = getAccessibleProjects($pdo, $_GET['user_id']);
+    }
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -155,413 +204,382 @@ if (isset($_GET['user_id'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Management - Estate Hub</title>
     <link rel="stylesheet" href="styles.css">
-    <style>
-        .user-management {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-        
-        .user-list {
-            border-radius: 8px;
-            padding: 1.5rem;
-            border: 1px solid var(--color-border);
-        }
-        
-        .user-item {
-            padding: 0.75rem;
-            border-bottom: 1px solid var(--color-border);
-            cursor: pointer;
-            transition: background 0.2s;
-            border-radius: 4px;
-            margin-bottom: 0.5rem;
-        }
-        
-        .user-item:hover {
-            background: var(--color-secondary-hover);
-        }
-        
-        .user-item.active {
-            background: var(--color-primary);
-            color: var(--color-btn-primary-text);
-        }
-        
-        .user-details {
-            border-radius: 8px;
-            padding: 1.5rem;
-            border: 1px solid var(--color-border);
-        }
-        
-        .form-section {
-            margin-bottom: 2rem;
-            padding-bottom: 2rem;
-            border-bottom: 1px solid var(--color-border);
-        }
-        
-        .form-section:last-child {
-            border-bottom: none;
-        }
-        
-        .role-badge {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 500;
-        }
-        
-        .role-badge.admin {
-            background: rgba(192, 21, 47, 0.15);
-            color: var(--color-error);
-        }
-        
-        .role-badge.manager {
-            background: rgba(230, 129, 97, 0.15);
-            color: var(--color-warning);
-        }
-        
-        .role-badge.architect {
-            background: rgba(45, 166, 178, 0.15);
-            color: var(--color-primary);
-        }
-        
-        .role-badge.viewer {
-            background: rgba(98, 108, 113, 0.15);
-            color: var(--color-text-secondary);
-        }
-        
-        .project-access-list {
-            margin-top: 1rem;
-            padding: 1rem;
-            background: var(--color-bg-1);
-            border-radius: 6px;
-        }
-        
-        .project-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem;
-            border-bottom: 1px solid var(--color-border);
-        }
-        
-        .project-item:last-child {
-            border-bottom: none;
-        }
-        
-        .btn-small {
-            padding: 0.4rem 0.8rem;
-            font-size: 0.85rem;
-        }
-        
-        .alert {
-            padding: 1rem;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-        }
-        
-        .alert-success {
-            background: rgba(33, 128, 141, 0.1);
-            color: var(--color-success);
-            border: 1px solid var(--color-success);
-        }
-        
-        .alert-error {
-            background: rgba(192, 21, 47, 0.1);
-            color: var(--color-error);
-            border: 1px solid var(--color-error);
-        }
-        
-        .form-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-        }
-        
-        .form-grid.full {
-            grid-template-columns: 1fr;
-        }
-        
-        @media (max-width: 1200px) {
-            .user-management {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="logo-section">
-                <h1>User Management</h1>
-                <p class="subtitle">Manage users and project assignments</p>
-            </div>
-            <div class="user-info">
-                <span><?php echo getCurrentUserFullName(); ?></span>
-                <!-- Logout Button -->
-                <a href="api/logout.php" class="nav-link">Logout</a>
-            </div>
-        </header>
-
-        <!-- Messages -->
+        <h1>User Management</h1>
+        
         <?php if ($message): ?>
-            <div class="alert alert-success"><?php echo htmlspecialchars($message); ?></div>
+            <div class="alert alert-success"><?= htmlspecialchars($message) ?></div>
         <?php endif; ?>
+        
         <?php if ($error): ?>
-            <div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div>
+            <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
-
-        <!-- Main Content -->
-        <div class="user-management">
-            <!-- Users List -->
+        
+        <div class="two-column-layout">
+            <!-- Left Column: User List -->
             <div class="user-list">
-                <h3>Users</h3>
-                <button class="btn btn--primary btn--full-width" onclick="showCreateUserForm()">
-                    + Add New User
-                </button>
+                <h2>All Users</h2>
+                <button onclick="showCreateUserForm()" class="btn btn-primary">Create New User</button>
                 
-                <div id="user-list-container" style="margin-top: 1rem;">
-                    <?php foreach ($users as $user): ?>
-                        <div class="user-item <?php echo (isset($_GET['user_id']) && $_GET['user_id'] == $user['id']) ? 'active' : ''; ?>"
-                             onclick="selectUser(<?php echo $user['id']; ?>)">
-                            <strong><?php echo htmlspecialchars($user['first_name'] ?? $user['username']); ?></strong>
-                            <div style="font-size: 0.85rem; margin-top: 0.25rem;">
-                                <span class="role-badge <?php echo htmlspecialchars($user['role']); ?>">
-                                    <?php echo htmlspecialchars($user['role']); ?>
-                                </span>
-                                <span style="color: var(--color-text-secondary); font-size: 0.8rem;">
-                                    <?php echo $user['is_active'] === 'Yes' ? '✓ Active' : '✗ Inactive'; ?>
-                                </span>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($users as $user): ?>
+                            <tr>
+                                <td><?= htmlspecialchars($user['username']) ?></td>
+                                <td><?= htmlspecialchars(trim($user['first_name'] . ' ' . $user['last_name'])) ?></td>
+                                <td><span class="role-badge role-<?= $user['role'] ?>"><?= htmlspecialchars($user['role']) ?></span></td>
+                                <td><span class="status-<?= strtolower($user['is_active']) ?>"><?= htmlspecialchars($user['is_active']) ?></span></td>
+                                <td>
+                                    <a href="?user_id=<?= $user['id'] ?>" class="btn btn-small">Edit</a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Right Column: User Details -->
+            <div class="user-details">
+                <?php if ($selectedUser): ?>
+                    <h2>Edit User: <?= htmlspecialchars($selectedUser['username']) ?></h2>
+                    
+                    <!-- User Information Form -->
+                    <form method="POST" class="form-section">
+                        <input type="hidden" name="action" value="update_user">
+                        <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                        
+                        <h3>User Information</h3>
+                        
+                        <div class="form-group">
+                            <label>Username:</label>
+                            <input type="text" name="username" value="<?= htmlspecialchars($selectedUser['username']) ?>" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Email:</label>
+                            <input type="email" name="email" value="<?= htmlspecialchars($selectedUser['email']) ?>" required>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>First Name:</label>
+                                <input type="text" name="first_name" value="<?= htmlspecialchars($selectedUser['first_name'] ?? '') ?>">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Last Name:</label>
+                                <input type="text" name="last_name" value="<?= htmlspecialchars($selectedUser['last_name'] ?? '') ?>">
                             </div>
                         </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-
-            <!-- Details Panel -->
-            <div class="user-details">
-                <div id="details-container">
-                    <?php if ($selectedUser): ?>
-                        <!-- User Details Form -->
-                        <div class="form-section">
-                            <h3>User Information</h3>
-                            <form method="POST">
-                                <input type="hidden" name="action" value="update_user">
-                                <input type="hidden" name="user_id" value="<?php echo $selectedUser['id']; ?>">
-                                
-                                <div class="form-grid">
-                                    <div class="form-group">
-                                        <label class="form-label">Username</label>
-                                        <input type="text" name="username" class="form-control" 
-                                               value="<?php echo htmlspecialchars($selectedUser['username']); ?>" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="form-label">Email</label>
-                                        <input type="email" name="email" class="form-control" 
-                                               value="<?php echo htmlspecialchars($selectedUser['email']); ?>" required>
-                                    </div>
-                                </div>
-                                
-                                <div class="form-grid">
-                                    <div class="form-group">
-                                        <label class="form-label">First Name</label>
-                                        <input type="text" name="first_name" class="form-control" 
-                                               value="<?php echo htmlspecialchars($selectedUser['first_name'] ?? ''); ?>">
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="form-label">Last Name</label>
-                                        <input type="text" name="last_name" class="form-control" 
-                                               value="<?php echo htmlspecialchars($selectedUser['last_name'] ?? ''); ?>">
-                                    </div>
-                                </div>
-                                
-                                <div class="form-grid">
-                                    <div class="form-group">
-                                        <label class="form-label">Global Role</label>
-                                        <select name="role" class="form-control">
-                                            <option value="admin" <?php echo $selectedUser['role'] === 'admin' ? 'selected' : ''; ?>>Admin</option>
-                                            <option value="manager" <?php echo $selectedUser['role'] === 'manager' ? 'selected' : ''; ?>>Manager</option>
-                                            <option value="architect" <?php echo $selectedUser['role'] === 'architect' ? 'selected' : ''; ?>>Architect</option>
-                                            <option value="viewer" <?php echo $selectedUser['role'] === 'viewer' ? 'selected' : ''; ?>>Viewer</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="form-label">Status</label>
-                                        <select name="is_active" class="form-control">
-                                            <option value="Yes" <?php echo $selectedUser['is_active'] === 'Yes' ? 'selected' : ''; ?>>Active</option>
-                                            <option value="No" <?php echo $selectedUser['is_active'] === 'No' ? 'selected' : ''; ?>>Inactive</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                
-                                <button type="submit" class="btn btn--primary">Update User</button>
-                            </form>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Role:</label>
+                                <select name="role" required id="userRole">
+                                    <option value="viewer" <?= $selectedUser['role'] === 'viewer' ? 'selected' : '' ?>>Viewer</option>
+                                    <option value="manager" <?= $selectedUser['role'] === 'manager' ? 'selected' : '' ?>>Manager</option>
+                                    <option value="architect" <?= $selectedUser['role'] === 'architect' ? 'selected' : '' ?>>Architect</option>
+                                    <option value="admin" <?= $selectedUser['role'] === 'admin' ? 'selected' : '' ?>>Admin</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Status:</label>
+                                <select name="is_active">
+                                    <option value="Yes" <?= $selectedUser['is_active'] === 'Yes' ? 'selected' : '' ?>>Active</option>
+                                    <option value="No" <?= $selectedUser['is_active'] === 'No' ? 'selected' : '' ?>>Inactive</option>
+                                </select>
+                            </div>
                         </div>
-
-                        <!-- Change Password -->
-                        <div class="form-section">
-                            <h3>Change Password</h3>
-                            <form method="POST">
-                                <input type="hidden" name="action" value="change_password">
-                                <input type="hidden" name="user_id" value="<?php echo $selectedUser['id']; ?>">
+                        
+                        <!-- Architect Firm Assignments (only show for architect role) -->
+                        <div id="firmAssignments" style="display: <?= $selectedUser['role'] === 'architect' ? 'block' : 'none' ?>;">
+                            <h4>Firm Assignments (for Architects only)</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Architect Firm:</label>
+                                    <select name="architect_firm_id">
+                                        <option value="">-- None --</option>
+                                        <?php foreach ($architectFirms as $id => $name): ?>
+                                            <option value="<?= $id ?>" <?= $selectedUser['assigned_architect_firm_id'] == $id ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($name) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
                                 
                                 <div class="form-group">
-                                    <label class="form-label">New Password</label>
-                                    <input type="password" name="new_password" class="form-control" 
-                                           placeholder="Minimum 6 characters" required>
+                                    <label>Structural Engineer Firm:</label>
+                                    <select name="structural_firm_id">
+                                        <option value="">-- None --</option>
+                                        <?php foreach ($structuralFirms as $id => $name): ?>
+                                            <option value="<?= $id ?>" <?= $selectedUser['assigned_structural_firm_id'] == $id ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($name) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
                                 </div>
-                                
-                                <button type="submit" class="btn btn--secondary">Change Password</button>
-                            </form>
+                            </div>
+                            <p class="info-text">Architects will only see projects where their assigned firm is listed as architect or structural engineer.</p>
                         </div>
-
-                        <!-- Project Assignments -->
+                        
+                        <button type="submit" class="btn btn-primary">Update User</button>
+                    </form>
+                    
+                    <!-- Client Assignments (hide for architects) -->
+                    <?php if ($selectedUser['role'] !== 'architect'): ?>
                         <div class="form-section">
-                            <h3>Project Assignments</h3>
+                            <h3>Client Assignments</h3>
+                            <p class="info-text">Assigning a client gives the user access to ALL projects for that client.</p>
                             
-                            <form method="POST" style="margin-bottom: 1.5rem;">
-                                <input type="hidden" name="action" value="assign_project">
-                                <input type="hidden" name="user_id" value="<?php echo $selectedUser['id']; ?>">
+                            <form method="POST" class="inline-form">
+                                <input type="hidden" name="action" value="assign_client">
+                                <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
                                 
-                                <div class="form-grid full">
-                                    <div class="form-group">
-                                        <label class="form-label">Select Project</label>
-                                        <select name="project_id" class="form-control" required>
-                                            <option value="">-- Choose a project --</option>
-                                            <?php foreach ($projects as $project): ?>
-                                                <option value="<?php echo $project['id']; ?>">
-                                                    <?php echo htmlspecialchars($project['name']); ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    
-                                    <div class="form-group">
-                                        <label class="form-label">Access Level</label>
-                                        <select name="access_level" class="form-control">
-                                            <option value="admin">Admin</option>
-                                            <option value="manager" selected>Manager</option>
-                                            <option value="architect">Architect</option>
-                                            <option value="viewer">Viewer</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                
-                                <button type="submit" class="btn btn--primary">Assign Project</button>
-                            </form>
-
-                            <!-- Current Assignments -->
-                            <?php if (!empty($userProjects)): ?>
-                                <div class="project-access-list">
-                                    <h4>Current Assignments (<?php echo count($userProjects); ?>)</h4>
-                                    <?php foreach ($userProjects as $project): ?>
-                                        <div class="project-item">
-                                            <div>
-                                                <strong><?php echo htmlspecialchars($project['name']); ?></strong>
-                                                <span class="role-badge <?php echo htmlspecialchars($project['access_level']); ?>" 
-                                                      style="margin-left: 0.5rem;">
-                                                    <?php echo htmlspecialchars($project['access_level']); ?>
-                                                </span>
-                                            </div>
-                                            <form method="POST" style="display: inline;">
-                                                <input type="hidden" name="action" value="remove_project">
-                                                <input type="hidden" name="user_id" value="<?php echo $selectedUser['id']; ?>">
-                                                <input type="hidden" name="project_id" value="<?php echo $project['id']; ?>">
-                                                <button type="submit" class="btn btn--outline btn--small">Remove</button>
-                                            </form>
-                                        </div>
+                                <select name="client_id" required>
+                                    <option value="">-- Select Client --</option>
+                                    <?php foreach ($clients as $client): ?>
+                                        <option value="<?= $client['id'] ?>"><?= htmlspecialchars($client['name']) ?> (<?= htmlspecialchars($client['type']) ?>)</option>
                                     <?php endforeach; ?>
-                                </div>
+                                </select>
+                                
+                                <button type="submit" class="btn btn-small">Assign Client</button>
+                            </form>
+                            
+                            <?php if (!empty($userClients)): ?>
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Client Name</th>
+                                            <th>Type</th>
+                                            <th>Assigned Date</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($userClients as $client): ?>
+                                            <tr>
+                                                <td><?= htmlspecialchars($client['name']) ?></td>
+                                                <td><?= htmlspecialchars($client['type']) ?></td>
+                                                <td><?= htmlspecialchars(date('Y-m-d', strtotime($client['assigned_at']))) ?></td>
+                                                <td>
+                                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Remove this client?');">
+                                                        <input type="hidden" name="action" value="remove_client">
+                                                        <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                                        <input type="hidden" name="client_id" value="<?= $client['id'] ?>">
+                                                        <button type="submit" class="btn btn-small btn-danger">Remove</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
                             <?php else: ?>
-                                <p style="color: var(--color-text-secondary); font-style: italic;">
-                                    Not assigned to any projects yet.
-                                </p>
+                                <p class="no-data">No clients assigned yet.</p>
                             <?php endif; ?>
                         </div>
-
-                        <!-- Delete User -->
-                        <div class="form-section">
+                    <?php endif; ?>
+                    
+                    <!-- Project Exclusions -->
+                    <div class="form-section">
+                        <h3>Project Exclusions</h3>
+                        <p class="info-text">Remove specific projects from user's access (even if they have access via client assignment or firm).</p>
+                        
+                        <form method="POST" class="inline-form">
+                            <input type="hidden" name="action" value="exclude_project">
+                            <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                            
+                            <select name="project_id" required>
+                                <option value="">-- Select Project to Exclude --</option>
+                                <?php foreach ($userAccessibleProjects as $project): ?>
+                                    <option value="<?= $project['id'] ?>"><?= htmlspecialchars($project['name']) ?> (<?= htmlspecialchars($project['client_name']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                            
+                            <button type="submit" class="btn btn-small btn-warning">Exclude Project</button>
+                        </form>
+                        
+                        <?php if (!empty($userExcludedProjects)): ?>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Project Name</th>
+                                        <th>Client</th>
+                                        <th>Excluded Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($userExcludedProjects as $project): ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars($project['name']) ?></td>
+                                            <td><?= htmlspecialchars($project['client_name']) ?></td>
+                                            <td><?= htmlspecialchars(date('Y-m-d', strtotime($project['excluded_at']))) ?></td>
+                                            <td>
+                                                <form method="POST" style="display:inline;">
+                                                    <input type="hidden" name="action" value="restore_project">
+                                                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                                    <input type="hidden" name="project_id" value="<?= $project['id'] ?>">
+                                                    <button type="submit" class="btn btn-small btn-success">Restore Access</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php else: ?>
+                            <p class="no-data">No excluded projects.</p>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <!-- Password Change -->
+                    <div class="form-section">
+                        <h3>Change Password</h3>
+                        <form method="POST">
+                            <input type="hidden" name="action" value="change_password">
+                            <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                            
+                            <div class="form-group">
+                                <label>New Password:</label>
+                                <input type="password" name="new_password" required minlength="6">
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary">Change Password</button>
+                        </form>
+                    </div>
+                    
+                    <!-- Delete User -->
+                    <?php if ($selectedUser['id'] !== getCurrentUserId()): ?>
+                        <div class="form-section danger-zone">
                             <h3>Danger Zone</h3>
-                            <form method="POST" onsubmit="return confirm('Are you sure? This action cannot be undone.');">
+                            <form method="POST" onsubmit="return confirm('Are you sure you want to delete this user? This action cannot be undone.');">
                                 <input type="hidden" name="action" value="delete_user">
-                                <input type="hidden" name="user_id" value="<?php echo $selectedUser['id']; ?>">
-                                
-                                <button type="submit" class="btn" style="background: var(--color-error); color: white;">
-                                    Delete User
-                                </button>
-                                <p style="font-size: 0.85rem; color: var(--color-text-secondary); margin-top: 0.5rem;">
-                                    Deleting a user will remove all their project assignments.
-                                </p>
+                                <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                <button type="submit" class="btn btn-danger">Delete User</button>
                             </form>
                         </div>
-                    <?php else: ?>
-                        <div style="text-align: center; padding: 3rem 1rem; color: var(--color-text-secondary);">
-                            <p>Select a user from the list to view and edit their details.</p>
-                        </div>
                     <?php endif; ?>
-                </div>
+                    
+                <?php else: ?>
+                    <div class="placeholder">
+                        <p>Select a user from the list to view and edit their details, or create a new user.</p>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
-
-    <script>
-        function selectUser(userId) {
-            window.location.href = '?user_id=' + userId;
-        }
-        
-        function showCreateUserForm() {
-            document.getElementById('details-container').innerHTML = `
-                <div class="form-section">
-                    <h3>Create New User</h3>
-                    <form method="POST">
-                        <input type="hidden" name="action" value="create_user">
-                        
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Username</label>
-                                <input type="text" name="username" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Email</label>
-                                <input type="email" name="email" class="form-control" required>
-                            </div>
-                        </div>
-                        
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">First Name</label>
-                                <input type="text" name="first_name" class="form-control">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Last Name</label>
-                                <input type="text" name="last_name" class="form-control">
-                            </div>
-                        </div>
-                        
+    
+    <!-- Create User Modal -->
+    <div id="createUserModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close" onclick="hideCreateUserForm()">&times;</span>
+            <h2>Create New User</h2>
+            
+            <form method="POST">
+                <input type="hidden" name="action" value="create_user">
+                
+                <div class="form-group">
+                    <label>Username:*</label>
+                    <input type="text" name="username" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Email:*</label>
+                    <input type="email" name="email" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Password:*</label>
+                    <input type="password" name="password" required minlength="6">
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>First Name:</label>
+                        <input type="text" name="first_name">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Last Name:</label>
+                        <input type="text" name="last_name">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Role:*</label>
+                    <select name="role" required id="createUserRole" onchange="toggleFirmFields()">
+                        <option value="viewer">Viewer</option>
+                        <option value="manager">Manager</option>
+                        <option value="architect">Architect</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                
+                <div id="createFirmFields" style="display:none;">
+                    <h4>Firm Assignments (for Architects)</h4>
+                    <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">Password</label>
-                            <input type="password" name="password" class="form-control" 
-                                   placeholder="Minimum 6 characters" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">Role</label>
-                            <select name="role" class="form-control">
-                                <option value="viewer">Viewer</option>
-                                <option value="architect">Architect</option>
-                                <option value="manager">Manager</option>
-                                <option value="admin">Admin</option>
+                            <label>Architect Firm:</label>
+                            <select name="architect_firm_id">
+                                <option value="">-- None --</option>
+                                <?php foreach ($architectFirms as $id => $name): ?>
+                                    <option value="<?= $id ?>"><?= htmlspecialchars($name) ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         
-                        <button type="submit" class="btn btn--primary">Create User</button>
-                        <button type="button" class="btn btn--outline" onclick="location.reload()">Cancel</button>
-                    </form>
+                        <div class="form-group">
+                            <label>Structural Engineer Firm:</label>
+                            <select name="structural_firm_id">
+                                <option value="">-- None --</option>
+                                <?php foreach ($structuralFirms as $id => $name): ?>
+                                    <option value="<?= $id ?>"><?= htmlspecialchars($name) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
                 </div>
-            `;
+                
+                <p class="info-text">New users start with NO access to clients or projects. You must assign them after creation.</p>
+                
+                <button type="submit" class="btn btn-primary">Create User</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        function showCreateUserForm() {
+            document.getElementById('createUserModal').style.display = 'block';
         }
+        
+        function hideCreateUserForm() {
+            document.getElementById('createUserModal').style.display = 'none';
+        }
+        
+        function toggleFirmFields() {
+            const role = document.getElementById('createUserRole').value;
+            const firmFields = document.getElementById('createFirmFields');
+            firmFields.style.display = (role === 'architect') ? 'block' : 'none';
+        }
+        
+        // Toggle firm fields on edit page
+        document.getElementById('userRole')?.addEventListener('change', function() {
+            const firmDiv = document.getElementById('firmAssignments');
+            firmDiv.style.display = (this.value === 'architect') ? 'block' : 'none';
+        });
     </script>
+</body>
+</html>
 </body>
 </html>
