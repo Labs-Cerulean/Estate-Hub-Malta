@@ -203,6 +203,9 @@ function buildPaUrl(?string $paNumber): ?string {
                     
                                 <td>
                                     <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary">View</a>
+                                    <?php if (hasRole('admin') || hasRole('manager')): ?>
+                                        <a href="edit-project.php?id=<?= $project['id'] ?>" class="btn btn-sm">Edit</a>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
