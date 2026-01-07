@@ -981,8 +981,9 @@ tbody tr:hover td:nth-child(9) {
 
 .two-column-layout {
     display: grid;
-    grid-template-columns: 350px 1fr;
+    grid-template-columns: minmax(400px, 450px) 1fr;
     gap: var(--spacing-lg);
+    align-items: start;
 }
 
 .user-list, .user-details {
@@ -990,6 +991,48 @@ tbody tr:hover td:nth-child(9) {
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-md);
     padding: var(--spacing-lg);
+    overflow: hidden;
+}
+
+.user-list {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+}
+
+.user-list table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.user-list table th:nth-child(1), 
+.user-list table td:nth-child(1) {
+    width: 25%;
+}
+
+.user-list table th:nth-child(2), 
+.user-list table td:nth-child(2) {
+    width: 25%;
+}
+
+.user-list table th:nth-child(3), 
+.user-list table td:nth-child(3) {
+    width: 20%;
+}
+
+.user-list table th:nth-child(4), 
+.user-list table td:nth-child(4) {
+    width: 15%;
+}
+
+.user-list table th:nth-child(5), 
+.user-list table td:nth-child(5) {
+    width: 15%;
+    text-align: center;
+}
+
+.user-details {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
 }
 
 /* Role badges */
