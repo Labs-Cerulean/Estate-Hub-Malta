@@ -1,6 +1,3 @@
-Here's the complete updated mobilization.php with the new init structure, maintaining all the original mobilization-specific functionality:
-
-php
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
