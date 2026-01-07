@@ -23,8 +23,70 @@ if (($_POST['action'] ?? null) === 'create') {
   }
 }
 
-// Get all clients
-$clients = $pdo->query("SELECT * FROM clients ORDER BY name")->fetchAll();
+try {
+    if ($isAdmin) {
+        // Admins see all clients
+        $clients = $pdo->query("
+            SELECT c.*, COUNT(p.id) as project_count
+            FROM clients c
+            LEFT JOIN projects p ON c.id = p.clientid
+            GROUP BY c.id
+            ORDER BY c.name
+        ")->fetchAll();
+    } else {
+        // Non-admins see only assigned clients
+        $user = getUserById($pdo, $userId);
+        
+        if ($user['role'] === 'architect') {
+            // Architects see clients from their projects
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT c.*, COUNT(DISTINCT p.id) as project_count
+                FROM clients c
+                INNER JOIN projects p ON c.id = p.clientid
+                INNER JOIN project_pa_numbers ppn ON p.id = ppn.project_id
+                WHERE (
+                    (? IS NOT NULL AND ppn.architect_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (
+                            SELECT firm_name FROM professionals WHERE id = ?
+                        ) AND role_type = 'architect'
+                    ))
+                    OR
+                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (
+                            SELECT firm_name FROM professionals WHERE id = ?
+                        ) AND role_type = 'structural_engineer'
+                    ))
+                )
+                GROUP BY c.id
+                ORDER BY c.name
+            ");
+            $stmt->execute([
+                $user['assigned_architect_firm_id'],
+                $user['assigned_architect_firm_id'],
+                $user['assigned_structural_firm_id'],
+                $user['assigned_structural_firm_id']
+            ]);
+            $clients = $stmt->fetchAll();
+        } else {
+            // Other users see assigned clients
+            $stmt = $pdo->prepare("
+                SELECT c.*, COUNT(DISTINCT p.id) as project_count
+                FROM clients c
+                INNER JOIN user_client_access uca ON c.id = uca.client_id
+                LEFT JOIN projects p ON c.id = p.clientid
+                WHERE uca.user_id = ?
+                GROUP BY c.id
+                ORDER BY c.name
+            ");
+            $stmt->execute([$userId]);
+            $clients = $stmt->fetchAll();
+        }
+    }
+} catch (Exception $e) {
+    $clients = [];
+}
 
 ?>
 <!DOCTYPE html>
