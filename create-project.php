@@ -101,8 +101,6 @@ require_once 'header.php';
 ?>
 
 
-    <title>Create Project - Estate Hub</title>
-
     <div class="main-container">
         <h1 class="page-title">Create New Project</h1>
         
