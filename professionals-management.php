@@ -82,21 +82,14 @@ $pageTitle = 'Professionals Management';
 require_once 'header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="en" data-color-scheme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Professionals Management - Estate Hub</title>
-    <link rel="stylesheet" href="styles.css">
+
     <style>
         :root { color-scheme: dark !important; }
         body { background: #0a0e17 !important; color: #ffffff !important; }
         .card { background: rgba(255,255,255,0.05) !important; }
         table { background: rgba(255,255,255,0.05) !important; }
     </style>
-</head>
-<body>
+
     <main class="main-container">
         <h1 class="page-title">Professionals Management</h1>
 
@@ -244,5 +237,4 @@ require_once 'header.php';
             </div>
         </div>
     </main>
-</body>
-</html>
+<?php require_once 'footer.php'; ?>
