@@ -269,9 +269,13 @@ function getSortIndicator($column) {
 
 function buildPaUrl(?string $paNumber): ?string {
     if (empty($paNumber)) return null;
-    if (!preg_match('/PA(\d{4,5})\/(\d{2})/', trim($paNumber), $m)) return null;
+    
+    // Updated regex to handle PA/####/## format (with slash after PA)
+    if (!preg_match('/PA\\/(\d{4,5})\\/(\d{2})/', trim($paNumber), $m)) return null;
+    
     $caseNumber = $m[1];
     $caseYear = $m[2];
+    
     return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseyear={$caseYear}";
 }
 
