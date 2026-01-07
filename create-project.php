@@ -262,6 +262,7 @@ $engineers = $pdo->query("
           <label>Finish Level</label>
           <select name="finishlevel" id="finish-level">
             <option value="">Select Finish Level</option>
+            <option value="Shell">Shell (houses/villas)</option>
             <option value="Common Parts Only">Common Parts Only</option>
             <option value="Semi Finished">Semi Finished</option>
             <option value="Finished">Finished</option>
