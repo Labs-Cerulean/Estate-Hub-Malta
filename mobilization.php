@@ -1,6 +1,6 @@
 <?php
-$pageTitle = "Mobilisation";
-include 'header.php';
+require_once 'init.php';
+require_once 'session-check.php';
 
 // Get current user
 $userId = getCurrentUserId();
@@ -115,7 +115,7 @@ try {
     $architects = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'architect' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
     $engineers = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'structural_engineer' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
-    // ===== USE getAccessibleProjects() INSTEAD OF DIRECT QUERY =====
+    // USE getAccessibleProjects() INSTEAD OF DIRECT QUERY
     $projects = getAccessibleProjects($pdo, $userId);
     
     // Apply additional filters to accessible projects
@@ -241,7 +241,7 @@ try {
     $mobilisedCount = 0;
 }
 
-// Helper functions remain the same...
+// Helper functions
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland;
     $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
@@ -256,7 +256,7 @@ function getSortUrl($column) {
         'filterengineer' => $filterEngineer,
         'filterisland' => $filterIsland
     ];
-    return 'dashboard.php?' . http_build_query($params);
+    return 'mobilization.php?' . http_build_query($params);
 }
 
 function getSortIndicator($column) {
@@ -267,13 +267,19 @@ function getSortIndicator($column) {
     return '';
 }
 
-function (?string $paNumber): ?string {
+function buildPaUrl(?string $paNumber): ?string {
     if (empty($paNumber)) return null;
     if (!preg_match('/PA(\d{4,5})\/(\d{2})/', trim($paNumber), $m)) return null;
     $caseNumber = $m[1];
     $caseYear = $m[2];
     return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseyear={$caseYear}";
 }
+
+// Set page title
+$pageTitle = 'Mobilization';
+
+// Now output HTML
+require_once 'header.php';
 ?>
 
 <!DOCTYPE html>
