@@ -9,13 +9,13 @@ $userRole = getCurrentRole();
 $isAdmin = isAdmin();
 
 // Get filter and sort parameters
-$filterType = $_GET['filtertype'] ?? 'all';
-$filterStatus = $_GET['filterstatus'] ?? 'all';
-$filterCity = $_GET['filtercity'] ?? 'all';
-$filterClient = $_GET['filterclient'] ?? 'all';
-$filterArchitect = $_GET['filterarchitect'] ?? 'all';
-$filterEngineer = $_GET['filterengineer'] ?? 'all';
-$filterIsland = $_GET['filterisland'] ?? 'all';
+$filterType = $_GET['filter_type'] ?? 'all';
+$filterStatus = $_GET['filter_status'] ?? 'all';
+$filterCity = $_GET['filter_city'] ?? 'all';
+$filterClient = $_GET['filter_client'] ?? 'all';
+$filterArchitect = $_GET['filter_architect'] ?? 'all';
+$filterEngineer = $_GET['filter_engineer'] ?? 'all';
+$filterIsland = $_GET['filter_island'] ?? 'all';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
