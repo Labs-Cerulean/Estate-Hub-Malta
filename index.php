@@ -62,7 +62,7 @@ if (isset($_GET['timeout'])) {
 $pageTitle = 'Login';
 
 // Now output HTML
-require_once 'header.php';
+//require_once 'header.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
