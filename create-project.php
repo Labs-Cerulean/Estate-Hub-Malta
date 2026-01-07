@@ -13,13 +13,19 @@ if (($_POST['action'] ?? null) === 'create') {
       VALUES (?, ?, ?, ?, ?)
     ");
     
-    $stmt->execute([
-      $_POST['clientid'],
-      $_POST['name'],
-      $_POST['city'],
-      $_POST['type'],
-      ($_POST['type'] === 'in-house' ? $_POST['finishlevel'] : null)
-    ]);
+    $stmt = $pdo->prepare("
+  INSERT INTO projects (clientid, name, city, island, type, finishlevel)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ");
+  
+  $stmt->execute([
+    $_POST['clientid'],
+    $_POST['name'],
+    $_POST['city'],
+    $_POST['island'],
+    $_POST['type'],
+    ($_POST['type'] === 'in-house' ? $_POST['finishlevel'] : null)
+  ]);
     
     $projectId = $pdo->lastInsertId();
     
@@ -234,8 +240,8 @@ $engineers = $pdo->query("
         </div>
 
         <div class="form-group">
-          <label>Island</label>
-          <select name="island" id="island-select" onchange="updateCities()" required>
+          <label for="island">Island *</label>
+          <select name="island" id="island" onchange="updateCities()" required>
             <option value="">Select Island</option>
             <option value="Malta">Malta</option>
             <option value="Gozo">Gozo</option>
@@ -396,7 +402,7 @@ $engineers = $pdo->query("
     };
 
     function updateCities() {
-      const islandSelect = document.getElementById('island-select');
+      const islandSelect = document.getElementById('island');
       const citySelect = document.getElementById('city-select');
       const island = islandSelect.value;
       
