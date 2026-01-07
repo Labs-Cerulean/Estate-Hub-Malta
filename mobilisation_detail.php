@@ -2,8 +2,8 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// Get and validate project ID
-$projectId = $_GET['project_id'] ?? null;
+// Get and validate project ID - accept both formats for compatibility
+$projectId = $_GET['project_id'] ?? $_GET['projectid'] ?? null;
 
 if (!$projectId) {
     header('Location: dashboard.php');
@@ -132,10 +132,8 @@ if (($_POST['action'] ?? null) === 'update_pa') {
 $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
 
 // Recalculate unlock states for display
-$geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || 
-               ($mob['geological_test'] ?? 'NA') === 'NA';
-$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete' || 
-                ($mob['condition_reports'] ?? 'Not Started') === 'NA';
+$geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
+$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete' || ($mob['condition_reports'] ?? 'Not Started') === 'NA';
 $canSequential = $geoComplete && $condComplete;
 
 $seqFieldsDisplay = ['method_statements', 'insurance_status', 'pavement_guarantee', 
@@ -151,6 +149,13 @@ foreach ($seqFieldsDisplay as $field) {
 $respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 $canFinal = $allSeqComplete;
 $canBCA = $respComplete;
+
+// Check if user can edit this project
+$canEdit = canEditProject($pdo, $projectId);
+
+// Set disabled and readonly attributes based on edit permissions
+$disabledAttr = $canEdit ? '' : 'disabled';
+$readonlyAttr = $canEdit ? '' : 'readonly';
 
 // Set page title
 $pageTitle = 'Mobilisation - ' . $project['name'];
