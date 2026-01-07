@@ -1,8 +1,6 @@
 <?php
-$pageTitle = 'Create Project';
-include 'header.php';
-$pdo = getDB();
-$message = '';
+require_once 'init.php';
+require_once 'session-check.php';
 
 // Only admins and managers can create projects
 if (!isAdmin() && getCurrentRole() !== 'manager') {
@@ -58,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mobStmt = $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)");
         $mobStmt->execute([$projectId]);
         
-        // ===== AUTO-ASSIGN CREATOR TO PROJECT'S CLIENT =====
+        // Auto-assign creator to project's client
         autoAssignCreatorToProjectClient($pdo, $projectId);
         
         $message = 'Project created successfully! You now have access to this project.';
@@ -94,6 +92,12 @@ $engineers = $pdo->query("
     WHERE role_type = 'structural_engineer' 
     ORDER BY name
 ")->fetchAll();
+
+// Set page title
+$pageTitle = 'Create Project';
+
+// Now output HTML
+require_once 'header.php';
 ?>
 
 <!DOCTYPE html>
