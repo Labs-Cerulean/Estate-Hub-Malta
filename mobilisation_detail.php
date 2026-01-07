@@ -40,8 +40,8 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
     $geoTest = $_POST['geological_test'] ?? $mob['geological_test'] ?? 'NA';
     $condReports = $_POST['condition_reports'] ?? $mob['condition_reports'] ?? 'Not Started';
     
-    // Sequential Chain unlock condition: Geo = Complete OR NA, AND Condition = Complete
-    $canSequential = ($geoTest === 'Complete' || $geoTest === 'NA') && $condReports === 'Complete';
+    // Sequential Chain unlock condition: Geo = Complete OR NA, AND Condition = Complete OR NA
+    $canSequential = ($geoTest === 'Complete' || $geoTest === 'NA') && ($condReports === 'Complete' || $condReports === 'NA');
     
     // Check if ALL sequential fields are Complete
     $seqFields = ['method_statements', 'insurance_status', 'pavement_guarantee', 
@@ -129,7 +129,7 @@ $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
 
 // Recalculate unlock states for display
 $geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
-$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete';
+$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete' || ($mob['condition_reports'] ?? 'Not Started') === 'NA';
 $canSequential = $geoComplete && $condComplete;
 
 $seqFieldsDisplay = ['method_statements', 'insurance_status', 'pavement_guarantee', 
@@ -291,6 +291,7 @@ $canBCA = $respComplete;
                 <option value="Not Started" <?php echo ($mob['condition_report_contacts'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['condition_report_contacts'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['condition_report_contacts'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                <option value="NA" <?php echo ($mob['condition_report_contacts'] ?? 'Not Started') === 'NA' ? 'selected' : ''; ?>>NA</option>
               </select>
             </div>
 
@@ -300,6 +301,7 @@ $canBCA = $respComplete;
                 <option value="Not Started" <?php echo ($mob['condition_reports'] ?? 'Not Started') === 'Not Started' ? 'selected' : ''; ?>>Not Started</option>
                 <option value="In Process" <?php echo ($mob['condition_reports'] ?? 'Not Started') === 'In Process' ? 'selected' : ''; ?>>In Process</option>
                 <option value="Complete" <?php echo ($mob['condition_reports'] ?? 'Not Started') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                <option value="NA" <?php echo ($mob['condition_reports'] ?? 'Not Started') === 'NA' ? 'selected' : ''; ?>>NA</option>
               </select>
             </div>
           </div>
