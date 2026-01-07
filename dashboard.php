@@ -161,11 +161,11 @@ try {
     }
 
     /* Set specific widths for columns */
-    table th:nth-child(1), table td:nth-child(1) { width: 12%; } /* Project Name */
-    table th:nth-child(2), table td:nth-child(2) { width: 12%; } /* Client */
-    table th:nth-child(3), table td:nth-child(3) { width: 8%; }  /* City */
+    table th:nth-child(1), table td:nth-child(1) { width: 9%; } /* Project Name */
+    table th:nth-child(2), table td:nth-child(2) { width: 9%; } /* Client */
+    table th:nth-child(3), table td:nth-child(3) { width: 6%; }  /* City */
     table th:nth-child(4), table td:nth-child(4) { width: 7%; }  /* Type */
-    table th:nth-child(5), table td:nth-child(5) { width: 10%; } /* PA Number */
+    table th:nth-child(5), table td:nth-child(5) { width: 5%; } /* PA Number */
     table th:nth-child(6), table td:nth-child(6) { width: 12%; } /* PA Status */
     table th:nth-child(7), table td:nth-child(7) { width: 11%; } /* Architect */
     table th:nth-child(8), table td:nth-child(8) { width: 11%; } /* Engineer */
