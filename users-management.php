@@ -270,13 +270,7 @@ $pageTitle = 'User Management';
 require_once 'header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Management - Estate Hub</title>
-    <link rel="stylesheet" href="styles.css">
+
     <style>
         .bulk-actions {
             display: flex;
@@ -310,8 +304,7 @@ require_once 'header.php';
             color: var(--primary-color);
         }
     </style>
-</head>
-<body>
+
     <div class="container">
         <h1>User Management</h1>
         
@@ -710,5 +703,4 @@ require_once 'header.php';
             firmDiv.style.display = (this.value === 'architect') ? 'block' : 'none';
         });
     </script>
-</body>
-</html>
+<?php require_once 'footer.php'; ?>
