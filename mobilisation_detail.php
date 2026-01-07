@@ -5,17 +5,26 @@ $canEdit = canEdit();
 $disabledAttr = $canEdit ? '' : 'disabled';
 $pdo = getDB();
 
-$projectId = $_GET['project_id'] ?? null;
-if (!$projectId || !is_numeric($projectId)) {
-  header("Location: mobilization.php");
-  exit;
+$projectId = $_GET['projectid'] ?? null;
+
+if (!$projectId) {
+    header('Location: dashboard.php');
+    exit;
 }
 
-// Get project
+// ===== CHECK PROJECT ACCESS =====
+if (!hasProjectAccess($pdo, $projectId)) {
+    // User doesn't have access to this project
+    header('Location: dashboard.php?error=access_denied');
+    exit;
+}
+
+// Get project details
 $project = getProjectWithClient($pdo, $projectId);
+
 if (!$project) {
-  header("Location: mobilization.php");
-  exit;
+    header('Location: dashboard.php');
+    exit;
 }
 
 // Get mobilisation data
