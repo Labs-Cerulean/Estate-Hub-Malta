@@ -1,25 +1,33 @@
 /* ============================================
-   ESTATE HUB - COMPLETE STYLESHEET (FIXED)
+   ESTATE HUB - COMPLETE STYLESHEET
+   Clean, Modern, Professional Design
    ============================================ */
 
-/* ... (Keep all previous CSS variables and base styles) ... */
+/* ============================================
+   CSS VARIABLES - Color Scheme
+   ============================================ */
 :root {
+    /* Primary Colors */
     --primary-color: #6366f1;
     --primary-hover: #4f46e5;
     --secondary-color: #8b5cf6;
-    
+
+    /* Background Colors */
     --bg-primary: #0f172a;
     --bg-secondary: #1e293b;
     --bg-card: #1e293b;
     --bg-hover: #334155;
-    
+
+    /* Text Colors */
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
     --text-muted: #64748b;
-    
+
+    /* Border & Glass Effects */
     --border-color: #334155;
     --border-glass: rgba(255, 255, 255, 0.1);
-    
+
+    /* Status Colors */
     --success: #22c55e;
     --success-bg: rgba(34, 197, 94, 0.15);
     --warning: #fbbf24;
@@ -28,22 +36,28 @@
     --danger-bg: rgba(239, 68, 68, 0.15);
     --info: #3b82f6;
     --info-bg: rgba(59, 130, 246, 0.15);
-    
+
+    /* Spacing */
     --spacing-xs: 0.5rem;
     --spacing-sm: 1rem;
     --spacing-md: 1.5rem;
     --spacing-lg: 2rem;
     --spacing-xl: 3rem;
-    
+
+    /* Border Radius */
     --radius-sm: 6px;
     --radius-md: 12px;
     --radius-lg: 16px;
-    
+
+    /* Shadows */
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
     --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
+/* ============================================
+   RESET & BASE STYLES
+   ============================================ */
 * {
     margin: 0;
     padding: 0;
@@ -62,278 +76,6 @@ body {
     line-height: 1.6;
     min-height: 100vh;
 }
-
-/* Keep all previous sections from earlier CSS... */
-
-/* ============================================
-   BUTTONS - UNIFIED STYLING
-   ============================================ */
-.btn, .btn-primary, .btn-sm, .btn-small, .btn-secondary, 
-.btn-success, .btn-warning, .btn-danger {
-    padding: 0.65rem 1.25rem;
-    border: none;
-    border-radius: var(--radius-sm);
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-decoration: none;
-    display: inline-block;
-    text-align: center;
-    background: var(--primary-color);
-    color: white;
-    white-space: nowrap;
-}
-
-.btn:hover, .btn-primary:hover {
-    background: var(--primary-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-}
-
-.btn-secondary {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-glass);
-}
-
-.btn-secondary:hover {
-    background: var(--bg-hover);
-}
-
-.btn-success {
-    background: var(--success);
-    color: white;
-}
-
-.btn-success:hover {
-    background: #16a34a;
-}
-
-.btn-warning {
-    background: var(--warning);
-    color: var(--bg-primary);
-}
-
-.btn-warning:hover {
-    background: #f59e0b;
-}
-
-.btn-danger {
-    background: var(--danger);
-    color: white;
-}
-
-.btn-danger:hover {
-    background: #dc2626;
-}
-
-.btn-sm, .btn-small {
-    padding: 0.55rem 1rem;
-    font-size: 0.875rem;
-}
-
-.btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
-}
-
-/* ============================================
-   MODALS - FIXED POSITIONING
-   ============================================ */
-.modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.75);
-    display: flex !important; /* Override inline style */
-    justify-content: center;
-    align-items: center;
-    z-index: 2000;
-    padding: var(--spacing-lg);
-}
-
-.modal-content {
-    background: var(--bg-card);
-    border: 1px solid var(--border-glass);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-xl);
-    max-width: 600px;
-    width: 100%;
-    max-height: 90vh;
-    overflow-y: auto;
-    position: relative;
-    box-shadow: var(--shadow-lg);
-}
-
-.close {
-    position: absolute;
-    top: 1.5rem;
-    right: 1.5rem;
-    font-size: 1.75rem;
-    font-weight: bold;
-    cursor: pointer;
-    color: var(--text-secondary);
-    line-height: 1;
-    transition: color 0.2s ease;
-}
-
-.close:hover {
-    color: var(--text-primary);
-}
-
-/* ============================================
-   TABLES - CLICKABLE ROWS & LINKS
-   ============================================ */
-.table-container {
-    overflow-x: auto;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-glass);
-    margin-bottom: var(--spacing-lg);
-}
-
-table, .data-table {
-    width: 100%;
-    min-width: max-content;
-    border-collapse: collapse;
-    background: var(--bg-card);
-}
-
-thead th {
-    background: var(--bg-secondary);
-    padding: 1rem 0.75rem;
-    text-align: left;
-    font-weight: 600;
-    color: var(--text-primary);
-    border-bottom: 1px solid var(--border-glass);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    white-space: nowrap;
-}
-
-tbody td {
-    padding: 0.75rem 0.6rem;
-    border-bottom: 1px solid var(--border-glass);
-    color: var(--text-primary);
-    text-align: left;
-    vertical-align: top;
-    white-space: nowrap;
-}
-
-tbody tr {
-    transition: background 0.2s ease;
-}
-
-tbody tr:hover {
-    background: var(--bg-hover);
-    cursor: pointer;
-}
-
-/* Make PA URLs look like links */
-tbody td a {
-    color: var(--primary-color);
-    text-decoration: none;
-    transition: color 0.2s ease;
-}
-
-tbody td a:hover {
-    color: var(--primary-hover);
-    text-decoration: underline;
-}
-
-.sortable-header {
-    cursor: pointer;
-    user-select: none;
-    transition: color 0.2s ease;
-    text-decoration: none;
-    color: var(--text-primary);
-    display: block;
-}
-
-.sortable-header:hover {
-    color: var(--primary-color);
-}
-
-/* Allow text wrapping in specific columns */
-table td:nth-child(1),
-table td:nth-child(2),
-table td:nth-child(5),
-table td:nth-child(6),
-table td:nth-child(7),
-table td:nth-child(8) {
-    white-space: normal;
-    max-width: 150px;
-}
-
-/* Sticky actions column */
-table th:last-child,
-table td:last-child {
-    position: sticky;
-    right: 0;
-    background: var(--bg-card);
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
-    min-width: 150px;
-    text-align: center;
-    padding: 0.5rem !important;
-}
-
-table th:nth-child(9),
-table td:nth-child(9) {
-    position: sticky;
-    right: 0;
-    background: var(--bg-card);
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
-    min-width: 150px;
-    text-align: center;
-    padding: 0.5rem !important;
-}
-
-table td:last-child .btn-sm,
-table td:nth-child(9) .btn-sm {
-    display: block;
-    margin: 0.3rem auto;
-    padding: 0.55rem 1rem !important;
-    font-size: 0.875rem !important;
-    min-width: 70px;
-    width: 90%;
-}
-
-/* Prevent row hover from affecting action buttons */
-tbody tr:hover td:last-child,
-tbody tr:hover td:nth-child(9) {
-    background: var(--bg-card);
-}
-
-/* ============================================
-   TWO COLUMN LAYOUT (User Management)
-   ============================================ */
-.two-column-layout {
-    display: grid;
-    grid-template-columns: 350px 1fr;
-    gap: var(--spacing-lg);
-}
-
-.user-list, .user-details {
-    background: var(--bg-card);
-    border: 1px solid var(--border-glass);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-lg);
-}
-
-.user-list table tbody tr {
-    cursor: pointer;
-}
-
-.user-list table tbody tr:hover {
-    background: var(--bg-hover);
-}
-
-/* (Continue with all other sections from previous CSS...) */
-/* I'll include the key sections below: */
 
 /* ============================================
    LOGIN PAGE STYLES
@@ -515,7 +257,7 @@ tbody tr:hover td:nth-child(9) {
 }
 
 /* ============================================
-   MAIN CONTENT
+   MAIN CONTENT AREA
    ============================================ */
 .main-content {
     max-width: 1600px;
@@ -541,7 +283,800 @@ tbody tr:hover td:nth-child(9) {
     margin-bottom: var(--spacing-md);
 }
 
-/* (Include all other sections: cards, stats, projects, clients, status badges, progress bars, filters, forms, alerts, empty states, utilities, etc. from the previous complete CSS) */
+/* ============================================
+   CARDS & CONTAINERS
+   ============================================ */
+.card, .stat-card, .project-card, .client-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    transition: all 0.3s ease;
+}
+
+.card:hover, .project-card:hover, .client-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.card__body {
+    padding: 0;
+}
+
+/* ============================================
+   STATS GRID
+   ============================================ */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.stat-card {
+    text-align: center;
+}
+
+.stat-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: var(--spacing-xs);
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ============================================
+   PROJECTS SECTION
+   ============================================ */
+.projects-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.projects-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.projects-grid {
+    display: grid;
+    gap: var(--spacing-md);
+}
+
+.project-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-md);
+}
+
+.project-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.project-meta, .project-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.meta-item, .info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.meta-label, .info-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.info-value {
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.project-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-top: var(--spacing-md);
+}
+
+/* ============================================
+   CLIENTS SECTION
+   ============================================ */
+.clients-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.client-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.client-header {
+    margin-bottom: var(--spacing-md);
+}
+
+.client-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.client-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.client-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.client-detail-row strong {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    min-width: 80px;
+}
+
+.client-detail-row span {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+/* ============================================
+   STATUS BADGES
+   ============================================ */
+.status-badge {
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: inline-block;
+}
+
+.status-Mobilised, .status-mobilised {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.status-In-Process, .status-in-process {
+    background: var(--warning-bg);
+    color: var(--warning);
+}
+
+.status-Pending, .status-pending {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.status-Yes {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.status-No {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+/* ============================================
+   PROGRESS BARS
+   ============================================ */
+.progress-section {
+    margin-top: var(--spacing-md);
+}
+
+.progress-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-xs);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.progress-bar-container {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    transition: width 0.5s ease;
+    border-radius: var(--radius-sm);
+}
+
+/* ============================================
+   FILTERS SECTION
+   ============================================ */
+.filters-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-glass);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(20px);
+}
+
+.filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.filter-group label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.filter-buttons {
+    display: flex;
+    gap: var(--spacing-xs);
+    justify-content: flex-start;
+    margin-top: 0.5rem;
+}
+
+/* ============================================
+   FORMS
+   ============================================ */
+.form-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.form-group {
+    margin-bottom: var(--spacing-md);
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="date"],
+input[type="number"],
+select,
+textarea {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input[readonly] {
+    background: var(--bg-secondary);
+    cursor: default;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.inline-form {
+    display: flex;
+    gap: var(--spacing-xs);
+    align-items: flex-end;
+}
+
+/* ============================================
+   BUTTONS - UNIFIED STYLING
+   ============================================ */
+.btn, .btn-primary, .btn-sm, .btn-small, .btn-secondary, 
+.btn-success, .btn-warning, .btn-danger {
+    padding: 0.65rem 1.25rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+    background: var(--primary-color);
+    color: white;
+    white-space: nowrap;
+}
+
+.btn:hover, .btn-primary:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-glass);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-hover);
+}
+
+.btn-success {
+    background: var(--success);
+    color: white;
+}
+
+.btn-success:hover {
+    background: #16a34a;
+}
+
+.btn-warning {
+    background: var(--warning);
+    color: var(--bg-primary);
+}
+
+.btn-warning:hover {
+    background: #f59e0b;
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+}
+
+.btn-sm, .btn-small {
+    padding: 0.55rem 1rem;
+    font-size: 0.875rem;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.reset-btn {
+    padding: 0.6rem 1.2rem;
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    cursor: pointer;
+    font-size: 0.9rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s ease;
+}
+
+.reset-btn:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+/* ============================================
+   TABLES - CLICKABLE ROWS & LINKS
+   ============================================ */
+.table-container {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-glass);
+    margin-bottom: var(--spacing-lg);
+}
+
+table, .data-table {
+    width: 100%;
+    min-width: max-content;
+    border-collapse: collapse;
+    background: var(--bg-card);
+}
+
+thead th {
+    background: var(--bg-secondary);
+    padding: 1rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-glass);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    white-space: nowrap;
+}
+
+tbody td {
+    padding: 0.75rem 0.6rem;
+    border-bottom: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    text-align: left;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+tbody tr {
+    transition: background 0.2s ease;
+}
+
+tbody tr:hover {
+    background: var(--bg-hover);
+}
+
+/* Make table rows clickable in user list */
+.user-list tbody tr {
+    cursor: pointer;
+}
+
+/* Make PA URLs look like links */
+tbody td a {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: color 0.2s ease;
+    font-weight: 500;
+}
+
+tbody td a:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease;
+    text-decoration: none;
+    color: var(--text-primary);
+    display: block;
+}
+
+.sortable-header:hover {
+    color: var(--primary-color);
+}
+
+/* Allow text wrapping in specific columns */
+table td:nth-child(1),
+table td:nth-child(2),
+table td:nth-child(5),
+table td:nth-child(6),
+table td:nth-child(7),
+table td:nth-child(8) {
+    white-space: normal;
+    max-width: 150px;
+}
+
+/* Sticky actions column */
+table th:last-child,
+table td:last-child {
+    position: sticky;
+    right: 0;
+    background: var(--bg-card);
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    min-width: 150px;
+    text-align: center;
+    padding: 0.5rem !important;
+}
+
+table th:nth-child(9),
+table td:nth-child(9) {
+    position: sticky;
+    right: 0;
+    background: var(--bg-card);
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    min-width: 150px;
+    text-align: center;
+    padding: 0.5rem !important;
+}
+
+table td:last-child .btn-sm,
+table td:nth-child(9) .btn-sm {
+    display: block;
+    margin: 0.3rem auto;
+    padding: 0.55rem 1rem !important;
+    font-size: 0.875rem !important;
+    min-width: 70px;
+    width: 90%;
+}
+
+/* Prevent row hover from affecting action buttons */
+tbody tr:hover td:last-child,
+tbody tr:hover td:nth-child(9) {
+    background: var(--bg-card);
+}
+
+/* ============================================
+   ALERTS & MESSAGES
+   ============================================ */
+.alert, .message {
+    padding: 1rem 1.5rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--spacing-md);
+    font-size: 0.95rem;
+}
+
+.alert-success, .message.success {
+    background: var(--success-bg);
+    color: var(--success);
+    border: 1px solid var(--success);
+}
+
+.alert-error, .message.error {
+    background: var(--danger-bg);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+.alert-warning {
+    background: var(--warning-bg);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+}
+
+.alert-info {
+    background: var(--info-bg);
+    color: var(--info);
+    border: 1px solid var(--info);
+}
+
+/* ============================================
+   EMPTY STATES
+   ============================================ */
+.empty-state {
+    text-align: center;
+    padding: var(--spacing-xl) var(--spacing-lg);
+    color: var(--text-secondary);
+}
+
+.empty-state p {
+    font-size: 1.1rem;
+    margin-bottom: var(--spacing-md);
+}
+
+.no-data {
+    text-align: center;
+    padding: var(--spacing-lg);
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* ============================================
+   MODALS - FIXED POSITIONING
+   ============================================ */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex !important;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    padding: var(--spacing-lg);
+}
+
+.modal-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: var(--shadow-lg);
+}
+
+.close {
+    position: absolute;
+    top: 1.5rem;
+    right: 1.5rem;
+    font-size: 1.75rem;
+    font-weight: bold;
+    cursor: pointer;
+    color: var(--text-secondary);
+    line-height: 1;
+    transition: color 0.2s ease;
+}
+
+.close:hover {
+    color: var(--text-primary);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+.placeholder {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--text-secondary);
+}
+
+.info-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: var(--spacing-xs);
+}
+
+.danger-zone {
+    border: 2px solid var(--danger);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    background: var(--danger-bg);
+}
+
+.two-column-layout {
+    display: grid;
+    grid-template-columns: 350px 1fr;
+    gap: var(--spacing-lg);
+}
+
+.user-list, .user-details {
+    background: var(--bg-card);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+}
+
+/* Role badges */
+.role-badge {
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    display: inline-block;
+}
+
+.role-admin {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.role-manager {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+.role-architect {
+    background: rgba(139, 92, 246, 0.2);
+    color: #8b5cf6;
+}
+
+.role-viewer {
+    background: rgba(148, 163, 184, 0.2);
+    color: #94a3b8;
+}
+
+/* Checkbox groups */
+.checkbox-group {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.checkbox-item input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+}
+
+.checkbox-item label {
+    cursor: pointer;
+    margin: 0 !important;
+    font-weight: 500 !important;
+    color: var(--text-primary) !important;
+    font-size: 0.9rem !important;
+}
+
+/* Bulk actions */
+.bulk-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-glass);
+}
+
+.btn-bulk {
+    flex: 1;
+}
+
+.client-stats {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+}
+
+.client-stats span {
+    color: var(--text-secondary);
+}
+
+.client-stats strong {
+    color: var(--primary-color);
+}
 
 /* ============================================
    RESPONSIVE DESIGN
@@ -557,28 +1092,28 @@ tbody tr:hover td:nth-child(9) {
         flex-direction: column;
         gap: 1rem;
     }
-    
+
     .header-right {
         flex-wrap: wrap;
         justify-content: center;
     }
-    
+
     .main-content, .main-container {
         padding: var(--spacing-md);
     }
-    
+
     .page-title {
         font-size: 1.5rem;
     }
-    
+
     .filters-grid, .stats-grid, .project-info, .project-meta, .clients-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .form-row {
         grid-template-columns: 1fr;
     }
-    
+
     table th:nth-child(9),
     table td:nth-child(9),
     table th:last-child,
@@ -586,11 +1121,25 @@ tbody tr:hover td:nth-child(9) {
         position: static;
         box-shadow: none;
     }
-    
+
     table td:nth-child(9) .btn-sm,
     table td:last-child .btn-sm {
         display: block;
         margin: 0.3rem auto;
         width: 100%;
+    }
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+@media print {
+    .header, .nav-link, .btn, .filter-buttons {
+        display: none;
+    }
+
+    body {
+        background: white;
+        color: black;
     }
 }
