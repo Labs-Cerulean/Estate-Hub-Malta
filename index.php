@@ -72,34 +72,35 @@ $pageTitle = 'Login';
     <title>Estate Hub - Login</title>
     <link rel="stylesheet" href="styles.css">
 </head>
-<body class="login-page">
+<body>
     <div class="login-container">
-        <div class="login-header">
-            <img src="logo.png" alt="Estate Hub Logo" class="login-logo">
-            <h1>Estate Hub</h1>
-            <p>Project Management System</p>
+        <div class="login-box">
+            <div class="login-header">
+                <img src="logo_BKP.jpg" alt="Estate Hub Logo" class="login-logo">
+                <h1 class="login-title">Estate Hub</h1>
+                <p class="login-subtitle">Project Management System</p>
+            </div>
+            
+            <?php if ($error): ?>
+                <div class="login-error">
+                    <?php echo htmlspecialchars($error); ?>
+                </div>
+            <?php endif; ?>
+            
+            <form method="POST" class="login-form">
+                <div class="form-group">
+                    <label for="username">Username or Email</label>
+                    <input type="text" id="username" name="username" required autofocus>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                
+                <button type="submit" class="login-btn">Sign In</button>
+            </form>
         </div>
-
-        <?php if ($error): ?>
-            <div class="error-message">
-                <?php echo htmlspecialchars($error); ?>
-            </div>
-        <?php endif; ?>
-
-        <form method="POST" action="api/auth.php" class="login-form">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required autofocus>
-            </div>
-
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-
-            <button type="submit" class="login-button">Sign In</button>
-        </form>
-
     </div>
 </body>
 </html>
