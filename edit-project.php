@@ -1,4 +1,4 @@
-<?php
+com<?php
 $pageTitle = "Edit Project";
 include 'header.php';
 
@@ -318,6 +318,7 @@ $engineers = $pdo->query("
         <label>Finish Level</label>
         <select name="finishlevel" id="finish-level">
           <option value="">Select Finish Level</option>
+        <option value="Shell" <?php echo ($project['finishlevel'] == 'Shell') ? 'selected' : ''; ?>>Shell (houses/villas)</option>
           <option value="Common Parts Only" <?php echo ($project['finishlevel'] == 'Common Parts Only') ? 'selected' : ''; ?>>Common Parts Only</option>
           <option value="Semi Finished" <?php echo ($project['finishlevel'] == 'Semi Finished') ? 'selected' : ''; ?>>Semi Finished</option>
           <option value="Finished" <?php echo ($project['finishlevel'] == 'Finished') ? 'selected' : ''; ?>>Finished</option>
