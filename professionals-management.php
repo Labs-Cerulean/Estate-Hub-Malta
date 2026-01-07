@@ -115,8 +115,8 @@ require_once 'header.php';
                         <div class="form-group">
                             <label class="form-label">Role Type <span style="color: #22c55e">*</span></label>
                             <select class="form-select" name="roletype" required>
-                                <option value="architect" <?= ($editProfessional['roletype'] ?? '') == 'architect' ? 'selected' : '' ?>>Architect</option>
-                                <option value="structuralengineer" <?= ($editProfessional['roletype'] ?? '') == 'structuralengineer' ? 'selected' : '' ?>>Structural Engineer</option>
+                                <option value="architect" <?= isset($editProfessional['roletype']) && $editProfessional['roletype'] == 'architect' ? 'selected' : '' ?>>Architect</option>
+                                <option value="structuralengineer" <?= isset($editProfessional['roletype']) && $editProfessional['roletype'] == 'structuralengineer' ? 'selected' : '' ?>>Structural Engineer</option>
                             </select>
                         </div>
                         
