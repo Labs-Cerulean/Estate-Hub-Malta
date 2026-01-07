@@ -916,11 +916,16 @@ tbody tr:hover td:nth-child(9) {
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.75);
-    display: flex !important;
+    display: none;  /* Changed from flex !important to none */
     justify-content: center;
     align-items: center;
     z-index: 2000;
     padding: var(--spacing-lg);
+}
+
+/* Add this new rule to show the modal when needed */
+.modal[style*="display: block"] {
+    display: flex !important;
 }
 
 .modal-content {
