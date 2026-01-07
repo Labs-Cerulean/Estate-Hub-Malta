@@ -105,22 +105,7 @@ function getVisibleProjects($pdo) {
 /**
  * Check if user has access to a specific project
  */
-function hasProjectAccess($pdo, $projectId) {
-    $userId = getCurrentUserId();
-    
-    // Admins have access to all projects
-    if (isAdmin()) {
-        return true;
-    }
-    
-    // Check if user is assigned to this project
-    $stmt = $pdo->prepare("
-        SELECT id FROM user_project_access
-        WHERE user_id = ? AND project_id = ?
-    ");
-    $stmt->execute([$userId, $projectId]);
-    return $stmt->fetch() !== null;
-}
+
 
 /**
  * Get user's access level for a specific project
