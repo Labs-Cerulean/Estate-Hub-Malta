@@ -1,8 +1,5 @@
 <?php
-// Include initialization (no output)
 require_once 'init.php';
-
-// Check authentication (no output, but may redirect)
 require_once 'session-check.php';
 
 // Get and validate project ID
@@ -13,7 +10,7 @@ if (!$projectId) {
     exit;
 }
 
-// Check project access (may redirect)
+// Check project access
 if (!hasProjectAccess($pdo, $projectId)) {
     header('Location: dashboard.php?error=access_denied');
     exit;
@@ -27,19 +24,15 @@ if (!$project) {
     exit;
 }
 
-// All checks passed, now we can safely output HTML
-$pageTitle = 'Mobilisation - ' . $project['name'];
-require_once 'header.php';
-
 // Get mobilisation data
 $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
 $mobStmt->execute([$projectId]);
 $mob = $mobStmt->fetch();
 
 if (!$mob) {
-  $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)")->execute([$projectId]);
-  $mobStmt->execute([$projectId]);
-  $mob = $mobStmt->fetch();
+    $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)")->execute([$projectId]);
+    $mobStmt->execute([$projectId]);
+    $mob = $mobStmt->fetch();
 }
 
 // Get PA numbers
@@ -48,116 +41,122 @@ $paNumbers = getProjectPANumbers($pdo, $projectId);
 // Handle updates - SERVER-SIDE VALIDATION
 $message = '';
 if (($_POST['action'] ?? null) === 'update_mobilisation') {
-  try {
-    // Get prerequisite states for validation
-    $geoTest = $_POST['geological_test'] ?? $mob['geological_test'] ?? 'NA';
-    $condReports = $_POST['condition_reports'] ?? $mob['condition_reports'] ?? 'Not Started';
-    
-    // Sequential Chain unlock condition: Geo = Complete OR NA, AND Condition = Complete OR NA
-    $canSequential = ($geoTest === 'Complete' || $geoTest === 'NA') && ($condReports === 'Complete' || $condReports === 'NA');
-    
-    // Check if ALL sequential fields are Complete
-    $seqFields = ['method_statements', 'insurance_status', 'pavement_guarantee', 
-                  'wellbeing_guarantee', 'umbrella_guarantee'];
-    $allSequentialComplete = true;
-    
-    foreach ($seqFields as $field) {
-      $value = $_POST[$field] ?? $mob[$field] ?? 'Not Complete';
-      if ($value !== 'Complete') {
-        $allSequentialComplete = false;
-        break;
-      }
+    try {
+        // Get prerequisite states for validation
+        $geoTest = $_POST['geological_test'] ?? $mob['geological_test'] ?? 'NA';
+        $condReports = $_POST['condition_reports'] ?? $mob['condition_reports'] ?? 'Not Started';
+        
+        // Sequential Chain unlock condition: Geo = Complete OR NA, AND Condition = Complete OR NA
+        $canSequential = ($geoTest === 'Complete' || $geoTest === 'NA') && 
+                        ($condReports === 'Complete' || $condReports === 'NA');
+        
+        // Check if ALL sequential fields are Complete
+        $seqFields = ['method_statements', 'insurance_status', 'pavement_guarantee', 
+                     'wellbeing_guarantee', 'umbrella_guarantee'];
+        $allSequentialComplete = true;
+        foreach ($seqFields as $field) {
+            $value = $_POST[$field] ?? $mob[$field] ?? 'Not Complete';
+            if ($value !== 'Complete') {
+                $allSequentialComplete = false;
+                break;
+            }
+        }
+        
+        $respForm = $_POST['responsibility_form'] ?? $mob['responsibility_form'] ?? 'Not Complete';
+        
+        // BCA Clearance field unlock: Responsibility Form Complete
+        $canBCA = $respForm === 'Complete';
+        
+        // Build update statement
+        $updates = [];
+        $values = [];
+        $allowedFields = [
+            'acquisition_complete', 'acquisition_date', 'archaeologist_assigned',
+            'change_of_applicant', 'geological_test', 'condition_report_contacts',
+            'condition_reports', 'method_statements', 'insurance_status',
+            'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee',
+            'responsibility_form'
+        ];
+        
+        foreach ($allowedFields as $field) {
+            if (isset($_POST[$field]) && $_POST[$field] !== '') {
+                $updates[] = "$field = ?";
+                $values[] = $_POST[$field];
+            }
+        }
+        
+        // ONLY allow BCA update if Responsibility Form Complete
+        if ($canBCA && isset($_POST['bca_clearance'])) {
+            $updates[] = "bca_clearance = ?";
+            $values[] = $_POST['bca_clearance'];
+        }
+        
+        if (!empty($updates)) {
+            $values[] = $projectId;
+            $updateStmt = $pdo->prepare("
+                UPDATE project_mobilisation 
+                SET " . implode(', ', $updates) . " 
+                WHERE project_id = ?
+            ");
+            $updateStmt->execute($values);
+            $message = 'Mobilisation steps updated successfully!';
+            
+            // Refresh
+            $mobStmt->execute([$projectId]);
+            $mob = $mobStmt->fetch();
+        }
+    } catch (PDOException $e) {
+        $message = 'Error: ' . $e->getMessage();
     }
-    
-    $respForm = $_POST['responsibility_form'] ?? $mob['responsibility_form'] ?? 'Not Complete';
-    
-    // BCA Clearance field unlock: Responsibility Form Complete
-    $canBCA = $respForm === 'Complete';
-    
-    // Build update statement
-    $updates = [];
-    $values = [];
-    $allowedFields = [
-      'acquisition_complete', 'acquisition_date',
-      'archaeologist_assigned', 'change_of_applicant', 
-      'geological_test', 'condition_report_contacts', 'condition_reports',
-      'method_statements', 'insurance_status', 'pavement_guarantee',
-      'wellbeing_guarantee', 'umbrella_guarantee',
-      'responsibility_form'
-    ];
-
-    foreach ($allowedFields as $field) {
-      if (isset($_POST[$field]) && $_POST[$field] !== '') {
-        $updates[] = "$field = ?";
-        $values[] = $_POST[$field];
-      }
-    }
-
-    // ONLY allow BCA update if Responsibility Form Complete
-    if ($canBCA && isset($_POST['bca_clearance'])) {
-      $updates[] = "bca_clearance = ?";
-      $values[] = $_POST['bca_clearance'];
-    }
-
-    if (!empty($updates)) {
-      $values[] = $projectId;
-      $updateStmt = $pdo->prepare("
-        UPDATE project_mobilisation 
-        SET " . implode(', ', $updates) . "
-        WHERE project_id = ?
-      ");
-      $updateStmt->execute($values);
-      $message = 'Mobilisation steps updated successfully!';
-      
-      // Refresh
-      $mobStmt->execute([$projectId]);
-      $mob = $mobStmt->fetch();
-    }
-  } catch (PDOException $e) {
-    $message = 'Error: ' . $e->getMessage();
-  }
 }
 
 if (($_POST['action'] ?? null) === 'update_pa') {
-  try {
-    $paId = $_POST['pa_id'] ?? null;
-    $paStatus = $_POST['pa_status'] ?? null;
-    
-    if ($paId && $paStatus) {
-      $pdo->prepare("
-        UPDATE project_pa_numbers 
-        SET pa_status = ? 
-        WHERE id = ? AND project_id = ?
-      ")->execute([$paStatus, $paId, $projectId]);
-      
-      $message = 'PA status updated!';
-      $paNumbers = getProjectPANumbers($pdo, $projectId);
+    try {
+        $paId = $_POST['pa_id'] ?? null;
+        $paStatus = $_POST['pa_status'] ?? null;
+        
+        if ($paId && $paStatus) {
+            $pdo->prepare("
+                UPDATE project_pa_numbers 
+                SET pa_status = ? 
+                WHERE id = ? AND project_id = ?
+            ")->execute([$paStatus, $paId, $projectId]);
+            $message = 'PA status updated!';
+            $paNumbers = getProjectPANumbers($pdo, $projectId);
+        }
+    } catch (PDOException $e) {
+        $message = 'Error: ' . $e->getMessage();
     }
-  } catch (PDOException $e) {
-    $message = 'Error: ' . $e->getMessage();
-  }
 }
 
 $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
 
 // Recalculate unlock states for display
-$geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
-$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete' || ($mob['condition_reports'] ?? 'Not Started') === 'NA';
+$geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || 
+               ($mob['geological_test'] ?? 'NA') === 'NA';
+$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete' || 
+                ($mob['condition_reports'] ?? 'Not Started') === 'NA';
 $canSequential = $geoComplete && $condComplete;
 
 $seqFieldsDisplay = ['method_statements', 'insurance_status', 'pavement_guarantee', 
-                      'wellbeing_guarantee', 'umbrella_guarantee'];
+                     'wellbeing_guarantee', 'umbrella_guarantee'];
 $allSeqComplete = true;
 foreach ($seqFieldsDisplay as $field) {
-  if (($mob[$field] ?? 'Not Complete') !== 'Complete') {
-    $allSeqComplete = false;
-    break;
-  }
+    if (($mob[$field] ?? 'Not Complete') !== 'Complete') {
+        $allSeqComplete = false;
+        break;
+    }
 }
+
 $respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 $canFinal = $allSeqComplete;
 $canBCA = $respComplete;
 
+// Set page title
+$pageTitle = 'Mobilisation - ' . $project['name'];
+
+// Now output HTML
+require_once 'header.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
