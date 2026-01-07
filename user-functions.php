@@ -171,15 +171,7 @@ function getAllUsers($pdo) {
 /**
  * Get user by ID
  */
-function getUserById($pdo, $userId) {
-    $stmt = $pdo->prepare("
-        SELECT id, username, email, password_hash, role, first_name, last_name, is_active, created_at, last_login
-        FROM users
-        WHERE id = ?
-    ");
-    $stmt->execute([$userId]);
-    return $stmt->fetch();
-}
+
 
 /**
  * Get users assigned to a specific project
