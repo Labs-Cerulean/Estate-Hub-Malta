@@ -19,138 +19,42 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($pageTitle) ?> - Estate Hub</title>
     <link rel="stylesheet" href="/styles.css">
-    <style>
-        /* Inline critical styles as fallback */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #0a0e27;
-            color: #e0e7ff;
-            min-height: 100vh;
-        }
-        
-        .main-nav {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 1rem 0;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-        }
-        
-        .nav-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .nav-brand {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        
-        .nav-logo {
-            height: 50px;
-            width: auto;
-            border-radius: 8px;
-        }
-        
-        .nav-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: white;
-        }
-        
-        .nav-links {
-            display: flex;
-            list-style: none;
-            gap: 2rem;
-        }
-        
-        .nav-links a {
-            color: white;
-            text-decoration: none;
-            font-weight: 500;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            transition: background 0.3s;
-        }
-        
-        .nav-links a:hover,
-        .nav-links a.active {
-            background: rgba(255, 255, 255, 0.2);
-        }
-        
-        .nav-user {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            color: white;
-        }
-        
-        .user-name {
-            font-weight: 600;
-        }
-        
-        .user-role {
-            opacity: 0.8;
-            font-size: 0.9rem;
-        }
-        
-        .btn-logout {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: 500;
-            transition: background 0.3s;
-        }
-        
-        .btn-logout:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        
-        .main-content {
-            max-width: 1400px;
-            margin: 2rem auto;
-            padding: 0 2rem;
-        }
-    </style>
 </head>
 <body>
     <?php if (isLoggedIn()): ?>
-        <nav class="main-nav">
-            <div class="nav-container">
-                <div class="nav-brand">
-                    <img src="/logo.png" alt="Estate Hub Logo" class="nav-logo">
-                    <span class="nav-title">Estate Hub</span>
+        <header class="header">
+            <div class="header-container">
+                <div class="header-left">
+                    <img src="/logo.png" alt="Estate Hub Logo" class="logo-nav">
+                    <div>
+                        <h1 class="header-title">Estate Hub</h1>
+                        <p class="header-subtitle">Malta</p>
+                    </div>
                 </div>
                 
-                <ul class="nav-links">
-                    <li><a href="/dashboard.php" class="<?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a></li>
-                    <li><a href="/mobilization.php" class="<?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilization</a></li>
-                    <li><a href="/clients.php" class="<?= $currentPage === 'clients' ? 'active' : '' ?>">Clients</a></li>
+                <div class="header-right">
+                    <a href="/dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
+                    <a href="/mobilization.php" class="nav-link <?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilization</a>
+                    <a href="/clients.php" class="nav-link <?= $currentPage === 'clients' ? 'active' : '' ?>">Clients</a>
+                    
+                    <?php if (isAdmin() || getCurrentRole() === 'manager'): ?>
+                        <a href="/professionals-management.php" class="nav-link <?= $currentPage === 'professionals-management' ? 'active' : '' ?>">Professionals</a>
+                    <?php endif; ?>
                     
                     <?php if (isAdmin()): ?>
-                        <li><a href="/users-management.php" class="<?= $currentPage === 'users-management' ? 'active' : '' ?>">Users</a></li>
-                        <li><a href="/professionals-management.php" class="<?= $currentPage === 'professionals-management' ? 'active' : '' ?>">Professionals</a></li>
+                        <a href="/users-management.php" class="nav-link <?= $currentPage === 'users-management' ? 'active' : '' ?>">Users</a>
                     <?php endif; ?>
-                </ul>
-                
-                <div class="nav-user">
-                    <span class="user-name"><?= htmlspecialchars(getCurrentUserFullName()) ?></span>
-                    <span class="user-role">(<?= htmlspecialchars(getCurrentRole()) ?>)</span>
-                    <a href="api/logout.php" class="btn-logout">Logout</a>
+                    
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem; padding-left: 1rem; border-left: 1px solid rgba(255,255,255,0.1);">
+                        <div style="text-align: right;">
+                            <div style="font-weight: 600; color: #ffffff; font-size: 0.9rem;"><?= htmlspecialchars(getCurrentUserFullName()) ?></div>
+                            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.5px;"><?= htmlspecialchars(getCurrentRole()) ?></div>
+                        </div>
+                        <a href="api/logout.php" class="nav-link" style="padding: 0.5rem 1rem;">Logout</a>
+                    </div>
                 </div>
             </div>
-        </nav>
+        </header>
     <?php endif; ?>
     
     <main class="main-content">
