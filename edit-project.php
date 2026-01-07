@@ -1,4 +1,4 @@
-com<?php
+<?php
 $pageTitle = "Edit Project";
 include 'header.php';
 
