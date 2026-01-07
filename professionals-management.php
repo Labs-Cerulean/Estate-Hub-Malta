@@ -94,7 +94,7 @@ require_once 'header.php';
         <h1 class="page-title">Professionals Management</h1>
 
 
-       <!-- Add/Edit Form -->
+      <!-- Add/Edit Form -->
         <div class="card mb-8">
             <div class="card-header">
                 <h3><?= $editing ? 'Edit Professional' : 'Add New Professional' ?></h3>
@@ -109,35 +109,47 @@ require_once 'header.php';
                     <div class="form-grid">
                         <div class="form-group">
                             <label class="form-label">Name <span style="color: #22c55e">*</span></label>
-                            <input type="text" class="form-control" name="name" value="<?= htmlspecialchars($editProfessional['name'] ?? '') ?>" required>
+                            <input type="text" class="form-control" name="name" 
+                                   value="<?= htmlspecialchars($editProfessional['name'] ?? '') ?>" required>
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">Role Type <span style="color: #22c55e">*</span></label>
                             <select class="form-select" name="roletype" required>
-                                <option value="architect" <?= isset($editProfessional['roletype']) && $editProfessional['roletype'] == 'architect' ? 'selected' : '' ?>>Architect</option>
-                                <option value="structuralengineer" <?= isset($editProfessional['roletype']) && $editProfessional['roletype'] == 'structuralengineer' ? 'selected' : '' ?>>Structural Engineer</option>
+                                <option value="architect" 
+                                        <?= (isset($editProfessional['roletype']) && $editProfessional['roletype'] === 'architect') ? 'selected' : '' ?>>
+                                    Architect
+                                </option>
+                                <option value="structuralengineer" 
+                                        <?= (isset($editProfessional['roletype']) && $editProfessional['roletype'] === 'structuralengineer') ? 'selected' : '' ?>>
+                                    Structural Engineer
+                                </option>
                             </select>
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">Firm Name</label>
-                            <input type="text" class="form-control" name="firmname" value="<?= htmlspecialchars($editProfessional['firmname'] ?? '') ?>">
+                            <input type="text" class="form-control" name="firmname" 
+                                   value="<?= htmlspecialchars($editProfessional['firmname'] ?? '') ?>">
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">Phone</label>
-                            <input type="text" class="form-control" name="phone" value="<?= htmlspecialchars($editProfessional['phone'] ?? '') ?>">
+                            <input type="text" class="form-control" name="phone" 
+                                   value="<?= htmlspecialchars($editProfessional['phone'] ?? '') ?>">
                         </div>
                     </div>
                     
                     <div class="form-group">
                         <label class="form-label">Email</label>
-                        <input type="email" class="form-control" name="email" value="<?= htmlspecialchars($editProfessional['email'] ?? '') ?>">
+                        <input type="email" class="form-control" name="email" 
+                               value="<?= htmlspecialchars($editProfessional['email'] ?? '') ?>">
                     </div>
                     
                     <div class="flex gap-8">
-                        <button type="submit" class="btn"><?= $editing ? 'Update Professional' : 'Add Professional' ?></button>
+                        <button type="submit" class="btn">
+                            <?= $editing ? 'Update Professional' : 'Add Professional' ?>
+                        </button>
                         <?php if ($editing): ?>
                             <a href="professionals-management.php" class="btn btn--secondary">Cancel</a>
                         <?php endif; ?>
