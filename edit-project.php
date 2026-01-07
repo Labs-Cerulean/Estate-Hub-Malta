@@ -28,13 +28,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? null) === 'upd
         // Update project basic info
         $stmt = $pdo->prepare("
             UPDATE projects 
-            SET clientid = ?, name = ?, city = ?, type = ?, finishlevel = ?
+            SET clientid = ?, name = ?, city = ?, island = ?, type = ?, finishlevel = ?
             WHERE id = ?
         ");
         $stmt->execute([
             $_POST['clientid'],
             $_POST['name'],
             $_POST['city'],
+            $_POST['island'],
             $_POST['type'],
             ($_POST['type'] === 'in-house' ? $_POST['finishlevel'] : null),
             $projectId
@@ -289,7 +290,7 @@ $engineers = $pdo->query("
 
       <div class="form-group">
         <label>Island</label>
-        <select name="island" id="island-select" onchange="updateCities()" required>
+        <select name="island" id="island" onchange="updateCities()" required>
           <option value="">Select Island</option>
           <option value="Malta" <?php echo (in_array($project['city'], ['Ghargur', 'Mellieha', 'Mosta', 'Naxxar', 'Rabat', 'San Pawl il-Bahar', 'Attard', 'Balzan', 'Birkirkara', 'Gzira', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex', 'Birgu', 'Bormla', 'Fgura', 'Ghaxaq', 'Kirkop', 'Safi', 'Haz-Zebbug', 'Marsascala', 'Marsaxlokk', 'Mqabba', 'Paola', 'Santa Lucia', 'Senglea', 'Siggiewi', 'Tarxien', 'Xghajra', 'Zabbar', 'Zejtun', 'Qrendi', 'Zurrieq'])) ? 'selected' : ''; ?>>Malta</option>
           <option value="Gozo" <?php echo (in_array($project['city'], ['Fontana', 'Ghajnsielem', 'Gharb', 'Ghasri', 'Kercem', 'Marsalforn', 'Munxar', 'Nadur', 'Qala', 'Rabat Victoria', 'San Lawrenz', 'Sannat', 'Xaghra', 'Xewkija', 'Zebbug Gozo'])) ? 'selected' : ''; ?>>Gozo</option>
@@ -470,7 +471,7 @@ $engineers = $pdo->query("
   };
 
   function updateCities() {
-    const islandSelect = document.getElementById('island-select');
+    const islandSelect = document.getElementById('island');
     const citySelect = document.getElementById('city-select');
     const island = islandSelect.value;
     const currentCity = citySelect.value; // Preserve current selection
