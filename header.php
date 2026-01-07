@@ -24,7 +24,7 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
     <nav class="main-nav">
         <div class="nav-container">
             <div class="nav-brand">
-                <img src="logo.jpg" alt="Estate Hub Logo" class="nav-logo">
+                <img src="logo.png" alt="Estate Hub Logo" class="nav-logo">
                 <span class="nav-title">Estate Hub</span>
             </div>
             
