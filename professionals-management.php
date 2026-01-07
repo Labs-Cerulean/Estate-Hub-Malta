@@ -2,8 +2,8 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// Check if user is admin
-if (!isAdmin()) {
+// Check if user is admin or manager
+if (!isAdmin() && getCurrentRole() !== 'manager') {
     header('Location: dashboard.php');
     exit;
 }
