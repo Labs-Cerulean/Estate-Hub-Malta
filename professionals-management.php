@@ -1,67 +1,85 @@
 <?php
-$pageTitle = 'Professionals';
-include 'header.php';
-$pdo = getDB();
+require_once 'init.php';
+require_once 'session-check.php';
 
-// Only managers and admins
-if (!isAdmin() && getCurrentRole() !== 'manager') {
+// Check if user is admin
+if (!isAdmin()) {
     header('Location: dashboard.php');
     exit;
 }
 
-// Handle form actions
 $message = '';
-$error = '';
+$editing = false;
+$editProfessional = null;
 
-if ($_POST) {
-    try {
-        if ($_POST['action'] === 'create') {
-            $stmt = $pdo->prepare("
-                INSERT INTO professionals (name, firm_name, email, phone, role_type)
-                VALUES (?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $_POST['name'],
-                $_POST['firm_name'] ?? null,
-                $_POST['email'] ?? null,
-                $_POST['phone'] ?? null,
-                $_POST['role_type']
-            ]);
-            $message = 'Professional added successfully!';
-        } elseif ($_POST['action'] === 'update') {
-            $stmt = $pdo->prepare("
-                UPDATE professionals
-                SET name = ?, firm_name = ?, email = ?, phone = ?, role_type = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $_POST['name'],
-                $_POST['firm_name'] ?? null,
-                $_POST['email'] ?? null,
-                $_POST['phone'] ?? null,
-                $_POST['role_type'],
-                $_POST['id']
-            ]);
-            $message = 'Professional updated successfully!';
-        } elseif ($_POST['action'] === 'delete') {
-            $pdo->prepare("DELETE FROM professionals WHERE id = ?")->execute([$_POST['id']]);
-            $message = 'Professional deleted successfully!';
+// Handle form submissions
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    
+    if ($action === 'create' || $action === 'update') {
+        $name = trim($_POST['name'] ?? '');
+        $firmName = trim($_POST['firm_name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+        $roleType = $_POST['role_type'] ?? '';
+        
+        if (empty($name) || empty($roleType)) {
+            $message = 'Name and role type are required';
+        } else {
+            try {
+                if ($action === 'create') {
+                    $stmt = $pdo->prepare("
+                        INSERT INTO professionals (name, firm_name, email, phone, role_type)
+                        VALUES (?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute([$name, $firmName, $email, $phone, $roleType]);
+                    $message = 'Professional created successfully!';
+                } else {
+                    $id = $_POST['id'] ?? null;
+                    $stmt = $pdo->prepare("
+                        UPDATE professionals 
+                        SET name = ?, firm_name = ?, email = ?, phone = ?, role_type = ?
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([$name, $firmName, $email, $phone, $roleType, $id]);
+                    $message = 'Professional updated successfully!';
+                }
+            } catch (PDOException $e) {
+                $message = 'Error: ' . $e->getMessage();
+            }
         }
-    } catch (PDOException $e) {
-        $error = 'Database error: ' . $e->getMessage();
     }
 }
 
-// Get all professionals
-$architects = $pdo->query("SELECT * FROM professionals WHERE role_type = 'architect' ORDER BY name")->fetchAll();
-$engineers = $pdo->query("SELECT * FROM professionals WHERE role_type = 'structural_engineer' ORDER BY name")->fetchAll();
-
-$editing = null;
+// Handle edit request
 if (isset($_GET['edit'])) {
+    $editId = $_GET['edit'];
     $stmt = $pdo->prepare("SELECT * FROM professionals WHERE id = ?");
-    $stmt->execute([$_GET['edit']]);
-    $editing = $stmt->fetch();
+    $stmt->execute([$editId]);
+    $editProfessional = $stmt->fetch();
+    if ($editProfessional) {
+        $editing = true;
+    }
 }
+
+// Get all professionals grouped by role
+$architects = $pdo->query("
+    SELECT * FROM professionals 
+    WHERE role_type = 'architect' 
+    ORDER BY name
+")->fetchAll();
+
+$engineers = $pdo->query("
+    SELECT * FROM professionals 
+    WHERE role_type = 'structural_engineer' 
+    ORDER BY name
+")->fetchAll();
+
+// Set page title
+$pageTitle = 'Professionals Management';
+
+// Now output HTML
+require_once 'header.php';
 ?>
 
 <!DOCTYPE html>
