@@ -9,13 +9,13 @@ $userRole = getCurrentRole();
 $isAdmin = isAdmin();
 
 // Get filter and sort parameters
-$filterType = $_GET['filter_type'] ?? 'all';
-$filterStatus = $_GET['filter_status'] ?? 'all';
-$filterCity = $_GET['filter_city'] ?? 'all';
-$filterClient = $_GET['filter_client'] ?? 'all';
-$filterArchitect = $_GET['filter_architect'] ?? 'all';
-$filterEngineer = $_GET['filter_engineer'] ?? 'all';
-$filterIsland = $_GET['filter_island'] ?? 'all';
+$filterType = $_GET['filtertype'] ?? 'all';
+$filterStatus = $_GET['filterstatus'] ?? 'all';
+$filterCity = $_GET['filtercity'] ?? 'all';
+$filterClient = $_GET['filterclient'] ?? 'all';
+$filterArchitect = $_GET['filterarchitect'] ?? 'all';
+$filterEngineer = $_GET['filterengineer'] ?? 'all';
+$filterIsland = $_GET['filterisland'] ?? 'all';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
@@ -26,91 +26,149 @@ if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
 
 try {
-    // Get filter options
-    $cities = $pdo->query("SELECT DISTINCT city FROM projects ORDER BY city")->fetchAll(PDO::FETCH_COLUMN);
-    $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    // Get filter options - but only for accessible clients/projects
+    if ($isAdmin) {
+        // Admins see all filter options
+        $cities = $pdo->query("SELECT DISTINCT city FROM projects ORDER BY city")->fetchAll(PDO::FETCH_COLUMN);
+        $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        // Non-admins see only their accessible clients/projects
+        $user = getUserById($pdo, $userId);
+        
+        if ($user['role'] === 'architect') {
+            // Architects see clients/cities from their firm's projects
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT c.id, c.name
+                FROM clients c
+                INNER JOIN projects p ON c.id = p.clientid
+                INNER JOIN project_pa_numbers ppn ON p.id = ppn.project_id
+                WHERE (
+                    (? IS NOT NULL AND ppn.architect_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (
+                            SELECT firm_name FROM professionals WHERE id = ?
+                        ) AND role_type = 'architect'
+                    ))
+                    OR
+                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (
+                            SELECT firm_name FROM professionals WHERE id = ?
+                        ) AND role_type = 'structural_engineer'
+                    ))
+                )
+                ORDER BY c.name
+            ");
+            $stmt->execute([
+                $user['assigned_architect_firm_id'],
+                $user['assigned_architect_firm_id'],
+                $user['assigned_structural_firm_id'],
+                $user['assigned_structural_firm_id']
+            ]);
+            $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT p.city
+                FROM projects p
+                INNER JOIN project_pa_numbers ppn ON p.id = ppn.project_id
+                WHERE (
+                    (? IS NOT NULL AND ppn.architect_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (
+                            SELECT firm_name FROM professionals WHERE id = ?
+                        ) AND role_type = 'architect'
+                    ))
+                    OR
+                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (
+                            SELECT firm_name FROM professionals WHERE id = ?
+                        ) AND role_type = 'structural_engineer'
+                    ))
+                )
+                ORDER BY p.city
+            ");
+            $stmt->execute([
+                $user['assigned_architect_firm_id'],
+                $user['assigned_architect_firm_id'],
+                $user['assigned_structural_firm_id'],
+                $user['assigned_structural_firm_id']
+            ]);
+            $cities = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } else {
+            // Other users see only assigned clients
+            $clients = getUserClients($pdo, $userId);
+            
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT p.city
+                FROM projects p
+                INNER JOIN user_client_access uca ON p.clientid = uca.client_id
+                WHERE uca.user_id = ?
+                ORDER BY p.city
+            ");
+            $stmt->execute([$userId]);
+            $cities = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        }
+    }
+    
+    // Get all architects and engineers (for filters)
     $architects = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'architect' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
     $engineers = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'structural_engineer' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
-    // Get all projects with client information
-    $sql = "SELECT p.*, c.name as client_name 
-            FROM projects p
-            LEFT JOIN clients c ON p.clientid = c.id
-            WHERE 1=1";
-
-    // Apply filters
-    $params = [];
-
+    // ===== USE getAccessibleProjects() INSTEAD OF DIRECT QUERY =====
+    $projects = getAccessibleProjects($pdo, $userId);
+    
+    // Apply additional filters to accessible projects
     if ($filterType !== 'all') {
-        $sql .= " AND p.type = :filter_type";
-        $params['filter_type'] = $filterType;
+        $projects = array_filter($projects, function($project) use ($filterType) {
+            return $project['type'] === $filterType;
+        });
     }
-
+    
     if ($filterCity !== 'all') {
-        $sql .= " AND p.city = :filter_city";
-        $params['filter_city'] = $filterCity;
+        $projects = array_filter($projects, function($project) use ($filterCity) {
+            return $project['city'] === $filterCity;
+        });
     }
-
+    
     if ($filterClient !== 'all') {
-        $sql .= " AND p.clientid = :filter_client";
-        $params['filter_client'] = $filterClient;
+        $projects = array_filter($projects, function($project) use ($filterClient) {
+            return $project['clientid'] == $filterClient;
+        });
     }
-
+    
     if ($filterIsland !== 'all') {
-        $sql .= " AND p.island = :filter_island";
-        $params['filter_island'] = $filterIsland;
+        $projects = array_filter($projects, function($project) use ($filterIsland) {
+            return $project['island'] === $filterIsland;
+        });
     }
-
-    $sql .= " ORDER BY ";
-
-    // Handle sorting
-    switch($sortBy) {
-        case 'client':
-            $sql .= "c.name {$sortOrder}";
-            break;
-        case 'city':
-            $sql .= "p.city {$sortOrder}";
-            break;
-        case 'type':
-            $sql .= "p.type {$sortOrder}";
-            break;
-        default:
-            $sql .= "p.name {$sortOrder}";
-    }
-
-    $stmt = $pdo->prepare($sql);
-
-    foreach ($params as $key => $value) {
-        $stmt->bindValue(":{$key}", $value);
-    }
-
-    $stmt->execute();
-    $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Get all PA numbers grouped by project
-    $paSql = "SELECT 
-                pan.project_id,
-                pan.pa_number,
-                pan.pa_status,
-                pan.architect_id,
-                pan.structural_engineer_id,
-                arch.name AS architect_name,
-                se.name AS structural_engineer_name
-              FROM project_pa_numbers pan
-              LEFT JOIN professionals arch ON arch.id = pan.architect_id
-              LEFT JOIN professionals se ON se.id = pan.structural_engineer_id
-              ORDER BY pan.project_id, pan.id";
-
-    $paStmt = $pdo->query($paSql);
-    $paNumbers = $paStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Group PA numbers by project_id
+    
+    // Get PA numbers for all accessible projects
+    $projectIds = array_column($projects, 'id');
     $paByProject = [];
-    foreach ($paNumbers as $pa) {
-        $paByProject[$pa['project_id']][] = $pa;
+    
+    if (!empty($projectIds)) {
+        $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
+        $paSql = "
+            SELECT pan.project_id, pan.pa_number, pan.pa_status, pan.architect_id, pan.structural_engineer_id,
+                   arch.name AS architect_name, se.name AS structural_engineer_name
+            FROM project_pa_numbers pan
+            LEFT JOIN professionals arch ON arch.id = pan.architect_id
+            LEFT JOIN professionals se ON se.id = pan.structural_engineer_id
+            WHERE pan.project_id IN ($placeholders)
+            ORDER BY pan.project_id, pan.id
+        ";
+        $paStmt = $pdo->prepare($paSql);
+        $paStmt->execute($projectIds);
+        $paNumbers = $paStmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Group PA numbers by project_id
+        foreach ($paNumbers as $pa) {
+            $paByProject[$pa['project_id']][] = $pa;
+        }
     }
-
-    // Apply PA status filter if needed
+    
+    // Apply PA status filter
     if ($filterStatus !== 'all') {
         $projects = array_filter($projects, function($project) use ($paByProject, $filterStatus) {
             $projectPAs = $paByProject[$project['id']] ?? [];
@@ -122,8 +180,8 @@ try {
             return empty($projectPAs) && $filterStatus === 'TBC';
         });
     }
-
-    // Apply architect filter if needed
+    
+    // Apply architect filter
     if ($filterArchitect !== 'all') {
         $projects = array_filter($projects, function($project) use ($paByProject, $filterArchitect) {
             $projectPAs = $paByProject[$project['id']] ?? [];
@@ -135,8 +193,8 @@ try {
             return empty($projectPAs) && $filterArchitect === 'none';
         });
     }
-
-    // Apply engineer filter if needed
+    
+    // Apply engineer filter
     if ($filterEngineer !== 'all') {
         $projects = array_filter($projects, function($project) use ($paByProject, $filterEngineer) {
             $projectPAs = $paByProject[$project['id']] ?? [];
@@ -148,12 +206,29 @@ try {
             return empty($projectPAs) && $filterEngineer === 'none';
         });
     }
-
+    
+    // Sort projects
+    usort($projects, function($a, $b) use ($sortBy, $sortOrder) {
+        $valA = $sortBy === 'client' ? ($a['client_name'] ?? '') : $a[$sortBy];
+        $valB = $sortBy === 'client' ? ($b['client_name'] ?? '') : $b[$sortBy];
+        
+        $comparison = strcasecmp($valA, $valB);
+        return $sortOrder === 'ASC' ? $comparison : -$comparison;
+    });
+    
     // Get stats
     $projectCount = count($projects);
     $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
-    $mobilisedCount = $pdo->query("SELECT COUNT(*) FROM project_mobilisation WHERE bca_clearance = 'Yes'")->fetchColumn();
-
+    
+    // Count mobilised projects (only accessible ones)
+    $mobilisedCount = 0;
+    foreach ($projects as $project) {
+        $mobStatus = deriveMobilisationStatus($pdo, $project['id']);
+        if ($mobStatus === 'Mobilised') {
+            $mobilisedCount++;
+        }
+    }
+    
 } catch (Exception $e) {
     $projects = [];
     $paByProject = [];
@@ -166,25 +241,24 @@ try {
     $mobilisedCount = 0;
 }
 
-// Helper function to generate sort URL
+// Helper functions remain the same...
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland;
     $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
     $params = [
         'sort' => $column,
         'order' => $newOrder,
-        'filter_type' => $filterType,
-        'filter_status' => $filterStatus,
-        'filter_city' => $filterCity,
-        'filter_client' => $filterClient,
-        'filter_architect' => $filterArchitect,
-        'filter_engineer' => $filterEngineer,
-        'filter_island' => $filterIsland
+        'filtertype' => $filterType,
+        'filterstatus' => $filterStatus,
+        'filtercity' => $filterCity,
+        'filterclient' => $filterClient,
+        'filterarchitect' => $filterArchitect,
+        'filterengineer' => $filterEngineer,
+        'filterisland' => $filterIsland
     ];
     return 'dashboard.php?' . http_build_query($params);
 }
 
-// Helper function to get sort indicator
 function getSortIndicator($column) {
     global $sortBy, $sortOrder;
     if ($sortBy === $column) {
@@ -192,6 +266,15 @@ function getSortIndicator($column) {
     }
     return '';
 }
+
+function buildPaUrl(?string $paNumber): ?string {
+    if (empty($paNumber)) return null;
+    if (!preg_match('/PA(\d{4,5})\/(\d{2})/', trim($paNumber), $m)) return null;
+    $caseNumber = $m[1];
+    $caseYear = $m[2];
+    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseyear={$caseYear}";
+}
+
 ?>
 
 <!DOCTYPE html>
