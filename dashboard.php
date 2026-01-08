@@ -505,7 +505,7 @@ require_once 'header.php';
       <span></span>
       <?php if (isAdmin() || getCurrentRole() == 'manager') { ?>
             <a href="create-project.php" class="btn">Add Project</a>
-        <?php endif; ?>
+        <?php } endif; ?>
     </div>
 
     <!-- Filters Section -->
