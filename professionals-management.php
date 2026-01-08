@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         INSERT INTO professionals (name, firm_name, email, phone, role_type)
                         VALUES (?, ?, ?, ?, ?)
                     ");
-                    $stmt->execute([$name, $firmName, $email, $phone, $roleType]);
+                    $stmt->execute([$name, $, $email, $phone, $roleType]);
                     $message = 'Professional created successfully!';
                 } else {
                     $id = $_POST['id'] ?? null;
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         SET name = ?, firm_name = ?, email = ?, phone = ?, role_type = ?
                         WHERE id = ?
                     ");
-                    $stmt->execute([$name, $firmName, $email, $phone, $roleType, $id]);
+                    $stmt->execute([$name, $, $email, $phone, $roleType, $id]);
                     $message = 'Professional updated successfully!';
                 }
             } catch (PDOException $e) {
@@ -117,11 +117,11 @@ require_once 'header.php';
                             <label class="form-label">Role Type <span style="color: #22c55e">*</span></label>
                             <select class="form-select" name="roletype" required>
                                 <option value="architect" 
-                                        <?= (isset($editProfessional['roletype']) && $editProfessional['roletype'] === 'architect') ? 'selected' : '' ?>>
+                                        <?= (isset($editProfessional['role_type']) && $editProfessional['role_type'] === 'architect') ? 'selected' : '' ?>>
                                     Architect
                                 </option>
                                 <option value="structuralengineer" 
-                                        <?= (isset($editProfessional['roletype']) && $editProfessional['roletype'] === 'structuralengineer') ? 'selected' : '' ?>>
+                                        <?= (isset($editProfessional['role_type']) && $editProfessional['role_type'] === 'structuralengineer') ? 'selected' : '' ?>>
                                     Structural Engineer
                                 </option>
                             </select>
@@ -129,8 +129,8 @@ require_once 'header.php';
                         
                         <div class="form-group">
                             <label class="form-label">Firm Name</label>
-                            <input type="text" class="form-control" name="firmname" 
-                                   value="<?= htmlspecialchars($editProfessional['firmname'] ?? '') ?>">
+                            <input type="text" class="form-control" name="" 
+                                   value="<?= htmlspecialchars($editProfessional['firm_name'] ?? '') ?>">
                         </div>
                         
                         <div class="form-group">
