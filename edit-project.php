@@ -66,11 +66,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
                 ");
                 
                 foreach ($_POST['paentries'] as $paEntry) {
-                    if (!empty($paEntry['number'])) {
-                        $paNumber = trim($paEntry['number']);
-                        $paStatus = $paEntry['status'] ?? 'Endorsed';
-                        $architectId = !empty($paEntry['architect']) ? $paEntry['architect'] : null;
-                        $engineerId = !empty($paEntry['engineer']) ? $paEntry['engineer'] : null;
+                    if (!empty($paEntry['pa_number'])) {
+                        $paNumber = trim($paEntry['pa_number']);
+                        $paStatus = $paEntry['pa_status'] ?? 'Endorsed';
+                        $architectId = !empty($paEntry['architect_id']) ? $paEntry['architect_id'] : null;
+                        $engineerId = !empty($paEntry['structural_engineer_id']) ? $paEntry['structural_engineer_id'] : null;
                         
                         $paStmt->execute([$projectId, $paNumber, $paStatus, $architectId, $engineerId]);
                     }
