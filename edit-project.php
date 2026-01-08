@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             // Insert new PA numbers
             if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
                 $paStmt = $pdo->prepare("
-                    INSERT INTO project_pa_numbers (projectid, panumber, pastatus, architectid, structuralengineerid)
+                    INSERT INTO project_pa_numbers (projectid, panumber, pastatus, architect_id, structuralengineer_id)
                     VALUES (?, ?, ?, ?, ?)
                 ");
                 
@@ -107,7 +107,7 @@ $architects = $pdo->query("
 $engineers = $pdo->query("
     SELECT id, name, firm_name 
     FROM professionals 
-    WHERE role_type = 'structuralengineer' 
+    WHERE role_type = 'structural_engineer' 
     ORDER BY name
 ")->fetchAll();
 
