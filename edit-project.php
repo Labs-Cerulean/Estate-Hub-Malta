@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             // Insert new PA numbers
             if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
                 $paStmt = $pdo->prepare("
-                    INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structuralengineer_id)
+                    INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id)
                     VALUES (?, ?, ?, ?, ?)
                 ");
                 
