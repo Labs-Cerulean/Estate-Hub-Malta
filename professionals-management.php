@@ -115,13 +115,13 @@ require_once 'header.php';
                         
                         <div class="form-group">
                             <label class="form-label">Role Type <span style="color: #22c55e">*</span></label>
-                            <select class="form-select" name="roletype" required>
+                            <select class="form-select" name="role_type" required>
                                 <option value="architect" 
                                         <?= (isset($editProfessional['role_type']) && $editProfessional['role_type'] === 'architect') ? 'selected' : '' ?>>
                                     Architect
                                 </option>
-                                <option value="structuralengineer" 
-                                        <?= (isset($editProfessional['role_type']) && $editProfessional['role_type'] === 'structuralengineer') ? 'selected' : '' ?>>
+                                <option value="structural_engineer" 
+                                        <?= (isset($editProfessional['role_type']) && $editProfessional['role_type'] === 'structural_engineer') ? 'selected' : '' ?>>
                                     Structural Engineer
                                 </option>
                             </select>
@@ -129,7 +129,7 @@ require_once 'header.php';
                         
                         <div class="form-group">
                             <label class="form-label">Firm Name</label>
-                            <input type="text" class="form-control" name="" 
+                            <input type="text" class="form-control" name="firm_name" 
                                    value="<?= htmlspecialchars($editProfessional['firm_name'] ?? '') ?>">
                         </div>
                         
