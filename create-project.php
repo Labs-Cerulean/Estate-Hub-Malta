@@ -399,5 +399,6 @@ require_once 'header.php';
             if (islandSelect && islandSelect.value) {
                 updateCities();
             }
+            });
     </script>
 <?php require_once 'footer.php'; ?>
