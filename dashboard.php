@@ -280,7 +280,7 @@ function buildPaUrl(?string $paNumber): ?string {
 }
 
 // Set page title
-$pageTitle = 'Dashboard';
+$pageTitle = 'DASH';
 // NOW output HTML
 require_once 'header.php';
 ?>
