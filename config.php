@@ -193,7 +193,7 @@ function deriveMobilisationStatus($pdo, $projectId) {
 function getProjectPANumbers($pdo, $projectId) {
     try {
         $stmt = $pdo->prepare("
-            SELECT id, pa_number, pa_status
+            SELECT id, pa_number, pa_status, architect_id, structural_engineer_id
             FROM project_pa_numbers
             WHERE project_id = ?
             ORDER BY created_at ASC
