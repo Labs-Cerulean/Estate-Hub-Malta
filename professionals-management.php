@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         INSERT INTO professionals (name, firm_name, email, phone, role_type)
                         VALUES (?, ?, ?, ?, ?)
                     ");
-                    $stmt->execute([$name, $, $email, $phone, $roleType]);
+                    $stmt->execute([$name, $firmName, $email, $phone, $roleType]);
                     $message = 'Professional created successfully!';
                 } else {
                     $id = $_POST['id'] ?? null;
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         SET name = ?, firm_name = ?, email = ?, phone = ?, role_type = ?
                         WHERE id = ?
                     ");
-                    $stmt->execute([$name, $, $email, $phone, $roleType, $id]);
+                    $stmt->execute([$name, $firmName, $email, $phone, $roleType, $id]);
                     $message = 'Professional updated successfully!';
                 }
             } catch (PDOException $e) {
