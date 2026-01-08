@@ -3,13 +3,12 @@ require_once 'init.php';
 require_once 'session-check.php';
 
 // Only admins and managers can edit projects
-if (!isAdmin() && getCurrentRole() !== 'manager') {
+if (!isAdmin() && getCurrentRole() != 'manager') {
     header('Location: dashboard.php');
     exit;
 }
 
 $projectId = $_GET['id'] ?? null;
-
 if (!$projectId) {
     header('Location: dashboard.php');
     exit;
@@ -17,24 +16,75 @@ if (!$projectId) {
 
 // Check project access
 if (!hasProjectAccess($pdo, $projectId)) {
-    header('Location: dashboard.php?error=access_denied');
+    header('Location: dashboard.php?error=accessdenied');
     exit;
 }
 
 // Get project details
 $project = getProjectWithClient($pdo, $projectId);
-
 if (!$project) {
     header('Location: dashboard.php');
     exit;
 }
 
+// Initialize message variables
 $message = '';
+$error = '';
 
 // Handle form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Your existing form handling code...
-    // (Keep all your existing edit logic here)
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'update') {
+    try {
+        // Get form data
+        $clientId = $_POST['clientid'] ?? null;
+        $name = trim($_POST['name'] ?? '');
+        $city = trim($_POST['city'] ?? '');
+        $island = $_POST['island'] ?? '';
+        $type = $_POST['type'] ?? '';
+        $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
+        
+        // Validate required fields
+        if (empty($clientId) || empty($name) || empty($city) || empty($island) || empty($type)) {
+            $error = 'Please fill in all required fields.';
+        } else {
+            // Update project
+            $stmt = $pdo->prepare("
+                UPDATE projects 
+                SET clientid = ?, name = ?, city = ?, island = ?, type = ?, finishlevel = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $projectId]);
+            
+            // Delete existing PA numbers
+            $deleteStmt = $pdo->prepare("DELETE FROM projectpanumbers WHERE projectid = ?");
+            $deleteStmt->execute([$projectId]);
+            
+            // Insert new PA numbers
+            if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
+                $paStmt = $pdo->prepare("
+                    INSERT INTO projectpanumbers (projectid, panumber, pastatus, architectid, structuralengineerid)
+                    VALUES (?, ?, ?, ?, ?)
+                ");
+                
+                foreach ($_POST['paentries'] as $paEntry) {
+                    if (!empty($paEntry['number'])) {
+                        $paNumber = trim($paEntry['number']);
+                        $paStatus = $paEntry['status'] ?? 'Endorsed';
+                        $architectId = !empty($paEntry['architect']) ? $paEntry['architect'] : null;
+                        $engineerId = !empty($paEntry['engineer']) ? $paEntry['engineer'] : null;
+                        
+                        $paStmt->execute([$projectId, $paNumber, $paStatus, $architectId, $engineerId]);
+                    }
+                }
+            }
+            
+            $message = 'Project updated successfully!';
+            
+            // Refresh project data
+            $project = getProjectWithClient($pdo, $projectId);
+        }
+    } catch (PDOException $e) {
+        $error = 'Error updating project: ' . $e->getMessage();
+    }
 }
 
 // Get data for dropdowns
@@ -48,16 +98,16 @@ if ($isAdmin) {
 }
 
 $architects = $pdo->query("
-    SELECT id, name, firm_name 
+    SELECT id, name, firmname 
     FROM professionals 
-    WHERE role_type = 'architect' 
+    WHERE roletype = 'architect' 
     ORDER BY name
 ")->fetchAll();
 
 $engineers = $pdo->query("
-    SELECT id, name, firm_name 
+    SELECT id, name, firmname 
     FROM professionals 
-    WHERE role_type = 'structural_engineer' 
+    WHERE roletype = 'structuralengineer' 
     ORDER BY name
 ")->fetchAll();
 
