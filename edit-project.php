@@ -369,14 +369,14 @@ require_once 'header.php';
 
       <div class="pa-number-field">
         <label>PA Number</label>
-        <input type="text" name="pa_entries[${paEntryCount}][number]" 
+        <input type="text" name="paentries[${paEntryCount}][pa_number]" 
                value="${escapeHtml(paNumber)}"
                placeholder="e.g., PA/01275/23" required>
       </div>
 
       <div>
         <label>PA Status</label>
-        <select name="pa_entries[${paEntryCount}][status]">
+        <select name="paentries[${paEntryCount}][pa_status]">
           <option value="Endorsed" ${paStatus === 'Endorsed' ? 'selected' : ''}>Endorsed</option>
           <option value="Decided" ${paStatus === 'Decided' ? 'selected' : ''}>Decided</option>
           <option value="Fee Payment" ${paStatus === 'Fee Payment' ? 'selected' : ''}>Fee Payment</option>
@@ -394,7 +394,7 @@ require_once 'header.php';
 
       <div>
         <label>Architect</label>
-        <select name="pa_entries[${paEntryCount}][architect]">
+        <select name="paentries[${paEntryCount}][architect_id]">
           <option value="">Select Architect (Optional)</option>
           ${architects.map(arch => 
             `<option value="${arch.id}" ${arch.id == architectId ? 'selected' : ''}>${escapeHtml(arch.name)}${arch.firm_name ? ' - ' + escapeHtml(arch.firm_name) : ''}</option>`
@@ -404,7 +404,7 @@ require_once 'header.php';
 
       <div>
         <label>Structural Engineer</label>
-        <select name="pa_entries[${paEntryCount}][engineer]">
+        <select name="paentries[${paEntryCount}][structural_engineer_id]">
           <option value="">Select Engineer (Optional)</option>
           ${engineers.map(eng => 
             `<option value="${eng.id}" ${eng.id == engineerId ? 'selected' : ''}>${escapeHtml(eng.name)}${eng.firm_name ? ' - ' + escapeHtml(eng.firm_name) : ''}</option>`
