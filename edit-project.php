@@ -54,28 +54,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             ");
             $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $projectId]);
             
-            // Delete existing PA numbers
-            $deleteStmt = $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?");
-            $deleteStmt->execute([$projectId]);
-            
-            // Insert new PA numbers
+            // Handle PA numbers - only update if paentries is submitted
             if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
+                // Delete existing PA numbers only when we have new ones to insert
+                $deleteStmt = $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?");
+                $deleteStmt->execute([$projectId]);
+
+                // Insert new PA numbers
                 $paStmt = $pdo->prepare("
                     INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id)
                     VALUES (?, ?, ?, ?, ?)
                 ");
-                
+
                 foreach ($_POST['paentries'] as $paEntry) {
                     if (!empty($paEntry['pa_number'])) {
                         $paNumber = trim($paEntry['pa_number']);
                         $paStatus = $paEntry['pa_status'] ?? 'Endorsed';
                         $architectId = !empty($paEntry['architect_id']) ? $paEntry['architect_id'] : null;
                         $engineerId = !empty($paEntry['structural_engineer_id']) ? $paEntry['structural_engineer_id'] : null;
-                        
+
                         $paStmt->execute([$projectId, $paNumber, $paStatus, $architectId, $engineerId]);
                     }
                 }
             }
+
             
             $message = 'Project updated successfully!';
             
