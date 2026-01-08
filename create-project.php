@@ -143,15 +143,18 @@ require_once 'header.php';
                     
                     <div class="form-row">
                         <div class="form-group">
-                            <label>City:*</label>
-                            <input type="text" name="city" required>
+                            <label>Island:*</label>
+                            <select name="island" id="island" onchange="updateCities()" required>
+                                <option value="">Select Island</option>
+                                <option value="Malta">Malta</option>
+                                <option value="Gozo">Gozo</option>
+                            </select>
                         </div>
                         
                         <div class="form-group">
-                            <label>Island:*</label>
-                            <select name="island" required>
-                                <option value="Malta">Malta</option>
-                                <option value="Gozo">Gozo</option>
+                            <label>City / Locality:*</label>
+                            <select name="city" id="city-select" required disabled>
+                                <option value="">Select Island First</option>
                             </select>
                         </div>
                     </div>
@@ -330,5 +333,71 @@ require_once 'header.php';
                 finishLevelSelect.required = false;
             }
         });
+
+        // Malta and Gozo locations data
+        // City data
+          const locations = {
+            'Malta': [
+              { label: 'Northern', cities: ['Ghargur', 'Mellieha', 'Mosta', 'Naxxar', 'Rabat', 'San Pawl il-Bahar'] },
+              { label: 'Central', cities: ['Attard', 'Balzan', 'Birkirkara', 'Gzira', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex'] },
+              { label: 'Southern', cities: ['Birgu', 'Bormla', 'Fgura', 'Ghaxaq', 'Kirkop', 'Safi', 'Haz-Zebbug', 'Luqa', 'Marsascala', 'Marsaxlokk', 'Mqabba', 'Paola', 'Santa Lucia', 'Senglea', 'Siggiewi', 'Tarxien', 'Xghajra', 'Zabbar', 'Zejtun', 'Qrendi', 'Zurrieq'] }
+            ],
+            'Gozo': [
+              { label: 'Gozo', cities: ['Fontana', 'Ghajnsielem', 'Gharb', 'Ghasri', 'Kercem', 'Marsalforn', 'Munxar', 'Nadur', 'Qala', 'Rabat Victoria', 'San Lawrenz', 'Sannat', 'Xaghra', 'Xewkija', 'Zebbug Gozo'] }
+            ]
+          };
+        
+        function updateCities() {
+            const islandSelect = document.getElementById('island');
+            const citySelect = document.getElementById('city-select');
+            const island = islandSelect.value;
+        
+            // Clear current options
+            citySelect.innerHTML = '';
+        
+            if (!island || !locations[island]) {
+              const option = document.createElement('option');
+              option.value = '';
+              option.textContent = 'Select Island First';
+              citySelect.appendChild(option);
+              citySelect.disabled = true;
+              return;
+            }
+        
+            // Add a default option
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'Select City / Locality';
+            citySelect.appendChild(defaultOption);
+        
+            const list = locations[island];
+            list.forEach(group => {
+              if (group.label && group.cities) {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = group.label;
+                group.cities.forEach(city => {
+                  const opt = document.createElement('option');
+                  opt.value = city;
+                  opt.textContent = city;
+                  optgroup.appendChild(opt);
+                });
+                citySelect.appendChild(optgroup);
+              } else {
+                const opt = document.createElement('option');
+                opt.value = group;
+                opt.textContent = group;
+                citySelect.appendChild(opt);
+              }
+            });
+        
+            citySelect.disabled = false;
+        }
+        
+        // Initialize on page load if island is already selected
+        document.addEventListener('DOMContentLoaded', function() {
+            const islandSelect = document.getElementById('island');
+            if (islandSelect && islandSelect.value) {
+                updateCities();
+            }
     </script>
 <?php require_once 'footer.php'; ?>
