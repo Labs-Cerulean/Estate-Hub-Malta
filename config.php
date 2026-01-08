@@ -5,10 +5,10 @@
  */
 
 // Database configuration from environment variables (Railway)
-define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.railway.internal');
-define('DB_USER', getenv('MYSQL_USER') ?: 'root');
-define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'GVeWewBJADEkzRAkTudKAfaHdhQpqwtu');
-define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
+define('DB_HOST', getenv('MYSQLHOST') ?: 'mysql.railway.internal');
+define('DB_USER', getenv('MYSQLUSER') ?: 'root');
+define('DB_PASS', getenv('MYSQLPASSWORD') ?: 'GVeWewBJADEkzRAkTudKAfaHdhQpqwtu');
+define('DB_NAME', getenv('MYSQLDATABASE') ?: 'railway');
 
 function getDB() {
     $charset = 'utf8mb4';
