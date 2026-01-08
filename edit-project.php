@@ -98,16 +98,16 @@ if ($isAdmin) {
 }
 
 $architects = $pdo->query("
-    SELECT id, name, firmname 
+    SELECT id, name, firm_name 
     FROM professionals 
-    WHERE roletype = 'architect' 
+    WHERE role_type = 'architect' 
     ORDER BY name
 ")->fetchAll();
 
 $engineers = $pdo->query("
-    SELECT id, name, firmname 
+    SELECT id, name, firm_name 
     FROM professionals 
-    WHERE roletype = 'structuralengineer' 
+    WHERE role_type = 'structuralengineer' 
     ORDER BY name
 ")->fetchAll();
 
