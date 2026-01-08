@@ -55,13 +55,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $projectId]);
             
             // Delete existing PA numbers
-            $deleteStmt = $pdo->prepare("DELETE FROM project_pa_numbers WHERE projectid = ?");
+            $deleteStmt = $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?");
             $deleteStmt->execute([$projectId]);
             
             // Insert new PA numbers
             if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
                 $paStmt = $pdo->prepare("
-                    INSERT INTO project_pa_numbers (projectid, panumber, pastatus, architect_id, structuralengineer_id)
+                    INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structuralengineer_id)
                     VALUES (?, ?, ?, ?, ?)
                 ");
                 
