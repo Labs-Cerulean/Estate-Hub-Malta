@@ -406,6 +406,228 @@ require_once 'header.php';
         <?php if ($canEdit): ?> <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;"> 
           Save All Changes
         </button><?php endif; ?>
+
+          <?php
+            // Check if project has endorsed PA for services section visibility
+            $hasEndorsedPA = hasEndorsedPA($pdo, $projectId);
+            
+            // Get services data
+            $services = getProjectServices($pdo, $projectId);
+            
+            // Check if user can edit services section
+            $canEditServices = isAdmin() || isServicesEngineer();
+            ?>
+            
+            <!-- Services Engineer Section -->
+            <?php if ($hasEndorsedPA): ?>
+            <div class="section">
+              <div class="section-header">
+                <h3>Services & Utilities</h3>
+                <span class="section-note">Only visible when project has endorsed PA</span>
+              </div>
+            
+              <div class="section-content">
+                <?php if (!$canEditServices): ?>
+                <!-- Read-only view for non-services engineers -->
+                <div class="form-grid">
+                  <div class="form-group readonly-item">
+                    <label>Existing Meter/s for Removal</label>
+                    <div class="readonly-value">
+                      <?php echo htmlspecialchars($services['existing_meters_required'] ?? 'Not Required'); ?>
+                      <?php if ($services['existing_meters_required'] === 'Required'): ?>
+                        - <?php echo htmlspecialchars($services['existing_meters_complete'] ?? 'Not Complete'); ?>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+            
+                  <div class="form-group readonly-item">
+                    <label>Enemalta Lines for Deviation</label>
+                    <div class="readonly-value">
+                      <?php echo htmlspecialchars($services['enemalta_deviation_required'] ?? 'Not Required'); ?>
+                      <?php if ($services['enemalta_deviation_required'] === 'Required'): ?>
+                        - <?php echo htmlspecialchars($services['enemalta_deviation_complete'] ?? 'Not Complete'); ?>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+            
+                  <div class="form-group readonly-item">
+                    <label>GO Lines for Deviation</label>
+                    <div class="readonly-value">
+                      <?php echo htmlspecialchars($services['go_deviation_required'] ?? 'Not Required'); ?>
+                      <?php if ($services['go_deviation_required'] === 'Required'): ?>
+                        - <?php echo htmlspecialchars($services['go_deviation_complete'] ?? 'Not Complete'); ?>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+            
+                  <div class="form-group readonly-item">
+                    <label>Melita Lines for Deviation</label>
+                    <div class="readonly-value">
+                      <?php echo htmlspecialchars($services['melita_deviation_required'] ?? 'Not Required'); ?>
+                      <?php if ($services['melita_deviation_required'] === 'Required'): ?>
+                        - <?php echo htmlspecialchars($services['melita_deviation_complete'] ?? 'Not Complete'); ?>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+            
+                  <div class="form-group readonly-item">
+                    <label>LC Lamps</label>
+                    <div class="readonly-value">
+                      <?php echo htmlspecialchars($services['lc_lamps_required'] ?? 'Not Required'); ?>
+                      <?php if ($services['lc_lamps_required'] === 'Required'): ?>
+                        - <?php echo htmlspecialchars($services['lc_lamps_complete'] ?? 'Not Complete'); ?>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+            
+                  <div class="form-group readonly-item">
+                    <label>Temp Elec Meter Installation</label>
+                    <div class="readonly-value">
+                      <?php echo htmlspecialchars($services['temp_elec_meter_required'] ?? 'Not Required'); ?>
+                      <?php if ($services['temp_elec_meter_required'] === 'Required'): ?>
+                        - <?php echo htmlspecialchars($services['temp_elec_meter_complete'] ?? 'Not Complete'); ?>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+            
+                  <div class="form-group readonly-item">
+                    <label>Temp WSC Meter Installation</label>
+                    <div class="readonly-value">
+                      <?php echo htmlspecialchars($services['temp_wsc_meter_required'] ?? 'Not Required'); ?>
+                      <?php if ($services['temp_wsc_meter_required'] === 'Required'): ?>
+                        - <?php echo htmlspecialchars($services['temp_wsc_meter_complete'] ?? 'Not Complete'); ?>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+                </div>
+            
+                <?php else: ?>
+                <!-- Editable view for services engineers and admins -->
+                <div class="form-grid">
+                  <!-- Existing Meters -->
+                  <div class="form-group service-item">
+                    <label>Existing Meter/s for Removal</label>
+                    <div class="service-controls">
+                      <select name="existing_meters_required" class="requirement-toggle">
+                        <option value="Not Required" <?php echo ($services['existing_meters_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : ''; ?>>Not Required</option>
+                        <option value="Required" <?php echo ($services['existing_meters_required'] ?? '') === 'Required' ? 'selected' : ''; ?>>Required</option>
+                      </select>
+                      <select name="existing_meters_complete" class="completion-status" <?php echo ($services['existing_meters_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : ''; ?>>
+                        <option value="Not Complete" <?php echo ($services['existing_meters_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
+                        <option value="Complete" <?php echo ($services['existing_meters_complete'] ?? '') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                      </select>
+                    </div>
+                  </div>
+            
+                  <!-- Enemalta Deviation -->
+                  <div class="form-group service-item">
+                    <label>Enemalta Lines for Deviation</label>
+                    <div class="service-controls">
+                      <select name="enemalta_deviation_required" class="requirement-toggle">
+                        <option value="Not Required" <?php echo ($services['enemalta_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : ''; ?>>Not Required</option>
+                        <option value="Required" <?php echo ($services['enemalta_deviation_required'] ?? '') === 'Required' ? 'selected' : ''; ?>>Required</option>
+                      </select>
+                      <select name="enemalta_deviation_complete" class="completion-status" <?php echo ($services['enemalta_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : ''; ?>>
+                        <option value="Not Complete" <?php echo ($services['enemalta_deviation_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
+                        <option value="Complete" <?php echo ($services['enemalta_deviation_complete'] ?? '') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                      </select>
+                    </div>
+                  </div>
+            
+                  <!-- GO Deviation -->
+                  <div class="form-group service-item">
+                    <label>GO Lines for Deviation</label>
+                    <div class="service-controls">
+                      <select name="go_deviation_required" class="requirement-toggle">
+                        <option value="Not Required" <?php echo ($services['go_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : ''; ?>>Not Required</option>
+                        <option value="Required" <?php echo ($services['go_deviation_required'] ?? '') === 'Required' ? 'selected' : ''; ?>>Required</option>
+                      </select>
+                      <select name="go_deviation_complete" class="completion-status" <?php echo ($services['go_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : ''; ?>>
+                        <option value="Not Complete" <?php echo ($services['go_deviation_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
+                        <option value="Complete" <?php echo ($services['go_deviation_complete'] ?? '') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                      </select>
+                    </div>
+                  </div>
+            
+                  <!-- Melita Deviation -->
+                  <div class="form-group service-item">
+                    <label>Melita Lines for Deviation</label>
+                    <div class="service-controls">
+                      <select name="melita_deviation_required" class="requirement-toggle">
+                        <option value="Not Required" <?php echo ($services['melita_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : ''; ?>>Not Required</option>
+                        <option value="Required" <?php echo ($services['melita_deviation_required'] ?? '') === 'Required' ? 'selected' : ''; ?>>Required</option>
+                      </select>
+                      <select name="melita_deviation_complete" class="completion-status" <?php echo ($services['melita_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : ''; ?>>
+                        <option value="Not Complete" <?php echo ($services['melita_deviation_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
+                        <option value="Complete" <?php echo ($services['melita_deviation_complete'] ?? '') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                      </select>
+                    </div>
+                  </div>
+            
+                  <!-- LC Lamps -->
+                  <div class="form-group service-item">
+                    <label>LC Lamps</label>
+                    <div class="service-controls">
+                      <select name="lc_lamps_required" class="requirement-toggle">
+                        <option value="Not Required" <?php echo ($services['lc_lamps_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : ''; ?>>Not Required</option>
+                        <option value="Required" <?php echo ($services['lc_lamps_required'] ?? '') === 'Required' ? 'selected' : ''; ?>>Required</option>
+                      </select>
+                      <select name="lc_lamps_complete" class="completion-status" <?php echo ($services['lc_lamps_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : ''; ?>>
+                        <option value="Not Complete" <?php echo ($services['lc_lamps_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
+                        <option value="Complete" <?php echo ($services['lc_lamps_complete'] ?? '') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                      </select>
+                    </div>
+                  </div>
+            
+                  <!-- Temp Elec Meter -->
+                  <div class="form-group service-item">
+                    <label>Temp Elec Meter Installation</label>
+                    <div class="service-controls">
+                      <select name="temp_elec_meter_required" class="requirement-toggle">
+                        <option value="Not Required" <?php echo ($services['temp_elec_meter_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : ''; ?>>Not Required</option>
+                        <option value="Required" <?php echo ($services['temp_elec_meter_required'] ?? '') === 'Required' ? 'selected' : ''; ?>>Required</option>
+                      </select>
+                      <select name="temp_elec_meter_complete" class="completion-status" <?php echo ($services['temp_elec_meter_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : ''; ?>>
+                        <option value="Not Complete" <?php echo ($services['temp_elec_meter_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
+                        <option value="Complete" <?php echo ($services['temp_elec_meter_complete'] ?? '') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                      </select>
+                    </div>
+                  </div>
+            
+                  <!-- Temp WSC Meter -->
+                  <div class="form-group service-item">
+                    <label>Temp WSC Meter Installation</label>
+                    <div class="service-controls">
+                      <select name="temp_wsc_meter_required" class="requirement-toggle">
+                        <option value="Not Required" <?php echo ($services['temp_wsc_meter_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : ''; ?>>Not Required</option>
+                        <option value="Required" <?php echo ($services['temp_wsc_meter_required'] ?? '') === 'Required' ? 'selected' : ''; ?>>Required</option>
+                      </select>
+                      <select name="temp_wsc_meter_complete" class="completion-status" <?php echo ($services['temp_wsc_meter_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : ''; ?>>
+                        <option value="Not Complete" <?php echo ($services['temp_wsc_meter_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : ''; ?>>Not Complete</option>
+                        <option value="Complete" <?php echo ($services['temp_wsc_meter_complete'] ?? '') === 'Complete' ? 'selected' : ''; ?>>Complete</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+            
+                <script>
+                // Enable/disable completion dropdown based on requirement selection
+                document.querySelectorAll('.requirement-toggle').forEach(function(select) {
+                  select.addEventListener('change', function() {
+                    const completionSelect = this.parentElement.querySelector('.completion-status');
+                    if (this.value === 'Required') {
+                      completionSelect.disabled = false;
+                    } else {
+                      completionSelect.disabled = true;
+                      completionSelect.value = 'Not Complete';
+                    }
+                  });
+                });
+                </script>
+                <?php endif; ?>
+              </div>
+            </div>
+            <?php endif; ?>
       </form>
     </section>
 
