@@ -496,7 +496,7 @@ $canEditServices = $canEdit || isServicesEngineer();
 ?>
 
 <!-- Services Engineer Section -->
-<?php if ($hasEndorsedPA): ?>
+
 <section class="card">
   <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
     <h3 style="margin: 0;">Services & Utilities</h3>
