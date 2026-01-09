@@ -286,7 +286,7 @@ function buildPaUrl(?string $paNumber): ?string {
 }
 
 // Set page title
-$pageTitle = 'DASH';
+$pageTitle = 'Dashboard';
 // NOW output HTML
 require_once 'header.php';
 ?>
