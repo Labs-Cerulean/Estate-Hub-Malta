@@ -129,6 +129,64 @@ if (($_POST['action'] ?? null) === 'update_pa') {
     }
 }
 
+// Handle Services Engineer updates
+if (($_POST['action'] ?? null) === 'update_services') {
+    try {
+        // Only allow if user is admin or services engineer
+        if (isAdmin() || isServicesEngineer()) {
+            $servicesStmt = $pdo->prepare("
+                INSERT INTO project_services (
+                    project_id,
+                    existing_meters_required, existing_meters_complete,
+                    enemalta_deviation_required, enemalta_deviation_complete,
+                    go_deviation_required, go_deviation_complete,
+                    melita_deviation_required, melita_deviation_complete,
+                    lc_lamps_required, lc_lamps_complete,
+                    temp_elec_meter_required, temp_elec_meter_complete,
+                    temp_wsc_meter_required, temp_wsc_meter_complete
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    existing_meters_required = VALUES(existing_meters_required),
+                    existing_meters_complete = VALUES(existing_meters_complete),
+                    enemalta_deviation_required = VALUES(enemalta_deviation_required),
+                    enemalta_deviation_complete = VALUES(enemalta_deviation_complete),
+                    go_deviation_required = VALUES(go_deviation_required),
+                    go_deviation_complete = VALUES(go_deviation_complete),
+                    melita_deviation_required = VALUES(melita_deviation_required),
+                    melita_deviation_complete = VALUES(melita_deviation_complete),
+                    lc_lamps_required = VALUES(lc_lamps_required),
+                    lc_lamps_complete = VALUES(lc_lamps_complete),
+                    temp_elec_meter_required = VALUES(temp_elec_meter_required),
+                    temp_elec_meter_complete = VALUES(temp_elec_meter_complete),
+                    temp_wsc_meter_required = VALUES(temp_wsc_meter_required),
+                    temp_wsc_meter_complete = VALUES(temp_wsc_meter_complete)
+            ");
+            
+            $servicesStmt->execute([
+                $projectId,
+                $_POST['existing_meters_required'] ?? 'Not Required',
+                $_POST['existing_meters_complete'] ?? 'Not Complete',
+                $_POST['enemalta_deviation_required'] ?? 'Not Required',
+                $_POST['enemalta_deviation_complete'] ?? 'Not Complete',
+                $_POST['go_deviation_required'] ?? 'Not Required',
+                $_POST['go_deviation_complete'] ?? 'Not Complete',
+                $_POST['melita_deviation_required'] ?? 'Not Required',
+                $_POST['melita_deviation_complete'] ?? 'Not Complete',
+                $_POST['lc_lamps_required'] ?? 'Not Required',
+                $_POST['lc_lamps_complete'] ?? 'Not Complete',
+                $_POST['temp_elec_meter_required'] ?? 'Not Required',
+                $_POST['temp_elec_meter_complete'] ?? 'Not Complete',
+                $_POST['temp_wsc_meter_required'] ?? 'Not Required',
+                $_POST['temp_wsc_meter_complete'] ?? 'Not Complete'
+            ]);
+            
+            $message = 'Services & Utilities updated successfully!';
+        }
+    } catch (PDOException $e) {
+        $message = 'Error: ' . $e->getMessage();
+    }
+}
+
 $mobilisationStatus = deriveMobilisationStatus($pdo, $projectId);
 
 // Recalculate unlock states for display
