@@ -241,10 +241,11 @@ try {
     $mobilisedCount = 0;
 }
 
-// Helper functions remain the same...
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland;
-    $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
+    
+    $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
+    
     $params = [
         'sort' => $column,
         'order' => $newOrder,
@@ -254,8 +255,13 @@ function getSortUrl($column) {
         'filterclient' => $filterClient,
         'filterarchitect' => $filterArchitect,
         'filterengineer' => $filterEngineer,
-        'filterisland' => $filterIsland
     ];
+    
+    // Handle island filter properly
+    if ($filterIsland !== 'all') {
+        $params['filterisland'] = $filterIsland;
+    }
+    
     return 'dashboard.php?' . http_build_query($params);
 }
 
@@ -731,7 +737,26 @@ document.addEventListener('DOMContentLoaded', function() {
   const maltaCheckbox = document.getElementById('island_malta');
   const gozoCheckbox = document.getElementById('island_gozo');
 
-  // Prevent both from being unchecked
+  // Handle sortable header clicks
+  document.querySelectorAll('.sortable-header').forEach(function(header) {
+    header.addEventListener('click', function(e) {
+      e.preventDefault();
+      
+      // Get the URL from the href
+      const url = new URL(this.href);
+      const sortParam = url.searchParams.get('sort');
+      const orderParam = url.searchParams.get('order');
+      
+      // Update the hidden inputs in the form
+      document.querySelector('input[name="sort"]').value = sortParam;
+      document.querySelector('input[name="order"]').value = orderParam;
+      
+      // Submit the form (which will preserve all filters)
+      form.submit();
+    });
+  });
+
+  // Prevent both island checkboxes from being unchecked
   function validateIslands(e) {
     if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
       e.preventDefault();
