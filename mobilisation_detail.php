@@ -461,9 +461,7 @@ require_once 'header.php';
           </div>
         </fieldset>
 
-        <?php if ($canEdit): ?> <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;"> 
-          Save All Changes
-        </button><?php endif; ?>
+        
 
           <?php
             // Check if project has endorsed PA for services section visibility
@@ -477,7 +475,7 @@ require_once 'header.php';
             ?>
             
             <!-- Services Engineer Section -->
-            <?php if ($hasEndorsedPA): ?>
+
             <div class="section">
               <div class="section-header">
                 <h3>Services & Utilities</h3>
@@ -685,7 +683,9 @@ require_once 'header.php';
                 <?php endif; ?>
               </div>
             </div>
-            <?php endif; ?>
+        <?php if ($canEdit): ?> <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;"> 
+          Save All Changes
+        </button><?php endif; ?>
       </form>
     </section>
 
