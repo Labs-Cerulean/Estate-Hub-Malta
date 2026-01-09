@@ -224,4 +224,60 @@ function getProjectWithClient($pdo, $projectId) {
 }
 
 return $pdo;
+
+// PROJECT SERVICES TABLE (Services Engineer Section)
+$pdo->exec("
+  CREATE TABLE IF NOT EXISTS `project_services` (
+    `project_id` INT PRIMARY KEY,
+    `existing_meters_required` ENUM('Required', 'Not Required') DEFAULT 'Not Required',
+    `existing_meters_complete` ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    `enemalta_deviation_required` ENUM('Required', 'Not Required') DEFAULT 'Not Required',
+    `enemalta_deviation_complete` ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    `go_deviation_required` ENUM('Required', 'Not Required') DEFAULT 'Not Required',
+    `go_deviation_complete` ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    `melita_deviation_required` ENUM('Required', 'Not Required') DEFAULT 'Not Required',
+    `melita_deviation_complete` ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    `lc_lamps_required` ENUM('Required', 'Not Required') DEFAULT 'Not Required',
+    `lc_lamps_complete` ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    `temp_elec_meter_required` ENUM('Required', 'Not Required') DEFAULT 'Not Required',
+    `temp_elec_meter_complete` ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    `temp_wsc_meter_required` ENUM('Required', 'Not Required') DEFAULT 'Not Required',
+    `temp_wsc_meter_complete` ENUM('Complete', 'Not Complete') DEFAULT 'Not Complete',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE
+  )
+");
+
+// Helper function to get project services data
+function getProjectServices($pdo, $projectId) {
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM project_services WHERE project_id = ?");
+        $stmt->execute([$projectId]);
+        $services = $stmt->fetch();
+        
+        // If no record exists, create one with defaults
+        if (!$services) {
+            $pdo->prepare("INSERT INTO project_services (project_id) VALUES (?)")->execute([$projectId]);
+            $stmt->execute([$projectId]);
+            $services = $stmt->fetch();
+        }
+        
+        return $services;
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+// Helper function to check if project has any endorsed PA
+function hasEndorsedPA($pdo, $projectId) {
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM project_pa_numbers WHERE project_id = ? AND pa_status = 'Endorsed'");
+        $stmt->execute([$projectId]);
+        return $stmt->fetchColumn() > 0;
+    } catch (Exception $e) {
+        return false;
+    }
+}
 ?>
+
+
