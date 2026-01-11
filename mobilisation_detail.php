@@ -263,7 +263,7 @@ $can = $respComplete;
 $canEdit = canEditProject($pdo, $projectId);
 
 // NEW: Check if user can edit services section
-$canEditServices = $canEdit || isServicesEngineer();
+$canEditServices = isAdmin() || isServicesEngineer();
 
 // Set disabled and readonly attributes based on edit permissions
 $disabledAttr = $canEdit ? '' : 'disabled';
