@@ -16,6 +16,7 @@ $filterClient = $_GET['filter_client'] ?? 'all';
 $filterArchitect = $_GET['filter_architect'] ?? 'all';
 $filterEngineer = $_GET['filter_engineer'] ?? 'all';
 $filterIsland = $_GET['filter_island'] ?? 'all';
+$filterFinishLevel = $_GET['filter_finish_level'] ?? 'all';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
@@ -142,6 +143,13 @@ try {
             return $project['island'] === $filterIsland;
         });
     }
+
+    if ($filterFinishLevel !== 'all') {
+        $projects = array_filter($projects, function($project) use ($filterFinishLevel) {
+            return $project['finishlevel'] === $filterFinishLevel;
+        });
+    }
+
     
     // Get PA numbers for all accessible projects
     $projectIds = array_column($projects, 'id');
