@@ -80,7 +80,7 @@ require_once 'header.php';
                 <?php foreach ($incompleteActions as $action): ?>
                     <?php
                     $timestamp = date('d M Y, H:i', strtotime($action['log_created_at']));
-                    $userName = trim($action['firstname'] . ' ' . $action['lastname']) ?: $action['username'];
+                    $userName = trim($action['first_name'] . ' ' . $action['last_name']) ?: $action['username'];
                     ?>
                     
                     <div class="action-item">
@@ -134,7 +134,7 @@ require_once 'header.php';
                     <?php
                     $timestamp = date('d M Y, H:i', strtotime($action['log_created_at']));
                     $completedTime = date('d M Y, H:i', strtotime($action['completed_at']));
-                    $userName = trim($action['firstname'] . ' ' . $action['lastname']) ?: $action['username'];
+                    $userName = trim($action['first_name'] . ' ' . $action['last_name']) ?: $action['username'];
                     ?>
                     
                     <div class="action-item completed">
