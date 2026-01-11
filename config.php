@@ -295,9 +295,9 @@ function getUnreadNotificationCount($pdo, $userId) {
                 SELECT COUNT(DISTINCT pl.id)
                 FROM project_logs pl
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.logid AND unr.userid = ?
+                    ON pl.id = unr.log_id AND unr.user_id = ?
                 WHERE unr.id IS NULL
-                AND pl.userid != ?
+                AND pl.user_id != ?
             ");
             $stmt->execute([$userId, $userId]);
             return (int)$stmt->fetchColumn();
@@ -308,33 +308,33 @@ function getUnreadNotificationCount($pdo, $userId) {
             $stmt = $pdo->prepare("
                 SELECT COUNT(DISTINCT pl.id)
                 FROM project_logs pl
-                INNER JOIN projects p ON pl.projectid = p.id
-                LEFT JOIN project_pa_numbers ppn ON p.id = ppn.projectid
+                INNER JOIN projects p ON pl.project_id = p.id
+                LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.logid AND unr.userid = ?
+                    ON pl.id = unr.log_id AND unr.user_id = ?
                 LEFT JOIN user_project_exclusions upe 
-                    ON p.id = upe.projectid AND upe.userid = ?
+                    ON p.id = upe.project_id AND upe.user_id = ?
                 WHERE unr.id IS NULL
-                AND pl.userid != ?
+                AND pl.user_id != ?
                 AND upe.id IS NULL
                 AND (
-                    (? IS NOT NULL AND ppn.architectid IN (
+                    (? IS NOT NULL AND ppn.architect_id IN (
                         SELECT id FROM professionals 
-                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
-                        AND roletype = 'architect'
+                        WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)
+                        AND role_type = 'architect'
                     ))
                     OR
-                    (? IS NOT NULL AND ppn.structuralengineerid IN (
+                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
                         SELECT id FROM professionals 
-                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
-                        AND roletype = 'structuralengineer'
+                        WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)
+                        AND role_type = 'structural_engineer'
                     ))
                 )
             ");
             $stmt->execute([
                 $userId, $userId, $userId,
-                $user['assignedarchitectfirmid'], $user['assignedarchitectfirmid'],
-                $user['assignedstructuralfirmid'], $user['assignedstructuralfirmid']
+                $user['assigned_architect_firm_id'], $user['assigned_architect_firm_id'],
+                $user['assigned_structural_firm_id'], $user['assigned_structural_firm_id']
             ]);
             return (int)$stmt->fetchColumn();
         }
@@ -343,21 +343,22 @@ function getUnreadNotificationCount($pdo, $userId) {
         $stmt = $pdo->prepare("
             SELECT COUNT(DISTINCT pl.id)
             FROM project_logs pl
-            INNER JOIN projects p ON pl.projectid = p.id
-            INNER JOIN user_client_access uca ON p.clientid = uca.clientid
+            INNER JOIN projects p ON pl.project_id = p.id
+            INNER JOIN user_client_access uca ON p.clientid = uca.client_id
             LEFT JOIN user_notification_reads unr 
-                ON pl.id = unr.logid AND unr.userid = ?
+                ON pl.id = unr.log_id AND unr.user_id = ?
             LEFT JOIN user_project_exclusions upe 
-                ON p.id = upe.projectid AND upe.userid = ?
-            WHERE uca.userid = ?
+                ON p.id = upe.project_id AND upe.user_id = ?
+            WHERE uca.user_id = ?
             AND unr.id IS NULL
-            AND pl.userid != ?
+            AND pl.user_id != ?
             AND upe.id IS NULL
         ");
         $stmt->execute([$userId, $userId, $userId, $userId]);
         return (int)$stmt->fetchColumn();
         
     } catch (Exception $e) {
+        error_log("Error in getUnreadNotificationCount: " . $e->getMessage());
         return 0;
     }
 }
@@ -368,11 +369,12 @@ function getUnreadNotificationCount($pdo, $userId) {
 function markNotificationRead($pdo, $userId, $logId) {
     try {
         $stmt = $pdo->prepare("
-            INSERT IGNORE INTO user_notification_reads (userid, logid)
+            INSERT IGNORE INTO user_notification_reads (user_id, log_id)
             VALUES (?, ?)
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
+        error_log("Error in markNotificationRead: " . $e->getMessage());
         return false;
     }
 }
@@ -384,10 +386,11 @@ function markNotificationUnread($pdo, $userId, $logId) {
     try {
         $stmt = $pdo->prepare("
             DELETE FROM user_notification_reads 
-            WHERE userid = ? AND logid = ?
+            WHERE user_id = ? AND log_id = ?
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
+        error_log("Error in markNotificationUnread: " . $e->getMessage());
         return false;
     }
 }
@@ -409,24 +412,24 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
                     pl.id,
                     pl.message,
                     pl.created_at,
-                    pl.projectid,
+                    pl.project_id,
                     p.name as project_name,
                     u.username,
-                    u.firstname,
-                    u.lastname,
+                    u.first_name,
+                    u.last_name,
                     c.name as client_name,
                     (unr.id IS NOT NULL) as is_read,
                     (ua.id IS NOT NULL) as is_action,
                     ua.is_complete as action_complete
                 FROM project_logs pl
-                INNER JOIN users u ON pl.userid = u.id
-                INNER JOIN projects p ON pl.projectid = p.id
+                INNER JOIN users u ON pl.user_id = u.id
+                INNER JOIN projects p ON pl.project_id = p.id
                 LEFT JOIN clients c ON p.clientid = c.id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.logid AND unr.userid = ?
+                    ON pl.id = unr.log_id AND unr.user_id = ?
                 LEFT JOIN user_actions ua 
-                    ON pl.id = ua.logid AND ua.userid = ?
-                WHERE pl.userid != ?
+                    ON pl.id = ua.log_id AND ua.user_id = ?
+                WHERE pl.user_id != ?
                 $unreadFilter
                 ORDER BY pl.created_at DESC
                 LIMIT 100
@@ -440,39 +443,39 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
                     pl.id,
                     pl.message,
                     pl.created_at,
-                    pl.projectid,
+                    pl.project_id,
                     p.name as project_name,
                     u.username,
-                    u.firstname,
-                    u.lastname,
+                    u.first_name,
+                    u.last_name,
                     c.name as client_name,
                     (unr.id IS NOT NULL) as is_read,
                     (ua.id IS NOT NULL) as is_action,
                     ua.is_complete as action_complete
                 FROM project_logs pl
-                INNER JOIN users u ON pl.userid = u.id
-                INNER JOIN projects p ON pl.projectid = p.id
+                INNER JOIN users u ON pl.user_id = u.id
+                INNER JOIN projects p ON pl.project_id = p.id
                 LEFT JOIN clients c ON p.clientid = c.id
-                LEFT JOIN project_pa_numbers ppn ON p.id = ppn.projectid
+                LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.logid AND unr.userid = ?
+                    ON pl.id = unr.log_id AND unr.user_id = ?
                 LEFT JOIN user_actions ua 
-                    ON pl.id = ua.logid AND ua.userid = ?
+                    ON pl.id = ua.log_id AND ua.user_id = ?
                 LEFT JOIN user_project_exclusions upe 
-                    ON p.id = upe.projectid AND upe.userid = ?
-                WHERE pl.userid != ?
+                    ON p.id = upe.project_id AND upe.user_id = ?
+                WHERE pl.user_id != ?
                 AND upe.id IS NULL
                 AND (
-                    (? IS NOT NULL AND ppn.architectid IN (
+                    (? IS NOT NULL AND ppn.architect_id IN (
                         SELECT id FROM professionals 
-                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
-                        AND roletype = 'architect'
+                        WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)
+                        AND role_type = 'architect'
                     ))
                     OR
-                    (? IS NOT NULL AND ppn.structuralengineerid IN (
+                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
                         SELECT id FROM professionals 
-                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
-                        AND roletype = 'structuralengineer'
+                        WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)
+                        AND role_type = 'structural_engineer'
                     ))
                 )
                 $unreadFilter
@@ -482,8 +485,8 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
             $stmt = $pdo->prepare($query);
             $stmt->execute([
                 $userId, $userId, $userId, $userId,
-                $user['assignedarchitectfirmid'], $user['assignedarchitectfirmid'],
-                $user['assignedstructuralfirmid'], $user['assignedstructuralfirmid']
+                $user['assigned_architect_firm_id'], $user['assigned_architect_firm_id'],
+                $user['assigned_structural_firm_id'], $user['assigned_structural_firm_id']
             ]);
             
         } else {
@@ -492,28 +495,28 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
                     pl.id,
                     pl.message,
                     pl.created_at,
-                    pl.projectid,
+                    pl.project_id,
                     p.name as project_name,
                     u.username,
-                    u.firstname,
-                    u.lastname,
+                    u.first_name,
+                    u.last_name,
                     c.name as client_name,
                     (unr.id IS NOT NULL) as is_read,
                     (ua.id IS NOT NULL) as is_action,
                     ua.is_complete as action_complete
                 FROM project_logs pl
-                INNER JOIN users u ON pl.userid = u.id
-                INNER JOIN projects p ON pl.projectid = p.id
+                INNER JOIN users u ON pl.user_id = u.id
+                INNER JOIN projects p ON pl.project_id = p.id
                 LEFT JOIN clients c ON p.clientid = c.id
-                INNER JOIN user_client_access uca ON p.clientid = uca.clientid
+                INNER JOIN user_client_access uca ON p.clientid = uca.client_id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.logid AND unr.userid = ?
+                    ON pl.id = unr.log_id AND unr.user_id = ?
                 LEFT JOIN user_actions ua 
-                    ON pl.id = ua.logid AND ua.userid = ?
+                    ON pl.id = ua.log_id AND ua.user_id = ?
                 LEFT JOIN user_project_exclusions upe 
-                    ON p.id = upe.projectid AND upe.userid = ?
-                WHERE uca.userid = ?
-                AND pl.userid != ?
+                    ON p.id = upe.project_id AND upe.user_id = ?
+                WHERE uca.user_id = ?
+                AND pl.user_id != ?
                 AND upe.id IS NULL
                 $unreadFilter
                 ORDER BY pl.created_at DESC
@@ -526,6 +529,7 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
         return $stmt->fetchAll();
         
     } catch (Exception $e) {
+        error_log("Error in getUserNotifications: " . $e->getMessage());
         return [];
     }
 }
@@ -536,11 +540,12 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
 function markAsAction($pdo, $userId, $logId) {
     try {
         $stmt = $pdo->prepare("
-            INSERT IGNORE INTO user_actions (userid, logid, is_complete)
+            INSERT IGNORE INTO user_actions (user_id, log_id, is_complete)
             VALUES (?, ?, 'No')
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
+        error_log("Error in markAsAction: " . $e->getMessage());
         return false;
     }
 }
@@ -553,10 +558,11 @@ function completeAction($pdo, $userId, $logId) {
         $stmt = $pdo->prepare("
             UPDATE user_actions 
             SET is_complete = 'Yes', completed_at = CURRENT_TIMESTAMP
-            WHERE userid = ? AND logid = ?
+            WHERE user_id = ? AND log_id = ?
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
+        error_log("Error in completeAction: " . $e->getMessage());
         return false;
     }
 }
@@ -569,10 +575,11 @@ function uncompleteAction($pdo, $userId, $logId) {
         $stmt = $pdo->prepare("
             UPDATE user_actions 
             SET is_complete = 'No', completed_at = NULL
-            WHERE userid = ? AND logid = ?
+            WHERE user_id = ? AND log_id = ?
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
+        error_log("Error in uncompleteAction: " . $e->getMessage());
         return false;
     }
 }
@@ -590,21 +597,21 @@ function getUserActions($pdo, $userId, $includeCompleted = true) {
                 pl.id as log_id,
                 pl.message,
                 pl.created_at as log_created_at,
-                pl.projectid,
+                pl.project_id,
                 p.name as project_name,
                 c.name as client_name,
                 u.username,
-                u.firstname,
-                u.lastname,
+                u.first_name,
+                u.last_name,
                 ua.is_complete,
                 ua.completed_at,
                 ua.created_at as action_created_at
             FROM user_actions ua
-            INNER JOIN project_logs pl ON ua.logid = pl.id
-            INNER JOIN users u ON pl.userid = u.id
-            INNER JOIN projects p ON pl.projectid = p.id
+            INNER JOIN project_logs pl ON ua.log_id = pl.id
+            INNER JOIN users u ON pl.user_id = u.id
+            INNER JOIN projects p ON pl.project_id = p.id
             LEFT JOIN clients c ON p.clientid = c.id
-            WHERE ua.userid = ?
+            WHERE ua.user_id = ?
             $completeFilter
             ORDER BY ua.is_complete ASC, pl.created_at DESC
         ");
@@ -612,6 +619,7 @@ function getUserActions($pdo, $userId, $includeCompleted = true) {
         return $stmt->fetchAll();
         
     } catch (Exception $e) {
+        error_log("Error in getUserActions: " . $e->getMessage());
         return [];
     }
 }
