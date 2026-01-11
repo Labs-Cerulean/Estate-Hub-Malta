@@ -304,7 +304,7 @@ require_once 'header.php';
                             <span class="info-value">
                                 <?php 
                                 $paLinks = array_map(function($pa) use ($project) {
-                                    return '<a href="mobilisation_detail.php?id=' . $project['id'] . '" style="color: var(--primary-color); text-decoration: none;">' . 
+                                    return '<a href="mobilisation_detail.php?project_id=' . $project['id'] . '" style="color: var(--primary-color); text-decoration: none;">' . 
                                            htmlspecialchars($pa) . '</a>';
                                 }, $project['pa_numbers']);
                                 echo implode(', ', $paLinks);
@@ -345,7 +345,7 @@ require_once 'header.php';
                                 Edit Project
                             </a>
                         <?php endif; ?>
-                        <a href="mobilisation_detail.php?id=<?= $project['id'] ?>" class="btn btn-primary btn-sm">
+                        <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-primary btn-sm">
                             View Details
                         </a>
                     </div>
