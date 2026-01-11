@@ -213,8 +213,8 @@ try {
             $valA = $a['client_name'] ?? '';
             $valB = $b['client_name'] ?? '';
         } elseif ($sortBy === 'finish_level') {
-            $valA = $a['finish_level'] ?? 'ZZZ'; // Put N/A at end
-            $valB = $b['finish_level'] ?? 'ZZZ';
+            $valA = $a['finishlevel'] ?? 'ZZZ'; // Put N/A at end
+            $valB = $b['finishlevel'] ?? 'ZZZ';
         } else {
             $valA = $a[$sortBy];
             $valB = $b[$sortBy];
@@ -664,7 +664,7 @@ require_once 'header.php';
                   <td><?= htmlspecialchars($project['name']) ?></td>
                   <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
                   <td><?= htmlspecialchars($project['city']) ?></td>
-                  <td><?= htmlspecialchars($project['finish_level'] ?? 'N/A') ?></td>
+                  <td><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
 
                   <?php $projectPAs = $paByProject[$project['id']] ?? []; ?>
 
