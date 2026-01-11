@@ -65,7 +65,7 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
         $respForm = $_POST['responsibility_form'] ?? $mob['responsibility_form'] ?? 'Not Complete';
         
         // BCA Clearance field unlock: Responsibility Form Complete
-        $canBCA = $respForm === 'Complete';
+        $can = $respForm === 'Complete';
         
         // Build update statement
         $updates = [];
@@ -85,10 +85,10 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
             }
         }
         
-        // ONLY allow BCA update if Responsibility Form Complete
-        if ($canBCA && isset($_POST['bca_clearance'])) {
-            $updates[] = "bca_clearance = ?";
-            $values[] = $_POST['bca_clearance'];
+        // ONLY allow  update if Responsibility Form Complete
+        if ($can && isset($_POST['_clearance'])) {
+            $updates[] = "_clearance = ?";
+            $values[] = $_POST['_clearance'];
         }
         
         if (!empty($updates)) {
@@ -206,7 +206,7 @@ foreach ($seqFieldsDisplay as $field) {
 
 $respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 $canFinal = $allSeqComplete;
-$canBCA = $respComplete;
+$can = $respComplete;
 
 // Check if user can edit this project
 $canEdit = canEditProject($pdo, $projectId);
@@ -470,6 +470,7 @@ require_once 'header.php';
               </button>
             </div>
           </form>
+    </section>
 
           <?php
             // Check if project has endorsed PA for services section visibility
