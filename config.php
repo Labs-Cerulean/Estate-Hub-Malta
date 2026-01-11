@@ -7,7 +7,7 @@
 // Database configuration from environment variables (Railway)
 define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.railway.internal');
 define('DB_USER', getenv('MYSQL_USER') ?: 'root');
-define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
+define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'GVeWewBJADEkzRAkTudKAfaHdhQpqwtu');
 define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
 
 
