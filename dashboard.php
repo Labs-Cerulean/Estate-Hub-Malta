@@ -258,19 +258,20 @@ try {
 }
 
 function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland;
+    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland, $filterFinishLevel;
     
     $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
     
     $params = [
         'sort' => $column,
         'order' => $newOrder,
-        'filtertype' => $filterType,
-        'filterstatus' => $filterStatus,
-        'filtercity' => $filterCity,
-        'filterclient' => $filterClient,
-        'filterarchitect' => $filterArchitect,
-        'filterengineer' => $filterEngineer,
+        'filter_type' => $filterType,
+        'filter_status' => $filterStatus,
+        'filter_city' => $filterCity,
+        'filter_client' => $filterClient,
+        'filter_architect' => $filterArchitect,
+        'filter_engineer' => $filterEngineer,
+        'filter_finish_level' => $filterFinishLevel,
     ];
     
     // Handle island filter properly
@@ -542,6 +543,17 @@ require_once 'header.php';
               <option value="3rd-party" <?php echo $filterType === '3rd-party' ? 'selected' : ''; ?>>3rd Party</option>
             </select>
           </div>
+
+            <div class="filter-group">
+              <label>Finish Level</label>
+              <select name="filter_finish_level">
+                <option value="all" <?php echo $filterFinishLevel === 'all' ? 'selected' : ''; ?>>All Levels</option>
+                <option value="Common Parts Only" <?php echo $filterFinishLevel === 'Common Parts Only' ? 'selected' : ''; ?>>Common Parts Only</option>
+                <option value="Semi Finished" <?php echo $filterFinishLevel === 'Semi Finished' ? 'selected' : ''; ?>>Semi Finished</option>
+                <option value="Finished" <?php echo $filterFinishLevel === 'Finished' ? 'selected' : ''; ?>>Finished</option>
+                <option value="Shell" <?php echo $filterFinishLevel === 'Shell' ? 'selected' : ''; ?>>Shell</option>
+              </select>
+            </div>
 
           <div class="filter-group">
             <label>Client</label>
