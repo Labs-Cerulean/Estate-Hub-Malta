@@ -102,7 +102,7 @@ require_once 'header.php';
                             </div>
                             
                             <div class="action-project">
-                                <a href="mobilisation_detail.php?project_id=<?= $action['projectid'] ?>#project-log">
+                                <a href="mobilisation_detail.php?project_id=<?= $action['project_id'] ?>#project-log">
                                     <?= htmlspecialchars($action['project_name']) ?>
                                 </a>
                                 <?php if ($action['client_name']): ?>
@@ -157,7 +157,7 @@ require_once 'header.php';
                             </div>
                             
                             <div class="action-project">
-                                <a href="mobilisation_detail.php?project_id=<?= $action['projectid'] ?>#project-log">
+                                <a href="mobilisation_detail.php?project_id=<?= $action['project_id'] ?>#project-log">
                                     <?= htmlspecialchars($action['project_name']) ?>
                                 </a>
                                 <?php if ($action['client_name']): ?>
