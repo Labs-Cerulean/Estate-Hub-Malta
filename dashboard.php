@@ -20,7 +20,7 @@ $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
 // Validate sort parameters
-$allowedSorts = ['name', 'client', 'city', 'type'];
+$allowedSorts = ['name', 'client', 'city', 'type', 'finish_level'];
 $allowedOrders = ['ASC', 'DESC'];
 if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
@@ -209,8 +209,16 @@ try {
     
     // Sort projects
     usort($projects, function($a, $b) use ($sortBy, $sortOrder) {
-        $valA = $sortBy === 'client' ? ($a['client_name'] ?? '') : $a[$sortBy];
-        $valB = $sortBy === 'client' ? ($b['client_name'] ?? '') : $b[$sortBy];
+        if ($sortBy === 'client') {
+            $valA = $a['client_name'] ?? '';
+            $valB = $b['client_name'] ?? '';
+        } elseif ($sortBy === 'finish_level') {
+            $valA = $a['finish_level'] ?? 'ZZZ'; // Put N/A at end
+            $valB = $b['finish_level'] ?? 'ZZZ';
+        } else {
+            $valA = $a[$sortBy];
+            $valB = $b[$sortBy];
+        }
         
         $comparison = strcasecmp($valA, $valB);
         return $sortOrder === 'ASC' ? $comparison : -$comparison;
@@ -642,7 +650,7 @@ require_once 'header.php';
             <th><a href="<?php echo getSortUrl('name'); ?>" class="sortable-header">Project Name<?php echo getSortIndicator('name'); ?></a></th>
             <th><a href="<?php echo getSortUrl('client'); ?>" class="sortable-header">Client<?php echo getSortIndicator('client'); ?></a></th>
             <th><a href="<?php echo getSortUrl('city'); ?>" class="sortable-header">City<?php echo getSortIndicator('city'); ?></a></th>
-            <th><a href="<?php echo getSortUrl('type'); ?>" class="sortable-header">Type<?php echo getSortIndicator('type'); ?></a></th>
+            <th><a href="<?php echo getSortUrl('finish_level'); ?>" class="sortable-header">Finish Level<?php echo getSortIndicator('finish_level'); ?></a></th>
             <th>PA Number</th>
             <th>PA Status</th>
             <th>Architect</th>
@@ -656,7 +664,7 @@ require_once 'header.php';
                   <td><?= htmlspecialchars($project['name']) ?></td>
                   <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
                   <td><?= htmlspecialchars($project['city']) ?></td>
-                  <td><?= htmlspecialchars($project['type']) ?></td>
+                  <td><?= htmlspecialchars($project['finish_level'] ?? 'N/A') ?></td>
 
                   <?php $projectPAs = $paByProject[$project['id']] ?? []; ?>
 
