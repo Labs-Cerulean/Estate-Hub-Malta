@@ -2,6 +2,16 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
+// Helper function to generate eApps URL from PA number
+function generateEAppsUrl($paNumber) {
+    if (!preg_match('/PA\/(\d+)\/(\d+)/', $paNumber, $m)) return null;
+    
+    $caseNumber = $m[1];
+    $caseYear = $m[2];
+    
+    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseYear={$caseYear}";
+}
+
 // Helper function to get next steps
 function getNextSteps($mob) {
     if (!$mob) return ['Start mobilization process'];
@@ -73,6 +83,16 @@ $filterCity = $_GET['city'] ?? '';
 $filterStatus = $_GET['status'] ?? '';
 $filterFinishLevel = $_GET['finishlevel'] ?? '';
 
+// Handle island filter
+$islandMalta = isset($_GET['island_malta']);
+$islandGozo = isset($_GET['island_gozo']);
+$filterIsland = 'all';
+if ($islandMalta && !$islandGozo) {
+    $filterIsland = 'Malta';
+} elseif ($islandGozo && !$islandMalta) {
+    $filterIsland = 'Gozo';
+}
+
 // Apply filters
 $filteredProjects = $accessibleProjects;
 
@@ -91,6 +111,12 @@ if ($filterCity) {
 if ($filterFinishLevel) {
     $filteredProjects = array_filter($filteredProjects, function($project) use ($filterFinishLevel) {
         return $project['finishlevel'] === $filterFinishLevel;
+    });
+}
+
+if ($filterIsland !== 'all') {
+    $filteredProjects = array_filter($filteredProjects, function($project) use ($filterIsland) {
+        return $project['island'] === $filterIsland;
     });
 }
 
@@ -252,6 +278,34 @@ require_once 'header.php';
                         <option value="Pending" <?= $filterStatus === 'Pending' ? 'selected' : '' ?>>Pending</option>
                     </select>
                 </div>
+
+                <div class="filter-group">
+                    <label>Island</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input 
+                                type="checkbox" 
+                                name="island_malta" 
+                                id="island_malta" 
+                                value="Malta"
+                                <?= ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : '' ?>
+                                onchange="document.getElementById('filterForm').submit()"
+                            >
+                            <label for="island_malta">Malta</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input 
+                                type="checkbox" 
+                                name="island_gozo" 
+                                id="island_gozo" 
+                                value="Gozo"
+                                <?= ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : '' ?>
+                                onchange="document.getElementById('filterForm').submit()"
+                            >
+                            <label for="island_gozo">Gozo</label>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="filter-buttons">
@@ -297,15 +351,20 @@ require_once 'header.php';
                         </div>
                     </div>
 
-                    <!-- PA Numbers Section -->
+                    <!-- PA Numbers Section with eApps Links -->
                     <?php if (!empty($project['pa_numbers'])): ?>
                         <div class="info-item" style="margin-bottom: 1rem;">
                             <span class="info-label">PA Number(s)</span>
                             <span class="info-value">
                                 <?php 
-                                $paLinks = array_map(function($pa) use ($project) {
-                                    return '<a href="mobilisation_detail.php?project_id=' . $project['id'] . '" style="color: var(--primary-color); text-decoration: none;">' . 
-                                           htmlspecialchars($pa) . '</a>';
+                                $paLinks = array_map(function($pa) {
+                                    $eappsUrl = generateEAppsUrl($pa);
+                                    if ($eappsUrl) {
+                                        return '<a href="' . $eappsUrl . '" target="_blank" style="color: var(--primary-color); text-decoration: none;">' . 
+                                               htmlspecialchars($pa) . '</a>';
+                                    } else {
+                                        return htmlspecialchars($pa);
+                                    }
                                 }, $project['pa_numbers']);
                                 echo implode(', ', $paLinks);
                                 ?>
