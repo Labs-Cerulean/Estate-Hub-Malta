@@ -30,6 +30,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
+    if ($action === 'mark_all_read') {
+        $success = markAllNotificationsRead($pdo, $userId);
+        echo json_encode(['success' => $success]);
+        exit;
+    }
+    
     echo json_encode(['success' => false]);
     exit;
 }
@@ -52,6 +58,13 @@ require_once 'header.php';
             <span style="color: #6B7280; font-size: 0.9rem;">
                 <?= $unreadCount ?> unread
             </span>
+            <?php if ($unreadCount > 0): ?>
+                <button onclick="markAllAsRead()" 
+                        class="btn btn-sm"
+                        style="background: #10B981; color: white;">
+                    ✓ Mark All as Read
+                </button>
+            <?php endif; ?>
             <a href="notifications.php<?= $showUnreadOnly ? '' : '?unread=1' ?>" 
                class="btn btn-sm"
                style="<?= $showUnreadOnly ? 'background: #6366F1; color: white;' : '' ?>">
@@ -71,7 +84,6 @@ require_once 'header.php';
                 $isRead = (bool)$notif['is_read'];
                 $isAction = (bool)$notif['is_action'];
                 $timestamp = date('d M Y, H:i', strtotime($notif['created_at']));
-                // FIX: Use first_name and last_name with underscores
                 $userName = trim($notif['first_name'] . ' ' . $notif['last_name']) ?: $notif['username'];
                 ?>
                 
@@ -268,6 +280,29 @@ function markAsAction(logId) {
             alert('Notification marked as action!');
             location.reload();
         }
+    });
+}
+
+function markAllAsRead() {
+    if (!confirm('Mark all notifications as read?')) {
+        return;
+    }
+    
+    fetch('notifications.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'action=mark_all_read'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Failed to mark all as read. Please try again.');
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
     });
 }
 </script>
