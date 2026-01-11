@@ -278,6 +278,344 @@ function hasEndorsedPA($pdo, $projectId) {
         return false;
     }
 }
+
+/**
+ * Get unread notification count for current user
+ * Only counts logs from projects the user can access
+ */
+function getUnreadNotificationCount($pdo, $userId) {
+    try {
+        $user = getUserById($pdo, $userId);
+        if (!$user) return 0;
+        
+        // For admins - all project logs
+        if ($user['role'] === 'admin') {
+            $stmt = $pdo->prepare("
+                SELECT COUNT(DISTINCT pl.id)
+                FROM project_logs pl
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                WHERE unr.id IS NULL
+                AND pl.userid != ?
+            ");
+            $stmt->execute([$userId, $userId]);
+            return (int)$stmt->fetchColumn();
+        }
+        
+        // For architects - logs from their firm's projects
+        if ($user['role'] === 'architect') {
+            $stmt = $pdo->prepare("
+                SELECT COUNT(DISTINCT pl.id)
+                FROM project_logs pl
+                INNER JOIN projects p ON pl.projectid = p.id
+                LEFT JOIN project_pa_numbers ppn ON p.id = ppn.projectid
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                LEFT JOIN user_project_exclusions upe 
+                    ON p.id = upe.projectid AND upe.userid = ?
+                WHERE unr.id IS NULL
+                AND pl.userid != ?
+                AND upe.id IS NULL
+                AND (
+                    (? IS NOT NULL AND ppn.architectid IN (
+                        SELECT id FROM professionals 
+                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
+                        AND roletype = 'architect'
+                    ))
+                    OR
+                    (? IS NOT NULL AND ppn.structuralengineerid IN (
+                        SELECT id FROM professionals 
+                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
+                        AND roletype = 'structuralengineer'
+                    ))
+                )
+            ");
+            $stmt->execute([
+                $userId, $userId, $userId,
+                $user['assignedarchitectfirmid'], $user['assignedarchitectfirmid'],
+                $user['assignedstructuralfirmid'], $user['assignedstructuralfirmid']
+            ]);
+            return (int)$stmt->fetchColumn();
+        }
+        
+        // For other users - logs from client-assigned projects
+        $stmt = $pdo->prepare("
+            SELECT COUNT(DISTINCT pl.id)
+            FROM project_logs pl
+            INNER JOIN projects p ON pl.projectid = p.id
+            INNER JOIN user_client_access uca ON p.clientid = uca.clientid
+            LEFT JOIN user_notification_reads unr 
+                ON pl.id = unr.logid AND unr.userid = ?
+            LEFT JOIN user_project_exclusions upe 
+                ON p.id = upe.projectid AND upe.userid = ?
+            WHERE uca.userid = ?
+            AND unr.id IS NULL
+            AND pl.userid != ?
+            AND upe.id IS NULL
+        ");
+        $stmt->execute([$userId, $userId, $userId, $userId]);
+        return (int)$stmt->fetchColumn();
+        
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+/**
+ * Mark a notification as read
+ */
+function markNotificationRead($pdo, $userId, $logId) {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT IGNORE INTO user_notification_reads (userid, logid)
+            VALUES (?, ?)
+        ");
+        return $stmt->execute([$userId, $logId]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Mark a notification as unread
+ */
+function markNotificationUnread($pdo, $userId, $logId) {
+    try {
+        $stmt = $pdo->prepare("
+            DELETE FROM user_notification_reads 
+            WHERE userid = ? AND logid = ?
+        ");
+        return $stmt->execute([$userId, $logId]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Get all notifications for a user
+ */
+function getUserNotifications($pdo, $userId, $unreadOnly = false) {
+    try {
+        $user = getUserById($pdo, $userId);
+        if (!$user) return [];
+        
+        $unreadFilter = $unreadOnly ? "AND unr.id IS NULL" : "";
+        
+        // Build query based on user role
+        if ($user['role'] === 'admin') {
+            $query = "
+                SELECT 
+                    pl.id,
+                    pl.message,
+                    pl.created_at,
+                    pl.projectid,
+                    p.name as project_name,
+                    u.username,
+                    u.firstname,
+                    u.lastname,
+                    c.name as client_name,
+                    (unr.id IS NOT NULL) as is_read,
+                    (ua.id IS NOT NULL) as is_action,
+                    ua.is_complete as action_complete
+                FROM project_logs pl
+                INNER JOIN users u ON pl.userid = u.id
+                INNER JOIN projects p ON pl.projectid = p.id
+                LEFT JOIN clients c ON p.clientid = c.id
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                LEFT JOIN user_actions ua 
+                    ON pl.id = ua.logid AND ua.userid = ?
+                WHERE pl.userid != ?
+                $unreadFilter
+                ORDER BY pl.created_at DESC
+                LIMIT 100
+            ";
+            $stmt = $pdo->prepare($query);
+            $stmt->execute([$userId, $userId, $userId]);
+            
+        } elseif ($user['role'] === 'architect') {
+            $query = "
+                SELECT DISTINCT
+                    pl.id,
+                    pl.message,
+                    pl.created_at,
+                    pl.projectid,
+                    p.name as project_name,
+                    u.username,
+                    u.firstname,
+                    u.lastname,
+                    c.name as client_name,
+                    (unr.id IS NOT NULL) as is_read,
+                    (ua.id IS NOT NULL) as is_action,
+                    ua.is_complete as action_complete
+                FROM project_logs pl
+                INNER JOIN users u ON pl.userid = u.id
+                INNER JOIN projects p ON pl.projectid = p.id
+                LEFT JOIN clients c ON p.clientid = c.id
+                LEFT JOIN project_pa_numbers ppn ON p.id = ppn.projectid
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                LEFT JOIN user_actions ua 
+                    ON pl.id = ua.logid AND ua.userid = ?
+                LEFT JOIN user_project_exclusions upe 
+                    ON p.id = upe.projectid AND upe.userid = ?
+                WHERE pl.userid != ?
+                AND upe.id IS NULL
+                AND (
+                    (? IS NOT NULL AND ppn.architectid IN (
+                        SELECT id FROM professionals 
+                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
+                        AND roletype = 'architect'
+                    ))
+                    OR
+                    (? IS NOT NULL AND ppn.structuralengineerid IN (
+                        SELECT id FROM professionals 
+                        WHERE firmname = (SELECT firmname FROM professionals WHERE id = ?)
+                        AND roletype = 'structuralengineer'
+                    ))
+                )
+                $unreadFilter
+                ORDER BY pl.created_at DESC
+                LIMIT 100
+            ";
+            $stmt = $pdo->prepare($query);
+            $stmt->execute([
+                $userId, $userId, $userId, $userId,
+                $user['assignedarchitectfirmid'], $user['assignedarchitectfirmid'],
+                $user['assignedstructuralfirmid'], $user['assignedstructuralfirmid']
+            ]);
+            
+        } else {
+            $query = "
+                SELECT DISTINCT
+                    pl.id,
+                    pl.message,
+                    pl.created_at,
+                    pl.projectid,
+                    p.name as project_name,
+                    u.username,
+                    u.firstname,
+                    u.lastname,
+                    c.name as client_name,
+                    (unr.id IS NOT NULL) as is_read,
+                    (ua.id IS NOT NULL) as is_action,
+                    ua.is_complete as action_complete
+                FROM project_logs pl
+                INNER JOIN users u ON pl.userid = u.id
+                INNER JOIN projects p ON pl.projectid = p.id
+                LEFT JOIN clients c ON p.clientid = c.id
+                INNER JOIN user_client_access uca ON p.clientid = uca.clientid
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                LEFT JOIN user_actions ua 
+                    ON pl.id = ua.logid AND ua.userid = ?
+                LEFT JOIN user_project_exclusions upe 
+                    ON p.id = upe.projectid AND upe.userid = ?
+                WHERE uca.userid = ?
+                AND pl.userid != ?
+                AND upe.id IS NULL
+                $unreadFilter
+                ORDER BY pl.created_at DESC
+                LIMIT 100
+            ";
+            $stmt = $pdo->prepare($query);
+            $stmt->execute([$userId, $userId, $userId, $userId, $userId]);
+        }
+        
+        return $stmt->fetchAll();
+        
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+/**
+ * Mark notification as action
+ */
+function markAsAction($pdo, $userId, $logId) {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT IGNORE INTO user_actions (userid, logid, is_complete)
+            VALUES (?, ?, 'No')
+        ");
+        return $stmt->execute([$userId, $logId]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Complete an action
+ */
+function completeAction($pdo, $userId, $logId) {
+    try {
+        $stmt = $pdo->prepare("
+            UPDATE user_actions 
+            SET is_complete = 'Yes', completed_at = CURRENT_TIMESTAMP
+            WHERE userid = ? AND logid = ?
+        ");
+        return $stmt->execute([$userId, $logId]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Mark action as incomplete
+ */
+function uncompleteAction($pdo, $userId, $logId) {
+    try {
+        $stmt = $pdo->prepare("
+            UPDATE user_actions 
+            SET is_complete = 'No', completed_at = NULL
+            WHERE userid = ? AND logid = ?
+        ");
+        return $stmt->execute([$userId, $logId]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Get user actions
+ */
+function getUserActions($pdo, $userId, $includeCompleted = true) {
+    try {
+        $completeFilter = $includeCompleted ? "" : "AND ua.is_complete = 'No'";
+        
+        $stmt = $pdo->prepare("
+            SELECT 
+                ua.id as action_id,
+                pl.id as log_id,
+                pl.message,
+                pl.created_at as log_created_at,
+                pl.projectid,
+                p.name as project_name,
+                c.name as client_name,
+                u.username,
+                u.firstname,
+                u.lastname,
+                ua.is_complete,
+                ua.completed_at,
+                ua.created_at as action_created_at
+            FROM user_actions ua
+            INNER JOIN project_logs pl ON ua.logid = pl.id
+            INNER JOIN users u ON pl.userid = u.id
+            INNER JOIN projects p ON pl.projectid = p.id
+            LEFT JOIN clients c ON p.clientid = c.id
+            WHERE ua.userid = ?
+            $completeFilter
+            ORDER BY ua.is_complete ASC, pl.created_at DESC
+        ");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll();
+        
+    } catch (Exception $e) {
+        return [];
+    }
+}
 ?>
+
+
 
 
