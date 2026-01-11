@@ -2,17 +2,6 @@
 require_once 'init.php';
 requireLogin();
 
-// Helper function to derive mobilisation status
-function deriveMobilisationStatus($pdo, $projectId) {
-    $stmt = $pdo->prepare("SELECT bca_clearance, responsibility_form FROM project_mobilisation WHERE project_id = ?");
-    $stmt->execute([$projectId]);
-    $mob = $stmt->fetch();
-    
-    if (!$mob) return 'Pending';
-    if ($mob['bca_clearance'] === 'Yes') return 'Mobilised';
-    if ($mob['bca_clearance'] === 'No' || $mob['responsibility_form'] === 'Complete') return 'In Process';
-    return 'Pending';
-}
 
 // Helper function to get next steps
 function getNextSteps($mob) {
