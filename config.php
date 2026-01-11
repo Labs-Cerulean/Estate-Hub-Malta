@@ -625,6 +625,104 @@ function getUserActions($pdo, $userId, $includeCompleted = true) {
         return [];
     }
 }
+
+/**
+ * Mark all notifications as read for a user
+ */
+function markAllNotificationsRead($pdo, $userId) {
+    try {
+        $user = getUserById($pdo, $userId);
+        if (!$user) return false;
+        
+        // Get all unread notification IDs for this user
+        if ($user['role'] === 'admin') {
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT pl.id
+                FROM project_logs pl
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                WHERE unr.id IS NULL
+                AND pl.user_id != ?
+            ");
+            $stmt->execute([$userId, $userId]);
+            
+        } elseif ($user['role'] === 'architect') {
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT pl.id
+                FROM project_logs pl
+                INNER JOIN projects p ON pl.project_id = p.id
+                LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                LEFT JOIN user_project_exclusions upe 
+                    ON p.id = upe.project_id AND upe.user_id = ?
+                WHERE unr.id IS NULL
+                AND pl.user_id != ?
+                AND upe.id IS NULL
+                AND (
+                    (? IS NOT NULL AND ppn.architect_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)
+                        AND role_type = 'architect'
+                    ))
+                    OR
+                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
+                        SELECT id FROM professionals 
+                        WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)
+                        AND role_type = 'structural_engineer'
+                    ))
+                )
+            ");
+            $stmt->execute([
+                $userId, $userId, $userId,
+                $user['assigned_architect_firm_id'], $user['assigned_architect_firm_id'],
+                $user['assigned_structural_firm_id'], $user['assigned_structural_firm_id']
+            ]);
+            
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT pl.id
+                FROM project_logs pl
+                INNER JOIN projects p ON pl.project_id = p.id
+                INNER JOIN user_client_access uca ON p.clientid = uca.client_id
+                LEFT JOIN user_notification_reads unr 
+                    ON pl.id = unr.logid AND unr.userid = ?
+                LEFT JOIN user_project_exclusions upe 
+                    ON p.id = upe.project_id AND upe.user_id = ?
+                WHERE uca.user_id = ?
+                AND unr.id IS NULL
+                AND pl.user_id != ?
+                AND upe.id IS NULL
+            ");
+            $stmt->execute([$userId, $userId, $userId, $userId]);
+        }
+        
+        $logIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        if (empty($logIds)) {
+            return true; // No unread notifications
+        }
+        
+        // Insert all as read in batch
+        $placeholders = str_repeat('(?,?),', count($logIds) - 1) . '(?,?)';
+        $values = [];
+        foreach ($logIds as $logId) {
+            $values[] = $userId;
+            $values[] = $logId;
+        }
+        
+        $insertStmt = $pdo->prepare("
+            INSERT IGNORE INTO user_notification_reads (userid, logid)
+            VALUES $placeholders
+        ");
+        
+        return $insertStmt->execute($values);
+        
+    } catch (Exception $e) {
+        error_log("Error in markAllNotificationsRead: " . $e->getMessage());
+        return false;
+    }
+}
 ?>
 
 
