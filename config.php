@@ -10,6 +10,7 @@ define('DB_USER', getenv('MYSQL_USER') ?: 'root');
 define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'GVeWewBJADEkzRAkTudKAfaHdhQpqwtu');
 define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
 
+
 function getDB() {
     $charset = 'utf8mb4';
     $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . $charset;
