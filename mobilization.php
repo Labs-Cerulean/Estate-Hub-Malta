@@ -1,6 +1,6 @@
 <?php
 require_once 'init.php';
-requireLogin();
+require_once 'session-check.php';
 
 
 // Helper function to get next steps
