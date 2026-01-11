@@ -45,8 +45,8 @@ function getNextSteps($mob) {
     return empty($steps) ? ['All tasks complete'] : array_slice($steps, 0, 3);
 }
 
-// Get accessible projects
-$accessibleProjects = getAccessibleProjects($pdo, $_SESSION['userid'], $_SESSION['role']);
+// Get accessible projects - using correct session variable
+$accessibleProjects = getAccessibleProjects($pdo, getCurrentUserId(), getCurrentRole());
 
 // Calculate stats
 $stats = [
@@ -129,6 +129,9 @@ foreach ($filteredProjects as &$project) {
     $paStmt->execute([$project['id']]);
     $paNumbers = $paStmt->fetchAll(PDO::FETCH_COLUMN);
     $project['pa_numbers'] = $paNumbers;
+    
+    // Check if user can edit this project
+    $project['can_edit'] = canEditProject($pdo, $project['id']);
     
     if ($mob) {
         $completedSteps = 0;
@@ -337,6 +340,11 @@ require_once 'header.php';
 
                     <!-- Action Buttons -->
                     <div class="project-actions">
+                        <?php if ($project['can_edit']): ?>
+                            <a href="edit-project.php?id=<?= $project['id'] ?>" class="btn btn-secondary btn-sm">
+                                Edit Project
+                            </a>
+                        <?php endif; ?>
                         <a href="mobilisation_detail.php?id=<?= $project['id'] ?>" class="btn btn-primary btn-sm">
                             View Details
                         </a>
