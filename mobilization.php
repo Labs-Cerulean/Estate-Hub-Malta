@@ -2,7 +2,6 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-
 // Helper function to get next steps
 function getNextSteps($mob) {
     if (!$mob) return ['Start mobilization process'];
@@ -73,8 +72,6 @@ $filterClient = $_GET['client'] ?? '';
 $filterCity = $_GET['city'] ?? '';
 $filterStatus = $_GET['status'] ?? '';
 $filterFinishLevel = $_GET['finishlevel'] ?? '';
-$filterArchitect = $_GET['architect'] ?? '';
-$filterStructuralEngineer = $_GET['structural_engineer'] ?? '';
 
 // Apply filters
 $filteredProjects = $accessibleProjects;
@@ -120,36 +117,6 @@ sort($cities);
 $finishLevels = array_values(array_unique(array_filter(array_column($accessibleProjects, 'finishlevel'))));
 sort($finishLevels);
 
-// Get architects and structural engineers from PA numbers
-$architects = [];
-$structuralEngineers = [];
-if (!empty($accessibleProjects)) {
-    $projectIds = array_column($accessibleProjects, 'id');
-    $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-    
-    // Get architects
-    $archStmt = $pdo->prepare("
-        SELECT DISTINCT pa.architect, c.name as architect_name 
-        FROM pa_numbers pa 
-        LEFT JOIN contacts c ON pa.architect = c.id 
-        WHERE pa.project_id IN ($placeholders) AND pa.architect IS NOT NULL
-        ORDER BY c.name
-    ");
-    $archStmt->execute($projectIds);
-    $architects = $archStmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Get structural engineers
-    $seStmt = $pdo->prepare("
-        SELECT DISTINCT pa.structural_engineer, c.name as engineer_name 
-        FROM pa_numbers pa 
-        LEFT JOIN contacts c ON pa.structural_engineer = c.id 
-        WHERE pa.project_id IN ($placeholders) AND pa.structural_engineer IS NOT NULL
-        ORDER BY c.name
-    ");
-    $seStmt->execute($projectIds);
-    $structuralEngineers = $seStmt->fetchAll(PDO::FETCH_ASSOC);
-}
-
 // Enrich project data
 foreach ($filteredProjects as &$project) {
     // Get mobilization data
@@ -158,7 +125,7 @@ foreach ($filteredProjects as &$project) {
     $mob = $mobStmt->fetch();
     
     // Get PA numbers
-    $paStmt = $pdo->prepare("SELECT pa_number FROM pa_numbers WHERE project_id = ? ORDER BY pa_number");
+    $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ? ORDER BY pa_number");
     $paStmt->execute([$project['id']]);
     $paNumbers = $paStmt->fetchAll(PDO::FETCH_COLUMN);
     $project['pa_numbers'] = $paNumbers;
@@ -167,22 +134,28 @@ foreach ($filteredProjects as &$project) {
         $completedSteps = 0;
         $totalSteps = 12;
         
+        // Non-sequential tasks
         if ($mob['archaeologist_assigned'] === 'Yes' || $mob['archaeologist_assigned'] === 'NA') $completedSteps++;
         if ($mob['change_of_applicant'] === 'Complete' || $mob['change_of_applicant'] === 'NA') $completedSteps++;
         if ($mob['geological_test'] === 'Complete' || $mob['geological_test'] === 'NA') $completedSteps++;
         if ($mob['condition_report_contacts'] === 'Complete' || $mob['condition_report_contacts'] === 'NA') $completedSteps++;
         if ($mob['condition_reports'] === 'Complete' || $mob['condition_reports'] === 'NA') $completedSteps++;
+        
+        // Sequential chain
         if ($mob['method_statements'] === 'Complete') $completedSteps++;
         if ($mob['insurance_status'] === 'Complete') $completedSteps++;
         if ($mob['pavement_guarantee'] === 'Complete') $completedSteps++;
         if ($mob['wellbeing_guarantee'] === 'Complete') $completedSteps++;
         if ($mob['umbrella_guarantee'] === 'Complete') $completedSteps++;
+        
+        // Final clearance
         if ($mob['responsibility_form'] === 'Complete') $completedSteps++;
         if ($mob['bca_clearance'] === 'Yes') $completedSteps++;
         
         $project['mobilization_progress'] = round(($completedSteps / $totalSteps) * 100);
         $project['next_steps'] = getNextSteps($mob);
         
+        // Determine status badge
         if ($mob['bca_clearance'] === 'Yes') {
             $project['status_badge'] = 'Mobilised';
             $project['status_class'] = 'status-Mobilised';
@@ -342,7 +315,7 @@ require_once 'header.php';
                         <span class="info-label">Next Steps</span>
                         <div style="margin-top: 0.5rem;">
                             <?php foreach ($project['next_steps'] as $step): ?>
-                                <div style="padding: 0.4rem 0.6rem; background: rgba(99, 102, 241, 0.1); border-radius: 4px; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--primary-color);">
+                                <div style="padding: 0.4rem 0.6rem; background: rgba(99, 102, 241, 0.1); border-radius: 4px; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--primary-color); border-left: 3px solid var(--primary-color);">
                                     • <?= htmlspecialchars($step) ?>
                                 </div>
                             <?php endforeach; ?>
@@ -352,8 +325,8 @@ require_once 'header.php';
                     <!-- Progress Bar Section - Repositioned -->
                     <div class="progress-section">
                         <div class="progress-label">
-                            <span style="font-weight: 600;">Mobilization Progress</span>
-                            <span style="font-weight: 700; color: var(--primary-color); font-size: 0.95rem;">
+                            <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-secondary);">Mobilization Progress</span>
+                            <span style="font-weight: 700; color: var(--primary-color); font-size: 1rem;">
                                 <?= $project['mobilization_progress'] ?>%
                             </span>
                         </div>
