@@ -284,6 +284,8 @@ function hasEndorsedPA($pdo, $projectId) {
  * Get unread notification count for current user
  * Only counts logs from projects the user can access
  */
+
+
 function getUnreadNotificationCount($pdo, $userId) {
     try {
         $user = getUserById($pdo, $userId);
@@ -295,7 +297,7 @@ function getUnreadNotificationCount($pdo, $userId) {
                 SELECT COUNT(DISTINCT pl.id)
                 FROM project_logs pl
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.log_id AND unr.user_id = ?
+                    ON pl.id = unr.logid AND unr.userid = ?
                 WHERE unr.id IS NULL
                 AND pl.user_id != ?
             ");
@@ -311,7 +313,7 @@ function getUnreadNotificationCount($pdo, $userId) {
                 INNER JOIN projects p ON pl.project_id = p.id
                 LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.log_id AND unr.user_id = ?
+                    ON pl.id = unr.logid AND unr.userid = ?
                 LEFT JOIN user_project_exclusions upe 
                     ON p.id = upe.project_id AND upe.user_id = ?
                 WHERE unr.id IS NULL
@@ -346,7 +348,7 @@ function getUnreadNotificationCount($pdo, $userId) {
             INNER JOIN projects p ON pl.project_id = p.id
             INNER JOIN user_client_access uca ON p.clientid = uca.client_id
             LEFT JOIN user_notification_reads unr 
-                ON pl.id = unr.log_id AND unr.user_id = ?
+                ON pl.id = unr.logid AND unr.userid = ?
             LEFT JOIN user_project_exclusions upe 
                 ON p.id = upe.project_id AND upe.user_id = ?
             WHERE uca.user_id = ?
@@ -369,7 +371,7 @@ function getUnreadNotificationCount($pdo, $userId) {
 function markNotificationRead($pdo, $userId, $logId) {
     try {
         $stmt = $pdo->prepare("
-            INSERT IGNORE INTO user_notification_reads (user_id, log_id)
+            INSERT IGNORE INTO user_notification_reads (userid, logid)
             VALUES (?, ?)
         ");
         return $stmt->execute([$userId, $logId]);
@@ -386,7 +388,7 @@ function markNotificationUnread($pdo, $userId, $logId) {
     try {
         $stmt = $pdo->prepare("
             DELETE FROM user_notification_reads 
-            WHERE user_id = ? AND log_id = ?
+            WHERE userid = ? AND logid = ?
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
@@ -426,9 +428,9 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
                 INNER JOIN projects p ON pl.project_id = p.id
                 LEFT JOIN clients c ON p.clientid = c.id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.log_id AND unr.user_id = ?
+                    ON pl.id = unr.logid AND unr.userid = ?
                 LEFT JOIN user_actions ua 
-                    ON pl.id = ua.log_id AND ua.user_id = ?
+                    ON pl.id = ua.logid AND ua.userid = ?
                 WHERE pl.user_id != ?
                 $unreadFilter
                 ORDER BY pl.created_at DESC
@@ -458,9 +460,9 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
                 LEFT JOIN clients c ON p.clientid = c.id
                 LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.log_id AND unr.user_id = ?
+                    ON pl.id = unr.logid AND unr.userid = ?
                 LEFT JOIN user_actions ua 
-                    ON pl.id = ua.log_id AND ua.user_id = ?
+                    ON pl.id = ua.logid AND ua.userid = ?
                 LEFT JOIN user_project_exclusions upe 
                     ON p.id = upe.project_id AND upe.user_id = ?
                 WHERE pl.user_id != ?
@@ -510,9 +512,9 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
                 LEFT JOIN clients c ON p.clientid = c.id
                 INNER JOIN user_client_access uca ON p.clientid = uca.client_id
                 LEFT JOIN user_notification_reads unr 
-                    ON pl.id = unr.log_id AND unr.user_id = ?
+                    ON pl.id = unr.logid AND unr.userid = ?
                 LEFT JOIN user_actions ua 
-                    ON pl.id = ua.log_id AND ua.user_id = ?
+                    ON pl.id = ua.logid AND ua.userid = ?
                 LEFT JOIN user_project_exclusions upe 
                     ON p.id = upe.project_id AND upe.user_id = ?
                 WHERE uca.user_id = ?
@@ -540,7 +542,7 @@ function getUserNotifications($pdo, $userId, $unreadOnly = false) {
 function markAsAction($pdo, $userId, $logId) {
     try {
         $stmt = $pdo->prepare("
-            INSERT IGNORE INTO user_actions (user_id, log_id, is_complete)
+            INSERT IGNORE INTO user_actions (userid, logid, is_complete)
             VALUES (?, ?, 'No')
         ");
         return $stmt->execute([$userId, $logId]);
@@ -558,7 +560,7 @@ function completeAction($pdo, $userId, $logId) {
         $stmt = $pdo->prepare("
             UPDATE user_actions 
             SET is_complete = 'Yes', completed_at = CURRENT_TIMESTAMP
-            WHERE user_id = ? AND log_id = ?
+            WHERE userid = ? AND logid = ?
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
@@ -575,7 +577,7 @@ function uncompleteAction($pdo, $userId, $logId) {
         $stmt = $pdo->prepare("
             UPDATE user_actions 
             SET is_complete = 'No', completed_at = NULL
-            WHERE user_id = ? AND log_id = ?
+            WHERE userid = ? AND logid = ?
         ");
         return $stmt->execute([$userId, $logId]);
     } catch (Exception $e) {
@@ -607,11 +609,11 @@ function getUserActions($pdo, $userId, $includeCompleted = true) {
                 ua.completed_at,
                 ua.created_at as action_created_at
             FROM user_actions ua
-            INNER JOIN project_logs pl ON ua.log_id = pl.id
+            INNER JOIN project_logs pl ON ua.logid = pl.id
             INNER JOIN users u ON pl.user_id = u.id
             INNER JOIN projects p ON pl.project_id = p.id
             LEFT JOIN clients c ON p.clientid = c.id
-            WHERE ua.user_id = ?
+            WHERE ua.userid = ?
             $completeFilter
             ORDER BY ua.is_complete ASC, pl.created_at DESC
         ");
