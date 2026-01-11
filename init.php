@@ -57,3 +57,9 @@ function hasRole($role) {
 if (isLoggedIn()) {
     $_SESSION['last_activity'] = time();
 }
+
+
+// Helper function to check if user is services engineer
+function isServicesEngineer() {
+    return getCurrentRole() === 'services_engineer';
+}

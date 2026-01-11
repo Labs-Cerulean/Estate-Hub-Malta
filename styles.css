@@ -1065,6 +1065,11 @@ tbody tr:hover td:nth-child(9) {
     color: #94a3b8;
 }
 
+.role-services_engineer {
+    background: rgba(138, 123, 114, 0.2);
+    color: #15a3b8;
+}
+
 /* Checkbox groups */
 .checkbox-group {
     display: flex;
@@ -1176,6 +1181,50 @@ tbody tr:hover td:nth-child(9) {
         margin: 0.3rem auto;
         width: 100%;
     }
+}
+
+.service-item {
+  margin-bottom: 1rem;
+}
+
+.service-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.service-controls select {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.service-controls select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--bg-card);
+}
+
+.readonly-item {
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+}
+
+.readonly-value {
+  color: var(--text-primary);
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+
+.section-note {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 /* ============================================

@@ -389,6 +389,7 @@ require_once 'header.php';
                                     <option value="viewer" <?= $selectedUser['role'] === 'viewer' ? 'selected' : '' ?>>Viewer</option>
                                     <option value="manager" <?= $selectedUser['role'] === 'manager' ? 'selected' : '' ?>>Manager</option>
                                     <option value="architect" <?= $selectedUser['role'] === 'architect' ? 'selected' : '' ?>>Architect</option>
+                                    <option value="services_engineer" <?= $selectedUser['role'] === 'services_engineer' ? 'selected' : '' ?>>Service Engineer</option>
                                     <option value="admin" <?= $selectedUser['role'] === 'admin' ? 'selected' : '' ?>>Admin</option>
                                 </select>
                             </div>
@@ -646,6 +647,7 @@ require_once 'header.php';
                         <option value="viewer">Viewer</option>
                         <option value="manager">Manager</option>
                         <option value="architect">Architect</option>
+                        <option value="services_engineer">Services Engineer</option>
                         <option value="admin">Admin</option>
                     </select>
                 </div>

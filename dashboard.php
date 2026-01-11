@@ -16,11 +16,12 @@ $filterClient = $_GET['filter_client'] ?? 'all';
 $filterArchitect = $_GET['filter_architect'] ?? 'all';
 $filterEngineer = $_GET['filter_engineer'] ?? 'all';
 $filterIsland = $_GET['filter_island'] ?? 'all';
+$filterFinishLevel = $_GET['filter_finish_level'] ?? 'all';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
 // Validate sort parameters
-$allowedSorts = ['name', 'client', 'city', 'type'];
+$allowedSorts = ['name', 'client', 'city', 'type', 'finish_level'];
 $allowedOrders = ['ASC', 'DESC'];
 if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
@@ -142,6 +143,13 @@ try {
             return $project['island'] === $filterIsland;
         });
     }
+
+    if ($filterFinishLevel !== 'all') {
+        $projects = array_filter($projects, function($project) use ($filterFinishLevel) {
+            return $project['finishlevel'] === $filterFinishLevel;
+        });
+    }
+
     
     // Get PA numbers for all accessible projects
     $projectIds = array_column($projects, 'id');
@@ -209,8 +217,16 @@ try {
     
     // Sort projects
     usort($projects, function($a, $b) use ($sortBy, $sortOrder) {
-        $valA = $sortBy === 'client' ? ($a['client_name'] ?? '') : $a[$sortBy];
-        $valB = $sortBy === 'client' ? ($b['client_name'] ?? '') : $b[$sortBy];
+        if ($sortBy === 'client') {
+            $valA = $a['client_name'] ?? '';
+            $valB = $b['client_name'] ?? '';
+        } elseif ($sortBy === 'finish_level') {
+            $valA = $a['finishlevel'] ?? 'ZZZ'; // Put N/A at end
+            $valB = $b['finishlevel'] ?? 'ZZZ';
+        } else {
+            $valA = $a[$sortBy];
+            $valB = $b[$sortBy];
+        }
         
         $comparison = strcasecmp($valA, $valB);
         return $sortOrder === 'ASC' ? $comparison : -$comparison;
@@ -241,21 +257,28 @@ try {
     $mobilisedCount = 0;
 }
 
-// Helper functions remain the same...
 function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland;
-    $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
+    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland, $filterFinishLevel;
+    
+    $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
+    
     $params = [
         'sort' => $column,
         'order' => $newOrder,
-        'filtertype' => $filterType,
-        'filterstatus' => $filterStatus,
-        'filtercity' => $filterCity,
-        'filterclient' => $filterClient,
-        'filterarchitect' => $filterArchitect,
-        'filterengineer' => $filterEngineer,
-        'filterisland' => $filterIsland
+        'filter_type' => $filterType,
+        'filter_status' => $filterStatus,
+        'filter_city' => $filterCity,
+        'filter_client' => $filterClient,
+        'filter_architect' => $filterArchitect,
+        'filter_engineer' => $filterEngineer,
+        'filter_finish_level' => $filterFinishLevel,
     ];
+    
+    // Handle island filter properly
+    if ($filterIsland !== 'all') {
+        $params['filterisland'] = $filterIsland;
+    }
+    
     return 'dashboard.php?' . http_build_query($params);
 }
 
@@ -521,6 +544,17 @@ require_once 'header.php';
             </select>
           </div>
 
+            <div class="filter-group">
+              <label>Finish Level</label>
+              <select name="filter_finish_level">
+                <option value="all" <?php echo $filterFinishLevel === 'all' ? 'selected' : ''; ?>>All Levels</option>
+                <option value="Common Parts Only" <?php echo $filterFinishLevel === 'Common Parts Only' ? 'selected' : ''; ?>>Common Parts Only</option>
+                <option value="Semi Finished" <?php echo $filterFinishLevel === 'Semi Finished' ? 'selected' : ''; ?>>Semi Finished</option>
+                <option value="Finished" <?php echo $filterFinishLevel === 'Finished' ? 'selected' : ''; ?>>Finished</option>
+                <option value="Shell" <?php echo $filterFinishLevel === 'Shell' ? 'selected' : ''; ?>>Shell</option>
+              </select>
+            </div>
+
           <div class="filter-group">
             <label>Client</label>
             <select name="filter_client">
@@ -636,7 +670,7 @@ require_once 'header.php';
             <th><a href="<?php echo getSortUrl('name'); ?>" class="sortable-header">Project Name<?php echo getSortIndicator('name'); ?></a></th>
             <th><a href="<?php echo getSortUrl('client'); ?>" class="sortable-header">Client<?php echo getSortIndicator('client'); ?></a></th>
             <th><a href="<?php echo getSortUrl('city'); ?>" class="sortable-header">City<?php echo getSortIndicator('city'); ?></a></th>
-            <th><a href="<?php echo getSortUrl('type'); ?>" class="sortable-header">Type<?php echo getSortIndicator('type'); ?></a></th>
+            <th><a href="<?php echo getSortUrl('finish_level'); ?>" class="sortable-header">Finish Level<?php echo getSortIndicator('finish_level'); ?></a></th>
             <th>PA Number</th>
             <th>PA Status</th>
             <th>Architect</th>
@@ -650,7 +684,7 @@ require_once 'header.php';
                   <td><?= htmlspecialchars($project['name']) ?></td>
                   <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
                   <td><?= htmlspecialchars($project['city']) ?></td>
-                  <td><?= htmlspecialchars($project['type']) ?></td>
+                  <td><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
 
                   <?php $projectPAs = $paByProject[$project['id']] ?? []; ?>
 
@@ -731,7 +765,26 @@ document.addEventListener('DOMContentLoaded', function() {
   const maltaCheckbox = document.getElementById('island_malta');
   const gozoCheckbox = document.getElementById('island_gozo');
 
-  // Prevent both from being unchecked
+  // Handle sortable header clicks
+  document.querySelectorAll('.sortable-header').forEach(function(header) {
+    header.addEventListener('click', function(e) {
+      e.preventDefault();
+      
+      // Get the URL from the href
+      const url = new URL(this.href);
+      const sortParam = url.searchParams.get('sort');
+      const orderParam = url.searchParams.get('order');
+      
+      // Update the hidden inputs in the form
+      document.querySelector('input[name="sort"]').value = sortParam;
+      document.querySelector('input[name="order"]').value = orderParam;
+      
+      // Submit the form (which will preserve all filters)
+      form.submit();
+    });
+  });
+
+  // Prevent both island checkboxes from being unchecked
   function validateIslands(e) {
     if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
       e.preventDefault();
