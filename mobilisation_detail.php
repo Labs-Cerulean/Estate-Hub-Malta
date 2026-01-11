@@ -464,11 +464,12 @@ require_once 'header.php';
           </div>
         </fieldset>
 
-          <section class="card">
-             <?php if ($canEdit): ?> <button type="submit" class="btn" style="grid-column: 1 / -1; padding: 1.25rem; font-size: 1.1rem; margin-top: 1rem;"> 
-              Save All Changes
-            </button><?php endif; ?>
-            </section>
+          <div class="form-actions" style="margin-top: 1.5rem;">
+              <button type="submit" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1rem;">
+                Save BCA Updates
+              </button>
+            </div>
+          </form>
 
           <?php
             // Check if project has endorsed PA for services section visibility
