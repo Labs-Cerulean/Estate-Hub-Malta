@@ -1,14 +1,66 @@
 <?php
 require_once 'init.php';
-require_once 'session-check.php';
+requireLogin();
 
-// Get current user
-$userId = getCurrentUserId();
-$userRole = getCurrentRole();
+// Helper function to derive mobilisation status
+function deriveMobilisationStatus($pdo, $projectId) {
+    $stmt = $pdo->prepare("SELECT bca_clearance, responsibility_form FROM project_mobilisation WHERE project_id = ?");
+    $stmt->execute([$projectId]);
+    $mob = $stmt->fetch();
+    
+    if (!$mob) return 'Pending';
+    if ($mob['bca_clearance'] === 'Yes') return 'Mobilised';
+    if ($mob['bca_clearance'] === 'No' || $mob['responsibility_form'] === 'Complete') return 'In Process';
+    return 'Pending';
+}
 
-// Calculate summary stats - based on accessible projects only
-$accessibleProjects = getAccessibleProjects($pdo, $userId);
+// Helper function to get next steps
+function getNextSteps($mob) {
+    if (!$mob) return ['Start mobilization process'];
+    
+    $steps = [];
+    
+    // Check sequential chain
+    if ($mob['method_statements'] !== 'Complete') {
+        $steps[] = 'Complete Method Statements';
+    } elseif ($mob['insurance_status'] !== 'Complete') {
+        $steps[] = 'Complete Insurance';
+    } elseif ($mob['pavement_guarantee'] !== 'Complete') {
+        $steps[] = 'Complete Pavement Guarantee';
+    } elseif ($mob['wellbeing_guarantee'] !== 'Complete') {
+        $steps[] = 'Complete Wellbeing Guarantee';
+    } elseif ($mob['umbrella_guarantee'] !== 'Complete') {
+        $steps[] = 'Complete Umbrella Guarantee';
+    } elseif ($mob['responsibility_form'] !== 'Complete') {
+        $steps[] = 'Complete Responsibility Form';
+    } elseif ($mob['bca_clearance'] !== 'Yes') {
+        $steps[] = 'Await BCA Clearance';
+    }
+    
+    // Check non-sequential tasks
+    if ($mob['archaeologist_assigned'] !== 'Yes' && $mob['archaeologist_assigned'] !== 'NA') {
+        $steps[] = 'Assign Archaeologist';
+    }
+    if ($mob['change_of_applicant'] !== 'Complete' && $mob['change_of_applicant'] !== 'NA') {
+        $steps[] = 'Change of Applicant';
+    }
+    if ($mob['geological_test'] !== 'Complete' && $mob['geological_test'] !== 'NA') {
+        $steps[] = 'Geological Test';
+    }
+    if ($mob['condition_report_contacts'] !== 'Complete' && $mob['condition_report_contacts'] !== 'NA') {
+        $steps[] = 'Condition Report Contacts';
+    }
+    if ($mob['condition_reports'] !== 'Complete' && $mob['condition_reports'] !== 'NA') {
+        $steps[] = 'Condition Reports';
+    }
+    
+    return empty($steps) ? ['All tasks complete'] : array_slice($steps, 0, 3);
+}
 
+// Get accessible projects
+$accessibleProjects = getAccessibleProjects($pdo, $_SESSION['userid'], $_SESSION['role']);
+
+// Calculate stats
 $stats = [
     'total' => count($accessibleProjects),
     'mobilised' => 0,
@@ -16,7 +68,6 @@ $stats = [
     'inprocess' => 0,
 ];
 
-// Count mobilization statuses for accessible projects
 foreach ($accessibleProjects as $project) {
     $status = deriveMobilisationStatus($pdo, $project['id']);
     if ($status === 'Mobilised') {
@@ -28,12 +79,15 @@ foreach ($accessibleProjects as $project) {
     }
 }
 
-// Get filter values from GET
+// Get filter values
 $filterClient = $_GET['client'] ?? '';
 $filterCity = $_GET['city'] ?? '';
 $filterStatus = $_GET['status'] ?? '';
+$filterFinishLevel = $_GET['finishlevel'] ?? '';
+$filterArchitect = $_GET['architect'] ?? '';
+$filterStructuralEngineer = $_GET['structural_engineer'] ?? '';
 
-// Apply filters to accessible projects
+// Apply filters
 $filteredProjects = $accessibleProjects;
 
 if ($filterClient) {
@@ -48,7 +102,12 @@ if ($filterCity) {
     });
 }
 
-// Status filter using mobilization data
+if ($filterFinishLevel) {
+    $filteredProjects = array_filter($filteredProjects, function($project) use ($filterFinishLevel) {
+        return $project['finishlevel'] === $filterFinishLevel;
+    });
+}
+
 if ($filterStatus) {
     $filteredProjects = array_filter($filteredProjects, function($project) use ($pdo, $filterStatus) {
         $status = deriveMobilisationStatus($pdo, $project['id']);
@@ -56,7 +115,7 @@ if ($filterStatus) {
     });
 }
 
-// Get unique clients from accessible projects for filter dropdown
+// Get unique filter options
 $clientIds = array_values(array_unique(array_column($accessibleProjects, 'clientid')));
 $clients = [];
 if (!empty($clientIds)) {
@@ -66,43 +125,75 @@ if (!empty($clientIds)) {
     $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Get all unique cities from accessible projects
 $cities = array_values(array_unique(array_filter(array_column($accessibleProjects, 'city'))));
 sort($cities);
 
-// Enrich filtered project data with mobilization progress
+$finishLevels = array_values(array_unique(array_filter(array_column($accessibleProjects, 'finishlevel'))));
+sort($finishLevels);
+
+// Get architects and structural engineers from PA numbers
+$architects = [];
+$structuralEngineers = [];
+if (!empty($accessibleProjects)) {
+    $projectIds = array_column($accessibleProjects, 'id');
+    $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
+    
+    // Get architects
+    $archStmt = $pdo->prepare("
+        SELECT DISTINCT pa.architect, c.name as architect_name 
+        FROM pa_numbers pa 
+        LEFT JOIN contacts c ON pa.architect = c.id 
+        WHERE pa.project_id IN ($placeholders) AND pa.architect IS NOT NULL
+        ORDER BY c.name
+    ");
+    $archStmt->execute($projectIds);
+    $architects = $archStmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get structural engineers
+    $seStmt = $pdo->prepare("
+        SELECT DISTINCT pa.structural_engineer, c.name as engineer_name 
+        FROM pa_numbers pa 
+        LEFT JOIN contacts c ON pa.structural_engineer = c.id 
+        WHERE pa.project_id IN ($placeholders) AND pa.structural_engineer IS NOT NULL
+        ORDER BY c.name
+    ");
+    $seStmt->execute($projectIds);
+    $structuralEngineers = $seStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// Enrich project data
 foreach ($filteredProjects as &$project) {
-    // Calculate mobilization progress and status
+    // Get mobilization data
     $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
     $mobStmt->execute([$project['id']]);
     $mob = $mobStmt->fetch();
     
+    // Get PA numbers
+    $paStmt = $pdo->prepare("SELECT pa_number FROM pa_numbers WHERE project_id = ? ORDER BY pa_number");
+    $paStmt->execute([$project['id']]);
+    $paNumbers = $paStmt->fetchAll(PDO::FETCH_COLUMN);
+    $project['pa_numbers'] = $paNumbers;
+    
     if ($mob) {
-        // Count completed mobilization steps
         $completedSteps = 0;
         $totalSteps = 12;
         
-        // Non-sequential tasks
         if ($mob['archaeologist_assigned'] === 'Yes' || $mob['archaeologist_assigned'] === 'NA') $completedSteps++;
         if ($mob['change_of_applicant'] === 'Complete' || $mob['change_of_applicant'] === 'NA') $completedSteps++;
         if ($mob['geological_test'] === 'Complete' || $mob['geological_test'] === 'NA') $completedSteps++;
         if ($mob['condition_report_contacts'] === 'Complete' || $mob['condition_report_contacts'] === 'NA') $completedSteps++;
         if ($mob['condition_reports'] === 'Complete' || $mob['condition_reports'] === 'NA') $completedSteps++;
-        
-        // Sequential chain (note: method_statements uses 'Complete' not 'Completed')
         if ($mob['method_statements'] === 'Complete') $completedSteps++;
         if ($mob['insurance_status'] === 'Complete') $completedSteps++;
         if ($mob['pavement_guarantee'] === 'Complete') $completedSteps++;
         if ($mob['wellbeing_guarantee'] === 'Complete') $completedSteps++;
         if ($mob['umbrella_guarantee'] === 'Complete') $completedSteps++;
-        
-        // Final clearance
         if ($mob['responsibility_form'] === 'Complete') $completedSteps++;
         if ($mob['bca_clearance'] === 'Yes') $completedSteps++;
         
         $project['mobilization_progress'] = round(($completedSteps / $totalSteps) * 100);
+        $project['next_steps'] = getNextSteps($mob);
         
-        // Determine status badge
         if ($mob['bca_clearance'] === 'Yes') {
             $project['status_badge'] = 'Mobilised';
             $project['status_class'] = 'status-Mobilised';
@@ -117,370 +208,181 @@ foreach ($filteredProjects as &$project) {
         $project['mobilization_progress'] = 0;
         $project['status_badge'] = 'Pending';
         $project['status_class'] = 'status-Pending';
+        $project['next_steps'] = ['Start mobilization process'];
     }
 }
 unset($project);
 
-// Set page title
 $pageTitle = 'Mobilization Dashboard';
-
-// Output HTML
 require_once 'header.php';
 ?>
 
-<style>
-.mobilization-dashboard {
-    padding: 2rem;
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 2rem;
-}
-
-.stat-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-glass);
-    border-radius: 12px;
-    padding: 1.5rem;
-    text-align: center;
-}
-
-.stat-number {
-    font-size: 2.5rem;
-    font-weight: 700;
-    color: var(--primary-color);
-    margin-bottom: 0.5rem;
-}
-
-.stat-label {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.filters-section {
-    background: var(--bg-card);
-    border: 1px solid var(--border-glass);
-    padding: 1.5rem;
-    margin-bottom: 2rem;
-    border-radius: 16px;
-}
-
-.filters-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1rem;
-}
-
-.filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.filter-group label {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-}
-
-.filter-group select {
-    padding: 0.6rem;
-    border: 1px solid var(--border-glass);
-    border-radius: 8px;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 0.9rem;
-}
-
-.filter-buttons {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-start;
-    margin-top: 0.5rem;
-}
-
-.reset-btn {
-    padding: 0.6rem 1.2rem;
-    border: 1px solid var(--border-glass);
-    border-radius: 8px;
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-    cursor: pointer;
-    font-size: 0.9rem;
-    text-decoration: none;
-    display: inline-block;
-}
-
-.reset-btn:hover {
-    background: rgba(239, 68, 68, 0.3);
-}
-
-.projects-grid {
-    display: grid;
-    gap: 1.5rem;
-}
-
-.project-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-glass);
-    border-radius: 12px;
-    padding: 1.5rem;
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.project-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-}
-
-.project-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: start;
-    margin-bottom: 1rem;
-}
-
-.project-title {
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-}
-
-.status-badge {
-    padding: 0.4rem 0.8rem;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-.status-Mobilised {
-    background: rgba(34, 197, 94, 0.2);
-    color: #22c55e;
-}
-
-.status-In-Process {
-    background: rgba(251, 191, 36, 0.2);
-    color: #fbbf24;
-}
-
-.status-Pending {
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-}
-
-.project-info {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1rem;
-}
-
-.info-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-
-.info-label {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-}
-
-.info-value {
-    font-size: 0.95rem;
-    color: var(--text-primary);
-    font-weight: 500;
-}
-
-.progress-section {
-    margin-top: 1rem;
-}
-
-.progress-label {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 0.5rem;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-}
-
-.progress-bar-container {
-    height: 8px;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
-    transition: width 0.3s ease;
-}
-
-.project-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-}
-
-.empty-state {
-    text-align: center;
-    padding: 4rem 2rem;
-    color: var(--text-secondary);
-}
-
-.empty-state p {
-    font-size: 1.1rem;
-    margin-bottom: 1.5rem;
-}
-
-@media (max-width: 768px) {
-    .filters-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .stats-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .project-info {
-        grid-template-columns: 1fr;
-    }
-}
-</style>
-
-<div class="mobilization-dashboard">
-    <h1 class="page-title">Mobilization Dashboard</h1>
-    
+<div class="main-content">
     <!-- Stats Grid -->
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-number"><?php echo $stats['total']; ?></div>
+            <div class="stat-number"><?= $stats['total'] ?></div>
             <div class="stat-label">Total Projects</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number"><?php echo $stats['mobilised']; ?></div>
+            <div class="stat-number" style="color: var(--success);"><?= $stats['mobilised'] ?></div>
             <div class="stat-label">Mobilised</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number"><?php echo $stats['inprocess']; ?></div>
+            <div class="stat-number" style="color: var(--warning);"><?= $stats['inprocess'] ?></div>
             <div class="stat-label">In Process</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number"><?php echo $stats['pending']; ?></div>
+            <div class="stat-number" style="color: var(--danger);"><?= $stats['pending'] ?></div>
             <div class="stat-label">Pending</div>
         </div>
     </div>
-    
-    <!-- Filters Section -->
+
+    <!-- Enhanced Filters Section -->
     <div class="filters-section">
-        <form method="GET">
+        <form method="GET" action="mobilization.php" id="filterForm">
             <div class="filters-grid">
                 <div class="filter-group">
                     <label>Client</label>
-                    <select name="client">
+                    <select name="client" onchange="document.getElementById('filterForm').submit()">
                         <option value="">All Clients</option>
                         <?php foreach ($clients as $client): ?>
-                            <option value="<?php echo $client['id']; ?>" <?php echo $filterClient == $client['id'] ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($client['name']); ?>
+                            <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($client['name']) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                
+
                 <div class="filter-group">
                     <label>City</label>
-                    <select name="city">
+                    <select name="city" onchange="document.getElementById('filterForm').submit()">
                         <option value="">All Cities</option>
                         <?php foreach ($cities as $city): ?>
-                            <option value="<?php echo htmlspecialchars($city); ?>" <?php echo $filterCity === $city ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($city); ?>
+                            <option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($city) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                
+
+                <div class="filter-group">
+                    <label>Finish Level</label>
+                    <select name="finishlevel" onchange="document.getElementById('filterForm').submit()">
+                        <option value="">All Levels</option>
+                        <?php foreach ($finishLevels as $level): ?>
+                            <option value="<?= htmlspecialchars($level) ?>" <?= $filterFinishLevel === $level ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($level) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
                 <div class="filter-group">
                     <label>Status</label>
-                    <select name="status">
+                    <select name="status" onchange="document.getElementById('filterForm').submit()">
                         <option value="">All Statuses</option>
-                        <option value="Mobilised" <?php echo $filterStatus === 'Mobilised' ? 'selected' : ''; ?>>Mobilised</option>
-                        <option value="In Process" <?php echo $filterStatus === 'In Process' ? 'selected' : ''; ?>>In Process</option>
-                        <option value="Pending" <?php echo $filterStatus === 'Pending' ? 'selected' : ''; ?>>Pending</option>
+                        <option value="Mobilised" <?= $filterStatus === 'Mobilised' ? 'selected' : '' ?>>Mobilised</option>
+                        <option value="In Process" <?= $filterStatus === 'In Process' ? 'selected' : '' ?>>In Process</option>
+                        <option value="Pending" <?= $filterStatus === 'Pending' ? 'selected' : '' ?>>Pending</option>
                     </select>
                 </div>
             </div>
-            
+
             <div class="filter-buttons">
-                <button type="submit" class="btn" style="padding: 0.6rem 1.5rem">Apply Filters</button>
-                <a href="mobilization.php" class="reset-btn">Reset</a>
+                <a href="mobilization.php" class="reset-btn">Reset Filters</a>
             </div>
         </form>
     </div>
-    
-    <!-- Projects Grid -->
-    <?php if (count($filteredProjects) > 0): ?>
-        <div class="projects-grid">
+
+    <!-- Project Cards Grid -->
+    <div class="projects-grid">
+        <?php if (empty($filteredProjects)): ?>
+            <div class="empty-state">
+                <p>No projects found</p>
+                <a href="edit-project.php" class="btn btn-primary">Create First Project</a>
+            </div>
+        <?php else: ?>
             <?php foreach ($filteredProjects as $project): ?>
                 <div class="project-card">
                     <div class="project-header">
-                        <h3 class="project-title"><?php echo htmlspecialchars($project['name']); ?></h3>
-                        <span class="status-badge <?php echo $project['status_class']; ?>">
-                            <?php echo $project['status_badge']; ?>
-                        </span>
+                        <div>
+                            <h3 class="project-title"><?= htmlspecialchars($project['name']) ?></h3>
+                            <div style="margin-top: 0.5rem;">
+                                <span class="status-badge <?= $project['status_class'] ?>">
+                                    <?= $project['status_badge'] ?>
+                                </span>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <div class="project-info">
+
+                    <!-- Enhanced Project Info Grid -->
+                    <div class="project-info" style="grid-template-columns: repeat(3, 1fr);">
                         <div class="info-item">
                             <span class="info-label">Client</span>
-                            <span class="info-value"><?php echo htmlspecialchars($project['client_name']); ?></span>
+                            <span class="info-value"><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></span>
                         </div>
                         <div class="info-item">
                             <span class="info-label">City</span>
-                            <span class="info-value"><?php echo htmlspecialchars($project['city']); ?></span>
+                            <span class="info-value"><?= htmlspecialchars($project['city'] ?? 'N/A') ?></span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Type</span>
-                            <span class="info-value"><?php echo htmlspecialchars($project['type']); ?></span>
+                            <span class="info-label">Finish Level</span>
+                            <span class="info-value"><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></span>
                         </div>
                     </div>
-                    
+
+                    <!-- PA Numbers Section -->
+                    <?php if (!empty($project['pa_numbers'])): ?>
+                        <div class="info-item" style="margin-bottom: 1rem;">
+                            <span class="info-label">PA Number(s)</span>
+                            <span class="info-value">
+                                <?php 
+                                $paLinks = array_map(function($pa) use ($project) {
+                                    return '<a href="mobilisation_detail.php?id=' . $project['id'] . '" style="color: var(--primary-color); text-decoration: none;">' . 
+                                           htmlspecialchars($pa) . '</a>';
+                                }, $project['pa_numbers']);
+                                echo implode(', ', $paLinks);
+                                ?>
+                            </span>
+                        </div>
+                    <?php endif; ?>
+
+                    <!-- Next Steps Section -->
+                    <div class="info-item" style="margin-bottom: 1rem;">
+                        <span class="info-label">Next Steps</span>
+                        <div style="margin-top: 0.5rem;">
+                            <?php foreach ($project['next_steps'] as $step): ?>
+                                <div style="padding: 0.4rem 0.6rem; background: rgba(99, 102, 241, 0.1); border-radius: 4px; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--primary-color);">
+                                    • <?= htmlspecialchars($step) ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+
+                    <!-- Progress Bar Section - Repositioned -->
                     <div class="progress-section">
                         <div class="progress-label">
-                            <span>Mobilization Progress</span>
-                            <span><?php echo $project['mobilization_progress']; ?>%</span>
+                            <span style="font-weight: 600;">Mobilization Progress</span>
+                            <span style="font-weight: 700; color: var(--primary-color); font-size: 0.95rem;">
+                                <?= $project['mobilization_progress'] ?>%
+                            </span>
                         </div>
                         <div class="progress-bar-container">
-                            <div class="progress-bar" style="width: <?php echo $project['mobilization_progress']; ?>%"></div>
+                            <div class="progress-bar" style="width: <?= $project['mobilization_progress'] ?>%"></div>
                         </div>
                     </div>
-                    
+
+                    <!-- Action Buttons -->
                     <div class="project-actions">
-                        <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" class="btn btn-sm btn-primary">View Details</a>
-                        <?php if (canEditProject($pdo, $project['id'])): ?>
-                            <a href="mobilisation_detail.php?project_id=<?php echo $project['id']; ?>" class="btn btn-sm">Edit</a>
-                        <?php endif; ?>
+                        <a href="mobilisation_detail.php?id=<?= $project['id'] ?>" class="btn btn-primary btn-sm">
+                            View Details
+                        </a>
                     </div>
                 </div>
             <?php endforeach; ?>
-        </div>
-    <?php else: ?>
-        <div class="empty-state">
-            <p>No projects found</p>
-            <?php if (isAdmin()): ?>
-                <a href="create-project.php" class="btn btn-primary">Create First Project</a>
-            <?php endif; ?>
-        </div>
-    <?php endif; ?>
+        <?php endif; ?>
+    </div>
 </div>
 
 <?php require_once 'footer.php'; ?>
