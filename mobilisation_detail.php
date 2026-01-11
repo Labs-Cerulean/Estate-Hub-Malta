@@ -24,6 +24,57 @@ if (!$project) {
     exit;
 }
 
+// Handle log submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_log'])) {
+    $message = trim($_POST['log_message'] ?? '');
+    
+    if (!empty($message) && $projectId) {
+        $stmt = $pdo->prepare("INSERT INTO project_logs (project_id, user_id, message) VALUES (?, ?, ?)");
+        $stmt->execute([$projectId, getCurrentUserId(), $message]);
+        
+        // Redirect to prevent form resubmission
+        header("Location: mobilisation_detail.php?projectid=$projectId#project-log");
+        exit;
+    }
+}
+
+// Fetch project logs with user information
+$logsStmt = $pdo->prepare("
+    SELECT 
+        pl.id,
+        pl.message,
+        pl.created_at,
+        u.username,
+        u.first_name,
+        u.last_name
+    FROM project_logs pl
+    JOIN users u ON pl.user_id = u.id
+    WHERE pl.project_id = ?
+    ORDER BY pl.created_at DESC
+    LIMIT 100
+");
+$logsStmt->execute([$projectId]);
+$projectLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Generate consistent color for each user
+function getUserColor($username) {
+    $colors = [
+        '#6366F1', // Indigo
+        '#8B5CF6', // Purple
+        '#EC4899', // Pink
+        '#10B981', // Green
+        '#F59E0B', // Amber
+        '#3B82F6', // Blue
+        '#EF4444', // Red
+        '#14B8A6', // Teal
+        '#F97316', // Orange
+        '#06B6D4', // Cyan
+    ];
+    
+    $hash = crc32($username);
+    return $colors[abs($hash) % count($colors)];
+}
+
 // Get mobilisation data
 $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
 $mobStmt->execute([$projectId]);
@@ -291,6 +342,186 @@ require_once 'header.php';
         </div>
       </section>
     <?php endif; ?>
+
+                  <!-- Project Activity Log Section -->
+            <div class="section-card" id="project-log">
+                <div class="section-header">
+                    <h2>Project Activity Log</h2>
+                </div>
+                
+                <!-- Log Input Form -->
+                <form method="POST" class="log-input-form">
+                    <div class="log-input-container">
+                        <textarea 
+                            name="log_message" 
+                            class="log-textarea" 
+                            placeholder="Add update, next step, or note..."
+                            maxlength="500"
+                            required
+                            rows="2"
+                        ></textarea>
+                        <button type="submit" name="add_log" class="btn btn-primary">Post Update</button>
+                    </div>
+                    <div class="character-counter">
+                        <span class="char-count">0</span>/500 characters
+                    </div>
+                </form>
+                
+                <!-- Log Entries -->
+                <div class="log-container">
+                    <?php if (empty($projectLogs)): ?>
+                        <div class="empty-log-state">
+                            <p>No activity logs yet. Be the first to add an update!</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($projectLogs as $log): ?>
+                            <?php 
+                                $userColor = getUserColor($log['username']);
+                                $displayName = trim($log['first_name'] . ' ' . $log['last_name']) ?: $log['username'];
+                                $timestamp = date('d M Y, H:i', strtotime($log['created_at']));
+                            ?>
+                            <div class="log-entry">
+                                <div class="log-header">
+                                    <span class="log-username" style="color: <?php echo $userColor; ?>;">
+                                        @<?php echo htmlspecialchars($log['username']); ?>
+                                    </span>
+                                    <span class="log-timestamp"><?php echo $timestamp; ?></span>
+                                </div>
+                                <div class="log-message">
+                                    <?php echo nl2br(htmlspecialchars($log['message'])); ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <style>
+            /* Project Log Styles */
+            .log-input-form {
+                margin-bottom: 1.5rem;
+                border-bottom: 1px solid #e5e7eb;
+                padding-bottom: 1.5rem;
+            }
+            
+            .log-input-container {
+                display: flex;
+                gap: 1rem;
+                align-items: flex-start;
+            }
+            
+            .log-textarea {
+                flex: 1;
+                padding: 0.75rem;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                font-family: inherit;
+                font-size: 0.95rem;
+                resize: vertical;
+                min-height: 60px;
+                transition: border-color 0.2s;
+            }
+            
+            .log-textarea:focus {
+                outline: none;
+                border-color: var(--primary-color, #6366F1);
+                box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+            }
+            
+            .character-counter {
+                text-align: right;
+                font-size: 0.85rem;
+                color: #6b7280;
+                margin-top: 0.25rem;
+            }
+            
+            .char-count {
+                font-weight: 600;
+            }
+            
+            .log-container {
+                max-height: 600px;
+                overflow-y: auto;
+                padding-right: 0.5rem;
+            }
+            
+            .empty-log-state {
+                text-align: center;
+                padding: 3rem 1rem;
+                color: #6b7280;
+            }
+            
+            .log-entry {
+                padding: 1rem;
+                border-left: 3px solid #e5e7eb;
+                margin-bottom: 1rem;
+                background: #f9fafb;
+                border-radius: 8px;
+                transition: all 0.2s;
+            }
+            
+            .log-entry:hover {
+                background: #f3f4f6;
+                border-left-color: var(--primary-color, #6366F1);
+            }
+            
+            .log-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 0.5rem;
+            }
+            
+            .log-username {
+                font-weight: 700;
+                font-size: 0.95rem;
+            }
+            
+            .log-timestamp {
+                font-size: 0.85rem;
+                color: #6b7280;
+            }
+            
+            .log-message {
+                color: #374151;
+                font-size: 0.95rem;
+                line-height: 1.5;
+                margin-left: 0.5rem;
+            }
+            
+            /* Scrollbar styling */
+            .log-container::-webkit-scrollbar {
+                width: 8px;
+            }
+            
+            .log-container::-webkit-scrollbar-track {
+                background: #f1f1f1;
+                border-radius: 4px;
+            }
+            
+            .log-container::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 4px;
+            }
+            
+            .log-container::-webkit-scrollbar-thumb:hover {
+                background: #94a3b8;
+            }
+            </style>
+
+            <script>
+            // Character counter
+            document.addEventListener('DOMContentLoaded', function() {
+                const textarea = document.querySelector('.log-textarea');
+                const charCount = document.querySelector('.char-count');
+                
+                if (textarea && charCount) {
+                    textarea.addEventListener('input', function() {
+                        charCount.textContent = this.value.length;
+                    });
+                }
+            });
+            </script>
 
     <!-- Mobilisation Steps -->
     <section class="projects-section">
