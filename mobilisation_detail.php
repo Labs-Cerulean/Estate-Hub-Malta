@@ -344,184 +344,182 @@ require_once 'header.php';
     <?php endif; ?>
 
                   <!-- Project Activity Log Section -->
-            <div class="section-card" id="project-log">
-                <div class="section-header">
-                    <h2>Project Activity Log</h2>
-                </div>
-                
-                <!-- Log Input Form -->
-                <form method="POST" class="log-input-form">
-                    <div class="log-input-container">
-                        <textarea 
-                            name="log_message" 
-                            class="log-textarea" 
-                            placeholder="Add update, next step, or note..."
-                            maxlength="500"
-                            required
-                            rows="2"
-                        ></textarea>
-                        <button type="submit" name="add_log" class="btn btn-primary">Post Update</button>
-                    </div>
-                    <div class="character-counter">
-                        <span class="char-count">0</span>/500 characters
-                    </div>
-                </form>
-                
-                <!-- Log Entries -->
-                <div class="log-container">
-                    <?php if (empty($projectLogs)): ?>
-                        <div class="empty-log-state">
-                            <p>No activity logs yet. Be the first to add an update!</p>
+                    <div class="section-card" id="project-log">
+                        <div class="section-header">
+                            <h2>Project Activity Log</h2>
                         </div>
-                    <?php else: ?>
-                        <?php foreach ($projectLogs as $log): ?>
-                            <?php 
-                                $userColor = getUserColor($log['username']);
-                                $displayName = trim($log['first_name'] . ' ' . $log['last_name']) ?: $log['username'];
-                                $timestamp = date('d M Y, H:i', strtotime($log['created_at']));
-                            ?>
-                            <div class="log-entry">
-                                <div class="log-header">
-                                    <span class="log-username" style="color: <?php echo $userColor; ?>;">
-                                        @<?php echo htmlspecialchars($log['username']); ?>
-                                    </span>
-                                    <span class="log-timestamp"><?php echo $timestamp; ?></span>
-                                </div>
-                                <div class="log-message">
-                                    <?php echo nl2br(htmlspecialchars($log['message'])); ?>
-                                </div>
+                        
+                        <!-- Log Input Form -->
+                        <form method="POST" class="log-input-form">
+                            <div class="log-input-container">
+                                <textarea 
+                                    name="log_message" 
+                                    class="log-textarea" 
+                                    placeholder="Add update, next step, or note..."
+                                    maxlength="500"
+                                    required
+                                    rows="1"
+                                ></textarea>
+                                <button type="submit" name="add_log" class="btn btn-primary btn-sm">Post</button>
                             </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </div>
-            </div>
-            
-            <style>
-            /* Project Log Styles */
-            .log-input-form {
-                margin-bottom: 1.5rem;
-                border-bottom: 1px solid #e5e7eb;
-                padding-bottom: 1.5rem;
-            }
-            
-            .log-input-container {
-                display: flex;
-                gap: 1rem;
-                align-items: flex-start;
-            }
-            
-            .log-textarea {
-                flex: 1;
-                padding: 0.75rem;
-                border: 1px solid #d1d5db;
-                border-radius: 8px;
-                font-family: inherit;
-                font-size: 0.95rem;
-                resize: vertical;
-                min-height: 60px;
-                transition: border-color 0.2s;
-            }
-            
-            .log-textarea:focus {
-                outline: none;
-                border-color: var(--primary-color, #6366F1);
-                box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-            }
-            
-            .character-counter {
-                text-align: right;
-                font-size: 0.85rem;
-                color: #6b7280;
-                margin-top: 0.25rem;
-            }
-            
-            .char-count {
-                font-weight: 600;
-            }
-            
-            .log-container {
-                max-height: 600px;
-                overflow-y: auto;
-                padding-right: 0.5rem;
-            }
-            
-            .empty-log-state {
-                text-align: center;
-                padding: 3rem 1rem;
-                color: #6b7280;
-            }
-            
-            .log-entry {
-                padding: 1rem;
-                border-left: 3px solid #e5e7eb;
-                margin-bottom: 1rem;
-                background: #f9fafb;
-                border-radius: 8px;
-                transition: all 0.2s;
-            }
-            
-            .log-entry:hover {
-                background: #f3f4f6;
-                border-left-color: var(--primary-color, #6366F1);
-            }
-            
-            .log-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 0.5rem;
-            }
-            
-            .log-username {
-                font-weight: 700;
-                font-size: 0.95rem;
-            }
-            
-            .log-timestamp {
-                font-size: 0.85rem;
-                color: #6b7280;
-            }
-            
-            .log-message {
-                color: #374151;
-                font-size: 0.95rem;
-                line-height: 1.5;
-                margin-left: 0.5rem;
-            }
-            
-            /* Scrollbar styling */
-            .log-container::-webkit-scrollbar {
-                width: 8px;
-            }
-            
-            .log-container::-webkit-scrollbar-track {
-                background: #f1f1f1;
-                border-radius: 4px;
-            }
-            
-            .log-container::-webkit-scrollbar-thumb {
-                background: #cbd5e1;
-                border-radius: 4px;
-            }
-            
-            .log-container::-webkit-scrollbar-thumb:hover {
-                background: #94a3b8;
-            }
-            </style>
-
-            <script>
-            // Character counter
-            document.addEventListener('DOMContentLoaded', function() {
-                const textarea = document.querySelector('.log-textarea');
-                const charCount = document.querySelector('.char-count');
-                
-                if (textarea && charCount) {
-                    textarea.addEventListener('input', function() {
-                        charCount.textContent = this.value.length;
+                            <div class="character-counter">
+                                <span class="char-count">0</span>/500
+                            </div>
+                        </form>
+                        
+                        <!-- Log Entries -->
+                        <div class="log-container">
+                            <?php if (empty($projectLogs)): ?>
+                                <div class="empty-log-state">
+                                    <p>No activity logs yet. Be the first to add an update!</p>
+                                </div>
+                            <?php else: ?>
+                                <?php foreach ($projectLogs as $log): ?>
+                                    <?php 
+                                        $userColor = getUserColor($log['username']);
+                                        $timestamp = date('d M Y, H:i', strtotime($log['created_at']));
+                                    ?>
+                                    <div class="log-entry">
+                                        <span class="log-username" style="color: <?php echo $userColor; ?>;">
+                                            @<?php echo htmlspecialchars($log['username']); ?>
+                                        </span>
+                                        <span class="log-timestamp"><?php echo $timestamp; ?></span>
+                                        <span class="log-separator">·</span>
+                                        <span class="log-message">
+                                            <?php echo htmlspecialchars($log['message']); ?>
+                                        </span>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    
+                    <style>
+                    /* Project Log Styles */
+                    .log-input-form {
+                        margin-bottom: 1rem;
+                        border-bottom: 1px solid #e5e7eb;
+                        padding-bottom: 1rem;
+                    }
+                    
+                    .log-input-container {
+                        display: flex;
+                        gap: 0.5rem;
+                        align-items: center;
+                    }
+                    
+                    .log-textarea {
+                        flex: 1;
+                        padding: 0.5rem 0.75rem;
+                        border: 1px solid #d1d5db;
+                        border-radius: 6px;
+                        font-family: inherit;
+                        font-size: 0.9rem;
+                        resize: none;
+                        min-height: 36px;
+                        transition: border-color 0.2s;
+                    }
+                    
+                    .log-textarea:focus {
+                        outline: none;
+                        border-color: var(--primary-color, #6366F1);
+                        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+                    }
+                    
+                    .character-counter {
+                        text-align: right;
+                        font-size: 0.75rem;
+                        color: #9ca3af;
+                        margin-top: 0.25rem;
+                    }
+                    
+                    .char-count {
+                        font-weight: 600;
+                    }
+                    
+                    .log-container {
+                        max-height: 300px;
+                        overflow-y: auto;
+                        padding-right: 0.5rem;
+                    }
+                    
+                    .empty-log-state {
+                        text-align: center;
+                        padding: 2rem 1rem;
+                        color: #9ca3af;
+                        font-size: 0.9rem;
+                    }
+                    
+                    .log-entry {
+                        padding: 0.5rem 0.75rem;
+                        margin-bottom: 0.35rem;
+                        background: #f9fafb;
+                        border-radius: 6px;
+                        border-left: 3px solid #e5e7eb;
+                        transition: all 0.2s;
+                        font-size: 0.9rem;
+                        line-height: 1.4;
+                    }
+                    
+                    .log-entry:hover {
+                        background: #f3f4f6;
+                        border-left-color: var(--primary-color, #6366F1);
+                    }
+                    
+                    .log-username {
+                        font-weight: 700;
+                        font-size: 0.9rem;
+                    }
+                    
+                    .log-timestamp {
+                        font-size: 0.8rem;
+                        color: #9ca3af;
+                        margin-left: 0.5rem;
+                    }
+                    
+                    .log-separator {
+                        color: #d1d5db;
+                        margin: 0 0.5rem;
+                    }
+                    
+                    .log-message {
+                        color: #374151;
+                        font-size: 0.9rem;
+                    }
+                    
+                    /* Scrollbar styling */
+                    .log-container::-webkit-scrollbar {
+                        width: 6px;
+                    }
+                    
+                    .log-container::-webkit-scrollbar-track {
+                        background: #f1f1f1;
+                        border-radius: 3px;
+                    }
+                    
+                    .log-container::-webkit-scrollbar-thumb {
+                        background: #cbd5e1;
+                        border-radius: 3px;
+                    }
+                    
+                    .log-container::-webkit-scrollbar-thumb:hover {
+                        background: #94a3b8;
+                    }
+                    </style>
+                    
+                    <script>
+                    // Character counter
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const textarea = document.querySelector('.log-textarea');
+                        const charCount = document.querySelector('.char-count');
+                        
+                        if (textarea && charCount) {
+                            textarea.addEventListener('input', function() {
+                                charCount.textContent = this.value.length;
+                            });
+                        }
                     });
-                }
-            });
-            </script>
+                    </script>
 
     <!-- Mobilisation Steps -->
     <section class="projects-section">
