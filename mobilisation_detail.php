@@ -136,10 +136,10 @@ if (($_POST['action'] ?? null) === 'update_mobilisation') {
             }
         }
         
-        // ONLY allow  update if Responsibility Form Complete
-        if ($can && isset($_POST['_clearance'])) {
-            $updates[] = "_clearance = ?";
-            $values[] = $_POST['_clearance'];
+         // ONLY allow  update if Responsibility Form Complete
+        if ($can && isset($_POST['bca_clearance'])) {
+            $updates[] = "bca_clearance = ?";
+            $values[] = $_POST['bca_clearance'];
         }
         
         if (!empty($updates)) {
