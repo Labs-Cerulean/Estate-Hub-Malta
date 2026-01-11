@@ -1240,3 +1240,53 @@ tbody tr:hover td:nth-child(9) {
         color: black;
     }
 }
+
+/* Enhanced Mobilization Cards */
+.project-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.project-info {
+    border-top: 1px solid var(--border-glass);
+    border-bottom: 1px solid var(--border-glass);
+    padding: 1rem 0;
+}
+
+.info-item .info-value a {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.info-item .info-value a:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+/* Progress Section Enhancement */
+.progress-section {
+    margin-top: auto;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-glass);
+}
+
+.progress-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+/* Filter Enhancements */
+.filters-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+@media (max-width: 768px) {
+    .project-info {
+        grid-template-columns: 1fr !important;
+    }
+}
