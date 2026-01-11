@@ -58,32 +58,13 @@ function getNextSteps($mob) {
 // Get accessible projects - using correct session variable
 $accessibleProjects = getAccessibleProjects($pdo, getCurrentUserId(), getCurrentRole());
 
-// Calculate stats
-$stats = [
-    'total' => count($accessibleProjects),
-    'mobilised' => 0,
-    'pending' => 0,
-    'inprocess' => 0,
-];
-
-foreach ($accessibleProjects as $project) {
-    $status = deriveMobilisationStatus($pdo, $project['id']);
-    if ($status === 'Mobilised') {
-        $stats['mobilised']++;
-    } elseif ($status === 'In Process') {
-        $stats['inprocess']++;
-    } else {
-        $stats['pending']++;
-    }
-}
-
 // Get filter values
 $filterClient = $_GET['client'] ?? '';
 $filterCity = $_GET['city'] ?? '';
 $filterStatus = $_GET['status'] ?? '';
 $filterFinishLevel = $_GET['finishlevel'] ?? '';
 
-// Handle island filter
+// Handle island filter FIRST
 $islandMalta = isset($_GET['island_malta']);
 $islandGozo = isset($_GET['island_gozo']);
 $filterIsland = 'all';
@@ -93,8 +74,32 @@ if ($islandMalta && !$islandGozo) {
     $filterIsland = 'Gozo';
 }
 
-// Apply filters
-$filteredProjects = $accessibleProjects;
+// Apply island filter FIRST to get the base set
+$baseFilteredProjects = $accessibleProjects;
+if ($filterIsland !== 'all') {
+    $baseFilteredProjects = array_filter($baseFilteredProjects, function($project) use ($filterIsland) {
+        return $project['island'] === $filterIsland;
+    });
+}
+
+// Get unique filter options FROM THE ISLAND-FILTERED SET
+$clientIds = array_values(array_unique(array_column($baseFilteredProjects, 'clientid')));
+$clients = [];
+if (!empty($clientIds)) {
+    $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
+    $clientStmt = $pdo->prepare("SELECT id, name FROM clients WHERE id IN ($placeholders) ORDER BY name");
+    $clientStmt->execute($clientIds);
+    $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$cities = array_values(array_unique(array_filter(array_column($baseFilteredProjects, 'city'))));
+sort($cities);
+
+$finishLevels = array_values(array_unique(array_filter(array_column($baseFilteredProjects, 'finishlevel'))));
+sort($finishLevels);
+
+// Now apply remaining filters
+$filteredProjects = $baseFilteredProjects;
 
 if ($filterClient) {
     $filteredProjects = array_filter($filteredProjects, function($project) use ($filterClient) {
@@ -114,12 +119,6 @@ if ($filterFinishLevel) {
     });
 }
 
-if ($filterIsland !== 'all') {
-    $filteredProjects = array_filter($filteredProjects, function($project) use ($filterIsland) {
-        return $project['island'] === $filterIsland;
-    });
-}
-
 if ($filterStatus) {
     $filteredProjects = array_filter($filteredProjects, function($project) use ($pdo, $filterStatus) {
         $status = deriveMobilisationStatus($pdo, $project['id']);
@@ -127,21 +126,24 @@ if ($filterStatus) {
     });
 }
 
-// Get unique filter options
-$clientIds = array_values(array_unique(array_column($accessibleProjects, 'clientid')));
-$clients = [];
-if (!empty($clientIds)) {
-    $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
-    $clientStmt = $pdo->prepare("SELECT id, name FROM clients WHERE id IN ($placeholders) ORDER BY name");
-    $clientStmt->execute($clientIds);
-    $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
+// Calculate stats from base filtered set (after island filter)
+$stats = [
+    'total' => count($baseFilteredProjects),
+    'mobilised' => 0,
+    'pending' => 0,
+    'inprocess' => 0,
+];
+
+foreach ($baseFilteredProjects as $project) {
+    $status = deriveMobilisationStatus($pdo, $project['id']);
+    if ($status === 'Mobilised') {
+        $stats['mobilised']++;
+    } elseif ($status === 'In Process') {
+        $stats['inprocess']++;
+    } else {
+        $stats['pending']++;
+    }
 }
-
-$cities = array_values(array_unique(array_filter(array_column($accessibleProjects, 'city'))));
-sort($cities);
-
-$finishLevels = array_values(array_unique(array_filter(array_column($accessibleProjects, 'finishlevel'))));
-sort($finishLevels);
 
 // Enrich project data
 foreach ($filteredProjects as &$project) {
@@ -234,6 +236,34 @@ require_once 'header.php';
         <form method="GET" action="mobilization.php" id="filterForm">
             <div class="filters-grid">
                 <div class="filter-group">
+                    <label>Island</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input 
+                                type="checkbox" 
+                                name="island_malta" 
+                                id="island_malta" 
+                                value="Malta"
+                                <?= ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : '' ?>
+                                onchange="document.getElementById('filterForm').submit()"
+                            >
+                            <label for="island_malta">Malta</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input 
+                                type="checkbox" 
+                                name="island_gozo" 
+                                id="island_gozo" 
+                                value="Gozo"
+                                <?= ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : '' ?>
+                                onchange="document.getElementById('filterForm').submit()"
+                            >
+                            <label for="island_gozo">Gozo</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
                     <label>Client</label>
                     <select name="client" onchange="document.getElementById('filterForm').submit()">
                         <option value="">All Clients</option>
@@ -277,34 +307,6 @@ require_once 'header.php';
                         <option value="In Process" <?= $filterStatus === 'In Process' ? 'selected' : '' ?>>In Process</option>
                         <option value="Pending" <?= $filterStatus === 'Pending' ? 'selected' : '' ?>>Pending</option>
                     </select>
-                </div>
-
-                <div class="filter-group">
-                    <label>Island</label>
-                    <div class="checkbox-group">
-                        <div class="checkbox-item">
-                            <input 
-                                type="checkbox" 
-                                name="island_malta" 
-                                id="island_malta" 
-                                value="Malta"
-                                <?= ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : '' ?>
-                                onchange="document.getElementById('filterForm').submit()"
-                            >
-                            <label for="island_malta">Malta</label>
-                        </div>
-                        <div class="checkbox-item">
-                            <input 
-                                type="checkbox" 
-                                name="island_gozo" 
-                                id="island_gozo" 
-                                value="Gozo"
-                                <?= ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : '' ?>
-                                onchange="document.getElementById('filterForm').submit()"
-                            >
-                            <label for="island_gozo">Gozo</label>
-                        </div>
-                    </div>
                 </div>
             </div>
 
