@@ -465,9 +465,11 @@ require_once 'header.php';
         </fieldset>
 
           <div class="form-actions" style="margin-top: 1.5rem;">
+              <?php if (hasRole('admin') || hasRole('manager')): ?>
               <button type="submit" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1rem; margin-bottom: 2rem;">
                 Save BCA Updates
               </button>
+             <?php endif; ?>
             </div>
           </form>
     </section>
