@@ -71,7 +71,8 @@ require_once 'header.php';
                 $isRead = (bool)$notif['is_read'];
                 $isAction = (bool)$notif['is_action'];
                 $timestamp = date('d M Y, H:i', strtotime($notif['created_at']));
-                $userName = trim($notif['firstname'] . ' ' . $notif['lastname']) ?: $notif['username'];
+                // FIX: Use first_name and last_name with underscores
+                $userName = trim($notif['first_name'] . ' ' . $notif['last_name']) ?: $notif['username'];
                 ?>
                 
                 <div class="notification-item <?= $isRead ? 'read' : 'unread' ?>" 
@@ -91,7 +92,7 @@ require_once 'header.php';
                     </div>
                     
                     <div class="notification-project">
-                        <a href="mobilisation_detail.php?project_id=<?= $notif['projectid'] ?>#project-log" 
+                        <a href="mobilisation_detail.php?project_id=<?= $notif['project_id'] ?>#project-log" 
                            style="color: #6366F1; text-decoration: none; font-weight: 600;">
                             <?= htmlspecialchars($notif['project_name']) ?>
                         </a>
@@ -117,7 +118,7 @@ require_once 'header.php';
                                 ⚡ Mark as action
                             </button>
                         <?php endif; ?>
-                        <a href="mobilisation_detail.php?project_id=<?= $notif['projectid'] ?>#project-log" 
+                        <a href="mobilisation_detail.php?project_id=<?= $notif['project_id'] ?>#project-log" 
                            class="btn-text">
                             → View project
                         </a>
