@@ -95,7 +95,7 @@ require_once 'header.php';
 
 
       <!-- Add/Edit Form -->
-        <div class="card mb-8">
+        <div class="projects-section">
             <div class="card-header">
                 <h3><?= $editing ? 'Edit Professional' : 'Add New Professional' ?></h3>
             </div>
@@ -159,7 +159,7 @@ require_once 'header.php';
         </div>
 
         <!-- Architects -->
-        <div class="card mb-8">
+        <div class="projects-section">
             <div class="card-header">
                 <h3>Architects (<?= count($architects) ?>)</h3>
             </div>
@@ -203,7 +203,7 @@ require_once 'header.php';
         </div>
 
         <!-- Structural Engineers -->
-        <div class="card">
+        <div class="projects-section">
             <div class="card-header">
                 <h3>Structural Engineers (<?= count($engineers) ?>)</h3>
             </div>
