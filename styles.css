@@ -1266,22 +1266,6 @@ tbody tr:hover td:nth-child(9) {
     text-decoration: underline;
 }
 
-/* Next Steps Styling */
-.next-steps-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-}
-
-.next-step-item {
-    padding: 0.4rem 0.6rem;
-    background: rgba(99, 102, 241, 0.1);
-    border-radius: 4px;
-    font-size: 0.85rem;
-    color: var(--primary-color);
-    border-left: 3px solid var(--primary-color);
-}
-
 /* Progress Section Enhancement */
 .progress-section {
     margin-top: auto;
@@ -1294,17 +1278,6 @@ tbody tr:hover td:nth-child(9) {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.5rem;
-}
-
-.progress-label span:first-child {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-}
-
-.progress-label span:last-child {
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--primary-color);
 }
 
 /* Filter Enhancements */
