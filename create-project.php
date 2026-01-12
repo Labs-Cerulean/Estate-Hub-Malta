@@ -338,8 +338,8 @@ require_once 'header.php';
         // City data
           const locations = {
             'Malta': [
-              { label: 'Northern', cities: ['Ghargur', 'Mellieha', 'Mosta', 'Naxxar', 'Rabat', 'San Pawl il-Bahar'] },
-              { label: 'Central', cities: ['Attard', 'Balzan', 'Birkirkara', 'Gzira', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex'] },
+              { label: 'Northern', cities: ['Dingli', 'Ghargur', 'Mellieha', 'Mosta', 'Naxxar', 'Qawra', 'Rabat', 'San Pawl il-Bahar'] },
+              { label: 'Central', cities: ['Attard', 'Balzan', 'Birkirkara', 'Floriana', 'Gzira', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex'] },
               { label: 'Southern', cities: ['Birgu', 'Bormla', 'Fgura', 'Ghaxaq', 'Kirkop', 'Safi', 'Haz-Zebbug', 'Luqa', 'Marsascala', 'Marsaxlokk', 'Mqabba', 'Paola', 'Santa Lucia', 'Senglea', 'Siggiewi', 'Tarxien', 'Xghajra', 'Zabbar', 'Zejtun', 'Qrendi', 'Zurrieq'] }
             ],
             'Gozo': [
