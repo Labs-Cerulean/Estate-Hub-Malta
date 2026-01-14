@@ -451,7 +451,7 @@ require_once 'header.php';
   const locations = {
     'Malta': [
       { label: 'Northern', cities: ['Dingli', 'Ghargur', 'Mellieha', 'Mosta', 'Naxxar', 'Qawra', 'Rabat', 'San Pawl il-Bahar'] },
-      { label: 'Central', cities: ['Attard', 'Balzan', 'Birkirkara', 'Floriana', 'Gzira', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex'] },
+      { label: 'Central', cities: ['Attard', 'Balzan', 'Birkirkara', 'Floriana', 'Gzira', 'Haz-Zebbug', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex'] },
       { label: 'Southern', cities: ['Birgu', 'Bormla', 'Fgura', 'Ghaxaq', 'Kirkop', 'Safi', 'Haz-Zebbug', 'Luqa', 'Marsascala', 'Marsaxlokk', 'Mqabba', 'Paola', 'Santa Lucia', 'Senglea', 'Siggiewi', 'Tarxien', 'Xghajra', 'Zabbar', 'Zejtun', 'Qrendi', 'Zurrieq'] }
     ],
     'Gozo': [
