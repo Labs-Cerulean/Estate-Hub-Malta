@@ -294,7 +294,7 @@ function buildPaUrl(?string $paNumber): ?string {
     if (empty($paNumber)) return null;
     
     // Match PA/xxxxx/xx, PC/xxxxx/xx, or DN/xxxxx/xx format
-    if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $refNumber, $m)) return null;
+    if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null;
     
     $caseType = $m[1];      // PA, PC, or DN
     $caseNumber = $m[2];    // The numeric identifier
