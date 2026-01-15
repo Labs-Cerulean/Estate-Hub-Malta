@@ -203,6 +203,7 @@ require_once 'header.php';
                                         <option value="Recommended for Refusal">Recommended for Refusal</option>
                                         <option value="Under Appeal">Under Appeal</option>
                                         <option value="Revoked/Annulled">Revoked/Annulled</option>
+                                        <option value="Tracking">Tracking</option>
                                         <option value="Withdrawn">Withdrawn</option>
                                     </select>
                                 </div>
@@ -281,6 +282,7 @@ require_once 'header.php';
                             <option value="Recommended for Refusal">Recommended for Refusal</option>
                             <option value="Under Appeal">Under Appeal</option>
                             <option value="Revoked/Annulled">Revoked/Annulled</option>
+                            <option value="Tracking">Tracking</option>
                             <option value="Withdrawn">Withdrawn</option>
                         </select>
                     </div>
