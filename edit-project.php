@@ -386,6 +386,7 @@ require_once 'header.php';
           <option value="Recommended for Refusal" ${paStatus === 'Recommended for Refusal' ? 'selected' : ''}>Recommended for Refusal</option>
           <option value="Under Appeal" ${paStatus === 'Under Appeal' ? 'selected' : ''}>Under Appeal</option>
           <option value="Revoked/Annulled" ${paStatus === 'Revoked/Annulled' ? 'selected' : ''}>Revoked/Annulled</option>
+          <option value="Tracking" ${paStatus === 'Tracking' ? 'selected' : ''}>Tracking</option>
           <option value="Withdrawn" ${paStatus === 'Withdrawn' ? 'selected' : ''}>Withdrawn</option>
         </select>
       </div>
