@@ -593,6 +593,7 @@ require_once 'header.php';
               <option value="Recommended for Refusal" <?php echo $filterStatus === 'Recommended for Refusal' ? 'selected' : ''; ?>>Recommended for Refusal</option>
               <option value="Under Appeal" <?php echo $filterStatus === 'Under Appeal' ? 'selected' : ''; ?>>Under Appeal</option>
               <option value="Revoked/Annulled" <?php echo $filterStatus === 'Revoked/Annulled' ? 'selected' : ''; ?>>Revoked/Annulled</option>
+              <option value="Tracking" <?php echo $filterStatus === 'Tracking' ? 'selected' : ''; ?>>Tracking</option>
               <option value="Withdrawn" <?php echo $filterStatus === 'Withdrawn' ? 'selected' : ''; ?>>Withdrawn</option>
               <option value="TBC" <?php echo $filterStatus === 'TBC' ? 'selected' : ''; ?>>TBC</option>
             </select>
