@@ -3,13 +3,15 @@ require_once 'init.php';
 require_once 'session-check.php';
 
 // Helper function to generate eApps URL from PA number
-function generateEAppsUrl($paNumber) {
-    if (!preg_match('/PA\/(\d+)\/(\d+)/', $paNumber, $m)) return null;
+function generateEAppsUrl($refNumber) {
+    // Match PA/xxxxx/xx, PC/xxxxx/xx, or DN/xxxxx/xx format
+    if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $refNumber, $m)) return null;
     
-    $caseNumber = $m[1];
-    $caseYear = $m[2];
+    $caseType = $m[1];      // PA, PC, or DN
+    $caseNumber = $m[2];    // The numeric identifier
+    $caseYear = $m[3];      // The year
     
-    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType=PA&casenumber={$caseNumber}&caseYear={$caseYear}";
+    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$caseType}&casenumber={$caseNumber}&caseYear={$caseYear}";
 }
 
 // Helper function to get next steps
