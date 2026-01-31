@@ -4,201 +4,124 @@
  * All user management and project access logic
  */
 
+<?php
 /**
- * Rev 2.0: Get all accessible projects for a user
- * Logic:
- * - Admins: See everything.
- * - View Tracking: If permission is OFF, projects with is_tracking=1 are hidden.
- * - Architects: See projects where their assigned firms match project professionals.
- * - Others (Managers/Directors/Viewers): See projects from assigned clients.
- * - Exclusions: Explicitly excluded projects are always hidden.
+ * user-functions.php - Rev 2.0 Capability Logic
  */
-function getAccessibleProjects($pdo, $userId = null) {
-    if ($userId === null) {
-        $userId = getCurrentUserId();
+
+function hasPermission($capability) {
+    global $pdo;
+    $userId = $_SESSION['user_id'] ?? null;
+    $role = $_SESSION['role'] ?? null;
+
+    if (!$userId) return false;
+    if ($role === 'admin') return true; 
+
+    // Hard Block: Viewers can never Add or Edit anything
+    $editCapabilities = ['can_add_project', 'can_edit_details', 'can_update_status', 'can_edit_project', 'can_manage_users', 'can_manage_clients'];
+    if ($role === 'viewer' && in_array($capability, $editCapabilities)) {
+        return false;
     }
+
+    try {
+        $stmt = $pdo->prepare("SELECT $capability FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        return (bool)$stmt->fetchColumn();
+    } catch (PDOException $e) {
+        error_log("Permission Error: Column '$capability' missing.");
+        return false; 
+    }
+}
+
+/**
+ * Split permission for Project Name, Client, PA Numbers
+ */
+function canEditProjectDetails($pdo, $projectId) {
+    if (isAdmin()) return true;
+    return hasPermission('can_edit_details') && hasProjectAccess($pdo, $projectId);
+}
+
+/**
+ * Split permission for BCA Steps and PA Status dropdowns
+ */
+function canUpdateStatus($pdo, $projectId) {
+    if (isAdmin()) return true;
+    return hasPermission('can_update_status') && hasProjectAccess($pdo, $projectId);
+}
+
+function getAccessibleProjects($pdo, $userId = null) {
+    if ($userId === null) $userId = getCurrentUserId();
     
-    // 1. Check Tracking Permission
-    // If they aren't admin and don't have the permission, we filter out tracking projects
+    // Rev 2.0 Tracking Filter
     $trackingFilter = "";
     if (!isAdmin() && !hasPermission('can_view_tracking')) {
         $trackingFilter = " AND p.is_tracking = 0 ";
     }
 
-    // 2. ADMIN ACCESS (Sees everything)
     if (isAdmin()) {
-        $stmt = $pdo->prepare("
-            SELECT p.*, c.name as client_name, c.type as client_type
-            FROM projects p
-            LEFT JOIN clients c ON p.clientid = c.id
-            ORDER BY p.created_at DESC
-        ");
+        $stmt = $pdo->prepare("SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id ORDER BY p.created_at DESC");
         $stmt->execute();
         return $stmt->fetchAll();
     }
     
-    // Get user details for specific role logic
     $user = getUserById($pdo, $userId);
     if (!$user) return [];
     
-    // 3. ARCHITECT ACCESS (Firm-based)
     if ($user['role'] === 'architect') {
         $stmt = $pdo->prepare("
-            SELECT DISTINCT p.*, c.name as client_name, c.type as client_type
-            FROM projects p
+            SELECT DISTINCT p.*, c.name as client_name FROM projects p
             LEFT JOIN clients c ON p.clientid = c.id
             LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id
             WHERE (
-                (? IS NOT NULL AND ppn.architect_id IN (
-                    SELECT id FROM professionals 
-                    WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) 
-                    AND role_type = 'architect'
-                ))
+                (? IS NOT NULL AND ppn.architect_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) AND role_type = 'architect'))
                 OR
-                (? IS NOT NULL AND ppn.structural_engineer_id IN (
-                    SELECT id FROM professionals 
-                    WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) 
-                    AND role_type = 'structural_engineer'
-                ))
+                (? IS NOT NULL AND ppn.structural_engineer_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) AND role_type = 'structural_engineer'))
             )
-            AND p.id NOT IN (
-                SELECT project_id FROM user_project_exclusions WHERE user_id = ?
-            )
+            AND p.id NOT IN (SELECT project_id FROM user_project_exclusions WHERE user_id = ?)
             $trackingFilter
             ORDER BY p.created_at DESC
         ");
-        $stmt->execute([
-            $user['assigned_architect_firm_id'],
-            $user['assigned_architect_firm_id'],
-            $user['assigned_structural_firm_id'],
-            $user['assigned_structural_firm_id'],
-            $userId
-        ]);
+        $stmt->execute([$user['assigned_architect_firm_id'], $user['assigned_architect_firm_id'], $user['assigned_structural_firm_id'], $user['assigned_structural_firm_id'], $userId]);
         return $stmt->fetchAll();
     }
     
-    // 4. STANDARD ACCESS (Managers, Directors, Viewers - Client-based)
     $stmt = $pdo->prepare("
-        SELECT DISTINCT p.*, c.name as client_name, c.type as client_type
-        FROM projects p
+        SELECT DISTINCT p.*, c.name as client_name FROM projects p
         LEFT JOIN clients c ON p.clientid = c.id
         INNER JOIN user_client_access uca ON p.clientid = uca.client_id
-        WHERE uca.user_id = ?
-        AND p.id NOT IN (
-            SELECT project_id FROM user_project_exclusions WHERE user_id = ?
-        )
-        $trackingFilter
+        WHERE uca.user_id = ? AND p.id NOT IN (SELECT project_id FROM user_project_exclusions WHERE user_id = ?) $trackingFilter
         ORDER BY p.created_at DESC
     ");
     $stmt->execute([$userId, $userId]);
     return $stmt->fetchAll();
 }
 
-/**
- * Check if user has access to a specific project
- */
+// ... Keep existing getUserById, getAllUsers, hasProjectAccess, etc. ...
+function getUserById($pdo, $userId) {
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    return $stmt->fetch();
+}
+
+function getAllUsers($pdo) {
+    return $pdo->query("SELECT * FROM users ORDER BY username ASC")->fetchAll();
+}
+
 function hasProjectAccess($pdo, $projectId) {
     $userId = getCurrentUserId();
-    
-    // Admins have access to all projects
-    if (isAdmin()) {
-        return true;
-    }
-    
-    // Check if project is explicitly excluded
-    $stmt = $pdo->prepare("
-        SELECT id FROM user_project_exclusions
-        WHERE user_id = ? AND project_id = ?
-    ");
+    if (isAdmin()) return true;
+    $stmt = $pdo->prepare("SELECT id FROM user_project_exclusions WHERE user_id = ? AND project_id = ?");
     $stmt->execute([$userId, $projectId]);
-    if ($stmt->fetch()) {
-        return false;
-    }
-    
-    // Get user details
+    if ($stmt->fetch()) return false;
     $user = getUserById($pdo, $userId);
-    if (!$user) return false;
-    
-    // Check architect firm-based access
     if ($user['role'] === 'architect') {
-        $stmt = $pdo->prepare("
-            SELECT DISTINCT p.id
-            FROM projects p
-            LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id
-            WHERE p.id = ?
-            AND (
-                (? IS NOT NULL AND ppn.architect_id IN (
-                    SELECT id FROM professionals 
-                    WHERE firm_name = (
-                        SELECT firm_name FROM professionals WHERE id = ?
-                    ) AND role_type = 'architect'
-                ))
-                OR
-                (? IS NOT NULL AND ppn.structural_engineer_id IN (
-                    SELECT id FROM professionals 
-                    WHERE firm_name = (
-                        SELECT firm_name FROM professionals WHERE id = ?
-                    ) AND role_type = 'structural_engineer'
-                ))
-            )
-        ");
-        $stmt->execute([
-            $projectId,
-            $user['assigned_architect_firm_id'],
-            $user['assigned_architect_firm_id'],
-            $user['assigned_structural_firm_id'],
-            $user['assigned_structural_firm_id']
-        ]);
+        $stmt = $pdo->prepare("SELECT p.id FROM projects p LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id WHERE p.id = ? AND (ppn.architect_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)))");
+        $stmt->execute([$projectId, $user['assigned_architect_firm_id']]);
         return $stmt->fetch() !== false;
     }
-    
-    // Check client-based access
-    $stmt = $pdo->prepare("
-        SELECT p.id
-        FROM projects p
-        INNER JOIN user_client_access uca ON p.clientid = uca.client_id
-        WHERE p.id = ? AND uca.user_id = ?
-    ");
+    $stmt = $pdo->prepare("SELECT p.id FROM projects p INNER JOIN user_client_access uca ON p.clientid = uca.client_id WHERE p.id = ? AND uca.user_id = ?");
     $stmt->execute([$projectId, $userId]);
     return $stmt->fetch() !== false;
-}
-
-/**
- * Get user's access level for a specific project
- * Returns: 'admin', 'manager', 'architect', 'viewer', or null if no access
- */
-function getProjectAccessLevel($pdo, $projectId) {
-    $userId = getCurrentUserId();
-    
-    // Admin users have admin access to all projects
-    if (isAdmin()) {
-        return 'admin';
-    }
-    
-    // Check if user has access at all
-    if (!hasProjectAccess($pdo, $projectId)) {
-        return null;
-    }
-    
-    // Return user's global role as their access level
-    return getCurrentRole();
-}
-
-/**
- * Check if user can edit a specific project
- */
-function canEditProject($pdo, $projectId) {
-    // Admins can edit all projects
-    if (isAdmin()) {
-        return true;
-    }
-    
-    // Managers can edit projects they have access to
-    if (getCurrentRole() === 'manager' && hasProjectAccess($pdo, $projectId)) {
-        return true;
-    }
-    
-    return false;
 }
 
 /**
@@ -566,26 +489,3 @@ function getEAppsUrl($pa) {
     return "#";
 }
 
-/**
- * Checks if the current user has a specific capability.
- * Respects the Rev 2.0 rule: Viewers can NEVER add/edit.
- */
-function hasPermission($capability) {
-    global $pdo;
-    
-    // 1. Hard Override: Admins always have permission
-    if ($_SESSION['role'] === 'admin') return true;
-
-    // 2. Hard Constraint: Viewers can NEVER add or edit projects
-    $restrictedForViewers = ['can_add_project', 'can_edit_project'];
-    if ($_SESSION['role'] === 'viewer' && in_array($capability, $restrictedForViewers)) {
-        return false;
-    }
-
-    // 3. Dynamic Check: Fetch the bit from the user record
-    $stmt = $pdo->prepare("SELECT $capability FROM users WHERE id = ?");
-    $stmt->execute([$_SESSION['user_id']]);
-    return (bool)$stmt->fetchColumn();
-}
-
-?>
