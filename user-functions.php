@@ -558,4 +558,26 @@ function getEAppsUrl($pa) {
     return "#";
 }
 
+/**
+ * Checks if the current user has a specific capability.
+ * Respects the Rev 2.0 rule: Viewers can NEVER add/edit.
+ */
+function hasPermission($capability) {
+    global $pdo;
+    
+    // 1. Hard Override: Admins always have permission
+    if ($_SESSION['role'] === 'admin') return true;
+
+    // 2. Hard Constraint: Viewers can NEVER add or edit projects
+    $restrictedForViewers = ['can_add_project', 'can_edit_project'];
+    if ($_SESSION['role'] === 'viewer' && in_array($capability, $restrictedForViewers)) {
+        return false;
+    }
+
+    // 3. Dynamic Check: Fetch the bit from the user record
+    $stmt = $pdo->prepare("SELECT $capability FROM users WHERE id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    return (bool)$stmt->fetchColumn();
+}
+
 ?>
