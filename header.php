@@ -89,10 +89,10 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     <a href="actions.php" class="nav-link <?= $currentPage === 'actions' ? 'active' : '' ?>">Actions</a>
                     
                     <div style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem; padding-left: 1rem; border-left: 1px solid rgba(255,255,255,0.1);">
-                        <div style="text-align: right;">
+                        <a href="profile.php" style="text-align: right; text-decoration: none; color: inherit; display: block;" class="profile-nav-item">
                             <div style="font-weight: 600; color: #ffffff; font-size: 0.9rem;"><?= htmlspecialchars(getCurrentUserFullName()) ?></div>
-                            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.5px;"><?= htmlspecialchars(getCurrentRole()) ?></div>
-                        </div>
+                            <div style="font-size: 0.75rem; color: var(--primary-color); text-transform: uppercase; letter-spacing: 0.5px;"><?= htmlspecialchars(getCurrentRole()) ?></div>
+                        </a>
                         <a href="api/logout.php" class="nav-link" style="padding: 0.5rem 1rem;">Logout</a>
                     </div>
                 </div>
