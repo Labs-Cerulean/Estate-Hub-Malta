@@ -105,31 +105,16 @@ require_once 'header.php';
 
 <div class="main-container">
     <div class="two-column-layout">
-        
         <div class="user-list">
-            <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h2>Users</h2>
-                <button onclick="showCreateUserForm()" class="btn btn-primary">Add New</button>
-            </div>
+            <h2>Users</h2>
             <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Username</th>
-                        <th>Role</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($users as $u): ?>
-                    <tr>
-                        <td><?= htmlspecialchars($u['username']) ?></td>
-                        <td><span class="role-badge role-<?= $u['role'] ?>"><?= $u['role'] ?></span></td>
-                        <td><?= $u['is_active'] ?></td>
-                        <td><a href="?user_id=<?= $u['id'] ?>" class="btn btn-sm">Edit</a></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
+                <?php foreach ($users as $u): ?>
+                <tr>
+                    <td><?= htmlspecialchars($u['username']) ?></td>
+                    <td><span class="role-badge role-<?= $u['role'] ?>"><?= $u['role'] ?></span></td>
+                    <td><a href="?user_id=<?= $u['id'] ?>" class="btn btn-sm">Edit</a></td>
+                </tr>
+                <?php endforeach; ?>
             </table>
         </div>
 
@@ -138,61 +123,37 @@ require_once 'header.php';
                 <form method="POST" class="form-section">
                     <input type="hidden" name="action" value="update_user">
                     <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                    <h3>Edit Permissions: <?= htmlspecialchars($selectedUser['username']) ?></h3>
                     
-                    <h3>Edit Account: <?= htmlspecialchars($selectedUser['username']) ?></h3>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Username (Required)</label>
-                            <input type="text" name="username" value="<?= htmlspecialchars($selectedUser['username']) ?>" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Role</label>
-                            <select name="role" id="editRole" onchange="togglePermissions('edit')">
-                                <option value="viewer" <?= $selectedUser['role'] == 'viewer' ? 'selected' : '' ?>>Viewer</option>
-                                <option value="manager" <?= $selectedUser['role'] == 'manager' ? 'selected' : '' ?>>Manager</option>
-                                <option value="director" <?= $selectedUser['role'] == 'director' ? 'selected' : '' ?>>Director</option>
-                                <option value="architect" <?= $selectedUser['role'] == 'architect' ? 'selected' : '' ?>>Architect</option>
-                                <option value="admin" <?= $selectedUser['role'] == 'admin' ? 'selected' : '' ?>>Admin</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div style="background: rgba(99,102,241,0.1); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid var(--primary-color);">
-                        <h4 style="margin-bottom: 0.75rem; font-size: 0.9rem; color: var(--primary-color);">System Capabilities</h4>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                            <label class="checkbox-item"><input type="checkbox" name="can_add_project" id="edit_can_add" <?= $selectedUser['can_add_project'] ? 'checked' : '' ?>> Add Project</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_edit_project" id="edit_can_edit" <?= $selectedUser['can_edit_project'] ? 'checked' : '' ?>> Edit Project</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_view_tracking" id="edit_can_track" <?= $selectedUser['can_view_tracking'] ? 'checked' : '' ?>> View Tracking</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_assign_actions" id="edit_can_assign" <?= $selectedUser['can_assign_actions'] ? 'checked' : '' ?>> Assign Actions</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_manage_clients" <?= $selectedUser['can_manage_clients'] ? 'checked' : '' ?>> Manage Clients</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_manage_pros" <?= $selectedUser['can_manage_pros'] ? 'checked' : '' ?>> Manage Pros</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_edit_services" <?= $selectedUser['can_edit_services'] ? 'checked' : '' ?>> Edit Services</label>
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group"><label>First Name</label><input type="text" name="first_name" value="<?= htmlspecialchars($selectedUser['first_name'] ?? '') ?>"></div>
-                        <div class="form-group"><label>Last Name</label><input type="text" name="last_name" value="<?= htmlspecialchars($selectedUser['last_name'] ?? '') ?>"></div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group"><label>Email</label><input type="email" name="email" value="<?= htmlspecialchars($selectedUser['email']) ?>"></div>
-                        <div class="form-group"><label>Phone</label><input type="text" name="phone" value="<?= htmlspecialchars($selectedUser['phone'] ?? '') ?>"></div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" name="username" value="<?= htmlspecialchars($selectedUser['username']) ?>" required>
                     </div>
 
                     <div class="form-group">
-                        <label>Status</label>
-                        <select name="is_active">
-                            <option value="Yes" <?= $selectedUser['is_active'] == 'Yes' ? 'selected' : '' ?>>Active</option>
-                            <option value="No" <?= $selectedUser['is_active'] == 'No' ? 'selected' : '' ?>>Inactive</option>
+                        <label>Role</label>
+                        <select name="role" id="editRole" onchange="togglePermissions('edit')">
+                            <option value="viewer" <?= $selectedUser['role'] == 'viewer' ? 'selected' : '' ?>>Viewer</option>
+                            <option value="manager" <?= $selectedUser['role'] == 'manager' ? 'selected' : '' ?>>Manager</option>
+                            <option value="director" <?= $selectedUser['role'] == 'director' ? 'selected' : '' ?>>Director</option>
+                            <option value="admin" <?= $selectedUser['role'] == 'admin' ? 'selected' : '' ?>>Admin</option>
                         </select>
                     </div>
 
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <div style="background: rgba(99,102,241,0.1); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--primary-color);">
+                        <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Capabilities Matrix</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <label class="checkbox-item"><input type="checkbox" name="can_add_project" id="edit_can_add" <?= $selectedUser['can_add_project'] ? 'checked' : '' ?>> Add Project</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_edit_details" id="edit_can_edit" <?= $selectedUser['can_edit_details'] ? 'checked' : '' ?>> Edit Core Details</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_update_status" id="edit_can_status" <?= $selectedUser['can_update_status'] ? 'checked' : '' ?>> Update BCA/Status</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_view_tracking" <?= $selectedUser['can_view_tracking'] ? 'checked' : '' ?>> View Tracking Projects</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_manage_clients" <?= $selectedUser['can_manage_clients'] ? 'checked' : '' ?>> Manage Clients</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_manage_pros" <?= $selectedUser['can_manage_pros'] ? 'checked' : '' ?>> Manage Pros</label>
+                        </div>
+                    </div>
+                    <br>
+                    <button type="submit" class="btn btn-primary">Save Permissions</button>
                 </form>
-            <?php else: ?>
-                <div class="placeholder"><p>Select a user to manage permissions.</p></div>
             <?php endif; ?>
         </div>
     </div>
@@ -225,21 +186,17 @@ require_once 'header.php';
 function showCreateUserForm() { document.getElementById('createUserModal').style.display = 'block'; }
 function hideCreateUserForm() { document.getElementById('createUserModal').style.display = 'none'; }
 
+<script>
 function togglePermissions(type) {
-    const roleSelect = document.getElementById(type + 'Role');
-    if(!roleSelect) return;
-    const role = roleSelect.value;
-    const addCheck = document.getElementById(type + '_can_add');
-    const editCheck = document.getElementById(type + '_can_edit');
-
-    if (role === 'viewer') {
-        if(addCheck) { addCheck.checked = false; addCheck.disabled = true; }
-        if(editCheck) { editCheck.checked = false; editCheck.disabled = true; }
-    } else {
-        if(addCheck) addCheck.disabled = false;
-        if(editCheck) editCheck.disabled = false;
-    }
+    const role = document.getElementById(type + 'Role').value;
+    const isViewer = role === 'viewer';
+    const checks = ['_can_add', '_can_edit', '_can_status'];
+    checks.forEach(id => {
+        const el = document.getElementById(type + id);
+        if(el) { el.disabled = isViewer; if(isViewer) el.checked = false; }
+    });
 }
+</script>
 
 document.addEventListener('DOMContentLoaded', function() {
     if(document.getElementById('editRole')) togglePermissions('edit');
