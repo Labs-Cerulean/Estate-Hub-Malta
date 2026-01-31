@@ -2,9 +2,9 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// Only admins and managers can create projects
-if (!isAdmin() && getCurrentRole() !== 'manager') {
-    header('Location: dashboard.php');
+// Only check permission
+if (!hasPermission('can_add_project')) {
+    header('Location: dashboard.php?error=unauthorized');
     exit;
 }
 
