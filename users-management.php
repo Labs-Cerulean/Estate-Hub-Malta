@@ -19,11 +19,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = $_POST['password'] ?? '';
         $role = $_POST['role'] ?? 'viewer';
         
-        // Rev 2.0 Granular Permissions
+        // Granular Permissions
         $canAdd = ($role !== 'viewer') ? (isset($_POST['can_add_project']) ? 1 : 0) : 0;
         $canEdit = ($role !== 'viewer') ? (isset($_POST['can_edit_project']) ? 1 : 0) : 0;
         $canViewTracking = isset($_POST['can_view_tracking']) ? 1 : 0;
         $canAssign = isset($_POST['can_assign_actions']) ? 1 : 0;
+        $canClients = isset($_POST['can_manage_clients']) ? 1 : 0;
+        $canPros = isset($_POST['can_manage_pros']) ? 1 : 0;
+        $canServices = isset($_POST['can_edit_services']) ? 1 : 0;
 
         if (empty($username) || empty($email) || empty($password)) {
             $error = 'Username, email, and password are required';
@@ -32,22 +35,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $passwordHash = password_hash($password, PASSWORD_DEFAULT);
                 $stmt = $pdo->prepare("
                     INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone, 
-                                     can_add_project, can_edit_project, can_view_tracking, can_assign_actions)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     can_add_project, can_edit_project, can_view_tracking, can_assign_actions,
+                                     can_manage_clients, can_manage_pros, can_edit_services)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $stmt->execute([
                     $username, $email, $passwordHash, $role, 
                     $_POST['first_name'], $_POST['last_name'], $_POST['phone'],
-                    $canAdd, $canEdit, $canViewTracking, $canAssign
+                    $canAdd, $canEdit, $canViewTracking, $canAssign,
+                    $canClients, $canPros, $canServices
                 ]);
-                $message = 'User created successfully with granular permissions!';
+                $message = 'User created successfully!';
             } catch (PDOException $e) {
                 $error = 'Failed to create user: ' . $e->getMessage();
             }
         }
     }
     
-    // 2. HANDLE USER UPDATE
+    // 2. HANDLE USER UPDATE (Fixes the "Username" error)
     elseif ($_POST['action'] === 'update_user') {
         $userId = $_POST['user_id'];
         $role = $_POST['role'];
@@ -55,8 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Enforce Rev 2.0 Rule: Viewers never get Add/Edit
         $canAdd = ($role !== 'viewer') ? (isset($_POST['can_add_project']) ? 1 : 0) : 0;
         $canEdit = ($role !== 'viewer') ? (isset($_POST['can_edit_project']) ? 1 : 0) : 0;
+        
         $canViewTracking = isset($_POST['can_view_tracking']) ? 1 : 0;
         $canAssign = isset($_POST['can_assign_actions']) ? 1 : 0;
+        $canClients = isset($_POST['can_manage_clients']) ? 1 : 0;
+        $canPros = isset($_POST['can_manage_pros']) ? 1 : 0;
+        $canServices = isset($_POST['can_edit_services']) ? 1 : 0;
 
         try {
             $stmt = $pdo->prepare("
@@ -64,13 +73,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     username = ?, email = ?, first_name = ?, last_name = ?, 
                     phone = ?, role = ?, is_active = ?,
                     can_add_project = ?, can_edit_project = ?, 
-                    can_view_tracking = ?, can_assign_actions = ?
+                    can_view_tracking = ?, can_assign_actions = ?,
+                    can_manage_clients = ?, can_manage_pros = ?, can_edit_services = ?
                 WHERE id = ?
             ");
             $stmt->execute([
                 $_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'],
                 $_POST['phone'], $role, $_POST['is_active'],
-                $canAdd, $canEdit, $canViewTracking, $canAssign,
+                $canAdd, $canEdit, $canViewTracking, $canAssign, 
+                $canClients, $canPros, $canServices,
                 $userId
             ]);
             $message = 'User updated successfully!';
@@ -78,14 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Update failed: ' . $e->getMessage();
         }
     }
-
-    // (Keep your existing assign_client, remove_client, etc. logic here)
-    // ...
 }
 
 $users = getAllUsers($pdo);
-$clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll();
-
 $selectedUser = null;
 if (isset($_GET['user_id'])) {
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
@@ -133,9 +139,13 @@ require_once 'header.php';
                     <input type="hidden" name="action" value="update_user">
                     <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
                     
-                    <h3>Edit: <?= htmlspecialchars($selectedUser['username']) ?></h3>
+                    <h3>Edit Account: <?= htmlspecialchars($selectedUser['username']) ?></h3>
                     
                     <div class="form-row">
+                        <div class="form-group">
+                            <label>Username (Required)</label>
+                            <input type="text" name="username" value="<?= htmlspecialchars($selectedUser['username']) ?>" required>
+                        </div>
                         <div class="form-group">
                             <label>Role</label>
                             <select name="role" id="editRole" onchange="togglePermissions('edit')">
@@ -146,48 +156,37 @@ require_once 'header.php';
                                 <option value="admin" <?= $selectedUser['role'] == 'admin' ? 'selected' : '' ?>>Admin</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label>Phone</label>
-                            <input type="text" name="phone" value="<?= htmlspecialchars($selectedUser['phone'] ?? '') ?>">
-                        </div>
                     </div>
 
-                    <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
-                        <h4 style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--primary-color);">System Capabilities</h4>
+                    <div style="background: rgba(99,102,241,0.1); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid var(--primary-color);">
+                        <h4 style="margin-bottom: 0.75rem; font-size: 0.9rem; color: var(--primary-color);">System Capabilities</h4>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                            <label class="checkbox-item">
-                                <input type="checkbox" name="can_add_project" id="edit_can_add" <?= $selectedUser['can_add_project'] ? 'checked' : '' ?>> 
-                                Add Projects
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" name="can_edit_project" id="edit_can_edit" <?= $selectedUser['can_edit_project'] ? 'checked' : '' ?>> 
-                                Edit Projects
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" name="can_view_tracking" id="edit_can_track" <?= $selectedUser['can_view_tracking'] ? 'checked' : '' ?>> 
-                                View Tracking
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" name="can_assign_actions" id="edit_can_assign" <?= $selectedUser['can_assign_actions'] ? 'checked' : '' ?>> 
-                                Assign Actions
-                            </label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_add_project" id="edit_can_add" <?= $selectedUser['can_add_project'] ? 'checked' : '' ?>> Add Project</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_edit_project" id="edit_can_edit" <?= $selectedUser['can_edit_project'] ? 'checked' : '' ?>> Edit Project</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_view_tracking" id="edit_can_track" <?= $selectedUser['can_view_tracking'] ? 'checked' : '' ?>> View Tracking</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_assign_actions" id="edit_can_assign" <?= $selectedUser['can_assign_actions'] ? 'checked' : '' ?>> Assign Actions</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_manage_clients" <?= $selectedUser['can_manage_clients'] ? 'checked' : '' ?>> Manage Clients</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_manage_pros" <?= $selectedUser['can_manage_pros'] ? 'checked' : '' ?>> Manage Pros</label>
+                            <label class="checkbox-item"><input type="checkbox" name="can_edit_services" <?= $selectedUser['can_edit_services'] ? 'checked' : '' ?>> Edit Services</label>
                         </div>
                     </div>
 
                     <div class="form-row">
-                        <div class="form-group"><label>First Name</label><input type="text" name="first_name" value="<?= $selectedUser['first_name'] ?>"></div>
-                        <div class="form-group"><label>Last Name</label><input type="text" name="last_name" value="<?= $selectedUser['last_name'] ?>"></div>
+                        <div class="form-group"><label>First Name</label><input type="text" name="first_name" value="<?= htmlspecialchars($selectedUser['first_name'] ?? '') ?>"></div>
+                        <div class="form-group"><label>Last Name</label><input type="text" name="last_name" value="<?= htmlspecialchars($selectedUser['last_name'] ?? '') ?>"></div>
                     </div>
 
                     <div class="form-row">
-                        <div class="form-group"><label>Email</label><input type="email" name="email" value="<?= $selectedUser['email'] ?>"></div>
-                        <div class="form-group">
-                            <label>Status</label>
-                            <select name="is_active">
-                                <option value="Yes" <?= $selectedUser['is_active'] == 'Yes' ? 'selected' : '' ?>>Active</option>
-                                <option value="No" <?= $selectedUser['is_active'] == 'No' ? 'selected' : '' ?>>Inactive</option>
-                            </select>
-                        </div>
+                        <div class="form-group"><label>Email</label><input type="email" name="email" value="<?= htmlspecialchars($selectedUser['email']) ?>"></div>
+                        <div class="form-group"><label>Phone</label><input type="text" name="phone" value="<?= htmlspecialchars($selectedUser['phone'] ?? '') ?>"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select name="is_active">
+                            <option value="Yes" <?= $selectedUser['is_active'] == 'Yes' ? 'selected' : '' ?>>Active</option>
+                            <option value="No" <?= $selectedUser['is_active'] == 'No' ? 'selected' : '' ?>>Inactive</option>
+                        </select>
                     </div>
 
                     <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -217,14 +216,6 @@ require_once 'header.php';
                     <option value="architect">Architect</option>
                 </select>
             </div>
-            
-            <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
-                <label class="checkbox-item"><input type="checkbox" name="can_add_project" id="create_can_add"> Can Add Projects</label><br>
-                <label class="checkbox-item"><input type="checkbox" name="can_edit_project" id="create_can_edit"> Can Edit Projects</label><br>
-                <label class="checkbox-item"><input type="checkbox" name="can_view_tracking" id="create_can_track"> Can View Tracking</label><br>
-                <label class="checkbox-item"><input type="checkbox" name="can_assign_actions" id="create_can_assign"> Can Assign Actions</label>
-            </div>
-
             <button type="submit" class="btn btn-primary">Create User</button>
         </form>
     </div>
@@ -234,26 +225,22 @@ require_once 'header.php';
 function showCreateUserForm() { document.getElementById('createUserModal').style.display = 'block'; }
 function hideCreateUserForm() { document.getElementById('createUserModal').style.display = 'none'; }
 
-/**
- * Rev 2.0 Logic: If role is 'viewer', force-disable Add/Edit checkboxes
- */
 function togglePermissions(type) {
-    const role = document.getElementById(type + 'Role').value;
+    const roleSelect = document.getElementById(type + 'Role');
+    if(!roleSelect) return;
+    const role = roleSelect.value;
     const addCheck = document.getElementById(type + '_can_add');
     const editCheck = document.getElementById(type + '_can_edit');
 
     if (role === 'viewer') {
-        addCheck.checked = false;
-        addCheck.disabled = true;
-        editCheck.checked = false;
-        editCheck.disabled = true;
+        if(addCheck) { addCheck.checked = false; addCheck.disabled = true; }
+        if(editCheck) { editCheck.checked = false; editCheck.disabled = true; }
     } else {
-        addCheck.disabled = false;
-        editCheck.disabled = false;
+        if(addCheck) addCheck.disabled = false;
+        if(editCheck) editCheck.disabled = false;
     }
 }
 
-// Run once on load for edit page
 document.addEventListener('DOMContentLoaded', function() {
     if(document.getElementById('editRole')) togglePermissions('edit');
 });
