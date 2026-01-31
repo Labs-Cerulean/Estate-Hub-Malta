@@ -259,11 +259,17 @@ $respComplete = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 $canFinal = $allSeqComplete;
 $can = $respComplete;
 
-// Check if user can edit this project
-$canEdit = canEditProject($pdo, $projectId);
+// Check if this project is marked as "Tracking"
+$isTracking = (bool)$project['is_tracking']; 
 
-// NEW: Check if user can edit services section
-$canEditServices = isAdmin() || isServicesEngineer();
+// Rule: User must have permission to see tracking projects
+if ($isTracking && !hasPermission('can_view_tracking')) {
+    header('Location: dashboard.php?error=access_denied');
+    exit;
+}
+
+$canEdit = hasPermission('can_edit_project');
+$canEditServices = hasPermission('can_edit_services');
 
 // Set disabled and readonly attributes based on edit permissions
 $disabledAttr = $canEdit ? '' : 'disabled';
