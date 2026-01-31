@@ -160,8 +160,8 @@ foreach ($filteredProjects as &$project) {
     $paNumbers = $paStmt->fetchAll(PDO::FETCH_COLUMN);
     $project['pa_numbers'] = $paNumbers;
     
-    // Check if user can edit this project
-    $project['can_edit'] = canEditProject($pdo, $project['id']);
+    // Now checks for either permission to show the button
+    $project['can_edit'] = canEditProjectDetails($pdo, $project['id']) || canUpdateStatus($pdo, $project['id']);
     
     if ($mob) {
         $completedSteps = 0;
