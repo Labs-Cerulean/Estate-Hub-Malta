@@ -239,7 +239,7 @@ function getUserExcludedProjects($pdo, $userId) {
 
 /**
  * Get user by ID with firm details
- */
+ 
 function getUserById($pdo, $userId) {
     $stmt = $pdo->prepare("
         SELECT u.*, 
@@ -253,7 +253,7 @@ function getUserById($pdo, $userId) {
     $stmt->execute([$userId]);
     return $stmt->fetch();
 }
-
+*/
 /**
  * Create a new user
  */
