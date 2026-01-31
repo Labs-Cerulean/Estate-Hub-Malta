@@ -3,8 +3,8 @@ require_once 'init.php';
 require_once 'session-check.php';
 
 // Check if user has permission to manage clients (admin or manager)
-if (!isAdmin() && getCurrentRole() !== 'manager') {
-    header('Location: dashboard.php');
+if (!hasPermission('can_manage_clients')) {
+    header('Location: dashboard.php?error=unauthorized');
     exit;
 }
 
