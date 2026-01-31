@@ -238,18 +238,6 @@ function getUserExcludedProjects($pdo, $userId) {
 }
 
 /**
- * Get all users in the system
- */
-function getAllUsers($pdo) {
-    $stmt = $pdo->query("
-        SELECT id, username, email, role, first_name, last_name, is_active, created_at, last_login
-        FROM users
-        ORDER BY username ASC
-    ");
-    return $stmt->fetchAll();
-}
-
-/**
  * Get user by ID with firm details
  */
 function getUserById($pdo, $userId) {
