@@ -3,11 +3,10 @@ require_once 'init.php';
 require_once 'session-check.php';
 
 // Only admins and managers can edit projects
-if (!isAdmin() && getCurrentRole() != 'manager') {
-    header('Location: dashboard.php');
+if (!hasPermission('can_edit_project')) {
+    header('Location: dashboard.php?error=unauthorized');
     exit;
 }
-
 $projectId = $_GET['id'] ?? null;
 if (!$projectId) {
     header('Location: dashboard.php');
