@@ -5,18 +5,27 @@
  */
 
 /**
- * Get all accessible projects for a user
+ * Rev 2.0: Get all accessible projects for a user
  * Logic:
- * - Admins see all projects
- * - Architects see projects where their assigned firms match project architect/structural engineer
- * - Other users see projects from assigned clients, minus any excluded projects
+ * - Admins: See everything.
+ * - View Tracking: If permission is OFF, projects with is_tracking=1 are hidden.
+ * - Architects: See projects where their assigned firms match project professionals.
+ * - Others (Managers/Directors/Viewers): See projects from assigned clients.
+ * - Exclusions: Explicitly excluded projects are always hidden.
  */
 function getAccessibleProjects($pdo, $userId = null) {
     if ($userId === null) {
         $userId = getCurrentUserId();
     }
     
-    // Admins have access to all projects
+    // 1. Check Tracking Permission
+    // If they aren't admin and don't have the permission, we filter out tracking projects
+    $trackingFilter = "";
+    if (!isAdmin() && !hasPermission('can_view_tracking')) {
+        $trackingFilter = " AND p.is_tracking = 0 ";
+    }
+
+    // 2. ADMIN ACCESS (Sees everything)
     if (isAdmin()) {
         $stmt = $pdo->prepare("
             SELECT p.*, c.name as client_name, c.type as client_type
@@ -28,13 +37,12 @@ function getAccessibleProjects($pdo, $userId = null) {
         return $stmt->fetchAll();
     }
     
-    // Get user details
+    // Get user details for specific role logic
     $user = getUserById($pdo, $userId);
     if (!$user) return [];
     
-    // Check if user is an architect
+    // 3. ARCHITECT ACCESS (Firm-based)
     if ($user['role'] === 'architect') {
-        // Architects see projects based on their assigned firms
         $stmt = $pdo->prepare("
             SELECT DISTINCT p.*, c.name as client_name, c.type as client_type
             FROM projects p
@@ -43,21 +51,20 @@ function getAccessibleProjects($pdo, $userId = null) {
             WHERE (
                 (? IS NOT NULL AND ppn.architect_id IN (
                     SELECT id FROM professionals 
-                    WHERE firm_name = (
-                        SELECT firm_name FROM professionals WHERE id = ?
-                    ) AND role_type = 'architect'
+                    WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) 
+                    AND role_type = 'architect'
                 ))
                 OR
                 (? IS NOT NULL AND ppn.structural_engineer_id IN (
                     SELECT id FROM professionals 
-                    WHERE firm_name = (
-                        SELECT firm_name FROM professionals WHERE id = ?
-                    ) AND role_type = 'structural_engineer'
+                    WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) 
+                    AND role_type = 'structural_engineer'
                 ))
             )
             AND p.id NOT IN (
                 SELECT project_id FROM user_project_exclusions WHERE user_id = ?
             )
+            $trackingFilter
             ORDER BY p.created_at DESC
         ");
         $stmt->execute([
@@ -70,7 +77,7 @@ function getAccessibleProjects($pdo, $userId = null) {
         return $stmt->fetchAll();
     }
     
-    // Other users see projects from assigned clients
+    // 4. STANDARD ACCESS (Managers, Directors, Viewers - Client-based)
     $stmt = $pdo->prepare("
         SELECT DISTINCT p.*, c.name as client_name, c.type as client_type
         FROM projects p
@@ -80,6 +87,7 @@ function getAccessibleProjects($pdo, $userId = null) {
         AND p.id NOT IN (
             SELECT project_id FROM user_project_exclusions WHERE user_id = ?
         )
+        $trackingFilter
         ORDER BY p.created_at DESC
     ");
     $stmt->execute([$userId, $userId]);
