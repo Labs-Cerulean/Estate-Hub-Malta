@@ -540,4 +540,22 @@ function getRoleDescription($role) {
     return $descriptions[$role] ?? 'Unknown Role';
 }
 
+function formatPANumber($pa) {
+    // Input: PA005324 -> Output: PA/0053/24
+    if (preg_match('/^([A-Z]{2})(\d{4})(\d{2})$/', $pa, $matches)) {
+        return "{$matches[1]}/{$matches[2]}/{$matches[3]}";
+    }
+    return $pa; // Return original if format doesn't match
+}
+
+function getEAppsUrl($pa) {
+    // Ensure we use the raw PA number (no slashes) for the URL
+    $rawPa = str_replace('/', '', $pa);
+    // Based on your existing logic in mobilization.php
+    if (preg_match('/(PA|PC|DN)(\d+)(\d{2})/', $rawPa, $m)) {
+        return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}";
+    }
+    return "#";
+}
+
 ?>
