@@ -527,9 +527,9 @@ require_once 'header.php';
     <div class="projects-header">
       <h2 class="section-title">Projects</h2>
       <span></span>
-      <?php if ($isAdmin || getCurrentRole() == 'manager'): ?>
-          <a href="create-project.php" class="btn">Add Project</a>
-      <?php endif; ?>
+      <?php if (hasPermission('can_add_project')): ?>
+            <a href="create-project.php" class="btn">Add Project</a>
+        <?php endif; ?>
     </div>
 
     <!-- Filters Section -->
