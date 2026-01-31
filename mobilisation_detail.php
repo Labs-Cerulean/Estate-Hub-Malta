@@ -2,6 +2,16 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
+// 1. Check if user can update status (BCA checkboxes)
+$canUpdate = canUpdateStatus($pdo, $projectId);
+$disabledAttr = $canUpdate ? '' : 'disabled';
+
+// 2. Check if project is tracking and user has permission
+if ($project['is_tracking'] == 1 && !hasPermission('can_view_tracking')) {
+    header('Location: dashboard.php?error=access_denied');
+    exit;
+}
+
 // Get and validate project ID - accept both formats for compatibility
 $projectId = $_GET['project_id'] ?? $_GET['projectid'] ?? null;
 
@@ -700,11 +710,9 @@ require_once 'header.php';
         </fieldset>
 
           <div class="form-actions" style="margin-top: 1.5rem;">
-              <?php if (hasRole('admin') || hasRole('manager')): ?>
-              <button type="submit" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1rem; margin-bottom: 2rem;">
-                Save BCA Updates
-              </button>
-             <?php endif; ?>
+              <?php if ($canUpdate): ?>
+                    <button type="submit" class="btn btn-primary">Save BCA Updates</button>
+                <?php endif; ?>
             </div>
           </form>
     </section>
