@@ -36,8 +36,11 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
                     <a href="mobilization.php" class="nav-link <?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilization</a>
                     
-                    <?php if (isAdmin() || getCurrentRole() === 'manager'): ?>
+                    <?php if (hasPermission('can_manage_clients')): ?>
                         <a href="clients.php" class="nav-link <?= $currentPage === 'clients' ? 'active' : '' ?>">Clients</a>
+                    <?php endif; ?>
+
+                    <?php if (hasPermission('can_manage_pros')): ?>
                         <a href="professionals-management.php" class="nav-link <?= $currentPage === 'professionals-management' ? 'active' : '' ?>">Professionals</a>
                     <?php endif; ?>
                     
