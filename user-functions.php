@@ -1,11 +1,5 @@
 <?php
 /**
- * user-functions.php - User and access control functions
- * All user management and project access logic
- */
-
-<?php
-/**
  * user-functions.php - Rev 2.0 Capability Logic
  */
 
