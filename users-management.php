@@ -260,7 +260,7 @@ require_once 'header.php';
                     <select name="role" id="createRole" style="flex:1;">
                         <?php foreach($rolesList as $r): ?>
                             <option value="<?= $r ?>"><?= ucwords(str_replace('_', ' ', $r)) ?></option>
-                        <?php endselect; ?>
+                        <?php endforeach; ?>
                     </select>
                     <button type="button" class="btn btn-secondary btn-sm" onclick="applyRoleDefaults('create')">Load Defaults</button>
                 </div>
