@@ -2,822 +2,491 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// Get current user
+// Get current user details
 $userId = getCurrentUserId();
 $userName = getCurrentUserFullName();
 $userRole = getCurrentRole();
 $isAdmin = isAdmin();
 
-// Get filter and sort parameters
-$filterType = $_GET['filter_type'] ?? 'all';
-$filterStatus = $_GET['filter_status'] ?? 'all';
-$filterCity = $_GET['filter_city'] ?? 'all';
-$filterClient = $_GET['filter_client'] ?? 'all';
-$filterArchitect = $_GET['filter_architect'] ?? 'all';
-$filterEngineer = $_GET['filter_engineer'] ?? 'all';
-$filterIsland = $_GET['filter_island'] ?? 'all';
-$filterFinishLevel = $_GET['filter_finish_level'] ?? 'all';
-$sortBy = $_GET['sort'] ?? 'name';
-$sortOrder = $_GET['order'] ?? 'ASC';
+// Determine Dashboard View Type based on PDF specifications
+$dashboardType = 'Project Dashboard'; // Default
+if ($userRole === 'admin') {
+    $dashboardType = 'Admin Dashboard';
+} elseif ($userRole === 'director') {
+    $dashboardType = 'Company Dashboard';
+} elseif (in_array($userRole, ['sales_manager', 'sales_agent'])) {
+    $dashboardType = 'Sales Dashboard';
+} elseif ($userRole === 'condominium_agent') {
+    $dashboardType = 'None';
+}
 
-// Validate sort parameters
-$allowedSorts = ['name', 'client', 'city', 'type', 'finish_level'];
-$allowedOrders = ['ASC', 'DESC'];
-if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
-if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
+// If user has no dashboard access, don't process filters
+if ($dashboardType !== 'None') {
+    // Get filter and sort parameters
+    $filterType = $_GET['filter_type'] ?? 'all';
+    $filterStatus = $_GET['filter_status'] ?? 'all';
+    $filterCity = $_GET['filter_city'] ?? 'all';
+    $filterClient = $_GET['filter_client'] ?? 'all';
+    $filterArchitect = $_GET['filter_architect'] ?? 'all';
+    $filterEngineer = $_GET['filter_engineer'] ?? 'all';
+    $filterIsland = $_GET['filter_island'] ?? 'all';
+    $filterFinishLevel = $_GET['filter_finish_level'] ?? 'all';
+    $sortBy = $_GET['sort'] ?? 'name';
+    $sortOrder = $_GET['order'] ?? 'ASC';
 
-try {
-    // Get filter options - but only for accessible clients/projects
-    if ($isAdmin) {
-        // Admins see all filter options
-        $cities = $pdo->query("SELECT DISTINCT city FROM projects ORDER BY city")->fetchAll(PDO::FETCH_COLUMN);
-        $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-    } else {
-        // Non-admins see only their accessible clients/projects
-        $user = getUserById($pdo, $userId);
+    // Validate sort parameters
+    $allowedSorts = ['name', 'client', 'city', 'type', 'finish_level'];
+    $allowedOrders = ['ASC', 'DESC'];
+    if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
+    if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
+
+    try {
+        // Fetch accessible projects using the Rev 2.0 engine
+        $projects = getAccessibleProjects($pdo, $userId);
         
-        if ($user['role'] === 'architect') {
-            // Architects see clients/cities from their firm's projects
-            $stmt = $pdo->prepare("
-                SELECT DISTINCT c.id, c.name
-                FROM clients c
-                INNER JOIN projects p ON c.id = p.clientid
-                INNER JOIN project_pa_numbers ppn ON p.id = ppn.project_id
-                WHERE (
-                    (? IS NOT NULL AND ppn.architect_id IN (
-                        SELECT id FROM professionals 
-                        WHERE firm_name = (
-                            SELECT firm_name FROM professionals WHERE id = ?
-                        ) AND role_type = 'architect'
-                    ))
-                    OR
-                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
-                        SELECT id FROM professionals 
-                        WHERE firm_name = (
-                            SELECT firm_name FROM professionals WHERE id = ?
-                        ) AND role_type = 'structural_engineer'
-                    ))
-                )
-                ORDER BY c.name
-            ");
-            $stmt->execute([
-                $user['assigned_architect_firm_id'],
-                $user['assigned_architect_firm_id'],
-                $user['assigned_structural_firm_id'],
-                $user['assigned_structural_firm_id']
-            ]);
-            $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            $stmt = $pdo->prepare("
-                SELECT DISTINCT p.city
-                FROM projects p
-                INNER JOIN project_pa_numbers ppn ON p.id = ppn.project_id
-                WHERE (
-                    (? IS NOT NULL AND ppn.architect_id IN (
-                        SELECT id FROM professionals 
-                        WHERE firm_name = (
-                            SELECT firm_name FROM professionals WHERE id = ?
-                        ) AND role_type = 'architect'
-                    ))
-                    OR
-                    (? IS NOT NULL AND ppn.structural_engineer_id IN (
-                        SELECT id FROM professionals 
-                        WHERE firm_name = (
-                            SELECT firm_name FROM professionals WHERE id = ?
-                        ) AND role_type = 'structural_engineer'
-                    ))
-                )
-                ORDER BY p.city
-            ");
-            $stmt->execute([
-                $user['assigned_architect_firm_id'],
-                $user['assigned_architect_firm_id'],
-                $user['assigned_structural_firm_id'],
-                $user['assigned_structural_firm_id']
-            ]);
-            $cities = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        } else {
-            // Other users see only assigned clients
-            $clients = getUserClients($pdo, $userId);
-            
-            $stmt = $pdo->prepare("
-                SELECT DISTINCT p.city
-                FROM projects p
-                INNER JOIN user_client_access uca ON p.clientid = uca.client_id
-                WHERE uca.user_id = ?
-                ORDER BY p.city
-            ");
-            $stmt->execute([$userId]);
-            $cities = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        }
-    }
-    
-    // Get all architects and engineers (for filters)
-    $architects = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'architect' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-    $engineers = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'structural_engineer' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-
-    // ===== USE getAccessibleProjects() INSTEAD OF DIRECT QUERY =====
-    $projects = getAccessibleProjects($pdo, $userId);
-    
-    // Apply additional filters to accessible projects
-    if ($filterType !== 'all') {
-        $projects = array_filter($projects, function($project) use ($filterType) {
-            return $project['type'] === $filterType;
-        });
-    }
-    
-    if ($filterCity !== 'all') {
-        $projects = array_filter($projects, function($project) use ($filterCity) {
-            return $project['city'] === $filterCity;
-        });
-    }
-    
-    if ($filterClient !== 'all') {
-        $projects = array_filter($projects, function($project) use ($filterClient) {
-            return $project['clientid'] == $filterClient;
-        });
-    }
-    
-    if ($filterIsland !== 'all') {
-        $projects = array_filter($projects, function($project) use ($filterIsland) {
-            return $project['island'] === $filterIsland;
-        });
-    }
-
-    if ($filterFinishLevel !== 'all') {
-        $projects = array_filter($projects, function($project) use ($filterFinishLevel) {
-            return $project['finishlevel'] === $filterFinishLevel;
-        });
-    }
-
-    
-    // Get PA numbers for all accessible projects
-    $projectIds = array_column($projects, 'id');
-    $paByProject = [];
-    
-    if (!empty($projectIds)) {
-        $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-        $paSql = "
-            SELECT pan.project_id, pan.pa_number, pan.pa_status, pan.architect_id, pan.structural_engineer_id,
-                   arch.name AS architect_name, se.name AS structural_engineer_name
-            FROM project_pa_numbers pan
-            LEFT JOIN professionals arch ON arch.id = pan.architect_id
-            LEFT JOIN professionals se ON se.id = pan.structural_engineer_id
-            WHERE pan.project_id IN ($placeholders)
-            ORDER BY pan.project_id, pan.id
-        ";
-        $paStmt = $pdo->prepare($paSql);
-        $paStmt->execute($projectIds);
-        $paNumbers = $paStmt->fetchAll(PDO::FETCH_ASSOC);
+        // Extract filter options dynamically from accessible projects
+        $cities = array_unique(array_filter(array_column($projects, 'city')));
+        sort($cities);
         
-        // Group PA numbers by project_id
-        foreach ($paNumbers as $pa) {
-            $paByProject[$pa['project_id']][] = $pa;
+        $clientIds = array_unique(array_column($projects, 'clientid'));
+        $clients = [];
+        if (!empty($clientIds)) {
+            $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
+            $clientStmt = $pdo->prepare("SELECT id, name FROM clients WHERE id IN ($placeholders) ORDER BY name");
+            $clientStmt->execute(array_values($clientIds));
+            $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
         }
-    }
-    
-    // Apply PA status filter
-    if ($filterStatus !== 'all') {
-        $projects = array_filter($projects, function($project) use ($paByProject, $filterStatus) {
-            $projectPAs = $paByProject[$project['id']] ?? [];
-            foreach ($projectPAs as $pa) {
-                if ($pa['pa_status'] === $filterStatus) {
-                    return true;
-                }
+
+        $architects = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'architect' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+        $engineers = $pdo->query("SELECT DISTINCT id, name FROM professionals WHERE role_type = 'structural_engineer' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+
+        // Apply filters
+        if ($filterType !== 'all') $projects = array_filter($projects, fn($p) => $p['type'] === $filterType);
+        if ($filterCity !== 'all') $projects = array_filter($projects, fn($p) => $p['city'] === $filterCity);
+        if ($filterClient !== 'all') $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
+        if ($filterIsland !== 'all') $projects = array_filter($projects, fn($p) => $p['island'] === $filterIsland);
+        if ($filterFinishLevel !== 'all') $projects = array_filter($projects, fn($p) => $p['finishlevel'] === $filterFinishLevel);
+
+        // Get PA numbers
+        $projectIds = array_column($projects, 'id');
+        $paByProject = [];
+        if (!empty($projectIds)) {
+            $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
+            $paSql = "
+                SELECT pan.project_id, pan.pa_number, pan.pa_status, pan.architect_id, pan.structural_engineer_id,
+                       arch.name AS architect_name, se.name AS structural_engineer_name
+                FROM project_pa_numbers pan
+                LEFT JOIN professionals arch ON arch.id = pan.architect_id
+                LEFT JOIN professionals se ON se.id = pan.structural_engineer_id
+                WHERE pan.project_id IN ($placeholders)
+            ";
+            $paStmt = $pdo->prepare($paSql);
+            $paStmt->execute($projectIds);
+            foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $pa) {
+                $paByProject[$pa['project_id']][] = $pa;
             }
-            return empty($projectPAs) && $filterStatus === 'TBC';
-        });
-    }
-    
-    // Apply architect filter
-    if ($filterArchitect !== 'all') {
-        $projects = array_filter($projects, function($project) use ($paByProject, $filterArchitect) {
-            $projectPAs = $paByProject[$project['id']] ?? [];
-            foreach ($projectPAs as $pa) {
-                if ($pa['architect_id'] == $filterArchitect) {
-                    return true;
-                }
-            }
-            return empty($projectPAs) && $filterArchitect === 'none';
-        });
-    }
-    
-    // Apply engineer filter
-    if ($filterEngineer !== 'all') {
-        $projects = array_filter($projects, function($project) use ($paByProject, $filterEngineer) {
-            $projectPAs = $paByProject[$project['id']] ?? [];
-            foreach ($projectPAs as $pa) {
-                if ($pa['structural_engineer_id'] == $filterEngineer) {
-                    return true;
-                }
-            }
-            return empty($projectPAs) && $filterEngineer === 'none';
-        });
-    }
-    
-    // Sort projects
-    usort($projects, function($a, $b) use ($sortBy, $sortOrder) {
-        if ($sortBy === 'client') {
-            $valA = $a['client_name'] ?? '';
-            $valB = $b['client_name'] ?? '';
-        } elseif ($sortBy === 'finish_level') {
-            $valA = $a['finishlevel'] ?? 'ZZZ'; // Put N/A at end
-            $valB = $b['finishlevel'] ?? 'ZZZ';
-        } else {
-            $valA = $a[$sortBy];
-            $valB = $b[$sortBy];
         }
+
+        // Apply PA specific filters
+        if ($filterStatus !== 'all' || $filterArchitect !== 'all' || $filterEngineer !== 'all') {
+            $projects = array_filter($projects, function($project) use ($paByProject, $filterStatus, $filterArchitect, $filterEngineer) {
+                $projectPAs = $paByProject[$project['id']] ?? [];
+                if (empty($projectPAs)) return false; // Hide projects with no PAs if filtering by PA attribute
+                
+                foreach ($projectPAs as $pa) {
+                    $statusMatch = ($filterStatus === 'all' || $pa['pa_status'] === $filterStatus);
+                    $archMatch = ($filterArchitect === 'all' || $pa['architect_id'] == $filterArchitect || ($filterArchitect === 'none' && empty($pa['architect_id'])));
+                    $engMatch = ($filterEngineer === 'all' || $pa['structural_engineer_id'] == $filterEngineer || ($filterEngineer === 'none' && empty($pa['structural_engineer_id'])));
+                    
+                    if ($statusMatch && $archMatch && $engMatch) return true;
+                }
+                return false;
+            });
+        }
+
+        // Sort projects
+        usort($projects, function($a, $b) use ($sortBy, $sortOrder) {
+            $valA = $sortBy === 'client' ? ($a['client_name'] ?? '') : ($sortBy === 'finish_level' ? ($a['finishlevel'] ?? 'ZZZ') : $a[$sortBy]);
+            $valB = $sortBy === 'client' ? ($b['client_name'] ?? '') : ($sortBy === 'finish_level' ? ($b['finishlevel'] ?? 'ZZZ') : $b[$sortBy]);
+            $comparison = strcasecmp($valA, $valB);
+            return $sortOrder === 'ASC' ? $comparison : -$comparison;
+        });
+
+        // CALCULATE KPI STATS
+        $projectCount = count($projects);
+        $mobilisedCount = 0;
+        $inProcessCount = 0;
+        $pendingCount = 0;
         
-        $comparison = strcasecmp($valA, $valB);
-        return $sortOrder === 'ASC' ? $comparison : -$comparison;
-    });
-    
-    // Get stats
-    $projectCount = count($projects);
-    $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
-    
-    // Count mobilised projects (only accessible ones)
-    $mobilisedCount = 0;
-    foreach ($projects as $project) {
-        $mobStatus = deriveMobilisationStatus($pdo, $project['id']);
-        if ($mobStatus === 'Mobilised') {
-            $mobilisedCount++;
+        // Director Specific KPIs
+        $companyKpis = [];
+
+        foreach ($projects as $project) {
+            $mobStatus = deriveMobilisationStatus($pdo, $project['id']);
+            if ($mobStatus === 'Mobilised') $mobilisedCount++;
+            elseif ($mobStatus === 'In Process') $inProcessCount++;
+            else $pendingCount++;
+
+            // Aggregate for Director Company Dashboard
+            if ($dashboardType === 'Company Dashboard') {
+                $cName = $project['client_name'] ?? 'Unassigned';
+                if (!isset($companyKpis[$cName])) {
+                    $companyKpis[$cName] = ['total' => 0, 'mobilised' => 0, 'pending' => 0];
+                }
+                $companyKpis[$cName]['total']++;
+                if ($mobStatus === 'Mobilised') $companyKpis[$cName]['mobilised']++;
+                else $companyKpis[$cName]['pending']++;
+            }
         }
+
+        $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
+        $activeClientsCount = count($clients);
+
+    } catch (Exception $e) {
+        $projects = [];
+        $paByProject = [];
+        $projectCount = 0;
     }
-    
-} catch (Exception $e) {
-    $projects = [];
-    $paByProject = [];
-    $cities = [];
-    $clients = [];
-    $architects = [];
-    $engineers = [];
-    $projectCount = 0;
-    $userCount = 0;
-    $mobilisedCount = 0;
 }
 
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterArchitect, $filterEngineer, $filterIsland, $filterFinishLevel;
-    
     $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
-    
     $params = [
-        'sort' => $column,
-        'order' => $newOrder,
-        'filter_type' => $filterType,
-        'filter_status' => $filterStatus,
-        'filter_city' => $filterCity,
-        'filter_client' => $filterClient,
-        'filter_architect' => $filterArchitect,
-        'filter_engineer' => $filterEngineer,
-        'filter_finish_level' => $filterFinishLevel,
+        'sort' => $column, 'order' => $newOrder, 'filter_type' => $filterType, 
+        'filter_status' => $filterStatus, 'filter_city' => $filterCity, 
+        'filter_client' => $filterClient, 'filter_architect' => $filterArchitect, 
+        'filter_engineer' => $filterEngineer, 'filter_finish_level' => $filterFinishLevel,
     ];
-    
-    // Handle island filter properly
-    if ($filterIsland !== 'all') {
-        $params['filterisland'] = $filterIsland;
-    }
-    
+    if ($filterIsland !== 'all') $params['filterisland'] = $filterIsland;
     return 'dashboard.php?' . http_build_query($params);
 }
 
 function getSortIndicator($column) {
     global $sortBy, $sortOrder;
-    if ($sortBy === $column) {
-        return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
-    }
+    if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
     return '';
 }
 
-function buildPaUrl(?string $paNumber): ?string {
-    if (empty($paNumber)) return null;
-    
-    // Match PA/xxxxx/xx, PC/xxxxx/xx, or DN/xxxxx/xx format
-    if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null;
-    
-    $caseType = $m[1];      // PA, PC, or DN
-    $caseNumber = $m[2];    // The numeric identifier
-    $caseYear = $m[3];      // The year
-    
-    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$caseType}&casenumber={$caseNumber}&caseYear={$caseYear}";
-}
-
-// Set page title
-$pageTitle = 'Dashboard';
-// NOW output HTML
+$pageTitle = $dashboardType;
 require_once 'header.php';
 ?>
 
-
-  <title>Dashboard - Estate Hub</title>
-
-  <style>
-    .filters-section {
-      background: var(--bg-card);
-      border: 1px solid var(--border-glass);
-      padding: 1.5rem;
-      margin-bottom: 2rem;
-      border-radius: 16px;
-      backdrop-filter: blur(20px);
-    }
-
-    .filters-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1rem;
-    }
-
-    .filter-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    .filter-group label {
-      font-size: 0.85rem;
-      font-weight: 500;
-      color: var(--text-secondary);
-    }
-
-    .filter-group select {
-      padding: 0.6rem;
-      border: 1px solid var(--border-glass);
-      border-radius: 8px;
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-      font-size: 0.9rem;
-    }
-
-    .checkbox-group {
-      display: flex;
-      gap: 1rem;
-      align-items: center;
-    }
-
-    .checkbox-item {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .checkbox-item input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      cursor: pointer;
-      accent-color: var(--primary-color);
-    }
-
-    .checkbox-item label {
-      cursor: pointer;
-      margin: 0 !important;
-      font-weight: 500 !important;
-      color: var(--text-primary) !important;
-      font-size: 0.9rem !important;
-    }
-
-    .filter-buttons {
-      display: flex;
-      gap: 0.5rem;
-      justify-content: flex-start;
-      margin-top: 0.5rem;
-    }
-
-    .reset-btn {
-      padding: 0.6rem 1.2rem;
-      border: 1px solid var(--border-glass);
-      border-radius: 8px;
-      background: rgba(239, 68, 68, 0.2);
-      color: #ef4444;
-      cursor: pointer;
-      font-size: 0.9rem;
-      transition: all 0.3s ease;
-      text-decoration: none;
-      display: inline-block;
-    }
-
-    .reset-btn:hover {
-      background: rgba(239, 68, 68, 0.3);
-    }
-
-    .sortable-header {
-      cursor: pointer;
-      user-select: none;
-      transition: color 0.2s ease;
-      text-decoration: none;
-      color: var(--text-primary);
-      display: block;
-    }
-
-    .sortable-header:hover {
-      color: var(--primary-color);
-    }
-
-    .table-container {
-      overflow-x: auto;
-      border-radius: 12px;
-      border: 1px solid var(--border-glass);
-    }
-
-    thead th {
-      position: sticky;
-      top: 0;
-      background: var(--bg-card);
-      z-index: 10;
-      white-space: nowrap;
-    }
-
-    table {
-      width: 100%;
-      min-width: max-content;
-      border-collapse: collapse;
-    }
-
-    table th,
-    table td {
-      padding: 0.75rem 0.6rem;
-      text-align: left;
-      vertical-align: top;
-      white-space: nowrap;
-    }
-
-    /* Allow text wrapping only in specific columns */
-    table td:nth-child(1),  /* Project Name */
-    table td:nth-child(2),  /* Client */
-    table td:nth-child(5),  /* PA Number */
-    table td:nth-child(6),  /* PA Status */
-    table td:nth-child(7),  /* Architect */
-    table td:nth-child(8) { /* Engineer */
-      white-space: normal;
-      max-width: 150px;
-    }
-
-    /* Actions column - always visible, never wrapped */
-    table th:nth-child(9),
-    table td:nth-child(9) {
-      position: sticky;
-      right: 0;
-      background: var(--bg-card);
-      box-shadow: -2px 0 5px rgba(0,0,0,0.1);
-      min-width: 150px;
-      text-align: center;
-    }
-
-    /* Ensure buttons display properly */
-    .btn-sm {
-      white-space: nowrap;
-      display: inline-block;
-      margin: 0.2rem;
-    }
-
-    @media (max-width: 768px) {
-      .filters-grid {
-        grid-template-columns: 1fr;
-      }
-
-      table th:nth-child(9),
-      table td:nth-child(9) {
-        position: static;
-        box-shadow: none;
-      }
-    }
-
-
-    /* Vertical button stacking in Actions column */
-    table td:nth-child(9) {
-      text-align: center;
-      padding: 0.5rem !important;
-    }
-
-    table td:nth-child(9) .btn-sm {
-      display: block;
-      margin: 0.3rem auto;
-      padding: 0.5rem 1rem !important;
-      font-size: 0.85rem !important;
-      min-width: 70px;
-      width: 70px;
-    }
-  </style>
-
-
 <div class="main-container">
-  <h1 class="page-title">Dashboard</h1>
+    <h1 class="page-title"><?= htmlspecialchars($dashboardType) ?></h1>
 
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-number"><?php echo $projectCount; ?></div>
-      <div class="stat-label">Total Projects</div>
-    </div>
-
-    <div class="stat-card">
-      <div class="stat-number mobilised"><?php echo $mobilisedCount; ?></div>
-      <div class="stat-label">Mobilised</div>
-    </div>
-
-    <?php if ($isAdmin): ?>
-    <div class="stat-card">
-      <div class="stat-number"><?php echo $userCount; ?></div>
-      <div class="stat-label">Total Users</div>
-    </div>
-    <?php endif; ?>
-  </div>
-
-  <div class="projects-section">
-    <div class="projects-header">
-      <h2 class="section-title">Projects</h2>
-      <span></span>
-      <?php if (hasPermission('can_add_project')): ?>
-            <a href="create-project.php" class="btn">Add Project</a>
-        <?php endif; ?>
-    </div>
-
-    <!-- Filters Section -->
-    <div class="filters-section">
-      <form method="GET">
-        <div class="filters-grid">
-          <div class="filter-group">
-            <label>Project Type</label>
-            <select name="filter_type">
-              <option value="all" <?php echo $filterType === 'all' ? 'selected' : ''; ?>>All Types</option>
-              <option value="in-house" <?php echo $filterType === 'in-house' ? 'selected' : ''; ?>>In-House</option>
-              <option value="3rd-party" <?php echo $filterType === '3rd-party' ? 'selected' : ''; ?>>3rd Party</option>
-            </select>
-          </div>
-
-            <div class="filter-group">
-              <label>Finish Level</label>
-              <select name="filter_finish_level">
-                <option value="all" <?php echo $filterFinishLevel === 'all' ? 'selected' : ''; ?>>All Levels</option>
-                <option value="Common Parts Only" <?php echo $filterFinishLevel === 'Common Parts Only' ? 'selected' : ''; ?>>Common Parts Only</option>
-                <option value="Semi Finished" <?php echo $filterFinishLevel === 'Semi Finished' ? 'selected' : ''; ?>>Semi Finished</option>
-                <option value="Finished" <?php echo $filterFinishLevel === 'Finished' ? 'selected' : ''; ?>>Finished</option>
-                <option value="Shell" <?php echo $filterFinishLevel === 'Shell' ? 'selected' : ''; ?>>Shell</option>
-              </select>
-            </div>
-
-          <div class="filter-group">
-            <label>Client</label>
-            <select name="filter_client">
-              <option value="all" <?php echo $filterClient === 'all' ? 'selected' : ''; ?>>All Clients</option>
-              <?php foreach ($clients as $client): ?>
-                <option value="<?php echo $client['id']; ?>" <?php echo $filterClient == $client['id'] ? 'selected' : ''; ?>>
-                  <?php echo htmlspecialchars($client['name']); ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <label>City</label>
-            <select name="filter_city">
-              <option value="all" <?php echo $filterCity === 'all' ? 'selected' : ''; ?>>All Cities</option>
-              <?php foreach ($cities as $city): ?>
-                <option value="<?php echo htmlspecialchars($city); ?>" <?php echo $filterCity === $city ? 'selected' : ''; ?>>
-                  <?php echo htmlspecialchars($city); ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <label>PA Status</label>
-            <select name="filter_status">
-              <option value="all" <?php echo $filterStatus === 'all' ? 'selected' : ''; ?>>All Statuses</option>
-              <option value="Endorsed" <?php echo $filterStatus === 'Endorsed' ? 'selected' : ''; ?>>Endorsed</option>
-              <option value="Decided" <?php echo $filterStatus === 'Decided' ? 'selected' : ''; ?>>Decided</option>
-              <option value="Fee Payment" <?php echo $filterStatus === 'Fee Payment' ? 'selected' : ''; ?>>Fee Payment</option>
-              <option value="Refused" <?php echo $filterStatus === 'Refused' ? 'selected' : ''; ?>>Refused</option>
-              <option value="Pending/Awaiting Decision" <?php echo $filterStatus === 'Pending/Awaiting Decision' ? 'selected' : ''; ?>>Pending/Awaiting Decision</option>
-              <option value="Recommended for Approval" <?php echo $filterStatus === 'Recommended for Approval' ? 'selected' : ''; ?>>Recommended for Approval</option>
-              <option value="Recommended for Refusal" <?php echo $filterStatus === 'Recommended for Refusal' ? 'selected' : ''; ?>>Recommended for Refusal</option>
-              <option value="Under Appeal" <?php echo $filterStatus === 'Under Appeal' ? 'selected' : ''; ?>>Under Appeal</option>
-              <option value="Revoked/Annulled" <?php echo $filterStatus === 'Revoked/Annulled' ? 'selected' : ''; ?>>Revoked/Annulled</option>
-              <option value="Tracking" <?php echo $filterStatus === 'Tracking' ? 'selected' : ''; ?>>Tracking</option>
-              <option value="Withdrawn" <?php echo $filterStatus === 'Withdrawn' ? 'selected' : ''; ?>>Withdrawn</option>
-              <option value="TBC" <?php echo $filterStatus === 'TBC' ? 'selected' : ''; ?>>TBC</option>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <label>Architect</label>
-            <select name="filter_architect">
-              <option value="all" <?php echo $filterArchitect === 'all' ? 'selected' : ''; ?>>All Architects</option>
-              <?php foreach ($architects as $architect): ?>
-                <option value="<?php echo $architect['id']; ?>" <?php echo $filterArchitect == $architect['id'] ? 'selected' : ''; ?>>
-                  <?php echo htmlspecialchars($architect['name']); ?>
-                </option>
-              <?php endforeach; ?>
-              <option value="none" <?php echo $filterArchitect === 'none' ? 'selected' : ''; ?>>Unassigned</option>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <label>Structural Engineer</label>
-            <select name="filter_engineer">
-              <option value="all" <?php echo $filterEngineer === 'all' ? 'selected' : ''; ?>>All Engineers</option>
-              <?php foreach ($engineers as $engineer): ?>
-                <option value="<?php echo $engineer['id']; ?>" <?php echo $filterEngineer == $engineer['id'] ? 'selected' : ''; ?>>
-                  <?php echo htmlspecialchars($engineer['name']); ?>
-                </option>
-              <?php endforeach; ?>
-              <option value="none" <?php echo $filterEngineer === 'none' ? 'selected' : ''; ?>>Unassigned</option>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <label>Island</label>
-            <div class="checkbox-group">
-              <div class="checkbox-item">
-                <input 
-                  type="checkbox" 
-                  name="island_malta" 
-                  id="island_malta" 
-                  value="Malta"
-                  <?php echo ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : ''; ?>
-                >
-                <label for="island_malta">Malta</label>
-              </div>
-              <div class="checkbox-item">
-                <input 
-                  type="checkbox" 
-                  name="island_gozo" 
-                  id="island_gozo" 
-                  value="Gozo"
-                  <?php echo ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : ''; ?>
-                >
-                <label for="island_gozo">Gozo</label>
-              </div>
-            </div>
-          </div>
+    <?php if ($dashboardType === 'None'): ?>
+        <div class="empty-state card">
+            <h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2>
+            <p>You have successfully logged in. Please use the navigation menu above to access your specific modules.</p>
         </div>
 
-        <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
-        <input type="hidden" name="order" value="<?php echo htmlspecialchars($sortOrder); ?>">
-
-        <div class="filter-buttons">
-          <button type="submit" class="btn" style="padding: 0.6rem 1.5rem;">Apply Filters</button>
-          <a href="dashboard.php" class="reset-btn">Reset</a>
-        </div>
-      </form>
-    </div>
-
-
-
-    <?php if (count($projects) > 0): ?>
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th><a href="<?php echo getSortUrl('name'); ?>" class="sortable-header">Project Name<?php echo getSortIndicator('name'); ?></a></th>
-            <th><a href="<?php echo getSortUrl('client'); ?>" class="sortable-header">Client<?php echo getSortIndicator('client'); ?></a></th>
-            <th><a href="<?php echo getSortUrl('city'); ?>" class="sortable-header">City<?php echo getSortIndicator('city'); ?></a></th>
-            <th><a href="<?php echo getSortUrl('finish_level'); ?>" class="sortable-header">Finish Level<?php echo getSortIndicator('finish_level'); ?></a></th>
-            <th>PA Number</th>
-            <th>PA Status</th>
-            <th>Architect</th>
-            <th>Structural Engineer</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($projects as $project): ?>
-              <tr>
-                  <td><?= htmlspecialchars($project['name']) ?></td>
-                  <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
-                  <td><?= htmlspecialchars($project['city']) ?></td>
-                  <td><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
-
-                  <?php $projectPAs = $paByProject[$project['id']] ?? []; ?>
-
-                  <td>
-                      <?php if (!empty($projectPAs)): ?>
-                          <?php foreach ($projectPAs as $index => $pa): ?>
-                              <?php 
-                              $paText = htmlspecialchars($pa['pa_number']);
-                              $paUrl = buildPaUrl($pa['pa_number']);
-                              ?>
-                              <?php if ($paUrl): ?>
-                                  <a href="<?= htmlspecialchars($paUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $paText ?></a>
-                              <?php else: ?>
-                                  <?= $paText ?>
-                              <?php endif; ?>
-                              <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
-                          <?php endforeach; ?>
-                      <?php else: ?>
-                          TBC
-                      <?php endif; ?>
-                  </td>
-
-                  <td>
-                      <?php if (!empty($projectPAs)): ?>
-                          <?php foreach ($projectPAs as $index => $pa): ?>
-                              <?= htmlspecialchars($pa['pa_status']) ?>
-                              <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
-                          <?php endforeach; ?>
-                      <?php else: ?>
-                          TBC
-                      <?php endif; ?>
-                  </td>
-
-                  <td>
-                      <?php if (!empty($projectPAs)): ?>
-                          <?php foreach ($projectPAs as $index => $pa): ?>
-                              <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
-                              <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
-                          <?php endforeach; ?>
-                      <?php else: ?>
-                          TBC
-                      <?php endif; ?>
-                  </td>
-
-                  <td>
-                      <?php if (!empty($projectPAs)): ?>
-                          <?php foreach ($projectPAs as $index => $pa): ?>
-                              <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
-                              <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
-                          <?php endforeach; ?>
-                      <?php else: ?>
-                          TBC
-                      <?php endif; ?>
-                  </td>
-
-                  <td>
-                      <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary">View</a>
-                      <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
-                            <a href="edit-project.php?id=<?= $project['id'] ?>" class="btn btn-sm">Edit Details</a>
-                        <?php endif; ?>
-                  </td>
-              </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    </div>
     <?php else: ?>
-    <div class="empty-state">
-      <p>No projects match your filters.</p>
-    </div>
+        
+        <div class="stats-grid">
+            <?php if ($dashboardType === 'Admin Dashboard'): ?>
+                <div class="stat-card">
+                    <div class="stat-number"><?= $projectCount ?></div>
+                    <div class="stat-label">Total Projects</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number mobilised" style="color: var(--success);"><?= $mobilisedCount ?></div>
+                    <div class="stat-label">Fully Mobilised</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number"><?= $activeClientsCount ?></div>
+                    <div class="stat-label">Active Clients</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number"><?= $userCount ?></div>
+                    <div class="stat-label">System Users</div>
+                </div>
+
+            <?php elseif ($dashboardType === 'Company Dashboard'): ?>
+                <div class="stat-card">
+                    <div class="stat-number"><?= $projectCount ?></div>
+                    <div class="stat-label">Total Projects Managed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" style="color: var(--success);"><?= $mobilisedCount ?></div>
+                    <div class="stat-label">Mobilised Projects</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" style="color: var(--warning);"><?= $inProcessCount ?></div>
+                    <div class="stat-label">In Process</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" style="color: var(--primary-color);"><?= count($companyKpis) ?></div>
+                    <div class="stat-label">Companies Supervised</div>
+                </div>
+
+            <?php elseif ($dashboardType === 'Sales Dashboard'): ?>
+                <div class="stat-card">
+                    <div class="stat-number"><?= $projectCount ?></div>
+                    <div class="stat-label">Available Projects</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" style="color: var(--text-muted);">-</div>
+                    <div class="stat-label">Units Available (Coming Soon)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" style="color: var(--text-muted);">-</div>
+                    <div class="stat-label">Active Leads (Coming Soon)</div>
+                </div>
+
+            <?php else: /* Standard Project Dashboard */ ?>
+                <div class="stat-card">
+                    <div class="stat-number"><?= $projectCount ?></div>
+                    <div class="stat-label">My Projects</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" style="color: var(--success);"><?= $mobilisedCount ?></div>
+                    <div class="stat-label">Mobilised</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" style="color: var(--danger);"><?= $pendingCount ?></div>
+                    <div class="stat-label">Action Required</div>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($dashboardType === 'Company Dashboard' && !empty($companyKpis)): ?>
+            <h3 style="margin-bottom: 1rem;">Company Overview</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                <?php foreach ($companyKpis as $cName => $kpi): ?>
+                    <div class="card" style="border-left: 4px solid var(--primary-color);">
+                        <h4 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; color: var(--text-primary);"><?= htmlspecialchars($cName) ?></h4>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary);">
+                            <span>Total: <strong style="color: var(--text-primary);"><?= $kpi['total'] ?></strong></span>
+                            <span>Mobilised: <strong style="color: var(--success);"><?= $kpi['mobilised'] ?></strong></span>
+                            <span>Pending: <strong style="color: var(--danger);"><?= $kpi['pending'] ?></strong></span>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="projects-section">
+            <div class="projects-header">
+                <h2 class="section-title">Projects List</h2>
+                <?php if (hasPermission('add_project')): ?>
+                    <a href="create-project.php" class="btn">Add Project</a>
+                <?php endif; ?>
+            </div>
+
+            <div class="filters-section">
+                <form method="GET" id="dashboardFilters">
+                    <div class="filters-grid">
+                        <div class="filter-group">
+                            <label>Project Type</label>
+                            <select name="filter_type">
+                                <option value="all" <?= $filterType === 'all' ? 'selected' : '' ?>>All Types</option>
+                                <option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option>
+                                <option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Finish Level</label>
+                            <select name="filter_finish_level">
+                                <option value="all">All Levels</option>
+                                <option value="Common Parts Only" <?= $filterFinishLevel === 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
+                                <option value="Semi Finished" <?= $filterFinishLevel === 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option>
+                                <option value="Finished" <?= $filterFinishLevel === 'Finished' ? 'selected' : '' ?>>Finished</option>
+                                <option value="Shell" <?= $filterFinishLevel === 'Shell' ? 'selected' : '' ?>>Shell</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Client</label>
+                            <select name="filter_client">
+                                <option value="all">All Clients</option>
+                                <?php foreach ($clients as $client): ?>
+                                    <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($client['name']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>City</label>
+                            <select name="filter_city">
+                                <option value="all">All Cities</option>
+                                <?php foreach ($cities as $city): ?>
+                                    <option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($city) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>PA Status</label>
+                            <select name="filter_status">
+                                <option value="all">All Statuses</option>
+                                <option value="Endorsed" <?= $filterStatus === 'Endorsed' ? 'selected' : '' ?>>Endorsed</option>
+                                <option value="Decided" <?= $filterStatus === 'Decided' ? 'selected' : '' ?>>Decided</option>
+                                <option value="Tracking" <?= $filterStatus === 'Tracking' ? 'selected' : '' ?>>Tracking</option>
+                                </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Island</label>
+                            <div class="checkbox-group">
+                                <div class="checkbox-item">
+                                    <input type="checkbox" name="island_malta" id="island_malta" value="Malta" <?= ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : '' ?>>
+                                    <label for="island_malta">Malta</label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" name="island_gozo" id="island_gozo" value="Gozo" <?= ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : '' ?>>
+                                    <label for="island_gozo">Gozo</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
+                    <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
+                    <div class="filter-buttons">
+                        <button type="submit" class="btn">Apply Filters</button>
+                        <a href="dashboard.php" class="reset-btn">Reset</a>
+                    </div>
+                </form>
+            </div>
+
+            <?php if ($projectCount > 0): ?>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><a href="<?= getSortUrl('name') ?>" class="sortable-header">Project Name<?= getSortIndicator('name') ?></a></th>
+                            <th><a href="<?= getSortUrl('client') ?>" class="sortable-header">Client<?= getSortIndicator('client') ?></a></th>
+                            <th><a href="<?= getSortUrl('city') ?>" class="sortable-header">City<?= getSortIndicator('city') ?></a></th>
+                            <th><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
+                            <th>PA Number</th>
+                            <th>PA Status</th>
+                            <th>Architect</th>
+                            <th>Structural Engineer</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($projects as $project): ?>
+                            <tr>
+                                <td>
+                                    <?= htmlspecialchars($project['name']) ?>
+                                    <?php if ($project['is_tracking'] == 1): ?>
+                                        <br><span style="font-size: 0.7rem; background: var(--warning-bg); color: var(--warning); padding: 2px 6px; border-radius: 4px;">Tracking Stage</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
+                                <td><?= htmlspecialchars($project['city']) ?></td>
+                                <td><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
+
+                                <?php $projectPAs = $paByProject[$project['id']] ?? []; ?>
+
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?php 
+                                            $paText = htmlspecialchars(formatPANumber($pa['pa_number']));
+                                            $paUrl = getEAppsUrl($pa['pa_number']);
+                                            ?>
+                                            <?php if ($paUrl && $paUrl !== '#'): ?>
+                                                <a href="<?= $paUrl ?>" target="_blank"><?= $paText ?></a>
+                                            <?php else: ?>
+                                                <?= $paText ?>
+                                            <?php endif; ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <span style="color: var(--text-muted)">TBC</span>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?= htmlspecialchars($pa['pa_status']) ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <span style="color: var(--text-muted)">TBC</span>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <span style="color: var(--text-muted)">TBC</span>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td>
+                                    <?php if (!empty($projectPAs)): ?>
+                                        <?php foreach ($projectPAs as $index => $pa): ?>
+                                            <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
+                                            <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <span style="color: var(--text-muted)">TBC</span>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td>
+                                    <a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary">View</a>
+                                    <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
+                                        <a href="edit-project.php?id=<?= $project['id'] ?>" class="btn btn-sm btn-secondary">Edit</a>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php else: ?>
+            <div class="empty-state">
+                <p>No projects match your current filters.</p>
+            </div>
+            <?php endif; ?>
+        </div>
     <?php endif; ?>
-  </div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const form = document.querySelector('.filters-section form');
-  const maltaCheckbox = document.getElementById('island_malta');
-  const gozoCheckbox = document.getElementById('island_gozo');
+    const form = document.getElementById('dashboardFilters');
+    if (!form) return;
 
-  // Handle sortable header clicks
-  document.querySelectorAll('.sortable-header').forEach(function(header) {
-    header.addEventListener('click', function(e) {
-      e.preventDefault();
-      
-      // Get the URL from the href
-      const url = new URL(this.href);
-      const sortParam = url.searchParams.get('sort');
-      const orderParam = url.searchParams.get('order');
-      
-      // Update the hidden inputs in the form
-      document.querySelector('input[name="sort"]').value = sortParam;
-      document.querySelector('input[name="order"]').value = orderParam;
-      
-      // Submit the form (which will preserve all filters)
-      form.submit();
+    const maltaCheckbox = document.getElementById('island_malta');
+    const gozoCheckbox = document.getElementById('island_gozo');
+
+    // Prevent both islands from being unchecked
+    function validateIslands(e) {
+        if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
+            e.preventDefault();
+            this.checked = true;
+            alert('At least one island must be selected');
+        }
+    }
+
+    maltaCheckbox.addEventListener('change', validateIslands);
+    gozoCheckbox.addEventListener('change', validateIslands);
+
+    // Island form submission logic
+    form.addEventListener('submit', function(e) {
+        const existingInput = form.querySelector('input[name="filter_island"]');
+        if (existingInput) existingInput.remove();
+
+        let filterValue = 'all';
+        if (maltaCheckbox.checked && !gozoCheckbox.checked) filterValue = 'Malta';
+        else if (gozoCheckbox.checked && !maltaCheckbox.checked) filterValue = 'Gozo';
+
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'filter_island';
+        input.value = filterValue;
+        form.appendChild(input);
     });
-  });
-
-  // Prevent both island checkboxes from being unchecked
-  function validateIslands(e) {
-    if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
-      e.preventDefault();
-      this.checked = true;
-      alert('At least one island must be selected');
-    }
-  }
-
-  maltaCheckbox.addEventListener('change', validateIslands);
-  gozoCheckbox.addEventListener('change', validateIslands);
-
-  // Handle form submission
-  form.addEventListener('submit', function(e) {
-    // Remove any existing filter_island input
-    const existingInput = form.querySelector('input[name="filter_island"]');
-    if (existingInput) existingInput.remove();
-
-    // Determine filter value
-    let filterValue = 'all';
-    if (maltaCheckbox.checked && !gozoCheckbox.checked) {
-      filterValue = 'Malta';
-    } else if (gozoCheckbox.checked && !maltaCheckbox.checked) {
-      filterValue = 'Gozo';
-    }
-
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'filter_island';
-    input.value = filterValue;
-    form.appendChild(input);
-  });
 });
 </script>
 
