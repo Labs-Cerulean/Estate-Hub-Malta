@@ -31,7 +31,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$username, $email, $hash, $role]);
                 $newId = $pdo->lastInsertId();
 
-                // Map capabilities from form
                 $caps = [
                     'view_tracking' => isset($_POST['view_tracking']) ? 1 : 0,
                     'add_project' => isset($_POST['add_project']) ? 1 : 0,
@@ -88,7 +87,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
             
-            // Update primary user details + Firm Assignments
             $stmt1 = $pdo->prepare("
                 UPDATE users SET 
                 username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?,
@@ -100,7 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $userId
             ]);
             
-            // Update Capabilities
             $stmt2 = $pdo->prepare("
                 INSERT INTO user_capabilities (
                     user_id, view_tracking, add_project, edit_project_details, update_project_status, 
@@ -125,30 +122,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 3. CLIENT & PROJECT ASSIGNMENTS (RESTORED)
+    // 3. LEVEL 2: CLIENT & PROJECT EXCLUSION LOGIC
     elseif ($action === 'assign_client') {
         if ($_POST['user_id'] && $_POST['client_id']) {
-            if (assignUserToClient($pdo, $_POST['user_id'], $_POST['client_id'])) {
-                $message = 'Client assigned successfully!';
-            } else { $error = 'Failed to assign client'; }
+            if (assignUserToClient($pdo, $_POST['user_id'], $_POST['client_id'])) $message = 'Client assigned successfully!';
         }
     }
     elseif ($action === 'assign_all_clients') {
         if ($_POST['user_id']) {
-            try {
-                $allClients = $pdo->query("SELECT id FROM clients")->fetchAll(PDO::FETCH_COLUMN);
-                $assignedCount = 0;
-                foreach ($allClients as $clientId) {
-                    if (assignUserToClient($pdo, $_POST['user_id'], $clientId)) $assignedCount++;
-                }
-                $message = "Assigned {$assignedCount} new client(s).";
-            } catch (PDOException $e) { $error = 'Error: ' . $e->getMessage(); }
+            $allClients = $pdo->query("SELECT id FROM clients")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($allClients as $clientId) assignUserToClient($pdo, $_POST['user_id'], $clientId);
+            $message = "Assigned all clients.";
         }
     }
     elseif ($action === 'remove_all_clients') {
         if ($_POST['user_id']) {
-            $stmt = $pdo->prepare("DELETE FROM user_client_access WHERE user_id = ?");
-            $stmt->execute([$_POST['user_id']]);
+            $pdo->prepare("DELETE FROM user_client_access WHERE user_id = ?")->execute([$_POST['user_id']]);
             $message = "All clients removed.";
         }
     }
@@ -170,28 +159,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'Project access restored.';
         }
     }
+
+    // 4. LEVEL 3: DIRECT PROJECT INCLUSION LOGIC
+    elseif ($action === 'assign_project') {
+        if ($_POST['user_id'] && $_POST['project_id']) {
+            assignUserToProject($pdo, $_POST['user_id'], $_POST['project_id']);
+            $message = 'Project explicitly assigned.';
+        }
+    }
+    elseif ($action === 'remove_assigned_project') {
+        if ($_POST['user_id'] && $_POST['project_id']) {
+            removeUserFromProject($pdo, $_POST['user_id'], $_POST['project_id']);
+            $message = 'Explicit project assignment removed.';
+        }
+    }
+
+    // 5. SECURITY
     elseif ($action === 'change_password') {
         if (strlen($_POST['new_password']) >= 6) {
             changePassword($pdo, $_POST['user_id'], $_POST['new_password']);
             $message = 'Password changed successfully.';
-        } else {
-            $error = 'Password must be at least 6 characters.';
-        }
+        } else { $error = 'Password must be at least 6 characters.'; }
     }
     elseif ($action === 'delete_user') {
         if ($_POST['user_id'] !== getCurrentUserId()) {
             deleteUser($pdo, $_POST['user_id']);
             $message = 'User deleted.';
             $_GET['user_id'] = null; // Clear selection
-        } else {
-            $error = 'Cannot delete yourself.';
-        }
+        } else { $error = 'Cannot delete yourself.'; }
     }
 }
 
 // Fetch Data for UI
 $users = getAllUsers($pdo);
 $clients = $pdo->query("SELECT id, name, type FROM clients ORDER BY name")->fetchAll();
+$allProjectsDb = $pdo->query("SELECT p.id, p.name, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id ORDER BY p.name ASC")->fetchAll();
 $firms = getAllFirms($pdo);
 
 $architectFirms = [];
@@ -209,6 +211,7 @@ $selectedUser = null;
 $userClients = [];
 $userExcludedProjects = [];
 $userAccessibleProjects = [];
+$userSpecificallyAssignedProjects = [];
 
 if (isset($_GET['user_id']) && !empty($_GET['user_id'])) {
     $stmt = $pdo->prepare("SELECT u.*, uc.* FROM users u LEFT JOIN user_capabilities uc ON u.id = uc.user_id WHERE u.id = ?");
@@ -219,6 +222,7 @@ if (isset($_GET['user_id']) && !empty($_GET['user_id'])) {
         $userClients = getUserClients($pdo, $selectedUser['id']);
         $userExcludedProjects = getUserExcludedProjects($pdo, $selectedUser['id']);
         $userAccessibleProjects = getAccessibleProjects($pdo, $selectedUser['id']);
+        $userSpecificallyAssignedProjects = getUserAssignedProjects($pdo, $selectedUser['id']);
     }
 }
 
@@ -283,7 +287,7 @@ require_once 'header.php';
                         <div class="form-group">
                             <label>User Type (Role)</label>
                             <div style="display:flex; gap: 0.5rem;">
-                                <select name="role" id="editRole" style="flex: 1;" onchange="toggleFirmFields('edit')">
+                                <select name="role" id="editRole" style="flex: 1;" onchange="toggleAccessSections('edit')">
                                     <?php foreach($rolesList as $r): ?>
                                         <option value="<?= $r ?>" <?= $selectedUser['role'] === $r ? 'selected' : '' ?>>
                                             <?= ucwords(str_replace('_', ' ', $r)) ?>
@@ -323,7 +327,7 @@ require_once 'header.php';
                         <div class="form-group"><label>Phone</label><input type="text" name="phone" value="<?= htmlspecialchars($selectedUser['phone'] ?? '') ?>"></div>
                     </div>
 
-                    <div id="editFirmFields" style="background: rgba(139, 92, 246, 0.1); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--secondary-color); margin-bottom: 1.5rem; display: none;">
+                    <div id="editLevel1Fields" style="background: rgba(139, 92, 246, 0.1); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--secondary-color); margin-bottom: 1.5rem; display: none;">
                         <h4 style="margin-bottom: 1rem; color: var(--secondary-color);">Level 1 Access: Firm Assignments</h4>
                         <p class="info-text" style="margin-bottom: 1rem;">This user will ONLY see projects assigned to these firms.</p>
                         <div class="form-row">
@@ -359,101 +363,140 @@ require_once 'header.php';
                     <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save Profile & Permissions</button>
                 </form>
 
-                <div class="form-section">
-                    <h3>Client Assignments (Level 2 Access)</h3>
-                    <p class="info-text">Assigning a client gives the user access to ALL projects for that client.</p>
-                    
-                    <div class="bulk-actions">
-                        <form method="POST" style="flex: 1;" onsubmit="return confirm('Assign ALL clients?');">
-                            <input type="hidden" name="action" value="assign_all_clients">
+                <div id="editLevel2Fields" style="display: none;">
+                    <div class="form-section">
+                        <h3>Client Assignments (Level 2 Access)</h3>
+                        <p class="info-text">Assigning a client gives the user access to ALL projects for that client.</p>
+                        
+                        <div class="bulk-actions">
+                            <form method="POST" style="flex: 1;" onsubmit="return confirm('Assign ALL clients?');">
+                                <input type="hidden" name="action" value="assign_all_clients">
+                                <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                <button type="submit" class="btn btn-primary btn-bulk">Assign All Clients</button>
+                            </form>
+                            <form method="POST" style="flex: 1;" onsubmit="return confirm('Remove ALL clients?');">
+                                <input type="hidden" name="action" value="remove_all_clients">
+                                <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                <button type="submit" class="btn btn-danger btn-bulk">Remove All Clients</button>
+                            </form>
+                        </div>
+                        
+                        <form method="POST" class="inline-form" style="margin-bottom: 1rem;">
+                            <input type="hidden" name="action" value="assign_client">
                             <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-                            <button type="submit" class="btn btn-primary btn-bulk">Assign All Clients</button>
-                        </form>
-                        <form method="POST" style="flex: 1;" onsubmit="return confirm('Remove ALL clients?');">
-                            <input type="hidden" name="action" value="remove_all_clients">
-                            <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-                            <button type="submit" class="btn btn-danger btn-bulk">Remove All Clients</button>
-                        </form>
-                    </div>
-                    
-                    <form method="POST" class="inline-form" style="margin-bottom: 1rem;">
-                        <input type="hidden" name="action" value="assign_client">
-                        <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-                        <select name="client_id" required>
-                            <option value="">-- Select Client --</option>
-                            <?php foreach ($clients as $client): ?>
-                                <option value="<?= $client['id'] ?>"><?= htmlspecialchars($client['name']) ?> (<?= htmlspecialchars($client['type']) ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button type="submit" class="btn btn-sm">Assign</button>
-                    </form>
-                    
-                    <?php if (!empty($userClients)): ?>
-                        <table class="data-table">
-                            <thead>
-                                <tr><th>Client Name</th><th>Type</th><th>Actions</th></tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($userClients as $client): ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($client['name']) ?></td>
-                                        <td><?= htmlspecialchars($client['type']) ?></td>
-                                        <td>
-                                            <form method="POST" style="display:inline;">
-                                                <input type="hidden" name="action" value="remove_client">
-                                                <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-                                                <input type="hidden" name="client_id" value="<?= $client['id'] ?>">
-                                                <button type="submit" class="btn btn-sm btn-danger">Remove</button>
-                                            </form>
-                                        </td>
-                                    </tr>
+                            <select name="client_id" required>
+                                <option value="">-- Select Client --</option>
+                                <?php foreach ($clients as $client): ?>
+                                    <option value="<?= $client['id'] ?>"><?= htmlspecialchars($client['name']) ?> (<?= htmlspecialchars($client['type']) ?>)</option>
                                 <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php else: ?>
-                        <p class="no-data">No clients assigned.</p>
-                    <?php endif; ?>
+                            </select>
+                            <button type="submit" class="btn btn-sm">Assign</button>
+                        </form>
+                        
+                        <?php if (!empty($userClients)): ?>
+                            <table class="data-table">
+                                <thead><tr><th>Client Name</th><th>Type</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($userClients as $client): ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars($client['name']) ?></td>
+                                            <td><?= htmlspecialchars($client['type']) ?></td>
+                                            <td>
+                                                <form method="POST" style="display:inline;">
+                                                    <input type="hidden" name="action" value="remove_client">
+                                                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                                    <input type="hidden" name="client_id" value="<?= $client['id'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Project Exclusions</h3>
+                        <p class="info-text">Remove specific projects from user's access.</p>
+                        
+                        <form method="POST" class="inline-form" style="margin-bottom: 1rem;">
+                            <input type="hidden" name="action" value="exclude_project">
+                            <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                            <select name="project_id" required>
+                                <option value="">-- Select Project to Exclude --</option>
+                                <?php foreach ($userAccessibleProjects as $project): ?>
+                                    <option value="<?= $project['id'] ?>"><?= htmlspecialchars($project['name']) ?> (<?= htmlspecialchars($project['client_name']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-warning">Exclude</button>
+                        </form>
+                        
+                        <?php if (!empty($userExcludedProjects)): ?>
+                            <table class="data-table">
+                                <thead><tr><th>Project Name</th><th>Client</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($userExcludedProjects as $project): ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars($project['name']) ?></td>
+                                            <td><?= htmlspecialchars($project['client_name']) ?></td>
+                                            <td>
+                                                <form method="POST" style="display:inline;">
+                                                    <input type="hidden" name="action" value="restore_project">
+                                                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                                    <input type="hidden" name="project_id" value="<?= $project['id'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-success">Restore</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
-                <div class="form-section">
-                    <h3>Project Exclusions</h3>
-                    <p class="info-text">Remove specific projects from user's access.</p>
-                    
-                    <form method="POST" class="inline-form" style="margin-bottom: 1rem;">
-                        <input type="hidden" name="action" value="exclude_project">
-                        <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-                        <select name="project_id" required>
-                            <option value="">-- Select Project to Exclude --</option>
-                            <?php foreach ($userAccessibleProjects as $project): ?>
-                                <option value="<?= $project['id'] ?>"><?= htmlspecialchars($project['name']) ?> (<?= htmlspecialchars($project['client_name']) ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button type="submit" class="btn btn-sm btn-warning">Exclude</button>
-                    </form>
-                    
-                    <?php if (!empty($userExcludedProjects)): ?>
-                        <table class="data-table">
-                            <thead>
-                                <tr><th>Project Name</th><th>Client</th><th>Actions</th></tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($userExcludedProjects as $project): ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($project['name']) ?></td>
-                                        <td><?= htmlspecialchars($project['client_name']) ?></td>
-                                        <td>
-                                            <form method="POST" style="display:inline;">
-                                                <input type="hidden" name="action" value="restore_project">
-                                                <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-                                                <input type="hidden" name="project_id" value="<?= $project['id'] ?>">
-                                                <button type="submit" class="btn btn-sm btn-success">Restore</button>
-                                            </form>
-                                        </td>
-                                    </tr>
+                <div id="editLevel3Fields" style="display: none;">
+                    <div class="form-section" style="border: 1px solid var(--info); background: rgba(59, 130, 246, 0.05);">
+                        <h3 style="color: var(--info);">Project Inclusions (Level 3 Access)</h3>
+                        <p class="info-text">Subcontractors and Agents must be explicitly assigned to individual projects.</p>
+                        
+                        <form method="POST" class="inline-form" style="margin-bottom: 1rem;">
+                            <input type="hidden" name="action" value="assign_project">
+                            <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                            <select name="project_id" required>
+                                <option value="">-- Select Project to Assign --</option>
+                                <?php foreach ($allProjectsDb as $project): ?>
+                                    <option value="<?= $project['id'] ?>"><?= htmlspecialchars($project['name']) ?> (<?= htmlspecialchars($project['client_name']) ?>)</option>
                                 <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php endif; ?>
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-primary">Assign Project</button>
+                        </form>
+                        
+                        <?php if (!empty($userSpecificallyAssignedProjects)): ?>
+                            <table class="data-table">
+                                <thead><tr><th>Assigned Project Name</th><th>Client</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($userSpecificallyAssignedProjects as $project): ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars($project['name']) ?></td>
+                                            <td><?= htmlspecialchars($project['client_name']) ?></td>
+                                            <td>
+                                                <form method="POST" style="display:inline;">
+                                                    <input type="hidden" name="action" value="remove_assigned_project">
+                                                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
+                                                    <input type="hidden" name="project_id" value="<?= $project['id'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-danger">Remove Access</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php else: ?>
+                            <p class="no-data">No projects directly assigned to this user yet.</p>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="form-section">
@@ -479,7 +522,7 @@ require_once 'header.php';
 
             <?php else: ?>
                 <div class="empty-state">
-                    <p>Select a user from the list to manage their profile and permissions.</p>
+                    <p>Select a user from the list to manage their profile, capabilities, and project access.</p>
                 </div>
             <?php endif; ?>
         </div>
@@ -502,16 +545,17 @@ require_once 'header.php';
             <div class="form-group">
                 <label>User Type (Role)</label>
                 <div style="display: flex; gap: 0.5rem;">
-                    <select name="role" id="createRole" style="flex:1;" onchange="applyRoleDefaults('create'); toggleFirmFields('create');">
+                    <select name="role" id="createRole" style="flex:1;" onchange="applyRoleDefaults('create');">
                         <?php foreach($rolesList as $r): ?>
                             <option value="<?= $r ?>"><?= ucwords(str_replace('_', ' ', $r)) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="applyRoleDefaults('create')">Load Defaults</button>
                 </div>
             </div>
             
             <div style="background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                <h4 style="margin-bottom: 1rem;">Capabilities Matrix (Auto-fills based on role)</h4>
+                <h4 style="margin-bottom: 1rem;">Capabilities Matrix</h4>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <label class="checkbox-item"><input type="checkbox" class="cap-check-create" name="view_tracking" id="create_cap_view_tracking"> View Tracking Stage</label>
                     <label class="checkbox-item"><input type="checkbox" class="cap-check-create" name="add_project" id="create_cap_add_project"> Add Projects</label>
@@ -535,18 +579,7 @@ require_once 'header.php';
 function showCreateUserForm() { document.getElementById('createUserModal').style.display = 'block'; }
 function hideCreateUserForm() { document.getElementById('createUserModal').style.display = 'none'; }
 
-// Show Firm Dropdowns only for Level 1 Access Roles
-function toggleFirmFields(type) {
-    const role = document.getElementById(type + 'Role').value;
-    const firmDiv = document.getElementById(type + 'FirmFields');
-    const level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
-    
-    if (firmDiv) {
-        firmDiv.style.display = level1Roles.includes(role) ? 'block' : 'none';
-    }
-}
-
-// Map from PDF
+// Matrix mapping from PDF
 const roleDefaults = {
     'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors'],
     'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors'],
@@ -566,6 +599,43 @@ const roleDefaults = {
     'viewer': []
 };
 
+// UI Section Toggle Logic based on Access Level Matrix
+function toggleAccessSections(type) {
+    const roleSelect = document.getElementById(type + 'Role');
+    if (!roleSelect) return;
+    
+    const role = roleSelect.value;
+    
+    // UI Elements
+    const level1Div = document.getElementById(type + 'Level1Fields');
+    const level2Div = document.getElementById(type + 'Level2Fields');
+    const level3Div = document.getElementById(type + 'Level3Fields');
+    
+    // Groupings based on PDF "User Access Modes"
+    const level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
+    const level3Roles = ['subcontractor', 'condominium_agent', 'end_customer'];
+    const level0Roles = ['admin']; 
+    
+    // Toggle Level 1 (Firms)
+    if (level1Div) {
+        level1Div.style.display = level1Roles.includes(role) ? 'block' : 'none';
+    }
+    
+    // Toggle Level 2 (Clients/Exclusions) -> Show for everyone EXCEPT Admin, L1, and L3
+    if (level2Div) {
+        if (level0Roles.includes(role) || level1Roles.includes(role) || level3Roles.includes(role)) {
+            level2Div.style.display = 'none';
+        } else {
+            level2Div.style.display = 'block';
+        }
+    }
+    
+    // Toggle Level 3 (Direct Project Inclusion)
+    if (level3Div) {
+        level3Div.style.display = level3Roles.includes(role) ? 'block' : 'none';
+    }
+}
+
 function applyRoleDefaults(type) {
     const roleSelect = document.getElementById(type + 'Role');
     if (!roleSelect) return;
@@ -578,8 +648,9 @@ function applyRoleDefaults(type) {
     });
 }
 
+// Run on page load for the Edit form
 document.addEventListener('DOMContentLoaded', function() {
-    toggleFirmFields('edit');
+    toggleAccessSections('edit');
 });
 </script>
 
