@@ -138,4 +138,20 @@ function formatPANumber($pa) {
     }
     return $pa;
 }
+
+/**
+ * Generate eApps URL from PA number
+ */
+function getEAppsUrl($pa) {
+    // Ensure we use the raw PA number (no slashes or spaces) for the URL
+    $rawPa = str_replace(['/', ' '], '', $pa);
+    
+    // Match PAxxxxx24, PCxxxxx24, or DNxxxxx24 format
+    if (preg_match('/(PA|PC|DN)(\d+)(\d{2})/', $rawPa, $m)) {
+        return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}";
+    }
+    return "#";
+}
 ?>
+
+
