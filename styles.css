@@ -183,77 +183,62 @@ body {
 }
 
 /* ============================================
-   HEADER & NAVIGATION
+   NAVIGATION DROPDOWNS
    ============================================ */
-.header {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-glass);
-    position: sticky;
-    top: 0;
-    z-index: 1000;
-    backdrop-filter: blur(10px);
+.nav-dropdown {
+    position: relative;
+    display: inline-block;
 }
 
-.header-container {
-    display: flex;
-    justify-content: space-between;
+.nav-dropdown .nav-link {
+    display: inline-flex;
     align-items: center;
-    padding: 1rem 2rem;
-    max-width: 1600px;
-    margin: 0 auto;
+    gap: 0.4rem;
 }
 
-.header-left {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
-
-.logo-nav {
-    height: 50px;
-    width: auto;
+.dropdown-content {
+    display: none;
+    position: absolute;
+    background-color: var(--bg-secondary);
+    min-width: 220px;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border-glass);
     border-radius: var(--radius-sm);
+    z-index: 2000;
+    top: 100%;
+    left: 0;
+    overflow: hidden;
 }
 
-.header-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin: 0;
-}
-
-.header-subtitle {
-    font-size: 0.75rem;
+.dropdown-content a {
     color: var(--text-secondary);
-    margin: 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.header-right {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.nav-link {
-    color: var(--text-secondary);
+    padding: 0.85rem 1.25rem;
     text-decoration: none;
-    padding: 0.75rem 1.25rem;
-    border-radius: var(--radius-sm);
-    font-size: 0.95rem;
+    display: block;
+    font-size: 0.9rem;
     font-weight: 500;
     transition: all 0.2s ease;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 
-.nav-link:hover {
+.dropdown-content a:last-child {
+    border-bottom: none;
+}
+
+.dropdown-content a:hover, .dropdown-content a.active {
     color: var(--text-primary);
-    background: var(--bg-hover);
+    background-color: var(--bg-hover);
+    padding-left: 1.5rem; /* Indent animation on hover */
 }
 
-.nav-link.active {
-    color: var(--primary-color);
-    background: rgba(99, 102, 241, 0.1);
+.nav-dropdown:hover .dropdown-content {
+    display: block;
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* ============================================
