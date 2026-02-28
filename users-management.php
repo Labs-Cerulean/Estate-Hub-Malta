@@ -2,99 +2,63 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// Only admins can access this page
-if (!isAdmin()) {
-    header('Location: dashboard.php');
-    exit;
-}
+if (!isAdmin()) { header('Location: dashboard.php'); exit; }
 
-$message = '';
-$error = '';
+$message = ''; $error = '';
+
+// Check and fix missing capabilities records for old users automatically
+$pdo->exec("INSERT IGNORE INTO user_capabilities (user_id) SELECT id FROM users");
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // 1. HANDLE USER CREATION
-    if ($_POST['action'] === 'create_user') {
-        $username = trim($_POST['username'] ?? '');
-        $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
-        $role = $_POST['role'] ?? 'viewer';
-        
-        // Granular Permissions
-        $canAdd = ($role !== 'viewer') ? (isset($_POST['can_add_project']) ? 1 : 0) : 0;
-        $canEdit = ($role !== 'viewer') ? (isset($_POST['can_edit_project']) ? 1 : 0) : 0;
-        $canViewTracking = isset($_POST['can_view_tracking']) ? 1 : 0;
-        $canAssign = isset($_POST['can_assign_actions']) ? 1 : 0;
-        $canClients = isset($_POST['can_manage_clients']) ? 1 : 0;
-        $canPros = isset($_POST['can_manage_pros']) ? 1 : 0;
-        $canServices = isset($_POST['can_edit_services']) ? 1 : 0;
+    $userId = $_POST['user_id'] ?? null;
+    $role = $_POST['role'] ?? 'viewer';
 
-        if (empty($username) || empty($email) || empty($password)) {
-            $error = 'Username, email, and password are required';
-        } else {
-            try {
-                $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("
-                    INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone, 
-                                     can_add_project, can_edit_project, can_view_tracking, can_assign_actions,
-                                     can_manage_clients, can_manage_pros, can_edit_services)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-                $stmt->execute([
-                    $username, $email, $passwordHash, $role, 
-                    $_POST['first_name'], $_POST['last_name'], $_POST['phone'],
-                    $canAdd, $canEdit, $canViewTracking, $canAssign,
-                    $canClients, $canPros, $canServices
-                ]);
-                $message = 'User created successfully!';
-            } catch (PDOException $e) {
-                $error = 'Failed to create user: ' . $e->getMessage();
-            }
-        }
-    }
-    
-    // 2. HANDLE USER UPDATE (Fixes the "Username" error)
-    elseif ($_POST['action'] === 'update_user') {
-        $userId = $_POST['user_id'];
-        $role = $_POST['role'];
+    $caps = [
+        'view_tracking' => isset($_POST['view_tracking']) ? 1 : 0,
+        'add_project' => isset($_POST['add_project']) ? 1 : 0,
+        'edit_project_details' => isset($_POST['edit_project_details']) ? 1 : 0,
+        'update_project_status' => isset($_POST['update_project_status']) ? 1 : 0,
+        'edit_services' => isset($_POST['edit_services']) ? 1 : 0,
+        'assign_actions' => isset($_POST['assign_actions']) ? 1 : 0,
+        'manage_clients' => isset($_POST['manage_clients']) ? 1 : 0,
+        'manage_professionals' => isset($_POST['manage_professionals']) ? 1 : 0,
+        'manage_users' => isset($_POST['manage_users']) ? 1 : 0,
+        'manage_subcontractors' => isset($_POST['manage_subcontractors']) ? 1 : 0,
+    ];
 
-        // Enforce Rev 2.0 Rule: Viewers never get Add/Edit
-        $canAdd = ($role !== 'viewer') ? (isset($_POST['can_add_project']) ? 1 : 0) : 0;
-        $canEdit = ($role !== 'viewer') ? (isset($_POST['can_edit_project']) ? 1 : 0) : 0;
-        
-        $canViewTracking = isset($_POST['can_view_tracking']) ? 1 : 0;
-        $canAssign = isset($_POST['can_assign_actions']) ? 1 : 0;
-        $canClients = isset($_POST['can_manage_clients']) ? 1 : 0;
-        $canPros = isset($_POST['can_manage_pros']) ? 1 : 0;
-        $canServices = isset($_POST['can_edit_services']) ? 1 : 0;
-
+    if ($_POST['action'] === 'update_user') {
         try {
-            $stmt = $pdo->prepare("
-                UPDATE users SET 
-                    username = ?, email = ?, first_name = ?, last_name = ?, 
-                    phone = ?, role = ?, is_active = ?,
-                    can_add_project = ?, can_edit_project = ?, 
-                    can_view_tracking = ?, can_assign_actions = ?,
-                    can_manage_clients = ?, can_manage_pros = ?, can_edit_services = ?
-                WHERE id = ?
+            $pdo->beginTransaction();
+            
+            // Update Base User
+            $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=? WHERE id=?");
+            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $userId]);
+            
+            // Update Capabilities
+            $stmt2 = $pdo->prepare("
+                UPDATE user_capabilities SET 
+                view_tracking=?, add_project=?, edit_project_details=?, update_project_status=?, 
+                edit_services=?, assign_actions=?, manage_clients=?, manage_professionals=?, 
+                manage_users=?, manage_subcontractors=? WHERE user_id=?
             ");
-            $stmt->execute([
-                $_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'],
-                $_POST['phone'], $role, $_POST['is_active'],
-                $canAdd, $canEdit, $canViewTracking, $canAssign, 
-                $canClients, $canPros, $canServices,
-                $userId
-            ]);
-            $message = 'User updated successfully!';
-        } catch (PDOException $e) {
-            $error = 'Update failed: ' . $e->getMessage();
+            $params = array_values($caps);
+            $params[] = $userId;
+            $stmt2->execute($params);
+            
+            $pdo->commit();
+            $message = 'User and permissions updated successfully!';
+        } catch (PDOException $e) { 
+            $pdo->rollBack();
+            $error = 'Error: ' . $e->getMessage(); 
         }
     }
 }
 
 $users = getAllUsers($pdo);
 $selectedUser = null;
+$selectedCaps = [];
 if (isset($_GET['user_id'])) {
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT u.*, uc.* FROM users u LEFT JOIN user_capabilities uc ON u.id = uc.user_id WHERE u.id = ?");
     $stmt->execute([$_GET['user_id']]);
     $selectedUser = $stmt->fetch();
 }
@@ -111,7 +75,7 @@ require_once 'header.php';
                 <?php foreach ($users as $u): ?>
                 <tr>
                     <td><?= htmlspecialchars($u['username']) ?></td>
-                    <td><span class="role-badge role-<?= $u['role'] ?>"><?= $u['role'] ?></span></td>
+                    <td><span class="role-badge role-<?= $u['role'] ?>"><?= str_replace('_', ' ', $u['role']) ?></span></td>
                     <td><a href="?user_id=<?= $u['id'] ?>" class="btn btn-sm">Edit</a></td>
                 </tr>
                 <?php endforeach; ?>
@@ -123,84 +87,100 @@ require_once 'header.php';
                 <form method="POST" class="form-section">
                     <input type="hidden" name="action" value="update_user">
                     <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-                    <h3>Edit Permissions: <?= htmlspecialchars($selectedUser['username']) ?></h3>
+                    <h3>Edit Account: <?= htmlspecialchars($selectedUser['username']) ?></h3>
                     
-                    <div class="form-group">
-                        <label>Username</label>
-                        <input type="text" name="username" value="<?= htmlspecialchars($selectedUser['username']) ?>" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Role</label>
-                        <select name="role" id="editRole" onchange="togglePermissions('edit')">
-                            <option value="viewer" <?= $selectedUser['role'] == 'viewer' ? 'selected' : '' ?>>Viewer</option>
-                            <option value="manager" <?= $selectedUser['role'] == 'manager' ? 'selected' : '' ?>>Manager</option>
-                            <option value="director" <?= $selectedUser['role'] == 'director' ? 'selected' : '' ?>>Director</option>
-                            <option value="admin" <?= $selectedUser['role'] == 'admin' ? 'selected' : '' ?>>Admin</option>
-                        </select>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Role / User Type</label>
+                            <select name="role" id="roleSelector" onchange="applyRoleDefaults()">
+                                <?php 
+                                $roles = ['admin', 'director', 'system_manager', 'architect', 'structural_engineer', 'services_engineer', 'quality_controller', 'pmo_staff', 'ohsa_rep', 'site_technical_officer', 'subcontractor', 'condominium_agent', 'sales_manager', 'sales_agent', 'end_customer', 'viewer'];
+                                foreach($roles as $r): ?>
+                                    <option value="<?= $r ?>" <?= $selectedUser['role'] === $r ? 'selected' : '' ?>><?= ucwords(str_replace('_', ' ', $r)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                     </div>
 
                     <div style="background: rgba(99,102,241,0.1); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--primary-color);">
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Capabilities Matrix</h4>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <label class="checkbox-item"><input type="checkbox" name="can_add_project" id="edit_can_add" <?= $selectedUser['can_add_project'] ? 'checked' : '' ?>> Add Project</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_edit_details" id="edit_can_edit" <?= $selectedUser['can_edit_details'] ? 'checked' : '' ?>> Edit Core Details</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_update_status" id="edit_can_status" <?= $selectedUser['can_update_status'] ? 'checked' : '' ?>> Update BCA/Status</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_view_tracking" <?= $selectedUser['can_view_tracking'] ? 'checked' : '' ?>> View Tracking Projects</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_manage_clients" <?= $selectedUser['can_manage_clients'] ? 'checked' : '' ?>> Manage Clients</label>
-                            <label class="checkbox-item"><input type="checkbox" name="can_manage_pros" <?= $selectedUser['can_manage_pros'] ? 'checked' : '' ?>> Manage Pros</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="view_tracking" id="cap_view_tracking" <?= $selectedUser['view_tracking'] ? 'checked' : '' ?>> View Tracking</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="add_project" id="cap_add_project" <?= $selectedUser['add_project'] ? 'checked' : '' ?>> Add Projects</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="edit_project_details" id="cap_edit_project_details" <?= $selectedUser['edit_project_details'] ? 'checked' : '' ?>> Edit Core Details</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="update_project_status" id="cap_update_project_status" <?= $selectedUser['update_project_status'] ? 'checked' : '' ?>> Update BCA/Status</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="edit_services" id="cap_edit_services" <?= $selectedUser['edit_services'] ? 'checked' : '' ?>> Edit Services</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="assign_actions" id="cap_assign_actions" <?= $selectedUser['assign_actions'] ? 'checked' : '' ?>> Assign Actions</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="manage_clients" id="cap_manage_clients" <?= $selectedUser['manage_clients'] ? 'checked' : '' ?>> Manage Clients</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="manage_professionals" id="cap_manage_professionals" <?= $selectedUser['manage_professionals'] ? 'checked' : '' ?>> Manage Professionals</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="manage_subcontractors" id="cap_manage_subcontractors" <?= $selectedUser['manage_subcontractors'] ? 'checked' : '' ?>> Manage Subcontractors</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check" name="manage_users" id="cap_manage_users" <?= $selectedUser['manage_users'] ? 'checked' : '' ?>> Manage Users</label>
                         </div>
+                        <p style="font-size: 0.8rem; margin-top: 1rem; color: var(--text-secondary);">Note: Admin role always bypasses these checks.</p>
                     </div>
-                    <br>
-                    <button type="submit" class="btn btn-primary">Save Permissions</button>
+
+                    <div class="form-row" style="margin-top:1rem;">
+                        <div class="form-group"><label>First Name</label><input type="text" name="first_name" value="<?= htmlspecialchars($selectedUser['first_name'] ?? '') ?>"></div>
+                        <div class="form-group"><label>Last Name</label><input type="text" name="last_name" value="<?= htmlspecialchars($selectedUser['last_name'] ?? '') ?>"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>Email</label><input type="email" name="email" value="<?= htmlspecialchars($selectedUser['email']) ?>"></div>
+                        <div class="form-group"><label>Phone</label><input type="text" name="phone" value="<?= htmlspecialchars($selectedUser['phone'] ?? '') ?>"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Account Status</label>
+                        <select name="is_active">
+                            <option value="Yes" <?= $selectedUser['is_active'] == 'Yes' ? 'selected' : '' ?>>Active</option>
+                            <option value="No" <?= $selectedUser['is_active'] == 'No' ? 'selected' : '' ?>>Inactive</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Save Profile & Permissions</button>
                 </form>
+            <?php else: ?>
+                <div class="placeholder"><p>Select a user to manage.</p></div>
             <?php endif; ?>
         </div>
     </div>
 </div>
 
-<div id="createUserModal" class="modal" style="display:none;">
-    <div class="modal-content">
-        <span class="close" onclick="hideCreateUserForm()">&times;</span>
-        <h2>Create New User</h2>
-        <form method="POST">
-            <input type="hidden" name="action" value="create_user">
-            <div class="form-group"><label>Username</label><input type="text" name="username" required></div>
-            <div class="form-group"><label>Email</label><input type="email" name="email" required></div>
-            <div class="form-group"><label>Password</label><input type="password" name="password" required></div>
-            <div class="form-group">
-                <label>Role</label>
-                <select name="role" id="createRole" onchange="togglePermissions('create')">
-                    <option value="viewer">Viewer</option>
-                    <option value="manager">Manager</option>
-                    <option value="director">Director</option>
-                    <option value="architect">Architect</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Create User</button>
-        </form>
-    </div>
-</div>
-
 <script>
-function showCreateUserForm() { document.getElementById('createUserModal').style.display = 'block'; }
-function hideCreateUserForm() { document.getElementById('createUserModal').style.display = 'none'; }
+// Role Default Matrix Based on User PDF specs
+const roleDefaults = {
+    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors'],
+    'director': ['view_tracking', 'add_project', 'edit_project_details', 'manage_professionals', 'manage_subcontractors', 'assign_actions'],
+    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'manage_professionals', 'manage_subcontractors', 'assign_actions'],
+    'architect': ['view_tracking', 'assign_actions'],
+    'structural_engineer': ['view_tracking', 'assign_actions'],
+    'services_engineer': ['edit_services', 'assign_actions'],
+    'quality_controller': ['assign_actions'],
+    'pmo_staff': ['manage_subcontractors', 'assign_actions'],
+    'ohsa_rep': ['assign_actions'],
+    'site_technical_officer': ['assign_actions'],
+    'subcontractor': ['assign_actions'],
+    'condominium_agent': [],
+    'sales_manager': [],
+    'sales_agent': [],
+    'end_customer': [],
+    'viewer': []
+};
 
-<script>
-function togglePermissions(type) {
-    const role = document.getElementById(type + 'Role').value;
-    const isViewer = role === 'viewer';
-    const checks = ['_can_add', '_can_edit', '_can_status'];
-    checks.forEach(id => {
-        const el = document.getElementById(type + id);
-        if(el) { el.disabled = isViewer; if(isViewer) el.checked = false; }
+function applyRoleDefaults() {
+    const role = document.getElementById('roleSelector').value;
+    const defaults = roleDefaults[role] || [];
+    
+    // Uncheck all first
+    document.querySelectorAll('.cap-check').forEach(box => {
+        box.checked = false;
+    });
+
+    // Check defaults
+    defaults.forEach(cap => {
+        const box = document.getElementById('cap_' + cap);
+        if (box) box.checked = true;
     });
 }
-</script>
-
-document.addEventListener('DOMContentLoaded', function() {
-    if(document.getElementById('editRole')) togglePermissions('edit');
-});
 </script>
 
 <?php require_once 'footer.php'; ?>
