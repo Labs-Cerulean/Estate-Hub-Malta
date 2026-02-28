@@ -158,7 +158,9 @@ CREATE TABLE IF NOT EXISTS project_mobilisation (
 
 /**
  * Derive mobilisation status from project_mobilisation
- * Rules: If BCA=Yes → Mobilised; else if any In Progress/Awaiting → In Process; else Pending
+ * Rules: If ANY of the 3 phases are cleared ('Yes') -> Mobilised
+ * else if any prerequisite is In Progress/Awaiting -> In Process
+ * else Pending
  */
 function deriveMobilisationStatus($pdo, $projectId) {
     try {
@@ -167,7 +169,13 @@ function deriveMobilisationStatus($pdo, $projectId) {
         $mob = $stmt->fetch();
         
         if (!$mob) return 'Pending';
-        if ($mob['bca_clearance'] === 'Yes') return 'Mobilised';
+        
+        // If ANY phase is approved, the project is considered Mobilised
+        if (($mob['mob_demolition'] ?? 'No') === 'Yes' || 
+            ($mob['mob_excavation'] ?? 'No') === 'Yes' || 
+            ($mob['mob_construction'] ?? 'No') === 'Yes') {
+            return 'Mobilised';
+        }
         
         $inProgressFields = [
             'condition_report_contacts', 'condition_reports', 'geological_test',
@@ -179,6 +187,11 @@ function deriveMobilisationStatus($pdo, $projectId) {
         }
         
         if (isset($mob['geological_test']) && $mob['geological_test'] === 'Awaiting Result') {
+            return 'In Process';
+        }
+
+        // If responsibility form is done but waiting on clearances
+        if (($mob['responsibility_form'] ?? 'Not Complete') === 'Complete') {
             return 'In Process';
         }
         
