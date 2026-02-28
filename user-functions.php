@@ -140,21 +140,9 @@ function getAllUsers($pdo) {
     return $pdo->query("SELECT * FROM users ORDER BY username ASC")->fetchAll();
 }
 
+// -- LEVEL 2: Client Utilities --
 function getUserClients($pdo, $userId) {
     $stmt = $pdo->prepare("SELECT c.*, uca.assigned_at FROM clients c INNER JOIN user_client_access uca ON c.id = uca.client_id WHERE uca.user_id = ? ORDER BY c.name ASC");
-    $stmt->execute([$userId]);
-    return $stmt->fetchAll();
-}
-
-function getUserExcludedProjects($pdo, $userId) {
-    $stmt = $pdo->prepare("
-        SELECT p.*, c.name as client_name, upe.excluded_at
-        FROM projects p
-        LEFT JOIN clients c ON p.clientid = c.id
-        INNER JOIN user_project_exclusions upe ON p.id = upe.project_id
-        WHERE upe.user_id = ?
-        ORDER BY p.name ASC
-    ");
     $stmt->execute([$userId]);
     return $stmt->fetchAll();
 }
@@ -195,6 +183,48 @@ function removeProjectExclusion($pdo, $userId, $projectId) {
     } catch (PDOException $e) { return false; }
 }
 
+function getUserExcludedProjects($pdo, $userId) {
+    $stmt = $pdo->prepare("
+        SELECT p.*, c.name as client_name, upe.excluded_at
+        FROM projects p LEFT JOIN clients c ON p.clientid = c.id
+        INNER JOIN user_project_exclusions upe ON p.id = upe.project_id
+        WHERE upe.user_id = ? ORDER BY p.name ASC
+    ");
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+// -- LEVEL 3: Project Inclusion Utilities --
+function getUserAssignedProjects($pdo, $userId) {
+    $stmt = $pdo->prepare("
+        SELECT p.*, c.name as client_name, upa.assigned_at
+        FROM projects p LEFT JOIN clients c ON p.clientid = c.id
+        INNER JOIN user_project_access upa ON p.id = upa.project_id
+        WHERE upa.user_id = ? ORDER BY p.name ASC
+    ");
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function assignUserToProject($pdo, $userId, $projectId) {
+    try {
+        $check = $pdo->prepare("SELECT id FROM user_project_access WHERE user_id = ? AND project_id = ?");
+        $check->execute([$userId, $projectId]);
+        if ($check->fetch()) return true;
+        
+        $stmt = $pdo->prepare("INSERT INTO user_project_access (user_id, project_id, assigned_by) VALUES (?, ?, ?)");
+        return $stmt->execute([$userId, $projectId, getCurrentUserId()]);
+    } catch (PDOException $e) { return false; }
+}
+
+function removeUserFromProject($pdo, $userId, $projectId) {
+    try {
+        $stmt = $pdo->prepare("DELETE FROM user_project_access WHERE user_id = ? AND project_id = ?");
+        return $stmt->execute([$userId, $projectId]);
+    } catch (PDOException $e) { return false; }
+}
+
+// -- General Utilities --
 function changePassword($pdo, $userId, $newPassword) {
     try {
         $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
