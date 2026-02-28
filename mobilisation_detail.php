@@ -84,7 +84,7 @@ if (($_POST['action'] ?? null) === 'update_mobilisation' && $canUpdateStatus) {
             'change_of_applicant', 'geological_test', 'condition_report_contacts',
             'condition_reports', 'method_statements', 'insurance_status',
             'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee',
-            'responsibility_form', 'bca_clearance', 'mob_demolition', 'mob_excavation', 'mob_construction'
+            'responsibility_form', 'mob_demolition', 'mob_excavation', 'mob_construction'
         ];
         
         foreach ($allowedFields as $field) {
@@ -319,11 +319,6 @@ require_once 'header.php';
                     <div class="form-group">
                         <label>Responsibility Form</label>
                         <select name="responsibility_form" <?= !$canFinal ? 'disabled' : $disabledAttr ?>><option value="Not Complete" <?= ($mob['responsibility_form'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete' ? 'selected' : '' ?>>Complete</option></select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>BCA Clearance (General)</label>
-                        <select name="bca_clearance" <?= !$canClearance ? 'disabled' : $disabledAttr ?>><option value="No" <?= ($mob['bca_clearance'] ?? 'No') === 'No' ? 'selected' : '' ?>>No</option><option value="Yes" <?= ($mob['bca_clearance'] ?? 'No') === 'Yes' ? 'selected' : '' ?>>Yes</option></select>
                     </div>
 
                     <div class="form-group" style="background: rgba(239, 68, 68, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--danger);">
