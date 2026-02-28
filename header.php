@@ -20,18 +20,20 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($pageTitle) ?> - Estate Hub</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=<?= time() ?>"> 
 </head>
 <body>
     <?php if (isLoggedIn()): ?>
         <header class="header">
             <div class="header-container">
                 <div class="header-left">
-                    <img src="/logo.png" alt="Estate Hub Logo" class="logo-nav">
-                    <div>
-                        <h1 class="header-title">Estate Hub</h1>
-                        <p class="header-subtitle">Malta</p>
-                    </div>
+                    <a href="dashboard.php" style="display: flex; align-items: center; gap: 1rem; text-decoration: none;">
+                        <img src="/logo.png" alt="Estate Hub Logo" class="logo-nav">
+                        <div>
+                            <h1 class="header-title">Estate Hub</h1>
+                            <p class="header-subtitle">Malta</p>
+                        </div>
+                    </a>
                 </div>
                 
                 <div class="header-right">
@@ -48,9 +50,9 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
 
                     <?php if ($showSiteDocs): ?>
                     <div class="nav-dropdown">
-                        <a href="#" class="nav-link <?= in_array($currentPage, ['ohsa', 'documentation', 'drawings']) ? 'active' : '' ?>">
+                        <span class="nav-link <?= in_array($currentPage, ['ohsa', 'documentation', 'drawings']) ? 'active' : '' ?>">
                             Site & Docs ▾
-                        </a>
+                        </span>
                         <div class="dropdown-content">
                             <?php if (hasPermission('view_ohsa') || isAdmin()): ?>
                                 <a href="ohsa.php" class="<?= $currentPage === 'ohsa' ? 'active' : '' ?>">OHSA</a>
@@ -67,9 +69,9 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
 
                     <?php if ($showCommercial): ?>
                     <div class="nav-dropdown">
-                        <a href="#" class="nav-link <?= in_array($currentPage, ['works_sales', 'property_sales']) ? 'active' : '' ?>">
+                        <span class="nav-link <?= in_array($currentPage, ['works_sales', 'property_sales']) ? 'active' : '' ?>">
                             Commercial ▾
-                        </a>
+                        </span>
                         <div class="dropdown-content">
                             <?php if (hasPermission('view_works_sales') || isAdmin()): ?>
                                 <a href="works_sales.php" class="<?= $currentPage === 'works_sales' ? 'active' : '' ?>">Works Sales</a>
@@ -83,9 +85,9 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
 
                     <?php if ($showManagement): ?>
                     <div class="nav-dropdown">
-                        <a href="#" class="nav-link <?= in_array($currentPage, ['clients', 'professionals-management', 'subcontractors', 'users-management']) ? 'active' : '' ?>">
+                        <span class="nav-link <?= in_array($currentPage, ['clients', 'professionals-management', 'subcontractors', 'users-management']) ? 'active' : '' ?>">
                             Management ▾
-                        </a>
+                        </span>
                         <div class="dropdown-content">
                             <?php if (hasPermission('manage_clients') || isAdmin()): ?>
                                 <a href="clients.php" class="<?= $currentPage === 'clients' ? 'active' : '' ?>">Clients & Developers</a>
