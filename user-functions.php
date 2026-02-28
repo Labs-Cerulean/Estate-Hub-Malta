@@ -1,9 +1,13 @@
 <?php
 /**
- * user-functions.php - Rev 2.0 Enterprise Logic
+ * user-functions.php - Rev 2.0 Enterprise Logic (Complete)
+ * Contains all capability, access, and user utility functions.
  */
 
+// ==========================================
 // 1. CAPABILITY ENGINE
+// ==========================================
+
 function hasPermission($capability) {
     global $pdo;
     $userId = $_SESSION['user_id'] ?? null;
@@ -11,6 +15,12 @@ function hasPermission($capability) {
 
     if (!$userId) return false;
     if ($role === 'admin') return true; // Level 0: All Access
+
+    // Rev 2.0 Hard Constraint: Viewers can NEVER edit/add
+    $editCapabilities = ['add_project', 'edit_project_details', 'update_project_status', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors'];
+    if ($role === 'viewer' && in_array($capability, $editCapabilities)) {
+        return false;
+    }
 
     try {
         $stmt = $pdo->prepare("SELECT $capability FROM user_capabilities WHERE user_id = ?");
@@ -31,7 +41,10 @@ function canUpdateStatus($pdo, $projectId) {
     return hasPermission('update_project_status') && hasProjectAccess($pdo, $projectId);
 }
 
-// 2. PROJECT ACCESS ENGINE (Maps to your "User Access Modes" PDF)
+// ==========================================
+// 2. PROJECT ACCESS ENGINE (Level 1, 2, 3)
+// ==========================================
+
 function getAccessibleProjects($pdo, $userId = null) {
     if ($userId === null) $userId = getCurrentUserId();
     
@@ -71,7 +84,7 @@ function getAccessibleProjects($pdo, $userId = null) {
         return $stmt->fetchAll();
     }
     
-    // LEVEL 2 & 3: By Client or By Specific Project (using user_client_access)
+    // LEVEL 2 & 3: By Client or By Specific Project
     $stmt = $pdo->prepare("
         SELECT DISTINCT p.*, c.name as client_name FROM projects p
         LEFT JOIN clients c ON p.clientid = c.id
@@ -103,7 +116,6 @@ function hasProjectAccess($pdo, $projectId) {
         return $stmt->fetch() !== false;
     }
     
-    // Client OR specific Project access
     $stmt = $pdo->prepare("
         SELECT p.id FROM projects p 
         LEFT JOIN user_client_access uca ON p.clientid = uca.client_id AND uca.user_id = ?
@@ -114,7 +126,10 @@ function hasProjectAccess($pdo, $projectId) {
     return $stmt->fetch() !== false;
 }
 
-// 3. UTILITIES
+// ==========================================
+// 3. USER MANAGEMENT UTILITIES
+// ==========================================
+
 function getUserById($pdo, $userId) {
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
     $stmt->execute([$userId]);
@@ -131,6 +146,101 @@ function getUserClients($pdo, $userId) {
     return $stmt->fetchAll();
 }
 
+function getUserExcludedProjects($pdo, $userId) {
+    $stmt = $pdo->prepare("
+        SELECT p.*, c.name as client_name, upe.excluded_at
+        FROM projects p
+        LEFT JOIN clients c ON p.clientid = c.id
+        INNER JOIN user_project_exclusions upe ON p.id = upe.project_id
+        WHERE upe.user_id = ?
+        ORDER BY p.name ASC
+    ");
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function assignUserToClient($pdo, $userId, $clientId) {
+    try {
+        $check = $pdo->prepare("SELECT id FROM user_client_access WHERE user_id = ? AND client_id = ?");
+        $check->execute([$userId, $clientId]);
+        if ($check->fetch()) return true;
+        
+        $stmt = $pdo->prepare("INSERT INTO user_client_access (user_id, client_id, assigned_by) VALUES (?, ?, ?)");
+        return $stmt->execute([$userId, $clientId, getCurrentUserId()]);
+    } catch (PDOException $e) { return false; }
+}
+
+function removeUserFromClient($pdo, $userId, $clientId) {
+    try {
+        $stmt = $pdo->prepare("DELETE FROM user_client_access WHERE user_id = ? AND client_id = ?");
+        return $stmt->execute([$userId, $clientId]);
+    } catch (PDOException $e) { return false; }
+}
+
+function excludeProjectFromUser($pdo, $userId, $projectId) {
+    try {
+        $check = $pdo->prepare("SELECT id FROM user_project_exclusions WHERE user_id = ? AND project_id = ?");
+        $check->execute([$userId, $projectId]);
+        if ($check->fetch()) return true;
+        
+        $stmt = $pdo->prepare("INSERT INTO user_project_exclusions (user_id, project_id, excluded_by) VALUES (?, ?, ?)");
+        return $stmt->execute([$userId, $projectId, getCurrentUserId()]);
+    } catch (PDOException $e) { return false; }
+}
+
+function removeProjectExclusion($pdo, $userId, $projectId) {
+    try {
+        $stmt = $pdo->prepare("DELETE FROM user_project_exclusions WHERE user_id = ? AND project_id = ?");
+        return $stmt->execute([$userId, $projectId]);
+    } catch (PDOException $e) { return false; }
+}
+
+function changePassword($pdo, $userId, $newPassword) {
+    try {
+        $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+        return $stmt->execute([$passwordHash, $userId]);
+    } catch (PDOException $e) { return false; }
+}
+
+function deleteUser($pdo, $userId) {
+    try {
+        $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+        return $stmt->execute([$userId]);
+    } catch (PDOException $e) { return false; }
+}
+
+// ==========================================
+// 4. FIRM / PROFESSIONAL UTILITIES
+// ==========================================
+
+function getAllFirms($pdo) {
+    $stmt = $pdo->query("SELECT DISTINCT firm_name, role_type FROM professionals ORDER BY firm_name ASC, role_type ASC");
+    $allFirms = $stmt->fetchAll();
+    
+    $firms = ['architects' => [], 'structural_engineers' => []];
+    foreach ($allFirms as $firm) {
+        if ($firm['role_type'] === 'architect' && !in_array($firm['firm_name'], $firms['architects'])) {
+            $firms['architects'][] = $firm['firm_name'];
+        }
+        if ($firm['role_type'] === 'structural_engineer' && !in_array($firm['firm_name'], $firms['structural_engineers'])) {
+            $firms['structural_engineers'][] = $firm['firm_name'];
+        }
+    }
+    return $firms;
+}
+
+function getProfessionalIdByFirm($pdo, $firmName, $roleType) {
+    $stmt = $pdo->prepare("SELECT id FROM professionals WHERE firm_name = ? AND role_type = ? LIMIT 1");
+    $stmt->execute([$firmName, $roleType]);
+    $result = $stmt->fetch();
+    return $result ? $result['id'] : null;
+}
+
+// ==========================================
+// 5. FORMATTING HELPERS
+// ==========================================
+
 function formatPANumber($pa) {
     $clean = str_replace(['/', ' '], '', $pa);
     if (preg_match('/^([A-Z]{2})(\d{4})(\d{2})$/', $clean, $matches)) {
@@ -139,19 +249,10 @@ function formatPANumber($pa) {
     return $pa;
 }
 
-/**
- * Generate eApps URL from PA number
- */
 function getEAppsUrl($pa) {
-    // Ensure we use the raw PA number (no slashes or spaces) for the URL
     $rawPa = str_replace(['/', ' '], '', $pa);
-    
-    // Match PAxxxxx24, PCxxxxx24, or DNxxxxx24 format
     if (preg_match('/(PA|PC|DN)(\d+)(\d{2})/', $rawPa, $m)) {
         return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}";
     }
     return "#";
 }
-
-
-
