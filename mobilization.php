@@ -6,11 +6,10 @@ require_once 'session-check.php';
 $accessibleProjects = getAccessibleProjects($pdo, getCurrentUserId(), getCurrentRole());
 
 // Define the stages that belong in a "Mobilisation Meeting"
-// Once a project hits Stage 7 (Construction), it drops off this specific list.
-$mobilisationStages = ['Feasibility', 'Tracking', 'Permit', 'Mobilisation', 'Demolition', 'Excavation'];
+// Feasibility is excluded as requested. Once a project hits Stage 7 (Construction), it drops off.
+$mobilisationStages = ['Tracking', 'Permit', 'Mobilisation', 'Demolition', 'Excavation'];
 
 $stageColors = [
-    'Feasibility' => '#94a3b8', 
     'Tracking' => '#0ea5e9', 
     'Permit' => '#3b82f6', 
     'Mobilisation' => '#6366f1', 
@@ -23,14 +22,13 @@ $activeProjects = [];
 foreach ($accessibleProjects as $project) {
     $stage = deriveProjectStage($pdo, $project['id']);
     
-    // STRICT FILTER: Only show projects in Stages 1 through 6
+    // STRICT FILTER: Only show projects in Stages 2 through 6
     if (in_array($stage, $mobilisationStages)) {
         
         $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
         $mobStmt->execute([$project['id']]);
         $mob = $mobStmt->fetch();
         
-        // Safely calculate progress (Bug fix: removed old bca_clearance)
         $completedSteps = 0;
         $totalSteps = 14; 
         
@@ -62,12 +60,12 @@ foreach ($accessibleProjects as $project) {
     }
 }
 
-// Sort by Progress (Highest first) so the ones closest to Construction are at the top
+// Automatically Sort by Progress (Highest % first, then alphabetical)
 usort($activeProjects, function($a, $b) {
     if ($a['progress'] === $b['progress']) {
-        return strcmp($a['name'], $b['name']);
+        return strcasecmp($a['name'], $b['name']);
     }
-    return $b['progress'] <=> $a['progress'];
+    return $b['progress'] <=> $a['progress']; // Descending order
 });
 
 $pageTitle = 'Mobilisation Meeting Hub';
@@ -156,6 +154,8 @@ require_once 'header.php';
     font-size: 0.8rem;
     color: var(--text-secondary);
     margin-bottom: 0.75rem;
+    display: flex;
+    justify-content: space-between;
 }
 
 .item-stage-badge {
@@ -207,23 +207,32 @@ require_once 'header.php';
     
     <div class="meeting-sidebar">
         <div class="sidebar-header">
-            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; color: var(--text-primary);">Mobilisation Sites</h2>
-            <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary);">Showing <?= count($activeProjects) ?> active pre-construction projects.</p>
+            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; color: var(--text-primary);">Mobilisation Hub</h2>
+            <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary);">Showing <?= count($activeProjects) ?> pre-construction sites.</p>
             
-            <input type="text" id="search-box" placeholder="Search by project or client..." 
-                   onkeyup="filterProjects()"
-                   style="width: 100%; padding: 0.6rem 1rem; border-radius: 20px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); outline: none;">
+            <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="search-box" placeholder="Search..." 
+                       onkeyup="filterProjects()"
+                       style="flex: 1; padding: 0.6rem 1rem; border-radius: 20px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); outline: none;">
+                
+                <select id="island-filter" onchange="filterProjects()" style="width: 100px; padding: 0.6rem 1rem; border-radius: 20px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); outline: none; cursor: pointer;">
+                    <option value="all">All</option>
+                    <option value="Malta">Malta</option>
+                    <option value="Gozo">Gozo</option>
+                </select>
+            </div>
         </div>
         
         <div class="sidebar-list" id="project-list">
             <?php if (empty($activeProjects)): ?>
                 <div style="text-align: center; color: var(--text-muted); margin-top: 2rem;">
-                    No projects currently in the Mobilisation phase.
+                    No projects currently require mobilisation.
                 </div>
             <?php else: ?>
                 <?php foreach ($activeProjects as $project): ?>
                     <div class="project-item" 
                          data-name="<?= strtolower(htmlspecialchars($project['name'] . ' ' . $project['client_name'])) ?>"
+                         data-island="<?= htmlspecialchars($project['island'] ?? 'Malta') ?>"
                          onclick="loadProject(<?= $project['id'] ?>, this)">
                         
                         <div class="item-title">
@@ -232,11 +241,14 @@ require_once 'header.php';
                                 <?= $project['stage'] ?>
                             </span>
                         </div>
-                        <div class="item-client"><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></div>
+                        <div class="item-client">
+                            <span><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></span>
+                            <span style="color: var(--primary-color); font-weight: 600;"><?= htmlspecialchars($project['island'] ?? 'Malta') ?></span>
+                        </div>
                         
                         <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary);">
                             <span>Clearance Progress</span>
-                            <span><?= $project['progress'] ?>%</span>
+                            <span style="font-weight: 700; color: var(--primary-color);"><?= $project['progress'] ?>%</span>
                         </div>
                         <div class="item-progress-bg">
                             <div class="item-progress-fill" style="width: <?= $project['progress'] ?>%;"></div>
@@ -261,12 +273,19 @@ require_once 'header.php';
 </div>
 
 <script>
-// Search Filter Logic
+// Search and Island Filter Logic
 function filterProjects() {
     const term = document.getElementById('search-box').value.toLowerCase();
+    const island = document.getElementById('island-filter').value;
+    
     document.querySelectorAll('.project-item').forEach(el => {
         const searchData = el.getAttribute('data-name');
-        if (searchData.includes(term)) {
+        const projectIsland = el.getAttribute('data-island');
+        
+        const matchesSearch = searchData.includes(term);
+        const matchesIsland = (island === 'all' || projectIsland === island);
+        
+        if (matchesSearch && matchesIsland) {
             el.style.display = 'block';
         } else {
             el.style.display = 'none';
