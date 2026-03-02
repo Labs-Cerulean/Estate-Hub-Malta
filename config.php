@@ -157,48 +157,82 @@ CREATE TABLE IF NOT EXISTS project_mobilisation (
 )");
 
 /**
- * Derive mobilisation status from project_mobilisation
- * Rules: If ANY of the 3 phases are cleared ('Yes') -> Mobilised
- * else if any prerequisite is In Progress/Awaiting -> In Process
- * else Pending
+ * 11-Stage Project Lifecycle Engine
  */
-function deriveMobilisationStatus($pdo, $projectId) {
+function deriveProjectStage($pdo, $projectId) {
     try {
-        $stmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
+        $stmt = $pdo->prepare("SELECT finishlevel, is_tracking FROM projects WHERE id = ?");
         $stmt->execute([$projectId]);
-        $mob = $stmt->fetch();
+        $project = $stmt->fetch();
+        if (!$project) return 'Unknown';
+
+        $stmtMob = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
+        $stmtMob->execute([$projectId]);
+        $mob = $stmtMob->fetch();
+
+        $stmtPa = $pdo->prepare("SELECT pa_number, pa_status FROM project_pa_numbers WHERE project_id = ?");
+        $stmtPa->execute([$projectId]);
+        $pas = $stmtPa->fetchAll();
+
+        // Check if any blocks have finished their milestones
+        $stmtBlocks = $pdo->prepare("
+            SELECT 
+                MIN(construction_status) as min_const, 
+                MIN(finishes_status) as min_finish,
+                MIN(compliance_submitted) as min_comp_sub,
+                MIN(compliance_certified) as min_comp_cert,
+                MIN(condominium_formed) as min_condo,
+                MIN(cp_meters_installed) as min_cp
+            FROM project_blocks pb
+            LEFT JOIN block_levels bl ON pb.id = bl.block_id
+            WHERE pb.project_id = ?
+        ");
+        $stmtBlocks->execute([$projectId]);
+        $blockData = $stmtBlocks->fetch();
+
+        $requiresFinishes = !in_array($project['finishlevel'], ['Shell', null, '']);
         
-        if (!$mob) return 'Pending';
-        
-        // If ANY phase is approved, the project is considered Mobilised
-        if (($mob['mob_demolition'] ?? 'No') === 'Yes' || 
-            ($mob['mob_excavation'] ?? 'No') === 'Yes' || 
-            ($mob['mob_construction'] ?? 'No') === 'Yes') {
-            return 'Mobilised';
-        }
-        
-        $inProgressFields = [
-            'condition_report_contacts', 'condition_reports', 'geological_test',
-            'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee'
-        ];
-        
-        foreach ($inProgressFields as $field) {
-            if (isset($mob[$field]) && $mob[$field] === 'In Process') return 'In Process';
-        }
-        
-        if (isset($mob['geological_test']) && $mob['geological_test'] === 'Awaiting Result') {
-            return 'In Process';
+        // STAGES 11 down to 8 (Block Level Execution)
+        if ($blockData && $blockData['min_cp'] === 'Yes' && $blockData['min_condo'] === 'Yes') return 'Handed Over'; // Stage 11
+        if ($blockData && $blockData['min_comp_cert'] === 'Yes') return 'Condominium'; // Stage 10
+        if ($blockData && $blockData['min_comp_sub'] === 'Yes') return 'Compliance'; // Stage 9
+        if ($blockData && $blockData['min_const'] === 'Complete') {
+            return $requiresFinishes ? 'Finishes' : 'Compliance'; // Stage 8 (or skip to 9 if Shell)
         }
 
-        // If responsibility form is done but waiting on clearances
-        if (($mob['responsibility_form'] ?? 'Not Complete') === 'Complete') {
-            return 'In Process';
+        // STAGES 7 down to 5 (BCA Clearances)
+        if ($mob) {
+            if (($mob['mob_construction'] ?? 'No') === 'Yes') return 'Construction'; // Stage 7
+            if (($mob['mob_excavation'] ?? 'No') === 'Yes') return 'Excavation'; // Stage 6
+            if (($mob['mob_demolition'] ?? 'No') === 'Yes') return 'Demolition'; // Stage 5
         }
-        
-        return 'Pending';
+
+        // STAGES 4 down to 1 (Pre-Construction)
+        $hasEndorsed = false; $hasPA = false; $hasTrkPc = false;
+        foreach ($pas as $pa) {
+            if ($pa['pa_status'] === 'Endorsed') $hasEndorsed = true;
+            $cleanPa = strtoupper(str_replace([' ', '/'], '', $pa['pa_number']));
+            if (strpos($cleanPa, 'PA') === 0) $hasPA = true;
+            if (strpos($cleanPa, 'TRK') === 0 || strpos($cleanPa, 'PC') === 0) $hasTrkPc = true;
+        }
+
+        if ($hasEndorsed) return 'Mobilisation'; // Stage 4
+        if ($hasPA) return 'Permit'; // Stage 3
+        if ($hasTrkPc || $project['is_tracking'] == 1) return 'Tracking'; // Stage 2
+        return 'Feasibility'; // Stage 1
+
     } catch (Exception $e) {
-        return 'Pending';
+        return 'Feasibility';
     }
+}
+
+// Keep a wrapper for backward compatibility with older pages (like Dashboard filters)
+function deriveMobilisationStatus($pdo, $projectId) {
+    $stage = deriveProjectStage($pdo, $projectId);
+    $activeStages = ['Construction', 'Finishes', 'Compliance', 'Condominium'];
+    if ($stage === 'Handed Over') return 'Mobilised';
+    if (in_array($stage, $activeStages) || $stage === 'Demolition' || $stage === 'Excavation') return 'In Process';
+    return 'Pending';
 }
 
 /**
