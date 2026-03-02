@@ -336,15 +336,18 @@ require_once 'header.php';
                     <th>Project Name</th>
                     <th>Stage</th>
                     <th>Finish Requirement</th>
+                    
+                    <th style="border-left: 2px solid var(--border-glass); text-align: center;">Demolition</th>
+                    <th style="text-align: center;">Excavation</th>
+                    <th style="text-align: center;">Construction</th>
+                    <th style="text-align: center;">Finishes</th>
+
                     <th style="border-left: 2px solid var(--border-glass);">PM (Construction)</th>
                     <th>PM (Finishes)</th>
                     <th style="border-left: 2px solid var(--border-glass);">Sub (Demolition)</th>
                     <th>Sub (Excavation)</th>
                     <th>Sub (Construction)</th>
-                    <th style="border-left: 2px solid var(--border-glass); text-align: center;">Demolition</th>
-                    <th style="text-align: center;">Excavation</th>
-                    <th style="text-align: center;">Construction</th>
-                    <th style="text-align: center;">Finishes</th>
+                    
                     <?php if ($canAssignTeam): ?><th style="text-align: center;">Action</th><?php endif; ?>
                 </tr>
             </thead>
@@ -361,6 +364,11 @@ require_once 'header.php';
                             <td><?= htmlspecialchars($p['stage']) ?></td>
                             <td><?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></td>
                             
+                            <td style="border-left: 2px solid var(--border-glass); text-align: center;"><?= renderStatusBadge($p['demo_status']) ?></td>
+                            <td style="text-align: center;"><?= renderStatusBadge($p['exc_status']) ?></td>
+                            <td style="text-align: center;"><?= renderStatusBadge($p['const_status']) ?></td>
+                            <td style="text-align: center;"><?= renderStatusBadge($p['fin_status']) ?></td>
+
                             <td style="border-left: 2px solid var(--border-glass);">
                                 <?= $p['pm_const_name'] === 'Unassigned' ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['pm_const_name']) ?>
                             </td>
@@ -377,11 +385,6 @@ require_once 'header.php';
                             <td>
                                 <?= $p['sub_const_name'] === 'Unassigned' ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['sub_const_name']) ?>
                             </td>
-
-                            <td style="border-left: 2px solid var(--border-glass); text-align: center;"><?= renderStatusBadge($p['demo_status']) ?></td>
-                            <td style="text-align: center;"><?= renderStatusBadge($p['exc_status']) ?></td>
-                            <td style="text-align: center;"><?= renderStatusBadge($p['const_status']) ?></td>
-                            <td style="text-align: center;"><?= renderStatusBadge($p['fin_status']) ?></td>
                             
                             <?php if ($canAssignTeam): ?>
                             <td style="text-align: center;">
