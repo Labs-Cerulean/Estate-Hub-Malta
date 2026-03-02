@@ -11,8 +11,8 @@ $isAdmin = isAdmin();
 // Capability checks
 $canViewTracking = hasPermission('view_tracking') || $isAdmin;
 
-// 1. Determine Dashboard View Type based on PDF specifications
-$dashboardType = 'Project Dashboard'; // Default for Architects, Engineers, PMO, etc.
+// 1. Determine Dashboard View Type
+$dashboardType = 'Project Dashboard';
 if ($userRole === 'admin') {
     $dashboardType = 'Admin Dashboard';
 } elseif ($userRole === 'director') {
@@ -20,14 +20,12 @@ if ($userRole === 'admin') {
 } elseif (in_array($userRole, ['sales_manager', 'sales_agent'])) {
     $dashboardType = 'Sales Dashboard';
 } elseif ($userRole === 'condominium_agent') {
-    $dashboardType = 'None'; // Restricted Dashboard
+    $dashboardType = 'None'; 
 }
 
 // 2. Define Visible Stages based on Role
 $visibleStages = [];
-if ($canViewTracking) {
-    $visibleStages = ['Feasibility', 'Tracking'];
-}
+if ($canViewTracking) { $visibleStages = ['Feasibility', 'Tracking']; }
 
 switch ($userRole) {
     case 'sales_manager':
@@ -51,6 +49,12 @@ switch ($userRole) {
         break;
 }
 
+// Legend Items builder (Admins/Directors also see On-Hold and Withdrawn)
+$legendItems = $visibleStages;
+if (in_array($userRole, ['admin', 'director'])) {
+    array_unshift($legendItems, 'Withdrawn', 'On-Hold');
+}
+
 // Stage Enums & Colors for the Legend and Dots
 $stageEnum = [
     'Feasibility' => 1, 'Tracking' => 2, 'Permit' => 3, 'Mobilisation' => 4,
@@ -59,6 +63,8 @@ $stageEnum = [
 ];
 
 $stageColors = [
+    'Withdrawn' => '#4b5563',     // Dark Slate
+    'On-Hold' => '#f59e0b',       // Amber
     'Feasibility' => '#94a3b8',   
     'Tracking' => '#0ea5e9',      
     'Permit' => '#3b82f6',        
@@ -78,6 +84,7 @@ if ($dashboardType !== 'None') {
     $filterCity = $_GET['filter_city'] ?? 'all';
     $filterClient = $_GET['filter_client'] ?? 'all';
     $filterIsland = $_GET['filter_island'] ?? 'all';
+    $filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; // NEW: Active vs Withdrawn
     
     $sortBy = $_GET['sort'] ?? 'stage';
     $sortOrder = $_GET['order'] ?? 'DESC';
@@ -127,30 +134,58 @@ if ($dashboardType !== 'None') {
         $companyKpis = []; 
 
         foreach ($projects as $key => $project) {
-            $stage = deriveProjectStage($pdo, $project['id']);
-            $stageNum = $stageEnum[$stage] ?? 1;
-            
-            if (!in_array($stage, $visibleStages)) {
+            $pStatus = $project['project_status'] ?? 'Active';
+
+            // 1. Security Lock: If not Admin/Director, ALWAYS hide Withdrawn/On-Hold
+            if (!in_array($userRole, ['admin', 'director']) && $pStatus !== 'Active') {
                 unset($projects[$key]);
                 continue;
+            }
+
+            // 2. User Dropdown Filter Application
+            if ($filterDbStatus !== 'All' && $pStatus !== $filterDbStatus) {
+                unset($projects[$key]);
+                continue;
+            }
+
+            // 3. Stage Logic Calculation
+            if ($pStatus === 'Withdrawn' || $pStatus === 'On-Hold') {
+                // Override stage name so Director explicitly knows it's dead
+                $stage = $pStatus;
+                $stageNum = ($pStatus === 'Withdrawn') ? -1 : 0; 
+            } else {
+                $stage = deriveProjectStage($pdo, $project['id']);
+                $stageNum = $stageEnum[$stage] ?? 1;
+                
+                if (!$canViewTracking && in_array($stage, ['Feasibility', 'Tracking'])) {
+                    unset($projects[$key]);
+                    continue;
+                }
+                if (!in_array($stage, $visibleStages)) {
+                    unset($projects[$key]);
+                    continue;
+                }
             }
 
             $projects[$key]['stage'] = $stage;
             $projects[$key]['stage_num'] = $stageNum;
 
-            if ($stageNum >= 9) $finalCount++;
-            elseif ($stageNum >= 5) $execCount++;
-            else $preExecCount++;
+            // Only count ACTIVE projects towards operational KPIs
+            if ($pStatus === 'Active') {
+                if ($stageNum >= 9) $finalCount++;
+                elseif ($stageNum >= 5) $execCount++;
+                else $preExecCount++;
 
-            if ($dashboardType === 'Company Dashboard') {
-                $cName = $project['client_name'] ?? 'Unassigned';
-                if (!isset($companyKpis[$cName])) {
-                    $companyKpis[$cName] = ['total' => 0, 'pre' => 0, 'exec' => 0, 'final' => 0];
+                if ($dashboardType === 'Company Dashboard') {
+                    $cName = $project['client_name'] ?? 'Unassigned';
+                    if (!isset($companyKpis[$cName])) {
+                        $companyKpis[$cName] = ['total' => 0, 'pre' => 0, 'exec' => 0, 'final' => 0];
+                    }
+                    $companyKpis[$cName]['total']++;
+                    if ($stageNum >= 9) $companyKpis[$cName]['final']++;
+                    elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++;
+                    else $companyKpis[$cName]['pre']++;
                 }
-                $companyKpis[$cName]['total']++;
-                if ($stageNum >= 9) $companyKpis[$cName]['final']++;
-                elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++;
-                else $companyKpis[$cName]['pre']++;
             }
         }
         
@@ -183,9 +218,9 @@ if ($dashboardType !== 'None') {
 }
 
 function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterIsland;
+    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterIsland, $filterDbStatus;
     $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
-    $params = ['sort' => $column, 'order' => $newOrder, 'filter_type' => $filterType, 'filter_status' => $filterStatus, 'filter_city' => $filterCity, 'filter_client' => $filterClient];
+    $params = ['sort' => $column, 'order' => $newOrder, 'filter_type' => $filterType, 'filter_status' => $filterStatus, 'filter_city' => $filterCity, 'filter_client' => $filterClient, 'filter_db_status' => $filterDbStatus];
     if ($filterIsland !== 'all') $params['filter_island'] = $filterIsland;
     return 'dashboard.php?' . http_build_query($params);
 }
@@ -210,43 +245,15 @@ require_once 'header.php';
 .stage-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.3); flex-shrink: 0; }
 .legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
 .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
-
-/* Table Space Optimization (No more ellipsis truncation) */
 .table-container { overflow-x: auto; }
 .table-container table { width: 100%; table-layout: auto; border-collapse: collapse; }
-.table-container th, .table-container td { 
-    padding: 1rem 0.75rem; 
-    vertical-align: top; /* Ensures arrays of PA numbers align nicely */
-    word-break: normal;
-}
+.table-container th, .table-container td { padding: 1rem 0.75rem; vertical-align: top; word-break: normal; }
 .nowrap-cell { white-space: nowrap; }
-
-/* Gives long names room to breathe without breaking the table */
 .min-w-150 { min-width: 150px; }
-.min-w-120 { min-width: 120px; }
-
-/* Structured lists for PA Numbers, Architects, etc. */
-.cell-list-item {
-    display: block;
-    margin-bottom: 0.5rem;
-    min-height: 1.2rem;
-    line-height: 1.3;
-}
+.cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; }
 .cell-list-item:last-child { margin-bottom: 0; }
-
-/* Compact side-by-side Action buttons */
-.action-buttons-wrapper { 
-    display: flex; 
-    flex-wrap: wrap; 
-    gap: 6px; 
-    max-width: 220px; /* Prevents the column from getting too wide */
-}
-.action-buttons-wrapper .btn-sm { 
-    margin: 0; 
-    padding: 0.35rem 0.6rem; 
-    font-size: 0.75rem; 
-    flex: 0 0 auto; /* Prevents buttons from stretching 100% width */
-}
+.action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
+.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; }
 </style>
 
 <div class="main-container">
@@ -261,47 +268,23 @@ require_once 'header.php';
         
         <div class="stats-grid">
             <?php if ($dashboardType === 'Admin Dashboard'): ?>
-                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Total Projects</div></div>
+                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Permit'] ?>;"><?= $preExecCount ?></div><div class="stat-label">Pre-Execution (Stg 1-4)</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">In Execution (Stg 5-8)</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Finalizing (Stg 9-11)</div></div>
                 <div class="stat-card"><div class="stat-number"><?= $userCount ?></div><div class="stat-label">Total Users</div></div>
-
             <?php elseif ($dashboardType === 'Company Dashboard'): ?>
-                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Projects Managed</div></div>
+                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">Sites In Execution</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Sites Finalizing</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: var(--primary-color);"><?= count($companyKpis) ?></div><div class="stat-label">Companies Supervised</div></div>
-
-            <?php elseif ($dashboardType === 'Sales Dashboard'): ?>
-                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Marketable Projects</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Finishes'] ?>;"><?= $execCount ?></div><div class="stat-label">In Finishes</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Ready / Handed Over</div></div>
-                
             <?php else: ?>
-                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Assigned Projects</div></div>
+                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Permit'] ?>;"><?= $preExecCount ?></div><div class="stat-label">Pre-Execution</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">In Execution</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Finalizing</div></div>
             <?php endif; ?>
         </div>
-
-        <?php if ($dashboardType === 'Company Dashboard' && !empty($companyKpis)): ?>
-            <h3 style="margin-bottom: 1rem;">Company Overview</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-                <?php foreach ($companyKpis as $cName => $kpi): ?>
-                    <div class="card" style="border-left: 4px solid var(--primary-color);">
-                        <h4 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; color: var(--text-primary);"><?= htmlspecialchars($cName) ?></h4>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary);">
-                            <span>Total: <strong style="color: var(--text-primary);"><?= $kpi['total'] ?></strong></span>
-                            <span>Pre: <strong style="color: <?= $stageColors['Permit'] ?>;"><?= $kpi['pre'] ?></strong></span>
-                            <span>Exec: <strong style="color: <?= $stageColors['Construction'] ?>;"><?= $kpi['exec'] ?></strong></span>
-                            <span>Fin: <strong style="color: <?= $stageColors['Handed Over'] ?>;"><?= $kpi['final'] ?></strong></span>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
 
         <div class="projects-section">
             <div class="projects-header">
@@ -314,40 +297,31 @@ require_once 'header.php';
             <div class="filters-section">
                 <form method="GET" id="dashboardFilters">
                     <div class="filters-grid">
+                        
+                        <?php if (in_array($userRole, ['admin', 'director'])): ?>
+                        <div class="filter-group" style="background: rgba(239, 68, 68, 0.05); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2);">
+                            <label style="color: #ef4444;">Operational Status (Admin)</label>
+                            <select name="filter_db_status">
+                                <option value="Active" <?= $filterDbStatus === 'Active' ? 'selected' : '' ?>>🟢 Active Projects</option>
+                                <option value="On-Hold" <?= $filterDbStatus === 'On-Hold' ? 'selected' : '' ?>>🟡 On-Hold Projects</option>
+                                <option value="Withdrawn" <?= $filterDbStatus === 'Withdrawn' ? 'selected' : '' ?>>⚫ Withdrawn Projects</option>
+                                <option value="All" <?= $filterDbStatus === 'All' ? 'selected' : '' ?>>All Projects</option>
+                            </select>
+                        </div>
+                        <?php endif; ?>
+
                         <div class="filter-group">
                             <label>Stage Filter</label>
                             <select name="filter_status">
                                 <option value="all">All Stages</option>
-                                
                                 <?php 
                                 $preExecOpts = array_intersect(['Feasibility', 'Tracking', 'Permit', 'Mobilisation'], $visibleStages);
                                 $execOpts = array_intersect(['Demolition', 'Excavation', 'Construction', 'Finishes'], $visibleStages);
                                 $finalOpts = array_intersect(['Compliance', 'Condominium', 'Handed Over'], $visibleStages);
                                 ?>
-
-                                <?php if (!empty($preExecOpts)): ?>
-                                    <optgroup label="Pre-Execution">
-                                        <?php foreach($preExecOpts as $st): ?>
-                                            <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option>
-                                        <?php endforeach; ?>
-                                    </optgroup>
-                                <?php endif; ?>
-
-                                <?php if (!empty($execOpts)): ?>
-                                    <optgroup label="Execution">
-                                        <?php foreach($execOpts as $st): ?>
-                                            <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option>
-                                        <?php endforeach; ?>
-                                    </optgroup>
-                                <?php endif; ?>
-
-                                <?php if (!empty($finalOpts)): ?>
-                                    <optgroup label="Finalization">
-                                        <?php foreach($finalOpts as $st): ?>
-                                            <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option>
-                                        <?php endforeach; ?>
-                                    </optgroup>
-                                <?php endif; ?>
+                                <?php if (!empty($preExecOpts)): ?><optgroup label="Pre-Execution"><?php foreach($preExecOpts as $st): ?><option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option><?php endforeach; ?></optgroup><?php endif; ?>
+                                <?php if (!empty($execOpts)): ?><optgroup label="Execution"><?php foreach($execOpts as $st): ?><option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option><?php endforeach; ?></optgroup><?php endif; ?>
+                                <?php if (!empty($finalOpts)): ?><optgroup label="Finalization"><?php foreach($finalOpts as $st): ?><option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option><?php endforeach; ?></optgroup><?php endif; ?>
                             </select>
                         </div>
                         <div class="filter-group">
@@ -364,15 +338,6 @@ require_once 'header.php';
                                 <option value="all">All Clients</option>
                                 <?php foreach ($clients as $client): ?>
                                     <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label>City</label>
-                            <select name="filter_city">
-                                <option value="all">All Cities</option>
-                                <?php foreach ($cities as $city): ?>
-                                    <option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>><?= htmlspecialchars($city) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -394,9 +359,9 @@ require_once 'header.php';
             </div>
 
             <div class="legend-container">
-                <?php foreach ($stageEnum as $name => $num): ?>
-                    <?php if (!in_array($name, $visibleStages)) continue; ?>
-                    <div class="legend-item" title="Stage <?= $num ?>">
+                <?php foreach ($legendItems as $name): ?>
+                    <?php $num = $stageEnum[$name] ?? '-'; ?>
+                    <div class="legend-item" title="<?= $num !== '-' ? "Stage $num" : $name ?>">
                         <span class="stage-dot" style="background-color: <?= $stageColors[$name] ?>;"></span>
                         <?= $name ?>
                     </div>
@@ -427,14 +392,16 @@ require_once 'header.php';
                     </thead>
                     <tbody>
                         <?php foreach ($projects as $project): ?>
-                            <tr>
+                            <tr style="<?= in_array($project['project_status'] ?? '', ['Withdrawn', 'On-Hold']) ? 'opacity: 0.6;' : '' ?>">
                                 <td style="text-align: center;">
                                     <span class="stage-dot" 
                                           style="background-color: <?= $stageColors[$project['stage']] ?>;" 
-                                          title="Stage <?= $project['stage_num'] ?>: <?= $project['stage'] ?>"></span>
+                                          title="<?= $project['stage'] ?>"></span>
                                 </td>
                                 
-                                <td style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($project['name']) ?></td>
+                                <td style="font-weight: 600; color: var(--text-primary);">
+                                    <?= htmlspecialchars($project['name']) ?>
+                                </td>
                                 
                                 <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
                                 
@@ -473,9 +440,7 @@ require_once 'header.php';
                                     <td>
                                         <?php if (!empty($projectPAs)): ?>
                                             <?php foreach ($projectPAs as $pa): ?>
-                                                <div class="cell-list-item">
-                                                    <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
-                                                </div>
+                                                <div class="cell-list-item"><?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?></div>
                                             <?php endforeach; ?>
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                     </td>
@@ -483,9 +448,7 @@ require_once 'header.php';
                                     <td>
                                         <?php if (!empty($projectPAs)): ?>
                                             <?php foreach ($projectPAs as $pa): ?>
-                                                <div class="cell-list-item">
-                                                    <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
-                                                </div>
+                                                <div class="cell-list-item"><?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?></div>
                                             <?php endforeach; ?>
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                     </td>
@@ -499,15 +462,12 @@ require_once 'header.php';
                                                 <?= $canUpdateProjStatus ? 'Execution' : 'View Hub' ?>
                                             </a>
                                         <?php endif; ?>
-                                        
                                         <?php if (hasPermission('view_property_sales') || $isAdmin): ?>
                                             <a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white; border: none;">Sales</a>
                                         <?php endif; ?>
-                                        
                                         <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?>
                                             <a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white; border: none;">Capital</a>
                                         <?php endif; ?>
-                                        
                                         <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
                                             <a href="edit-project.php?id=<?= $project['id'] ?>" class="btn btn-sm btn-secondary">Edit</a>
                                         <?php endif; ?>
@@ -536,11 +496,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const gozoCheckbox = document.getElementById('island_gozo');
 
     function validateIslands(e) {
-        if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
-            e.preventDefault();
-            this.checked = true;
-            alert('At least one island must be selected');
-        }
+        if (!maltaCheckbox.checked && !gozoCheckbox.checked) { e.preventDefault(); this.checked = true; alert('At least one island must be selected'); }
     }
 
     if(maltaCheckbox) maltaCheckbox.addEventListener('change', validateIslands);
