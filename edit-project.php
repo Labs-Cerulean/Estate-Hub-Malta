@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     try {
         $pdo->beginTransaction();
 
-        // 1. UPDATE CORE PROJECT DETAILS
+        // 1. UPDATE CORE PROJECT DETAILS (Now includes project_status)
         $clientId = $_POST['clientid'] ?? null;
         $name = trim($_POST['name'] ?? '');
         $city = trim($_POST['city'] ?? '');
@@ -28,9 +28,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
         $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
         $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
+        $projectStatus = $_POST['project_status'] ?? 'Active'; // NEW
         
-        $stmt = $pdo->prepare("UPDATE projects SET clientid=?, name=?, city=?, island=?, type=?, finishlevel=?, is_tracking=?, summer_break_flag=? WHERE id=?");
-        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, $projectId]);
+        $stmt = $pdo->prepare("UPDATE projects SET clientid=?, name=?, city=?, island=?, type=?, finishlevel=?, is_tracking=?, summer_break_flag=?, project_status=? WHERE id=?");
+        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, $projectStatus, $projectId]);
         
         // 2. UPDATE PA NUMBERS
         if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
@@ -58,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
                 $bHigh = (int)($b['highest'] ?? 0);
 
                 if (empty($bName)) continue;
-                if ($bLow > $bHigh) { $temp = $bLow; $bLow = $bHigh; $bHigh = $temp; } // Swap if backwards
+                if ($bLow > $bHigh) { $temp = $bLow; $bLow = $bHigh; $bHigh = $temp; }
 
                 if ($bId) {
                     $pdo->prepare("UPDATE project_blocks SET block_name=?, block_type=?, lowest_level=?, highest_level=? WHERE id=? AND project_id=?")
@@ -71,20 +72,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
                     $submittedBlockIds[] = $bId;
                 }
 
-                // Auto-generate levels for this block (INSERT IGNORE preserves existing statuses)
                 $levelStmt = $pdo->prepare("INSERT IGNORE INTO block_levels (block_id, level_number, level_name) VALUES (?, ?, ?)");
                 for ($lvl = $bLow; $lvl <= $bHigh; $lvl++) {
                     $lvlName = ($lvl === 0) ? "Level 0 (Ground)" : "Level " . $lvl;
                     $levelStmt->execute([$bId, $lvl, $lvlName]);
                 }
                 
-                // Remove floors if the user shrank the building range
                 $pdo->prepare("DELETE FROM block_levels WHERE block_id=? AND (level_number < ? OR level_number > ?)")
                     ->execute([$bId, $bLow, $bHigh]);
             }
         }
 
-        // Delete blocks removed from UI
         if (!empty($submittedBlockIds)) {
             $placeholders = implode(',', array_fill(0, count($submittedBlockIds), '?'));
             $params = $submittedBlockIds;
@@ -96,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
 
         $pdo->commit();
         $message = 'Project updated successfully!';
-        $project = getProjectWithClient($pdo, $projectId); // Refresh
+        $project = getProjectWithClient($pdo, $projectId); 
         
     } catch (PDOException $e) {
         if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
@@ -148,6 +146,16 @@ require_once 'header.php';
                         <label>Project Name</label>
                         <input type="text" name="name" value="<?= htmlspecialchars($project['name']) ?>" required>
                     </div>
+                    
+                    <div class="form-group">
+                        <label>Operational Status</label>
+                        <select name="project_status" required style="border: 2px solid var(--primary-color);">
+                            <option value="Active" <?= ($project['project_status'] ?? 'Active') == 'Active' ? 'selected' : '' ?>>🟢 Active</option>
+                            <option value="On-Hold" <?= ($project['project_status'] ?? '') == 'On-Hold' ? 'selected' : '' ?>>🟡 On-Hold</option>
+                            <option value="Withdrawn" <?= ($project['project_status'] ?? '') == 'Withdrawn' ? 'selected' : '' ?>>⚫ Withdrawn / Cancelled</option>
+                        </select>
+                    </div>
+
                     <div class="form-group">
                         <label>Island</label>
                         <select name="island" id="island" onchange="updateCities()" required>
@@ -216,15 +224,12 @@ require_once 'header.php';
 </div>
 
 <script src="localities.js"></script>
-
 <script>
-// --- PA Numbers Logic ---
 let paEntryCount = 0;
 const architects = <?= json_encode($architects) ?>;
 const engineers = <?= json_encode($engineers) ?>;
 const existingPANumbers = <?= json_encode($paNumbers) ?>;
 
-// Comprehensive Malta PA Status List
 const paStatuses = [
     "Tracking", "Screening", "Processing", "Awaiting Recommendation",
     "Awaiting Decision", "Approved", "Endorsed", "Refused",
@@ -248,11 +253,7 @@ function addPAEntry(paData = null) {
 
     div.innerHTML = `
         <div class="form-group" style="margin:0;"><label>PA Number</label><input type="text" name="paentries[${paEntryCount}][pa_number]" value="${escapeHtml(paNum)}" placeholder="e.g. PA/1234/24" required></div>
-        <div class="form-group" style="margin:0;"><label>Status</label>
-            <select name="paentries[${paEntryCount}][pa_status]">
-                ${statusOptions}
-            </select>
-        </div>
+        <div class="form-group" style="margin:0;"><label>Status</label><select name="paentries[${paEntryCount}][pa_status]">${statusOptions}</select></div>
         <div class="form-group" style="margin:0;"><label>Architect</label><select name="paentries[${paEntryCount}][architect_id]">
             <option value="">Select Architect</option>
             ${architects.map(a => `<option value="${a.id}" ${a.id==aId?'selected':''}>${escapeHtml(a.name)}</option>`).join('')}
@@ -267,7 +268,6 @@ function addPAEntry(paData = null) {
     paEntryCount++;
 }
 
-// --- Blocks Logic ---
 let blockEntryCount = 0;
 const existingBlocks = <?= json_encode($projectBlocks) ?>;
 
@@ -285,16 +285,15 @@ function addBlockEntry(blockData = null) {
 
     div.innerHTML = `
         <input type="hidden" name="blocks[${blockEntryCount}][id]" value="${bId}">
-        <div class="form-group" style="margin:0;"><label>Block Name</label><input type="text" name="blocks[${blockEntryCount}][name]" value="${escapeHtml(bName)}" placeholder="e.g. Block A or Garage Complex" required></div>
+        <div class="form-group" style="margin:0;"><label>Block Name</label><input type="text" name="blocks[${blockEntryCount}][name]" value="${escapeHtml(bName)}" required></div>
         <div class="form-group" style="margin:0;"><label>Type</label><select name="blocks[${blockEntryCount}][type]">
             <option value="Block" ${bType==='Block'?'selected':''}>Block</option>
             <option value="Garage Complex" ${bType==='Garage Complex'?'selected':''}>Garage Complex</option>
             <option value="Villa" ${bType==='Villa'?'selected':''}>Villa</option>
             <option value="Commercial" ${bType==='Commercial'?'selected':''}>Commercial</option>
         </select></div>
-        <div class="form-group" style="margin:0;"><label>Lowest Level (e.g. -2)</label><input type="number" name="blocks[${blockEntryCount}][lowest]" value="${bLow}" required></div>
-        <div class="form-group" style="margin:0;"><label>Highest Level (e.g. 5)</label><input type="number" name="blocks[${blockEntryCount}][highest]" value="${bHigh}" required></div>
-        
+        <div class="form-group" style="margin:0;"><label>Lowest Level (-2)</label><input type="number" name="blocks[${blockEntryCount}][lowest]" value="${bLow}" required></div>
+        <div class="form-group" style="margin:0;"><label>Highest Level (5)</label><input type="number" name="blocks[${blockEntryCount}][highest]" value="${bHigh}" required></div>
         <button type="button" onclick="if(confirm('Remove this block and all its floor progress?')) document.getElementById('block-entry-${blockEntryCount}').remove()" class="btn btn-sm btn-danger" style="position: absolute; top: -10px; right: -10px; border-radius: 50%; width: 30px; height: 30px; padding: 0;">X</button>
     `;
     container.appendChild(div);
@@ -304,25 +303,18 @@ function addBlockEntry(blockData = null) {
 function escapeHtml(text) { return text ? String(text).replace(/[&<>"'`=\/]/g, function(s){return entityMap[s];}) : ''; }
 const entityMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'};
 
-// --- Cities Link Logic ---
 function updateCities() {
     const islandSelect = document.getElementById('island');
     const citySelect = document.getElementById('city-select');
     const currentCity = citySelect.getAttribute('data-selected') || citySelect.value;
     
     citySelect.innerHTML = '<option value="">Select City</option>';
-    
-    // Check if localities.js successfully loaded
     if (typeof locations !== 'undefined' && locations[islandSelect.value]) {
         locations[islandSelect.value].forEach(city => {
-            const opt = document.createElement('option'); 
-            opt.value = city; 
-            opt.textContent = city;
+            const opt = document.createElement('option'); opt.value = city; opt.textContent = city;
             if (city === currentCity) opt.selected = true;
             citySelect.appendChild(opt);
         });
-    } else {
-        console.warn("localities.js not found. Could not load cities.");
     }
 }
 
@@ -331,8 +323,6 @@ function toggleFinishLevel() { document.getElementById('finish-level-group').sty
 document.addEventListener('DOMContentLoaded', function() {
     if (existingPANumbers && existingPANumbers.length > 0) { existingPANumbers.forEach(pa => addPAEntry(pa)); } else { addPAEntry(); }
     if (existingBlocks && existingBlocks.length > 0) { existingBlocks.forEach(b => addBlockEntry(b)); } else { addBlockEntry({block_name: 'Main Building', block_type: 'Block', lowest_level: 0, highest_level: 0}); }
-    
-    // Populate dropdown with correct cities on load
     updateCities();
 });
 </script>
