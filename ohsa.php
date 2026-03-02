@@ -180,4 +180,259 @@ require_once 'header.php';
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
 
-.eq-row { display: grid; grid-template-columns: 2fr 3fr 1fr 1.5fr auto; gap: 0.5rem; margin-bottom: 0.75rem; align-items: start; background: rgba(255,255,255,0.02);
+.eq-row { display: grid; grid-template-columns: 2fr 3fr 1fr 1.5fr auto; gap: 0.5rem; margin-bottom: 0.75rem; align-items: start; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 6px; border: 1px solid var(--border-glass); }
+.eq-row input, .eq-row select { width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); font-size: 0.85rem; }
+</style>
+
+<div class="main-container" style="max-width: 1600px;">
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+            <h1 class="page-title" style="margin-bottom: 0;">OHSA Safety Matrix</h1>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Monitor safety statuses, CNF, PSCS assignments, and equipment certifications.</p>
+        </div>
+    </div>
+
+    <div class="filters-section" style="margin-bottom: 1.5rem;">
+        <form method="GET">
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label>Overall Safety Status</label>
+                    <select name="filter_safety">
+                        <option value="all" <?= $filterSafety === 'all' ? 'selected' : '' ?>>All Statuses</option>
+                        <option value="Green" <?= $filterSafety === 'Green' ? 'selected' : '' ?>>🟢 Green</option>
+                        <option value="Yellow" <?= $filterSafety === 'Yellow' ? 'selected' : '' ?>>🟡 Yellow</option>
+                        <option value="Red" <?= $filterSafety === 'Red' ? 'selected' : '' ?>>🔴 Red</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>CNF Status</label>
+                    <select name="filter_cnf">
+                        <option value="all" <?= $filterCNF === 'all' ? 'selected' : '' ?>>All</option>
+                        <option value="Not Submitted" <?= $filterCNF === 'Not Submitted' ? 'selected' : '' ?>>Not Submitted</option>
+                        <option value="Submitted" <?= $filterCNF === 'Submitted' ? 'selected' : '' ?>>Submitted</option>
+                        <option value="Terminated" <?= $filterCNF === 'Terminated' ? 'selected' : '' ?>>Terminated</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Equipment Warnings</label>
+                    <select name="filter_warnings">
+                        <option value="all" <?= $filterWarnings === 'all' ? 'selected' : '' ?>>All Projects</option>
+                        <option value="yes" <?= $filterWarnings === 'yes' ? 'selected' : '' ?>>⚠️ Show Only Warnings (Expired/Uncertified)</option>
+                        <option value="no" <?= $filterWarnings === 'no' ? 'selected' : '' ?>>✅ Show Only Compliant</option>
+                    </select>
+                </div>
+            </div>
+            <div class="filter-buttons">
+                <button type="submit" class="btn">Apply Filters</button>
+                <a href="ohsa.php" class="reset-btn">Reset</a>
+            </div>
+        </form>
+    </div>
+
+    <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+
+    <div class="matrix-wrapper">
+        <table class="matrix-table">
+            <thead>
+                <tr>
+                    <th>Project Name</th>
+                    <th>Stage</th>
+                    <th style="border-left: 2px solid var(--border-glass);">PS H&S (PSCS)</th>
+                    <th>CNF Status</th>
+                    <th style="border-left: 2px solid var(--border-glass); text-align: center;">Safety Status</th>
+                    <th style="min-width: 250px; white-space: normal;">Safety Comments</th>
+                    <th style="border-left: 2px solid var(--border-glass);">Tracked Equipment</th>
+                    <?php if ($canEditOHSA): ?><th>Action</th><?php endif; ?>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if(empty($ohsaProjects)): ?>
+                    <tr><td colspan="8" style="text-align: center; padding: 2rem;">No active projects matching criteria found.</td></tr>
+                <?php else: ?>
+                    <?php foreach($ohsaProjects as $p): ?>
+                        <tr>
+                            <td style="font-weight: 700; color: var(--primary-color);">
+                                <?= htmlspecialchars($p['name']) ?><br>
+                                <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
+                            </td>
+                            <td><?= htmlspecialchars($p['stage']) ?></td>
+                            
+                            <td style="border-left: 2px solid var(--border-glass);">
+                                <?= empty($p['pscs_name']) ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['pscs_name']) ?>
+                            </td>
+                            <td><?= renderCNFBadge($p['cnf_status']) ?></td>
+
+                            <td style="border-left: 2px solid var(--border-glass); text-align: center;">
+                                <?= renderSafetyBadge($p['safety_status']) ?>
+                            </td>
+                            
+                            <td style="white-space: normal;">
+                                <?php if (!empty($p['safety_comments'])): ?>
+                                    <div style="font-size: 0.8rem; color: var(--text-primary); background: rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 4px; border-left: 3px solid var(--primary-color);">
+                                        <?= nl2br(htmlspecialchars($p['safety_comments'])) ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color: var(--text-muted); font-style: italic;">No comments</span>
+                                <?php endif; ?>
+                            </td>
+                            
+                            <td style="border-left: 2px solid var(--border-glass);">
+                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.25rem;">
+                                    <?= count($p['equipment']) ?> Items Tracked
+                                </div>
+                                <?php if ($p['expired_count'] > 0): ?>
+                                    <div class="warning-pill">⚠️ <?= $p['expired_count'] ?> Expired Certs</div><br>
+                                <?php endif; ?>
+                                <?php if ($p['uncertified_count'] > 0): ?>
+                                    <div class="warning-pill">❌ <?= $p['uncertified_count'] ?> Uncertified</div>
+                                <?php endif; ?>
+                                <?php if ($p['expired_count'] == 0 && $p['uncertified_count'] == 0 && count($p['equipment']) > 0): ?>
+                                    <span style="font-size: 0.75rem; color: #22c55e;">✅ All Clear</span>
+                                <?php endif; ?>
+                            </td>
+                            
+                            <?php if ($canEditOHSA): ?>
+                            <td>
+                                <button onclick='openOHSAModal(<?= json_encode($p, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-primary" style="margin:0;">Manage OHSA</button>
+                            </td>
+                            <?php endif; ?>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<?php if ($canEditOHSA): ?>
+<div id="ohsaModal" class="modal">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <h2 id="modalProjectName" style="margin-bottom: 1.5rem; color: var(--primary-color);">Manage OHSA Details</h2>
+        
+        <form method="POST">
+            <input type="hidden" name="action" value="save_ohsa">
+            <input type="hidden" name="project_id" id="modalProjectId">
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass);">
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-weight: 600;">CNF Status</label>
+                    <select name="cnf_status" id="modalCnfStatus" style="width: 100%; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary);">
+                        <option value="Not Submitted">Not Submitted</option>
+                        <option value="Submitted">Submitted</option>
+                        <option value="Terminated">Terminated</option>
+                        <option value="N/A">N/A</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-weight: 600;">Project Supervisor (PS H&S)</label>
+                    <input type="text" name="pscs_name" id="modalPscsName" placeholder="e.g. I. Pulis" style="width: 100%; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary);">
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1.5rem; margin-bottom: 2rem;">
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-weight: 600;">Overall Safety Status</label>
+                    <select name="safety_status" id="modalSafetyStatus" style="width: 100%; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); font-size: 1rem;">
+                        <option value="N/A">⚪ N/A</option>
+                        <option value="Green">🟢 Green (Safe / Compliant)</option>
+                        <option value="Yellow">🟡 Yellow (Warning / Minor Issues)</option>
+                        <option value="Red">🔴 Red (Stop Notice / Critical Hazard)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-weight: 600;">Safety Comments / Notes</label>
+                    <textarea name="safety_comments" id="modalSafetyComments" rows="3" placeholder="Enter notes regarding site safety..." style="width: 100%; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); resize: vertical;"></textarea>
+                </div>
+            </div>
+
+            <div style="border-top: 1px solid var(--border-glass); padding-top: 1.5rem; margin-bottom: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <div>
+                        <h3 style="margin: 0; color: var(--text-primary);">Site Equipment Tracker</h3>
+                        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Add Tower Cranes, Chains, Scaffolding, or any equipment requiring certification.</p>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addEquipmentRow()">+ Add Equipment</button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 2fr 3fr 1fr 1.5fr auto; gap: 0.5rem; padding: 0 1rem; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                    <div>Equipment Name</div>
+                    <div>Specific Details / Serial No.</div>
+                    <div>Certified?</div>
+                    <div>Expiry Date</div>
+                    <div style="width: 30px;"></div>
+                </div>
+
+                <div id="equipmentContainer">
+                    </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save OHSA Details</button>
+        </form>
+    </div>
+</div>
+
+<script>
+let eqCount = 0;
+
+function addEquipmentRow(data = null) {
+    const container = document.getElementById('equipmentContainer');
+    const div = document.createElement('div');
+    div.className = 'eq-row';
+    div.id = `eq-row-${eqCount}`;
+    
+    const name = data ? escapeHtml(data.equipment_name) : '';
+    const details = data ? escapeHtml(data.details) : '';
+    const cert = data ? data.is_certified : 'N/A';
+    const expiry = data && data.expiry_date ? data.expiry_date : '';
+
+    div.innerHTML = `
+        <input type="text" name="eq_name[]" value="${name}" placeholder="e.g. Tower Crane" required>
+        <input type="text" name="eq_details[]" value="${details}" placeholder="Make, Model, or Notes">
+        <select name="eq_cert[]">
+            <option value="N/A" ${cert==='N/A'?'selected':''}>N/A</option>
+            <option value="Yes" ${cert==='Yes'?'selected':''}>Yes</option>
+            <option value="No" ${cert==='No'?'selected':''}>No</option>
+        </select>
+        <input type="date" name="eq_expiry[]" value="${expiry}">
+        <button type="button" onclick="document.getElementById('eq-row-${eqCount}').remove()" class="btn btn-sm btn-danger" style="margin:0; padding:0; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center;">X</button>
+    `;
+    
+    container.appendChild(div);
+    eqCount++;
+}
+
+function openOHSAModal(project) {
+    document.getElementById('modalProjectId').value = project.id;
+    document.getElementById('modalProjectName').textContent = 'OHSA Details: ' + project.name;
+    document.getElementById('modalSafetyStatus').value = project.safety_status || 'N/A';
+    document.getElementById('modalSafetyComments').value = project.safety_comments || '';
+    document.getElementById('modalCnfStatus').value = project.cnf_status || 'Not Submitted';
+    document.getElementById('modalPscsName').value = project.pscs_name || '';
+    
+    const container = document.getElementById('equipmentContainer');
+    container.innerHTML = ''; // Clear existing
+    
+    if (project.equipment && project.equipment.length > 0) {
+        project.equipment.forEach(eq => addEquipmentRow(eq));
+    } else {
+        // Pre-fill two standard blanks to guide the user
+        addEquipmentRow({equipment_name: 'Tower Crane', details: '', is_certified: 'N/A', expiry_date: ''});
+        addEquipmentRow({equipment_name: 'Crane Chains', details: '', is_certified: 'N/A', expiry_date: ''});
+    }
+    
+    document.getElementById('ohsaModal').style.display = 'block';
+}
+
+function closeModal() { document.getElementById('ohsaModal').style.display = 'none'; }
+window.onclick = function(event) { let modal = document.getElementById('ohsaModal'); if (event.target == modal) { modal.style.display = "none"; } }
+
+function escapeHtml(text) { return text ? String(text).replace(/[&<>"'`=\/]/g, function(s){return entityMap[s];}) : ''; }
+const entityMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'};
+</script>
+<?php endif; ?>
+
+<?php require_once 'footer.php'; ?>
