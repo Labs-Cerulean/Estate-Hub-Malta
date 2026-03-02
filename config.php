@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS project_mobilisation (
 
 /**
  * 11-Stage Project Lifecycle Engine
+ * Auto-calculates the leading stage of a project, respecting N/A skips.
  */
 function deriveProjectStage($pdo, $projectId) {
     try {
@@ -174,64 +175,126 @@ function deriveProjectStage($pdo, $projectId) {
         $stmtPa->execute([$projectId]);
         $pas = $stmtPa->fetchAll();
 
-        // Check if any blocks have finished their milestones
-        $stmtBlocks = $pdo->prepare("
-            SELECT 
-                MIN(construction_status) as min_const, 
-                MIN(finishes_status) as min_finish,
-                MIN(compliance_submitted) as min_comp_sub,
-                MIN(compliance_certified) as min_comp_cert,
-                MIN(condominium_formed) as min_condo,
-                MIN(cp_meters_installed) as min_cp
-            FROM project_blocks pb
-            LEFT JOIN block_levels bl ON pb.id = bl.block_id
-            WHERE pb.project_id = ?
-        ");
+        $stmtBlocks = $pdo->prepare("SELECT id, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed FROM project_blocks WHERE project_id = ?");
         $stmtBlocks->execute([$projectId]);
-        $blockData = $stmtBlocks->fetch();
+        $blocks = $stmtBlocks->fetchAll();
+        
+        $levels = [];
+        if (!empty($blocks)) {
+            $blockIds = array_column($blocks, 'id');
+            $placeholders = implode(',', array_fill(0, count($blockIds), '?'));
+            $stmtLevels = $pdo->prepare("SELECT construction_status, finishes_status FROM block_levels WHERE block_id IN ($placeholders)");
+            $stmtLevels->execute($blockIds);
+            $levels = $stmtLevels->fetchAll();
+        }
 
         $requiresFinishes = !in_array($project['finishlevel'], ['Shell', null, '']);
-        
-        // STAGES 11 down to 8 (Block Level Execution)
-        if ($blockData && $blockData['min_cp'] === 'Yes' && $blockData['min_condo'] === 'Yes') return 'Handed Over'; // Stage 11
-        if ($blockData && $blockData['min_comp_cert'] === 'Yes') return 'Condominium'; // Stage 10
-        if ($blockData && $blockData['min_comp_sub'] === 'Yes') return 'Compliance'; // Stage 9
-        if ($blockData && $blockData['min_const'] === 'Complete') {
-            return $requiresFinishes ? 'Finishes' : 'Compliance'; // Stage 8 (or skip to 9 if Shell)
-        }
+        $maxStage = 1; // 1 = Feasibility (Default)
 
-        // STAGES 7 down to 5 (BCA Clearances)
-        if ($mob) {
-            if (($mob['mob_construction'] ?? 'No') === 'Yes') return 'Construction'; // Stage 7
-            if (($mob['mob_excavation'] ?? 'No') === 'Yes') return 'Excavation'; // Stage 6
-            if (($mob['mob_demolition'] ?? 'No') === 'Yes') return 'Demolition'; // Stage 5
-        }
-
-        // STAGES 4 down to 1 (Pre-Construction)
-        $hasEndorsed = false; $hasPA = false; $hasTrkPc = false;
+        // STAGE 2 & 3: Tracking & Permit
+        $hasTrkPc = false; $hasPA = false; $hasEndorsed = false;
         foreach ($pas as $pa) {
             if ($pa['pa_status'] === 'Endorsed') $hasEndorsed = true;
             $cleanPa = strtoupper(str_replace([' ', '/'], '', $pa['pa_number']));
             if (strpos($cleanPa, 'PA') === 0) $hasPA = true;
-            if (strpos($cleanPa, 'TRK') === 0 || strpos($cleanPa, 'PC') === 0) $hasTrkPc = true;
+            if (strpos($cleanPa, 'TRK') === 0 || strpos($cleanPa, 'PC') === 0 || strpos($cleanPa, 'DN') === 0) $hasTrkPc = true;
+        }
+        if ($project['is_tracking'] == 1 || $hasTrkPc) $maxStage = max($maxStage, 2);
+        if ($hasPA) $maxStage = max($maxStage, 3);
+
+        // STAGE 4: Mobilisation
+        if ($hasEndorsed) $maxStage = max($maxStage, 4);
+
+        // STAGE 5, 6, 7: BCA Clearances (With N/A Skip Logic)
+        if ($mob) {
+            $demoClear = $mob['mob_demolition'] ?? 'No';
+            $demoStat = $mob['demo_status'] ?? 'Pending';
+            $excClear = $mob['mob_excavation'] ?? 'No';
+            $excStat = $mob['excavation_status'] ?? 'Pending';
+            $constClear = $mob['mob_construction'] ?? 'No';
+
+            // Treat N/A exactly like "Complete" for prerequisite checks
+            $demoDone = in_array($demoClear, ['NA']) || in_array($demoStat, ['Complete', 'NA']);
+            $excDone = in_array($excClear, ['NA']) || in_array($excStat, ['Complete', 'NA']);
+
+            if ($demoClear === 'Yes' || in_array($demoStat, ['In Progress'])) {
+                $maxStage = max($maxStage, 5);
+            }
+            if (($excClear === 'Yes' && $demoDone) || in_array($excStat, ['In Progress'])) {
+                $maxStage = max($maxStage, 6);
+            }
+            if ($constClear === 'Yes' && $excDone && $demoDone) {
+                $maxStage = max($maxStage, 7);
+            }
         }
 
-        if ($hasEndorsed) return 'Mobilisation'; // Stage 4
-        if ($hasPA) return 'Permit'; // Stage 3
-        if ($hasTrkPc || $project['is_tracking'] == 1) return 'Tracking'; // Stage 2
-        return 'Feasibility'; // Stage 1
+        // STAGE 7 & 8: Block Execution (Construction & Finishes)
+        $constInProgress = false; $allConstComplete = true;
+        $finishesInProgress = false; $allFinishesComplete = true;
+        $hasBlocks = count($blocks) > 0;
+        $hasLevels = count($levels) > 0;
+
+        if ($hasLevels) {
+            foreach ($levels as $l) {
+                if (in_array($l['construction_status'], ['In Progress', 'Complete'])) $constInProgress = true;
+                if (!in_array($l['construction_status'], ['Complete', 'NA'])) $allConstComplete = false;
+
+                if (in_array($l['finishes_status'], ['In Progress', 'Complete'])) $finishesInProgress = true;
+                if (!in_array($l['finishes_status'], ['Complete', 'NA'])) $allFinishesComplete = false;
+            }
+        } else {
+            $allConstComplete = false; $allFinishesComplete = false;
+        }
+
+        if ($constInProgress) $maxStage = max($maxStage, 7);
+        if ($allConstComplete && $hasLevels && $maxStage >= 7) {
+            $maxStage = max($maxStage, $requiresFinishes ? 8 : 8); // Progresses past construction
+        }
+        if ($finishesInProgress && $requiresFinishes) {
+            $maxStage = max($maxStage, 8);
+        }
+
+        // STAGE 9-11: Post-Construction Milestones (With N/A logic)
+        if ($hasBlocks) {
+            foreach ($blocks as $b) {
+                $cSub = $b['compliance_submitted'] ?? 'No';
+                $cCert = $b['compliance_certified'] ?? 'No';
+                $condo = $b['condominium_formed'] ?? 'No';
+                $cp = $b['cp_meters_installed'] ?? 'No';
+
+                // Compliance Stage
+                if (in_array($cSub, ['Yes', 'NA']) && ($allFinishesComplete || !$requiresFinishes) && $allConstComplete && $hasLevels) {
+                    $maxStage = max($maxStage, 9);
+                }
+                // Condominium Stage
+                if (in_array($cCert, ['Yes', 'NA']) && $maxStage >= 9) {
+                    $maxStage = max($maxStage, 10);
+                }
+                // Handed Over
+                if (in_array($condo, ['Yes', 'NA']) && in_array($cp, ['Yes', 'NA']) && $maxStage >= 10) {
+                    $maxStage = max($maxStage, 11);
+                }
+            }
+        }
+
+        $stageMap = [
+            1 => 'Feasibility', 2 => 'Tracking', 3 => 'Permit', 4 => 'Mobilisation',
+            5 => 'Demolition', 6 => 'Excavation', 7 => 'Construction', 8 => 'Finishes',
+            9 => 'Compliance', 10 => 'Condominium', 11 => 'Handed Over'
+        ];
+
+        return $stageMap[$maxStage] ?? 'Unknown';
 
     } catch (Exception $e) {
         return 'Feasibility';
     }
 }
 
-// Keep a wrapper for backward compatibility with older pages (like Dashboard filters)
+// Wrapper for Dashboard backward compatibility
 function deriveMobilisationStatus($pdo, $projectId) {
     $stage = deriveProjectStage($pdo, $projectId);
-    $activeStages = ['Construction', 'Finishes', 'Compliance', 'Condominium'];
     if ($stage === 'Handed Over') return 'Mobilised';
-    if (in_array($stage, $activeStages) || $stage === 'Demolition' || $stage === 'Excavation') return 'In Process';
+    if (in_array($stage, ['Construction', 'Finishes', 'Compliance', 'Condominium', 'Demolition', 'Excavation'])) return 'In Process';
     return 'Pending';
 }
 
