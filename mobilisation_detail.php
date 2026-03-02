@@ -360,19 +360,28 @@ require_once 'header.php';
                             </legend>
                             
                             <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Construction Status (Sequential)</h4>
-                            <div class="table-container" style="margin-bottom: 2rem; background: var(--bg-primary);">
-                                <table class="data-table" style="background: transparent;">
-                                    <thead><tr><th style="width: 30%;">Level</th><th>Construction Status</th></tr></thead>
-                                    <tbody class="construction-table-body">
-                                        <?php $levels = $blockLevels[$block['id']] ?? []; foreach ($levels as $lvl): ?>
-                                            <tr>
-                                                <td style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($lvl['level_name']) ?></td>
-                                                <td><?= rSel("levels[{$lvl['id']}][construction_status]", ['Pending','In Progress','Complete','NA'], $lvl['construction_status'], $disabledAttr, 'const-status') ?></td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
+                            
+                            <?php $levels = $blockLevels[$block['id']] ?? []; ?>
+                            <?php if (empty($levels)): ?>
+                                <div class="alert alert-warning" style="margin-bottom: 2rem; border-left: 4px solid var(--warning);">
+                                    <strong>⚠️ Block levels are still to be defined.</strong><br>
+                                    Please <a href="edit-project.php?id=<?= $projectId ?>" style="color: inherit; text-decoration: underline;">edit the project details</a> to set the lowest and highest floors for this block.
+                                </div>
+                            <?php else: ?>
+                                <div class="table-container" style="margin-bottom: 2rem; background: var(--bg-primary);">
+                                    <table class="data-table" style="background: transparent;">
+                                        <thead><tr><th style="width: 30%;">Level</th><th>Construction Status</th></tr></thead>
+                                        <tbody class="construction-table-body">
+                                            <?php foreach ($levels as $lvl): ?>
+                                                <tr>
+                                                    <td style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($lvl['level_name']) ?></td>
+                                                    <td><?= rSel("levels[{$lvl['id']}][construction_status]", ['Pending','In Progress','Complete','NA'], $lvl['construction_status'], $disabledAttr, 'const-status') ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
 
                             <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; display:flex; justify-content:space-between; align-items:center;">
                                 Finishes Matrix (Scope of Work)
@@ -464,7 +473,7 @@ document.querySelectorAll('select.req-toggle').forEach(function(select) {
 const canEditStatus = <?= $canUpdateStatus ? 'true' : 'false' ?>;
 
 function enforceSequentialConstruction() {
-    if (!canEditStatus) return; // Leave it fully locked by PHP if user has no permission
+    if (!canEditStatus) return; 
 
     document.querySelectorAll('.construction-table-body').forEach(tbody => {
         const rows = tbody.querySelectorAll('tr');
@@ -504,7 +513,7 @@ if (canEditStatus) {
         select.addEventListener('change', enforceSequentialConstruction);
     });
     
-    // Safety hook: If we used disabled=true, they wouldn't submit. Pointer-events:none allows submit safely.
+    // Fire on load to lock rows correctly
     enforceSequentialConstruction();
 }
 </script>
