@@ -135,7 +135,6 @@ if (!empty($_GET['user_id'])) {
     }
 }
 
-// Added project_manager and accountant
 $rolesList = [
     'admin', 'director', 'system_manager', 'project_manager', 'accountant', 'architect', 'structural_engineer', 
     'services_engineer', 'quality_controller', 'pmo_staff', 'ohsa_rep', 
@@ -306,12 +305,17 @@ require_once 'header.php';
 </div>
 
 <script>
+// Exact mapping updated for v2.1 Rules
 const roleDefaults = {
     'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
     'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
     'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'project_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'accountant': ['view_works_sales', 'view_property_sales', 'view_capital_projects'],
+    
+    // UPDATED: Project Manager Defaults
+    'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+    // UPDATED: Accountant Defaults
+    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects'],
+    
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings'],
@@ -334,12 +338,16 @@ function toggleAccessSections(type) {
     const level2Div = document.getElementById(type + 'Level2Fields');
     const level3Div = document.getElementById(type + 'Level3Fields');
     
+    // UPDATED: PM is now Level 3 (Assigned by specific projects only)
     const level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
-    const level3Roles = ['subcontractor', 'condominium_agent', 'end_customer'];
+    const level3Roles = ['subcontractor', 'condominium_agent', 'end_customer', 'project_manager'];
     const level0Roles = ['admin']; 
     
     if (level1Div) level1Div.style.display = level1Roles.includes(role) ? 'block' : 'none';
+    
+    // UPDATED: Accountant falls under Level 2 (Assigned by Client) which is the default for anyone not in L0, L1, or L3
     if (level2Div) level2Div.style.display = (level0Roles.includes(role) || level1Roles.includes(role) || level3Roles.includes(role)) ? 'none' : 'block';
+    
     if (level3Div) level3Div.style.display = level3Roles.includes(role) ? 'block' : 'none';
 }
 
