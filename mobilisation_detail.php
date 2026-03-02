@@ -140,7 +140,7 @@ $canFinal = $allSeqComplete;
 $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 
 // ==========================================
-// PDF MATRICES: FINISHES (DENSE RENDERING)
+// PDF MATRICES: FINISHES
 // ==========================================
 $optElec = ['Not Started', 'First Fix', 'Second Fix', 'Third Fix', 'Completed'];
 $optLifts = ['Not Started', 'Delivered', 'Installing', 'Installed', 'Switched On'];
@@ -194,8 +194,8 @@ $finishesTemplate = [
     'other_cladding' => ['label' => 'Other cladding', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
 ];
 
-function rSel($n, $opts, $v, $dis) {
-    $h = "<select name=\"$n\" $dis style=\"padding:0.4rem; font-size:0.8rem; width:100%; border:1px solid var(--border-glass); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary);\">";
+function rSel($n, $opts, $v, $dis, $cls='') {
+    $h = "<select name=\"$n\" $dis class=\"$cls\" style=\"padding:0.4rem; font-size:0.8rem; width:100%; border:1px solid var(--border-glass); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary);\">";
     foreach ($opts as $ov => $ol) {
         if (is_numeric($ov)) $ov = $ol;
         $s = ((string)$v === (string)$ov) ? 'selected' : '';
@@ -359,14 +359,19 @@ require_once 'header.php';
                                 <?= htmlspecialchars($block['block_name']) ?> (<?= htmlspecialchars($block['block_type']) ?>)
                             </legend>
                             
-                            <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Construction Status (Per Floor)</h4>
-                            <div class="fin-grid" style="margin-bottom: 2rem;">
-                                <?php $levels = $blockLevels[$block['id']] ?? []; foreach ($levels as $lvl): ?>
-                                    <div class="form-group" style="margin:0; background: var(--bg-primary); padding:0.5rem; border-radius:4px;">
-                                        <label style="font-size:0.8rem;"><?= htmlspecialchars($lvl['level_name']) ?></label>
-                                        <?= rSel("levels[{$lvl['id']}][construction_status]", ['Pending','In Progress','Complete','NA'], $lvl['construction_status'], $disabledAttr) ?>
-                                    </div>
-                                <?php endforeach; ?>
+                            <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Construction Status (Sequential)</h4>
+                            <div class="table-container" style="margin-bottom: 2rem; background: var(--bg-primary);">
+                                <table class="data-table" style="background: transparent;">
+                                    <thead><tr><th style="width: 30%;">Level</th><th>Construction Status</th></tr></thead>
+                                    <tbody class="construction-table-body">
+                                        <?php $levels = $blockLevels[$block['id']] ?? []; foreach ($levels as $lvl): ?>
+                                            <tr>
+                                                <td style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($lvl['level_name']) ?></td>
+                                                <td><?= rSel("levels[{$lvl['id']}][construction_status]", ['Pending','In Progress','Complete','NA'], $lvl['construction_status'], $disabledAttr, 'const-status') ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
                             </div>
 
                             <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; display:flex; justify-content:space-between; align-items:center;">
@@ -446,6 +451,7 @@ require_once 'header.php';
 </div>
 
 <script>
+// Toggle for Services section
 document.querySelectorAll('select.req-toggle').forEach(function(select) {
     select.addEventListener('change', function() {
         const compSelect = this.parentElement.querySelector('select.comp-status');
@@ -453,6 +459,54 @@ document.querySelectorAll('select.req-toggle').forEach(function(select) {
         else { compSelect.disabled = true; compSelect.value = 'Not Complete'; }
     });
 });
+
+// Sequential Locking for Construction Floors
+const canEditStatus = <?= $canUpdateStatus ? 'true' : 'false' ?>;
+
+function enforceSequentialConstruction() {
+    if (!canEditStatus) return; // Leave it fully locked by PHP if user has no permission
+
+    document.querySelectorAll('.construction-table-body').forEach(tbody => {
+        const rows = tbody.querySelectorAll('tr');
+        let canStartNext = true;
+
+        rows.forEach(row => {
+            const select = row.querySelector('.const-status');
+            if (!select) return;
+
+            if (!canStartNext) {
+                // Lock this row (Previous level is not complete)
+                select.value = 'Pending';
+                select.style.pointerEvents = 'none';
+                select.style.background = 'var(--bg-primary)';
+                select.style.opacity = '0.5';
+                row.style.opacity = '0.6';
+                row.title = "🔒 Previous floor must be Complete to unlock this level.";
+            } else {
+                // Unlock this row
+                select.style.pointerEvents = 'auto';
+                select.style.background = 'var(--bg-secondary)';
+                select.style.opacity = '1';
+                row.style.opacity = '1';
+                row.title = "";
+
+                // If THIS row is not complete, lock all rows above it
+                if (select.value !== 'Complete' && select.value !== 'NA') {
+                    canStartNext = false;
+                }
+            }
+        });
+    });
+}
+
+if (canEditStatus) {
+    document.querySelectorAll('.const-status').forEach(select => {
+        select.addEventListener('change', enforceSequentialConstruction);
+    });
+    
+    // Safety hook: If we used disabled=true, they wouldn't submit. Pointer-events:none allows submit safely.
+    enforceSequentialConstruction();
+}
 </script>
 
 <?php require_once 'footer.php'; ?>
