@@ -60,6 +60,7 @@ if (!empty($clientIds)) {
 $projectIds = array_column($projectsRaw, 'id');
 $mobData = [];
 $blockData = [];
+$detailedBlocks = [];
 
 if (!empty($projectIds)) {
     $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
@@ -69,16 +70,37 @@ if (!empty($projectIds)) {
     $mobStmt->execute($projectIds);
     foreach ($mobStmt->fetchAll() as $row) { $mobData[$row['project_id']] = $row; }
     
-    // Fetch Block & Floor Execution Statuses to calculate overall status
+    // Fetch Block & Floor Execution Statuses (Upgraded to pull names and sort correctly for the dropdown view)
     $blockStmt = $pdo->prepare("
-        SELECT pb.project_id, pb.id as block_id, pb.finishes_overall_status, bl.construction_status 
+        SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, bl.level_name, bl.construction_status 
         FROM project_blocks pb 
         LEFT JOIN block_levels bl ON pb.id = bl.block_id 
         WHERE pb.project_id IN ($placeholders)
+        ORDER BY pb.id ASC, bl.level_number ASC
     ");
     $blockStmt->execute($projectIds);
     foreach ($blockStmt->fetchAll() as $row) {
-        $blockData[$row['project_id']][] = $row;
+        $pid = $row['project_id'];
+        $bid = $row['block_id'];
+        
+        // Data for high-level matrix calculation
+        $blockData[$pid][] = $row; 
+        
+        // Data nested for the expanded drop-down UI
+        if (!isset($detailedBlocks[$pid])) $detailedBlocks[$pid] = [];
+        if (!isset($detailedBlocks[$pid][$bid])) {
+            $detailedBlocks[$pid][$bid] = [
+                'name' => $row['block_name'] ?? 'Block',
+                'finishes_status' => $row['finishes_overall_status'] ?? 'Pending',
+                'levels' => []
+            ];
+        }
+        if ($row['level_name']) {
+            $detailedBlocks[$pid][$bid]['levels'][] = [
+                'name' => $row['level_name'],
+                'status' => $row['construction_status'] ?? 'Pending'
+            ];
+        }
     }
 }
 
@@ -87,7 +109,6 @@ $matrixProjects = [];
 $allowedStages = ['Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 foreach ($projectsRaw as $p) {
-    // Exclude withdrawn or on-hold projects entirely
     if (($p['project_status'] ?? 'Active') !== 'Active') continue;
 
     $stage = deriveProjectStage($pdo, $p['id']);
@@ -144,6 +165,7 @@ foreach ($projectsRaw as $p) {
         }
         
         $p['stage'] = $stage;
+        $p['detailed_blocks'] = $detailedBlocks[$p['id']] ?? []; // Attach the nested block/level data
         $matrixProjects[] = $p;
     }
 }
@@ -155,7 +177,7 @@ if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p
 if ($filterClient !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
 
-$matrixProjects = array_values($matrixProjects); // Re-index array
+$matrixProjects = array_values($matrixProjects);
 
 function renderStatusBadge($status) {
     $colors = [
@@ -165,7 +187,7 @@ function renderStatusBadge($status) {
         'NA' => 'background: rgba(255, 255, 255, 0.05); color: #6b7280; border: 1px solid #374151;'
     ];
     $style = $colors[$status] ?? $colors['Pending'];
-    return "<span style='display: inline-block; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
+    return "<span style='display: inline-flex; justify-content: center; min-width: 75px; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
 }
 
 $pageTitle = 'Project Status Matrix';
@@ -173,90 +195,30 @@ require_once 'header.php';
 ?>
 
 <style>
-/* Advanced Matrix UI styling */
-.matrix-wrapper {
-    position: relative;
-    width: 100%;
-    /* Confines the table height so the horizontal scrollbar is always visible without page scrolling */
-    max-height: calc(100vh - 180px); 
-    overflow-x: auto;
-    overflow-y: auto;
-    background: var(--bg-card);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-glass);
-    box-shadow: var(--shadow-sm);
-}
+.matrix-wrapper { position: relative; width: 100%; max-height: calc(100vh - 180px); overflow: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
+.matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.85rem; }
+.matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
+.matrix-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; }
 
-.matrix-table {
-    width: max-content; /* Forces table to be as wide as its content needs */
-    min-width: 100%;
-    border-collapse: separate; /* CRITICAL FIX: prevents sticky borders from bleeding text */
-    border-spacing: 0;
-    text-align: left;
-    font-size: 0.85rem;
-}
+/* Sticky Columns for Main Rows */
+.matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
+.matrix-table tbody tr.main-row td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); }
+.matrix-table thead th:last-child { position: sticky; right: 0; z-index: 20; border-left: 2px solid var(--border-glass); }
+.matrix-table tbody tr.main-row td:last-child { position: sticky; right: 0; background: #1e1e2d; z-index: 5; border-left: 2px solid var(--border-glass); }
 
-/* Sticky Header row */
-.matrix-table thead th {
-    position: sticky;
-    top: 0;
-    background: #1e1e2d; /* Solid background so text doesn't show through */
-    z-index: 10;
-    padding: 1rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    border-bottom: 2px solid var(--border-glass);
-    white-space: nowrap;
-}
+.matrix-table tbody tr.main-row:hover td { background: rgba(255,255,255,0.03); }
+.matrix-table tbody tr.main-row:hover td:first-child,
+.matrix-table tbody tr.main-row:hover td:last-child { background: #2a2a3b; }
 
-.matrix-table td {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border-glass);
-    vertical-align: middle;
-    color: var(--text-secondary);
-    white-space: nowrap; /* Prevents text from overlapping or squishing */
-}
+/* Sub-row Styling (Dropdown) */
+.sub-row td.sub-content { background: rgba(99, 102, 241, 0.05); border-bottom: 2px solid var(--border-glass); padding: 0; }
+.sub-row td.sticky-left { position: sticky; left: 0; background: #1a1a24; z-index: 5; border-right: 2px solid var(--border-glass); border-bottom: 2px solid var(--border-glass); }
+.sub-row td.sticky-right { position: sticky; right: 0; background: #1a1a24; z-index: 5; border-left: 2px solid var(--border-glass); border-bottom: 2px solid var(--border-glass); }
 
-/* 1. STICKY LEFT COLUMN (Project Name) */
-.matrix-table thead th:first-child {
-    position: sticky;
-    left: 0;
-    z-index: 20; /* Top AND Left */
-    border-right: 2px solid var(--border-glass);
-}
-.matrix-table tbody td:first-child {
-    position: sticky;
-    left: 0;
-    background: #1e1e2d;
-    z-index: 5; 
-    border-right: 2px solid var(--border-glass);
-}
+.btn-expand { background: none; border: 1px solid var(--border-glass); color: var(--text-primary); border-radius: 4px; cursor: pointer; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; margin-right: 0.5rem; font-weight: bold; transition: all 0.2s; }
+.btn-expand:hover { background: rgba(255,255,255,0.1); }
 
-/* 2. STICKY RIGHT COLUMN (Action Button) */
-.matrix-table thead th:last-child {
-    position: sticky;
-    right: 0;
-    z-index: 20; /* Top AND Right */
-    border-left: 2px solid var(--border-glass);
-}
-.matrix-table tbody td:last-child {
-    position: sticky;
-    right: 0;
-    background: #1e1e2d;
-    z-index: 5; 
-    border-left: 2px solid var(--border-glass);
-}
-
-/* Hover effects */
-.matrix-table tbody tr:hover td {
-    background: rgba(255,255,255,0.03);
-}
-.matrix-table tbody tr:hover td:first-child,
-.matrix-table tbody tr:hover td:last-child {
-    background: #2a2a3b; /* Maintain solid color on hover for sticky columns */
-}
-
-/* Form Modal */
+/* Modal */
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
@@ -356,10 +318,15 @@ require_once 'header.php';
                     <tr><td colspan="13" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): ?>
-                        <tr>
+                        <tr class="main-row">
                             <td style="font-weight: 700; color: var(--primary-color);">
-                                <?= htmlspecialchars($p['name']) ?><br>
-                                <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
+                                <div style="display: flex; align-items: flex-start;">
+                                    <button class="btn-expand" onclick="toggleDetails(<?= $p['id'] ?>)" title="View Blocks & Floors">⏬</button>
+                                    <div>
+                                        <?= htmlspecialchars($p['name']) ?><br>
+                                        <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
+                                    </div>
+                                </div>
                             </td>
                             <td><?= htmlspecialchars($p['stage']) ?></td>
                             <td><?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></td>
@@ -396,6 +363,54 @@ require_once 'header.php';
                             </td>
                             <?php endif; ?>
                         </tr>
+                        
+                        <tr id="details-row-<?= $p['id'] ?>" class="sub-row" style="display: none;">
+                            <td class="sticky-left"></td>
+                            <td colspan="11" class="sub-content">
+                                <div style="padding: 1.5rem; display: flex; gap: 1.5rem; flex-wrap: wrap; overflow-x: auto;">
+                                    <?php if (empty($p['detailed_blocks'])): ?>
+                                        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">No blocks or levels have been defined for this project.</p>
+                                    <?php else: ?>
+                                        <?php foreach ($p['detailed_blocks'] as $b): ?>
+                                            <div style="background: var(--bg-primary); border: 1px solid var(--primary-color); border-radius: 8px; padding: 1rem; min-width: 280px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+                                                <h4 style="margin-bottom: 0.5rem; color: var(--primary-color); border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                                    <?= htmlspecialchars($b['name']) ?>
+                                                    <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                                                        <span style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Master Finishes</span>
+                                                        <?= renderStatusBadge($b['finishes_status']) ?>
+                                                    </div>
+                                                </h4>
+                                                
+                                                <?php if (empty($b['levels'])): ?>
+                                                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 1rem;">No floors added.</p>
+                                                <?php else: ?>
+                                                    <table style="width: 100%; font-size: 0.8rem; border-collapse: collapse; margin-top: 0.5rem;">
+                                                        <thead>
+                                                            <tr>
+                                                                <th style="padding: 0.25rem 0; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); font-weight: normal;">Level / Floor</th>
+                                                                <th style="padding: 0.25rem 0; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); font-weight: normal; text-align: right;">Construction</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                        <?php foreach ($b['levels'] as $lvl): ?>
+                                                            <tr>
+                                                                <td style="padding: 0.4rem 0; color: var(--text-secondary); border-bottom: 1px solid rgba(255,255,255,0.02);"><?= htmlspecialchars($lvl['name']) ?></td>
+                                                                <td style="padding: 0.4rem 0; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.02);"><?= renderStatusBadge($lvl['status']) ?></td>
+                                                            </tr>
+                                                        <?php endforeach; ?>
+                                                        </tbody>
+                                                    </table>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                            <?php if ($canAssignTeam): ?>
+                                <td class="sticky-right"></td>
+                            <?php endif; ?>
+                        </tr>
+
                     <?php endforeach; ?>
                 <?php endif; ?>
             </tbody>
@@ -484,7 +499,17 @@ window.onclick = function(event) {
     if (event.target == modal) { modal.style.display = "none"; }
 }
 
-// Island filtering logic (same as dashboard)
+// Toggle visibility of Block/Floor details
+function toggleDetails(id) {
+    const row = document.getElementById('details-row-' + id);
+    if (row.style.display === 'none') {
+        row.style.display = 'table-row';
+    } else {
+        row.style.display = 'none';
+    }
+}
+
+// Island filtering logic
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('matrixFilters');
     if (!form) return;
