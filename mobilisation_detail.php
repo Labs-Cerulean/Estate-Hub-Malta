@@ -36,13 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (($_POST['action'] ?? null) === 'update_mobilisation' && $canUpdateStatus) {
         try {
             $updates = []; $values = [];
-            $allowedFields = [
-                'acquisition_complete', 'acquisition_date', 'archaeologist_assigned', 'change_of_applicant', 
-                'geological_test', 'condition_report_contacts', 'condition_reports', 'method_statements', 
-                'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee', 
-                'responsibility_form', 'mob_demolition', 'mob_excavation', 'mob_construction',
-                'demo_status', 'excavation_status' // NEW FIELDS ADDED HERE
-            ];
+            $allowedFields = ['acquisition_complete', 'acquisition_date', 'archaeologist_assigned', 'change_of_applicant', 'geological_test', 'condition_report_contacts', 'condition_reports', 'method_statements', 'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee', 'responsibility_form', 'mob_demolition', 'mob_excavation', 'mob_construction', 'demo_status', 'excavation_status'];
             foreach ($allowedFields as $field) {
                 if (isset($_POST[$field]) && $_POST[$field] !== '') { $updates[] = "$field = ?"; $values[] = $_POST[$field]; }
             }
@@ -58,15 +52,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
             if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
-                $bStmt = $pdo->prepare("UPDATE project_blocks SET compliance_submitted=?, compliance_certified=?, condominium_formed=?, cp_meters_installed=? WHERE id=? AND project_id=?");
+                $bStmt = $pdo->prepare("UPDATE project_blocks SET finishes_overall_status=?, finishes_data=?, compliance_submitted=?, compliance_certified=?, condominium_formed=?, cp_meters_installed=? WHERE id=? AND project_id=?");
                 foreach ($_POST['blocks'] as $bId => $bData) {
-                    $bStmt->execute([$bData['compliance_submitted'] ?? 'No', $bData['compliance_certified'] ?? 'No', $bData['condominium_formed'] ?? 'No', $bData['cp_meters_installed'] ?? 'No', $bId, $projectId]);
+                    $finishesJson = isset($_POST['finishes'][$bId]) ? json_encode($_POST['finishes'][$bId]) : null;
+                    $bStmt->execute([
+                        $bData['finishes_overall_status'] ?? 'Pending',
+                        $finishesJson,
+                        $bData['compliance_submitted'] ?? 'No',
+                        $bData['compliance_certified'] ?? 'No',
+                        $bData['condominium_formed'] ?? 'No',
+                        $bData['cp_meters_installed'] ?? 'No',
+                        $bId, $projectId
+                    ]);
                 }
             }
             if (isset($_POST['levels']) && is_array($_POST['levels'])) {
-                $lStmt = $pdo->prepare("UPDATE block_levels SET construction_status=?, finishes_status=? WHERE id=?");
+                $lStmt = $pdo->prepare("UPDATE block_levels SET construction_status=? WHERE id=?");
                 foreach ($_POST['levels'] as $lId => $lData) {
-                    $lStmt->execute([$lData['construction_status'] ?? 'Pending', $lData['finishes_status'] ?? 'Pending', $lId]);
+                    $lStmt->execute([$lData['construction_status'] ?? 'Pending', $lId]);
                 }
             }
             $pdo->commit();
@@ -118,19 +121,13 @@ $services = getProjectServices($pdo, $projectId);
 // 11-STAGE LOGIC & UI AUTO-EXPAND
 // ==========================================
 $currentStageName = deriveProjectStage($pdo, $projectId);
-
-$stagesEnum = [
-    'Feasibility' => 1, 'Tracking' => 2, 'Permit' => 3, 'Mobilisation' => 4,
-    'Demolition' => 5, 'Excavation' => 6, 'Construction' => 7, 'Finishes' => 8,
-    'Compliance' => 9, 'Condominium' => 10, 'Handed Over' => 11
-];
+$stagesEnum = ['Feasibility'=>1, 'Tracking'=>2, 'Permit'=>3, 'Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $stageNum = $stagesEnum[$currentStageName] ?? 1;
 $progressPercent = min(100, round(($stageNum / 11) * 100));
 
 $bcaOpen = ($stageNum <= 6) ? 'open' : '';
 $execOpen = ($stageNum >= 6) ? 'open' : '';
 
-// UI Locks for BCA
 $geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
 $condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete' || ($mob['condition_reports'] ?? 'Not Started') === 'NA';
 $canSequential = $geoComplete && $condComplete;
@@ -142,23 +139,70 @@ foreach (['method_statements', 'insurance_status', 'pavement_guarantee', 'wellbe
 $canFinal = $allSeqComplete;
 $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 
-function renderSelect($name, $options, $currentVal, $disabledStr, $class='') {
-    $html = "<select name=\"$name\" $disabledStr class=\"$class\" style=\"padding:0.4rem; font-size:0.9rem; border:1px solid #ccc; border-radius:4px; width:100%;\">";
-    foreach ($options as $val => $label) {
-        $sel = ((string)$currentVal === (string)$val) ? 'selected' : '';
-        $html .= "<option value=\"$val\" $sel>$label</option>";
-    }
-    return $html . "</select>";
-}
+// ==========================================
+// PDF MATRICES: FINISHES (DENSE RENDERING)
+// ==========================================
+$optElec = ['Not Started', 'First Fix', 'Second Fix', 'Third Fix', 'Completed'];
+$optLifts = ['Not Started', 'Delivered', 'Installing', 'Installed', 'Switched On'];
+$optSub = ['NA', 'Not Started', 'Finishings', 'Installed', 'Switched On', 'Handed Over'];
+$optPool = ['NA', 'Not Started', 'Construction', 'Finishes', 'Completed', 'Switched On'];
+$optRend = ['Not Started', 'Plastering', 'Painting', 'Completed'];
+$optNaRend = ['NA', 'Not Started', 'Plastering', 'Painting', 'Completed'];
+$optNotOngComp = ['Not Started', 'Ongoing', 'Completed'];
+$optNaNotOngComp = ['NA', 'Not Started', 'Ongoing', 'Completed'];
 
-$optYesNo = ['No'=>'No', 'Yes'=>'Yes'];
-$optYesNoNA = ['No'=>'No', 'Yes'=>'Yes', 'NA'=>'N/A'];
-$optGeo = ['Not Complete'=>'Not Complete', 'Awaiting Result'=>'Awaiting Result', 'Complete'=>'Complete', 'NA'=>'N/A'];
-$optCond = ['Not Started'=>'Not Started', 'In Process'=>'In Process', 'Complete'=>'Complete', 'NA'=>'N/A'];
-$optNotCompComp = ['Not Complete'=>'Not Complete', 'Complete'=>'Complete'];
-$optNotCompCompNA = ['Not Complete'=>'Not Complete', 'Complete'=>'Complete', 'NA'=>'N/A'];
-$optNotStartProcComp = ['Not Started'=>'Not Started', 'In Process'=>'In Process', 'Complete'=>'Complete'];
-$optLevels = ['Pending'=>'Pending', 'In Progress'=>'In Progress', 'Complete'=>'Complete', 'NA'=>'N/A'];
+$finishesTemplate = [
+    'elec_work' => ['label' => 'Electrical Work', 'opts' => $optElec, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'plumb_work' => ['label' => 'Plumbing Work', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'pumps' => ['label' => 'Pumps, Lifts, Reservoirs', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'water_tanks' => ['label' => 'Water Tanks', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
+    'lifts' => ['label' => 'Lifts', 'opts' => $optLifts, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'substation' => ['label' => 'Substation', 'opts' => $optSub, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'septic' => ['label' => 'Septic Tanks', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'garden' => ['label' => 'Garden Landscaping', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'pool' => ['label' => 'Common Pool', 'opts' => $optPool, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'fire_det' => ['label' => 'Fire Detection', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'fire_fight' => ['label' => 'Fire Fighting', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'fire_doors' => ['label' => 'Fire Doors', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'intercoms' => ['label' => 'Intercoms', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'rend_facade' => ['label' => 'Rendering Façade', 'opts' => $optRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'rend_appogg' => ['label' => 'Rendering Appogg', 'opts' => $optNaRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'rend_back' => ['label' => 'Rendering Back Façade', 'opts' => $optRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'rend_cp' => ['label' => 'Rendering Common Parts', 'opts' => $optRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'rend_garage_cp' => ['label' => 'Rendering Garage C.P.', 'opts' => $optNaRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'rend_garages' => ['label' => 'Rendering Garages', 'opts' => $optNaRend, 'lvls' => ['Semi Finished']],
+    'marble_cp' => ['label' => 'Marble in Common Parts', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'marble_sills' => ['label' => 'Marble Sills', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'waterproof_balc' => ['label' => 'Waterproofing Balconies', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
+    'waterproof_roof' => ['label' => 'Waterproofing Roof', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'waterproof_shafts' => ['label' => 'Waterproofing Shafts', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'waterproof_ext' => ['label' => 'Waterproofing other ext.', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'tiling_balc' => ['label' => 'Tiling of balconies', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
+    'gypsum_cp' => ['label' => 'Gypsum in common parts', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'gypsum_facade' => ['label' => 'Gypsum in facades', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'fire_apt_doors' => ['label' => 'Fire Rated Apt Doors', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
+    'cp_doors_win' => ['label' => 'C.P. doors & windows', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'apt_doors_win' => ['label' => 'Apt doors & windows', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
+    'int_railings' => ['label' => 'All Internal Railings', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'ext_railings' => ['label' => 'All External Railings', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
+    'terrace_parts' => ['label' => 'Terrace/Shaft Partitions', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'planters' => ['label' => 'Planters/Landscaping', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'garage_main_door' => ['label' => 'Garage Main Door/Gate', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'garage_grilles' => ['label' => 'Garage Vent Grilles', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'ind_garage_doors' => ['label' => 'Individual Garage Doors', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished']],
+    'sewer' => ['label' => 'Main Sewer Connection', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+    'other_cladding' => ['label' => 'Other cladding', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
+];
+
+function rSel($n, $opts, $v, $dis) {
+    $h = "<select name=\"$n\" $dis style=\"padding:0.4rem; font-size:0.8rem; width:100%; border:1px solid var(--border-glass); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary);\">";
+    foreach ($opts as $ov => $ol) {
+        if (is_numeric($ov)) $ov = $ol;
+        $s = ((string)$v === (string)$ov) ? 'selected' : '';
+        $h .= "<option value=\"$ov\" $s>$ol</option>";
+    }
+    return $h . "</select>";
+}
 
 $pageTitle = 'Execution - ' . $project['name'];
 require_once 'header.php';
@@ -177,6 +221,7 @@ require_once 'header.php';
 .stage-badge { display: inline-block; padding: 0.5rem 1rem; border-radius: 20px; background: rgba(99, 102, 241, 0.15); color: var(--primary-color); font-weight: 700; font-size: 1.1rem; border: 1px solid rgba(99, 102, 241, 0.3); }
 .progress-bar-bg { height: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; margin-top: 1rem; overflow: hidden; }
 .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary-color), var(--secondary-color)); transition: width 0.5s ease; }
+.fin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
 </style>
 
 <div class="main-container">
@@ -196,11 +241,9 @@ require_once 'header.php';
 
     <?php if ($project['summer_break_flag'] == 1): ?>
         <div class="alert alert-error" style="display: flex; align-items: center; gap: 1rem; border-left: 5px solid var(--danger); margin-bottom: 1.5rem;">
-            <span style="font-size: 1.5rem;">☀️</span>
-            <div><strong>Summer Break Alarm Active</strong><br>This project is subject to Malta Summer Break restrictions. Demolition and Excavation phases are heavily impacted.</div>
+            <span style="font-size: 1.5rem;">☀️</span><div><strong>Summer Break Alarm Active</strong><br>This project is subject to Malta Summer Break restrictions. Demolition and Excavation phases are heavily impacted.</div>
         </div>
     <?php endif; ?>
-
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
@@ -239,12 +282,11 @@ require_once 'header.php';
         <div class="accordion-content">
             <form method="POST" class="form-grid">
                 <input type="hidden" name="action" value="update_mobilisation">
-
                 <?php if ($project['type'] === 'in-house'): ?>
                     <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
                         <legend style="font-weight: 600;">🏠 Acquisition Complete</legend>
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                            <div class="form-group"><label>Status</label><?= renderSelect('acquisition_complete', $optYesNo, $mob['acquisition_complete']??'No', $disabledAttr) ?></div>
+                            <div class="form-group"><label>Status</label><?= rSel('acquisition_complete', ['No', 'Yes'], $mob['acquisition_complete']??'No', $disabledAttr) ?></div>
                             <div class="form-group"><label>Date</label><input type="date" name="acquisition_date" value="<?= $mob['acquisition_date'] ?? '' ?>" <?= $disabledAttr ?>></div>
                         </div>
                     </fieldset>
@@ -253,52 +295,46 @@ require_once 'header.php';
                 <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
                     <legend style="font-weight: 600;">📋 Non-Sequential Tasks</legend>
                     <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                        <div class="form-group"><label>Archaeologist Assigned</label><?= renderSelect('archaeologist_assigned', $optYesNoNA, $mob['archaeologist_assigned']??'NA', $disabledAttr) ?></div>
-                        <div class="form-group"><label>Change of Applicant</label><?= renderSelect('change_of_applicant', $optNotCompCompNA, $mob['change_of_applicant']??'NA', $disabledAttr) ?></div>
-                        <div class="form-group"><label>Geological Test</label><?= renderSelect('geological_test', $optGeo, $mob['geological_test']??'NA', $disabledAttr) ?></div>
-                        <div class="form-group"><label>Cond. Report Contacts</label><?= renderSelect('condition_report_contacts', $optCond, $mob['condition_report_contacts']??'Not Started', $disabledAttr) ?></div>
-                        <div class="form-group"><label>Condition Reports</label><?= renderSelect('condition_reports', $optCond, $mob['condition_reports']??'Not Started', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Archaeologist Assigned</label><?= rSel('archaeologist_assigned', ['NA','Yes','No'], $mob['archaeologist_assigned']??'NA', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Change of Applicant</label><?= rSel('change_of_applicant', ['NA','Complete','Not Complete'], $mob['change_of_applicant']??'NA', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Geological Test</label><?= rSel('geological_test', ['NA','Complete','Not Complete','Awaiting Result'], $mob['geological_test']??'NA', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Cond. Report Contacts</label><?= rSel('condition_report_contacts', ['NA','Not Started','In Process','Complete'], $mob['condition_report_contacts']??'Not Started', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Condition Reports</label><?= rSel('condition_reports', ['NA','Not Started','In Process','Complete'], $mob['condition_reports']??'Not Started', $disabledAttr) ?></div>
                     </div>
                 </fieldset>
 
                 <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; opacity: <?= $canSequential ? '1' : '0.5' ?>; margin-bottom: 1.5rem;">
                     <legend style="font-weight: 600;">🔗 Sequential Chain</legend>
                     <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                        <?php $seqDis = !$canSequential ? 'disabled' : $disabledAttr; ?>
-                        <div class="form-group"><label>Method Statements</label><?= renderSelect('method_statements', $optNotCompComp, $mob['method_statements']??'Not Complete', $seqDis) ?></div>
-                        <div class="form-group"><label>Insurance</label><?= renderSelect('insurance_status', $optNotStartProcComp, $mob['insurance_status']??'Not Started', $seqDis) ?></div>
-                        <div class="form-group"><label>Pavement Guarantee</label><?= renderSelect('pavement_guarantee', $optNotStartProcComp, $mob['pavement_guarantee']??'Not Started', $seqDis) ?></div>
-                        <div class="form-group"><label>Wellbeing Guarantee</label><?= renderSelect('wellbeing_guarantee', $optNotStartProcComp, $mob['wellbeing_guarantee']??'Not Started', $seqDis) ?></div>
-                        <div class="form-group"><label>Umbrella Guarantee</label><?= renderSelect('umbrella_guarantee', $optNotStartProcComp, $mob['umbrella_guarantee']??'Not Started', $seqDis) ?></div>
+                        <?php $seqDis = !$canSequential ? 'disabled' : $disabledAttr; $optSeq = ['Not Started','In Process','Complete']; ?>
+                        <div class="form-group"><label>Method Statements</label><?= rSel('method_statements', ['Not Complete','Complete'], $mob['method_statements']??'Not Complete', $seqDis) ?></div>
+                        <div class="form-group"><label>Insurance</label><?= rSel('insurance_status', $optSeq, $mob['insurance_status']??'Not Started', $seqDis) ?></div>
+                        <div class="form-group"><label>Pavement Guarantee</label><?= rSel('pavement_guarantee', $optSeq, $mob['pavement_guarantee']??'Not Started', $seqDis) ?></div>
+                        <div class="form-group"><label>Wellbeing Guarantee</label><?= rSel('wellbeing_guarantee', $optSeq, $mob['wellbeing_guarantee']??'Not Started', $seqDis) ?></div>
+                        <div class="form-group"><label>Umbrella Guarantee</label><?= rSel('umbrella_guarantee', $optSeq, $mob['umbrella_guarantee']??'Not Started', $seqDis) ?></div>
                     </div>
                 </fieldset>
 
                 <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; opacity: <?= $canFinal ? '1' : '0.5' ?>;">
                     <legend style="font-weight: 600;">🏗️ Clearances & Site Prep Execution</legend>
                     <div class="form-grid" style="grid-template-columns: 1fr; gap: 1rem;">
-                        <?php $finDis = !$canFinal ? 'disabled' : $disabledAttr; $clrDis = !$canClearance ? 'disabled' : $disabledAttr; ?>
-                        <div class="form-group"><label>Responsibility Form</label><?= renderSelect('responsibility_form', $optNotCompComp, $mob['responsibility_form']??'Not Complete', $finDis) ?></div>
-                        
+                        <?php $finDis = !$canFinal ? 'disabled' : $disabledAttr; $clrDis = !$canClearance ? 'disabled' : $disabledAttr; $optEx = ['Pending','In Progress','Complete','NA']; ?>
+                        <div class="form-group"><label>Responsibility Form</label><?= rSel('responsibility_form', ['Not Complete','Complete'], $mob['responsibility_form']??'Not Complete', $finDis) ?></div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 6px; border-left: 3px solid var(--danger);">
-                            <div class="form-group" style="margin:0;"><label>Demolition Clearance</label><?= renderSelect('mob_demolition', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_demolition']??'No', $clrDis) ?></div>
-                            <div class="form-group" style="margin:0;"><label>Demolition Execution</label><?= renderSelect('demo_status', $optLevels, $mob['demo_status']??'Pending', $clrDis) ?></div>
+                            <div class="form-group" style="margin:0;"><label>Demolition Clearance</label><?= rSel('mob_demolition', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_demolition']??'No', $clrDis) ?></div>
+                            <div class="form-group" style="margin:0;"><label>Demolition Execution</label><?= rSel('demo_status', $optEx, $mob['demo_status']??'Pending', $clrDis) ?></div>
                         </div>
-
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: rgba(245, 158, 11, 0.1); padding: 1rem; border-radius: 6px; border-left: 3px solid var(--warning);">
-                            <div class="form-group" style="margin:0;"><label>Excavation Clearance</label><?= renderSelect('mob_excavation', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_excavation']??'No', $clrDis) ?></div>
-                            <div class="form-group" style="margin:0;"><label>Excavation Execution</label><?= renderSelect('excavation_status', $optLevels, $mob['excavation_status']??'Pending', $clrDis) ?></div>
+                            <div class="form-group" style="margin:0;"><label>Excavation Clearance</label><?= rSel('mob_excavation', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_excavation']??'No', $clrDis) ?></div>
+                            <div class="form-group" style="margin:0;"><label>Excavation Execution</label><?= rSel('excavation_status', $optEx, $mob['excavation_status']??'Pending', $clrDis) ?></div>
                         </div>
-
                         <div style="display: grid; grid-template-columns: 1fr; gap: 1rem; background: rgba(34, 197, 94, 0.1); padding: 1rem; border-radius: 6px; border-left: 3px solid var(--success);">
-                            <div class="form-group" style="margin:0;"><label>Construction Clearance</label><?= renderSelect('mob_construction', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_construction']??'No', $clrDis) ?></div>
+                            <div class="form-group" style="margin:0;"><label>Construction Clearance</label><?= rSel('mob_construction', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_construction']??'No', $clrDis) ?></div>
                             <div style="font-size: 0.85rem; color: var(--text-muted);">(Construction Execution is tracked Block-by-Block below)</div>
                         </div>
                     </div>
                 </fieldset>
-
-                <?php if ($canUpdateStatus): ?>
-                    <div class="form-actions" style="margin-top: 1rem;"><button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save BCA Updates</button></div>
-                <?php endif; ?>
+                <?php if ($canUpdateStatus): ?><div class="form-actions" style="margin-top: 1rem;"><button type="submit" class="btn btn-primary">Save BCA Updates</button></div><?php endif; ?>
             </form>
         </div>
     </details>
@@ -307,53 +343,71 @@ require_once 'header.php';
         <summary>🏢 Block Execution & Progress</summary>
         <div class="accordion-content">
             <?php if (empty($projectBlocks)): ?>
-                <div class="alert alert-info">No blocks defined for this project. <a href="edit-project.php?id=<?= $projectId ?>" style="color:white; text-decoration:underline;">Edit Project</a> to add blocks.</div>
+                <div class="alert alert-info">No blocks defined. Edit project to add blocks.</div>
             <?php else: ?>
                 <form method="POST">
                     <input type="hidden" name="action" value="update_blocks">
                     <?php 
                     $requiresFinishes = !in_array($project['finishlevel'], ['Shell', null, '']);
+                    $finTier = in_array($project['finishlevel'], ['Semi Finished', 'Finished']) ? 'Semi Finished' : 'Common Parts Only';
+                    
                     foreach ($projectBlocks as $block): 
+                        $bFinData = json_decode($block['finishes_data'] ?? '{}', true) ?: [];
                     ?>
                         <fieldset style="border: 1px solid var(--primary-color); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; background: rgba(99, 102, 241, 0.02);">
                             <legend style="font-weight: 600; color: var(--primary-color); font-size: 1.1rem; padding: 0 0.5rem; background: var(--bg-card); border-radius: 4px;">
                                 <?= htmlspecialchars($block['block_name']) ?> (<?= htmlspecialchars($block['block_type']) ?>)
                             </legend>
                             
-                            <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Level-by-Level Execution</h4>
-                            <div class="table-container" style="margin-bottom: 2rem; background: var(--bg-primary);">
-                                <table class="data-table" style="background: transparent;">
-                                    <thead><tr><th>Level</th><th>Construction Status</th><th>Finishes Status</th></tr></thead>
-                                    <tbody>
-                                        <?php $levels = $blockLevels[$block['id']] ?? []; foreach ($levels as $lvl): ?>
-                                            <tr>
-                                                <td style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($lvl['level_name']) ?></td>
-                                                <td><?= renderSelect("levels[{$lvl['id']}][construction_status]", $optLevels, $lvl['construction_status'], $disabledAttr) ?></td>
-                                                <td>
-                                                    <?php if ($requiresFinishes): ?>
-                                                        <?= renderSelect("levels[{$lvl['id']}][finishes_status]", $optLevels, $lvl['finishes_status'], $disabledAttr) ?>
-                                                    <?php else: ?>
-                                                        <select disabled style="padding:0.4rem; font-size:0.9rem; border:1px solid #ccc; border-radius:4px; width:100%; opacity:0.5;"><option>N/A (Shell Form)</option></select>
-                                                    <?php endif; ?>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
+                            <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Construction Status (Per Floor)</h4>
+                            <div class="fin-grid" style="margin-bottom: 2rem;">
+                                <?php $levels = $blockLevels[$block['id']] ?? []; foreach ($levels as $lvl): ?>
+                                    <div class="form-group" style="margin:0; background: var(--bg-primary); padding:0.5rem; border-radius:4px;">
+                                        <label style="font-size:0.8rem;"><?= htmlspecialchars($lvl['level_name']) ?></label>
+                                        <?= rSel("levels[{$lvl['id']}][construction_status]", ['Pending','In Progress','Complete','NA'], $lvl['construction_status'], $disabledAttr) ?>
+                                    </div>
+                                <?php endforeach; ?>
                             </div>
 
+                            <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; display:flex; justify-content:space-between; align-items:center;">
+                                Finishes Matrix (Scope of Work)
+                                <div style="display:flex; align-items:center; gap:0.5rem;">
+                                    <span style="font-size:0.8rem; color:var(--text-secondary);">Master Block Status:</span>
+                                    <div style="width: 150px;">
+                                        <?= rSel("blocks[{$block['id']}][finishes_overall_status]", ['Pending','In Progress','Complete','NA'], $block['finishes_overall_status'], $disabledAttr) ?>
+                                    </div>
+                                </div>
+                            </h4>
+                            
+                            <?php if (!$requiresFinishes): ?>
+                                <div class="alert alert-info">Finishes tracking is disabled for Shell properties.</div>
+                            <?php else: ?>
+                                <div class="fin-grid" style="margin-bottom: 2rem;">
+                                    <?php 
+                                    foreach ($finishesTemplate as $key => $conf) {
+                                        if (in_array($finTier, $conf['lvls'])) {
+                                            $val = $bFinData[$key] ?? $conf['opts'][0];
+                                            echo "<div class='form-group' style='margin:0; background: var(--bg-primary); padding:0.5rem; border-radius:4px;'>
+                                                    <label style='font-size:0.8rem;'>{$conf['label']}</label>" . 
+                                                    rSel("finishes[{$block['id']}][$key]", $conf['opts'], $val, $disabledAttr) . 
+                                                 "</div>";
+                                        }
+                                    }
+                                    ?>
+                                </div>
+                            <?php endif; ?>
+
                             <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Post-Construction Milestones</h4>
-                            <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                                <div class="form-group"><label>Compliance Submitted</label><?= renderSelect("blocks[{$block['id']}][compliance_submitted]", $optYesNoNA, $block['compliance_submitted'], $disabledAttr) ?></div>
-                                <div class="form-group"><label>Compliance Certified</label><?= renderSelect("blocks[{$block['id']}][compliance_certified]", $optYesNoNA, $block['compliance_certified'], $disabledAttr) ?></div>
-                                <div class="form-group"><label>Condominium Formed</label><?= renderSelect("blocks[{$block['id']}][condominium_formed]", $optYesNoNA, $block['condominium_formed'], $disabledAttr) ?></div>
-                                <div class="form-group"><label>CP Meters Installed</label><?= renderSelect("blocks[{$block['id']}][cp_meters_installed]", $optYesNoNA, $block['cp_meters_installed'], $disabledAttr) ?></div>
+                            <div class="fin-grid">
+                                <?php $optYNN = ['No','Yes','NA']; ?>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Compliance Submitted</label><?= rSel("blocks[{$block['id']}][compliance_submitted]", $optYNN, $block['compliance_submitted'], $disabledAttr) ?></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Compliance Certified</label><?= rSel("blocks[{$block['id']}][compliance_certified]", $optYNN, $block['compliance_certified'], $disabledAttr) ?></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Condominium Formed</label><?= rSel("blocks[{$block['id']}][condominium_formed]", $optYNN, $block['condominium_formed'], $disabledAttr) ?></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">CP Meters Installed</label><?= rSel("blocks[{$block['id']}][cp_meters_installed]", $optYNN, $block['cp_meters_installed'], $disabledAttr) ?></div>
                             </div>
                         </fieldset>
                     <?php endforeach; ?>
-                    <?php if ($canUpdateStatus): ?>
-                        <div class="form-actions" style="margin-top: 1rem;"><button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save Block Progress</button></div>
-                    <?php endif; ?>
+                    <?php if ($canUpdateStatus): ?><div class="form-actions"><button type="submit" class="btn btn-primary">Save Block Progress</button></div><?php endif; ?>
                 </form>
             <?php endif; ?>
         </div>
@@ -364,14 +418,13 @@ require_once 'header.php';
         <div class="accordion-content">
             <form method="POST" action="">
                 <input type="hidden" name="action" value="update_services">
-                <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                <div class="fin-grid">
                     <?php 
                     $srvMap = [
                         'existing_meters' => 'Existing Meter/s for Removal', 'enemalta_deviation' => 'Enemalta Lines for Deviation',
                         'go_deviation' => 'GO Lines for Deviation', 'melita_deviation' => 'Melita Lines for Deviation',
                         'lc_lamps' => 'LC Lamps', 'temp_elec_meter' => 'Temp Elec Meter Installation', 'temp_wsc_meter' => 'Temp WSC Meter Installation'
                     ];
-                    $optReq = ['Not Required'=>'Not Required', 'Required'=>'Required'];
                     foreach ($srvMap as $key => $label):
                         $reqVal = $services["{$key}_required"] ?? 'Not Required';
                         $compVal = $services["{$key}_complete"] ?? 'Not Complete';
@@ -380,15 +433,13 @@ require_once 'header.php';
                     <div class="form-group" style="padding: 1rem; border: 1px solid var(--border-glass); border-radius: 8px;">
                         <label style="font-weight: 600; margin-bottom: 0.5rem; display: block;"><?= $label ?></label>
                         <div style="display: flex; gap: 0.5rem;">
-                            <?= renderSelect("{$key}_required", $optReq, $reqVal, $servicesDisabledAttr, 'req-toggle') ?>
-                            <?= renderSelect("{$key}_complete", $optNotCompComp, $compVal, $compDis, 'comp-status') ?>
+                            <?= rSel("{$key}_required", ['Not Required','Required'], $reqVal, $servicesDisabledAttr, 'req-toggle') ?>
+                            <?= rSel("{$key}_complete", ['Not Complete','Complete'], $compVal, $compDis, 'comp-status') ?>
                         </div>
                     </div>
                     <?php endforeach; ?>
                 </div>
-                <?php if ($canEditServices): ?>
-                    <div class="form-actions" style="margin-top: 1.5rem;"><button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save Services Updates</button></div>
-                <?php endif; ?>
+                <?php if ($canEditServices): ?><div class="form-actions" style="margin-top: 1.5rem;"><button type="submit" class="btn btn-primary">Save Services Updates</button></div><?php endif; ?>
             </form>
         </div>
     </details>
@@ -398,12 +449,8 @@ require_once 'header.php';
 document.querySelectorAll('select.req-toggle').forEach(function(select) {
     select.addEventListener('change', function() {
         const compSelect = this.parentElement.querySelector('select.comp-status');
-        if (this.value === 'Required') {
-            compSelect.disabled = false;
-        } else {
-            compSelect.disabled = true;
-            compSelect.value = 'Not Complete';
-        }
+        if (this.value === 'Required') { compSelect.disabled = false; } 
+        else { compSelect.disabled = true; compSelect.value = 'Not Complete'; }
     });
 });
 </script>
