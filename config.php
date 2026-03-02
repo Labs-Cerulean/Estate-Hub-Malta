@@ -158,7 +158,6 @@ CREATE TABLE IF NOT EXISTS project_mobilisation (
 
 /**
  * 11-Stage Project Lifecycle Engine
- * Auto-calculates the leading stage of a project, respecting N/A skips.
  */
 function deriveProjectStage($pdo, $projectId) {
     try {
@@ -175,7 +174,7 @@ function deriveProjectStage($pdo, $projectId) {
         $stmtPa->execute([$projectId]);
         $pas = $stmtPa->fetchAll();
 
-        $stmtBlocks = $pdo->prepare("SELECT id, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed FROM project_blocks WHERE project_id = ?");
+        $stmtBlocks = $pdo->prepare("SELECT id, finishes_overall_status, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed FROM project_blocks WHERE project_id = ?");
         $stmtBlocks->execute([$projectId]);
         $blocks = $stmtBlocks->fetchAll();
         
@@ -183,13 +182,13 @@ function deriveProjectStage($pdo, $projectId) {
         if (!empty($blocks)) {
             $blockIds = array_column($blocks, 'id');
             $placeholders = implode(',', array_fill(0, count($blockIds), '?'));
-            $stmtLevels = $pdo->prepare("SELECT construction_status, finishes_status FROM block_levels WHERE block_id IN ($placeholders)");
+            $stmtLevels = $pdo->prepare("SELECT construction_status FROM block_levels WHERE block_id IN ($placeholders)");
             $stmtLevels->execute($blockIds);
             $levels = $stmtLevels->fetchAll();
         }
 
         $requiresFinishes = !in_array($project['finishlevel'], ['Shell', null, '']);
-        $maxStage = 1; // 1 = Feasibility (Default)
+        $maxStage = 1; // 1 = Feasibility
 
         // STAGE 2 & 3: Tracking & Permit
         $hasTrkPc = false; $hasPA = false; $hasEndorsed = false;
@@ -213,22 +212,15 @@ function deriveProjectStage($pdo, $projectId) {
             $excStat = $mob['excavation_status'] ?? 'Pending';
             $constClear = $mob['mob_construction'] ?? 'No';
 
-            // Treat N/A exactly like "Complete" for prerequisite checks
             $demoDone = in_array($demoClear, ['NA']) || in_array($demoStat, ['Complete', 'NA']);
             $excDone = in_array($excClear, ['NA']) || in_array($excStat, ['Complete', 'NA']);
 
-            if ($demoClear === 'Yes' || in_array($demoStat, ['In Progress'])) {
-                $maxStage = max($maxStage, 5);
-            }
-            if (($excClear === 'Yes' && $demoDone) || in_array($excStat, ['In Progress'])) {
-                $maxStage = max($maxStage, 6);
-            }
-            if ($constClear === 'Yes' && $excDone && $demoDone) {
-                $maxStage = max($maxStage, 7);
-            }
+            if ($demoClear === 'Yes' || in_array($demoStat, ['In Progress'])) $maxStage = max($maxStage, 5);
+            if (($excClear === 'Yes' && $demoDone) || in_array($excStat, ['In Progress'])) $maxStage = max($maxStage, 6);
+            if ($constClear === 'Yes' && $excDone && $demoDone) $maxStage = max($maxStage, 7);
         }
 
-        // STAGE 7 & 8: Block Execution (Construction & Finishes)
+        // STAGE 7 & 8: Block Execution
         $constInProgress = false; $allConstComplete = true;
         $finishesInProgress = false; $allFinishesComplete = true;
         $hasBlocks = count($blocks) > 0;
@@ -238,23 +230,25 @@ function deriveProjectStage($pdo, $projectId) {
             foreach ($levels as $l) {
                 if (in_array($l['construction_status'], ['In Progress', 'Complete'])) $constInProgress = true;
                 if (!in_array($l['construction_status'], ['Complete', 'NA'])) $allConstComplete = false;
-
-                if (in_array($l['finishes_status'], ['In Progress', 'Complete'])) $finishesInProgress = true;
-                if (!in_array($l['finishes_status'], ['Complete', 'NA'])) $allFinishesComplete = false;
             }
         } else {
-            $allConstComplete = false; $allFinishesComplete = false;
+            $allConstComplete = false;
+        }
+
+        if ($hasBlocks) {
+            foreach ($blocks as $b) {
+                if (in_array($b['finishes_overall_status'], ['In Progress', 'Complete'])) $finishesInProgress = true;
+                if (!in_array($b['finishes_overall_status'], ['Complete', 'NA'])) $allFinishesComplete = false;
+            }
+        } else {
+            $allFinishesComplete = false;
         }
 
         if ($constInProgress) $maxStage = max($maxStage, 7);
-        if ($allConstComplete && $hasLevels && $maxStage >= 7) {
-            $maxStage = max($maxStage, $requiresFinishes ? 8 : 8); // Progresses past construction
-        }
-        if ($finishesInProgress && $requiresFinishes) {
-            $maxStage = max($maxStage, 8);
-        }
+        if ($allConstComplete && $hasLevels && $maxStage >= 7) $maxStage = max($maxStage, $requiresFinishes ? 8 : 8);
+        if ($finishesInProgress && $requiresFinishes) $maxStage = max($maxStage, 8);
 
-        // STAGE 9-11: Post-Construction Milestones (With N/A logic)
+        // STAGE 9-11: Post-Construction Milestones
         if ($hasBlocks) {
             foreach ($blocks as $b) {
                 $cSub = $b['compliance_submitted'] ?? 'No';
@@ -262,18 +256,9 @@ function deriveProjectStage($pdo, $projectId) {
                 $condo = $b['condominium_formed'] ?? 'No';
                 $cp = $b['cp_meters_installed'] ?? 'No';
 
-                // Compliance Stage
-                if (in_array($cSub, ['Yes', 'NA']) && ($allFinishesComplete || !$requiresFinishes) && $allConstComplete && $hasLevels) {
-                    $maxStage = max($maxStage, 9);
-                }
-                // Condominium Stage
-                if (in_array($cCert, ['Yes', 'NA']) && $maxStage >= 9) {
-                    $maxStage = max($maxStage, 10);
-                }
-                // Handed Over
-                if (in_array($condo, ['Yes', 'NA']) && in_array($cp, ['Yes', 'NA']) && $maxStage >= 10) {
-                    $maxStage = max($maxStage, 11);
-                }
+                if (in_array($cSub, ['Yes', 'NA']) && ($allFinishesComplete || !$requiresFinishes) && $allConstComplete && $hasLevels) $maxStage = max($maxStage, 9);
+                if (in_array($cCert, ['Yes', 'NA']) && $maxStage >= 9) $maxStage = max($maxStage, 10);
+                if (in_array($condo, ['Yes', 'NA']) && in_array($cp, ['Yes', 'NA']) && $maxStage >= 10) $maxStage = max($maxStage, 11);
             }
         }
 
@@ -284,13 +269,9 @@ function deriveProjectStage($pdo, $projectId) {
         ];
 
         return $stageMap[$maxStage] ?? 'Unknown';
-
-    } catch (Exception $e) {
-        return 'Feasibility';
-    }
+    } catch (Exception $e) { return 'Feasibility'; }
 }
 
-// Wrapper for Dashboard backward compatibility
 function deriveMobilisationStatus($pdo, $projectId) {
     $stage = deriveProjectStage($pdo, $projectId);
     if ($stage === 'Handed Over') return 'Mobilised';
