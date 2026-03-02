@@ -59,17 +59,17 @@ $stageEnum = [
 ];
 
 $stageColors = [
-    'Feasibility' => '#94a3b8',   // Slate Gray
-    'Tracking' => '#0ea5e9',      // Cyan
-    'Permit' => '#3b82f6',        // Blue
-    'Mobilisation' => '#6366f1',  // Indigo
-    'Demolition' => '#ef4444',    // Red
-    'Excavation' => '#f97316',    // Orange
-    'Construction' => '#eab308',  // Yellow
-    'Finishes' => '#84cc16',      // Lime
-    'Compliance' => '#14b8a6',    // Teal
-    'Condominium' => '#a855f7',   // Purple
-    'Handed Over' => '#22c55e'    // Green
+    'Feasibility' => '#94a3b8',   
+    'Tracking' => '#0ea5e9',      
+    'Permit' => '#3b82f6',        
+    'Mobilisation' => '#6366f1',  
+    'Demolition' => '#ef4444',    
+    'Excavation' => '#f97316',    
+    'Construction' => '#eab308',  
+    'Finishes' => '#84cc16',      
+    'Compliance' => '#14b8a6',    
+    'Condominium' => '#a855f7',   
+    'Handed Over' => '#22c55e'    
 ];
 
 if ($dashboardType !== 'None') {
@@ -211,29 +211,41 @@ require_once 'header.php';
 .legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
 .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
 
-/* Allow natural text wrapping for data columns */
-.table-container table { width: 100%; table-layout: auto; }
-.table-container td { 
-    white-space: normal; /* Let long names wrap normally */
-    word-break: break-word; /* Ensure super long words don't overflow */
-    vertical-align: middle; 
+/* Table Space Optimization (No more ellipsis truncation) */
+.table-container { overflow-x: auto; }
+.table-container table { width: 100%; table-layout: auto; border-collapse: collapse; }
+.table-container th, .table-container td { 
+    padding: 1rem 0.75rem; 
+    vertical-align: top; /* Ensures arrays of PA numbers align nicely */
+    word-break: normal;
 }
+.nowrap-cell { white-space: nowrap; }
 
-/* Ensure the action buttons layout gracefully */
+/* Gives long names room to breathe without breaking the table */
+.min-w-150 { min-width: 150px; }
+.min-w-120 { min-width: 120px; }
+
+/* Structured lists for PA Numbers, Architects, etc. */
+.cell-list-item {
+    display: block;
+    margin-bottom: 0.5rem;
+    min-height: 1.2rem;
+    line-height: 1.3;
+}
+.cell-list-item:last-child { margin-bottom: 0; }
+
+/* Compact side-by-side Action buttons */
 .action-buttons-wrapper { 
     display: flex; 
     flex-wrap: wrap; 
     gap: 6px; 
-    justify-content: flex-start;
-    min-width: 140px; 
+    max-width: 220px; /* Prevents the column from getting too wide */
 }
 .action-buttons-wrapper .btn-sm { 
     margin: 0; 
-    padding: 0.4rem 0.75rem; 
-    font-size: 0.8rem; 
-    flex: 1 1 auto; 
-    text-align: center;
-    white-space: nowrap;
+    padding: 0.35rem 0.6rem; 
+    font-size: 0.75rem; 
+    flex: 0 0 auto; /* Prevents buttons from stretching 100% width */
 }
 </style>
 
@@ -398,16 +410,16 @@ require_once 'header.php';
                     <thead>
                         <tr>
                             <th style="width: 50px; text-align: center;"><a href="<?= getSortUrl('stage') ?>" class="sortable-header">Stage<?= getSortIndicator('stage') ?></a></th>
-                            <th><a href="<?= getSortUrl('name') ?>" class="sortable-header">Project Name<?= getSortIndicator('name') ?></a></th>
-                            <th><a href="<?= getSortUrl('client') ?>" class="sortable-header">Client<?= getSortIndicator('client') ?></a></th>
-                            <th><a href="<?= getSortUrl('type') ?>" class="sortable-header">Type<?= getSortIndicator('type') ?></a></th>
-                            <th><a href="<?= getSortUrl('city') ?>" class="sortable-header">City<?= getSortIndicator('city') ?></a></th>
-                            <th><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
+                            <th class="min-w-150"><a href="<?= getSortUrl('name') ?>" class="sortable-header">Project Name<?= getSortIndicator('name') ?></a></th>
+                            <th class="min-w-150"><a href="<?= getSortUrl('client') ?>" class="sortable-header">Client<?= getSortIndicator('client') ?></a></th>
+                            <th class="nowrap-cell"><a href="<?= getSortUrl('type') ?>" class="sortable-header">Type<?= getSortIndicator('type') ?></a></th>
+                            <th class="nowrap-cell"><a href="<?= getSortUrl('city') ?>" class="sortable-header">City<?= getSortIndicator('city') ?></a></th>
+                            <th class="nowrap-cell"><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
                             
                             <?php if (!$isSalesDb): ?>
-                                <th>PA Number</th>
-                                <th>Architect</th>
-                                <th>Structural Engineer</th>
+                                <th class="nowrap-cell">PA Number</th>
+                                <th class="min-w-150">Architect</th>
+                                <th class="min-w-150">Structural Engineer</th>
                             <?php endif; ?>
                             
                             <th>Actions</th>
@@ -422,11 +434,11 @@ require_once 'header.php';
                                           title="Stage <?= $project['stage_num'] ?>: <?= $project['stage'] ?>"></span>
                                 </td>
                                 
-                                <td style="font-weight: 600;"><?= htmlspecialchars($project['name']) ?></td>
+                                <td style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($project['name']) ?></td>
                                 
                                 <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
                                 
-                                <td>
+                                <td class="nowrap-cell">
                                     <?php if ($project['type'] === 'in-house'): ?>
                                         <span style="color: var(--primary-color); font-weight: 500;">In-House</span>
                                     <?php elseif ($project['type'] === '3rd-party'): ?>
@@ -436,41 +448,44 @@ require_once 'header.php';
                                     <?php endif; ?>
                                 </td>
 
-                                <td><?= htmlspecialchars($project['city']) ?></td>
-                                <td><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
+                                <td class="nowrap-cell"><?= htmlspecialchars($project['city']) ?></td>
+                                <td class="nowrap-cell"><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
 
                                 <?php 
                                 $projectPAs = $paByProject[$project['id']] ?? []; 
                                 if (!$isSalesDb): 
                                 ?>
-                                    <td>
+                                    <td class="nowrap-cell">
                                         <?php if (!empty($projectPAs)): ?>
-                                            <?php foreach ($projectPAs as $index => $pa): ?>
-                                                <?php 
-                                                $paText = htmlspecialchars(formatPANumber($pa['pa_number']));
-                                                $paUrl = buildPaUrl($pa['pa_number']);
-                                                if ($paUrl): ?>
-                                                    <a href="<?= htmlspecialchars($paUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $paText ?></a>
-                                                <?php else: echo $paText; endif; ?>
-                                                <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
+                                            <?php foreach ($projectPAs as $pa): ?>
+                                                <div class="cell-list-item">
+                                                    <?php 
+                                                    $paText = htmlspecialchars(formatPANumber($pa['pa_number']));
+                                                    $paUrl = buildPaUrl($pa['pa_number']);
+                                                    if ($paUrl): ?>
+                                                        <a href="<?= htmlspecialchars($paUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $paText ?></a>
+                                                    <?php else: echo $paText; endif; ?>
+                                                </div>
                                             <?php endforeach; ?>
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                     </td>
 
                                     <td>
                                         <?php if (!empty($projectPAs)): ?>
-                                            <?php foreach ($projectPAs as $index => $pa): ?>
-                                                <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
-                                                <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
+                                            <?php foreach ($projectPAs as $pa): ?>
+                                                <div class="cell-list-item">
+                                                    <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
+                                                </div>
                                             <?php endforeach; ?>
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                     </td>
 
                                     <td>
                                         <?php if (!empty($projectPAs)): ?>
-                                            <?php foreach ($projectPAs as $index => $pa): ?>
-                                                <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
-                                                <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
+                                            <?php foreach ($projectPAs as $pa): ?>
+                                                <div class="cell-list-item">
+                                                    <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
+                                                </div>
                                             <?php endforeach; ?>
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                     </td>
@@ -486,11 +501,11 @@ require_once 'header.php';
                                         <?php endif; ?>
                                         
                                         <?php if (hasPermission('view_property_sales') || $isAdmin): ?>
-                                            <a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white;">Sales</a>
+                                            <a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white; border: none;">Sales</a>
                                         <?php endif; ?>
                                         
                                         <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?>
-                                            <a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white;">Capital</a>
+                                            <a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white; border: none;">Capital</a>
                                         <?php endif; ?>
                                         
                                         <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
