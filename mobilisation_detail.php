@@ -22,7 +22,7 @@ $servicesDisabledAttr = $canEditServices ? '' : 'disabled';
 $message = ''; $error = '';
 
 // ==========================================
-// HANDLE POST REQUESTS (Logs, BCA, Blocks, Services)
+// HANDLE POST REQUESTS
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['add_log'])) {
@@ -83,6 +83,11 @@ $logsStmt = $pdo->prepare("SELECT pl.*, u.username, u.first_name, u.last_name FR
 $logsStmt->execute([$projectId]);
 $projectLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+function getUserColor($username) {
+    $colors = ['#6366F1', '#8B5CF6', '#EC4899', '#10B981', '#F59E0B', '#3B82F6', '#EF4444', '#14B8A6', '#F97316', '#06B6D4'];
+    return $colors[abs(crc32($username)) % count($colors)];
+}
+
 $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
 $mobStmt->execute([$projectId]);
 $mob = $mobStmt->fetch();
@@ -116,12 +121,14 @@ $stagesEnum = [
 $stageNum = $stagesEnum[$currentStageName] ?? 1;
 $progressPercent = min(100, round(($stageNum / 11) * 100));
 
-// Determine which accordions should be open
 $bcaOpen = ($stageNum <= 6) ? 'open' : '';
 $execOpen = ($stageNum >= 6) ? 'open' : '';
 
 // UI Locks for BCA
-$canSequential = (($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA') && (($mob['condition_reports'] ?? 'Not Started') === 'Complete' || ($mob['condition_reports'] ?? 'Not Started') === 'NA');
+$geoComplete = ($mob['geological_test'] ?? 'NA') === 'Complete' || ($mob['geological_test'] ?? 'NA') === 'NA';
+$condComplete = ($mob['condition_reports'] ?? 'Not Started') === 'Complete' || ($mob['condition_reports'] ?? 'Not Started') === 'NA';
+$canSequential = $geoComplete && $condComplete;
+
 $allSeqComplete = true;
 foreach (['method_statements', 'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee'] as $field) {
     if (($mob[$field] ?? 'Not Complete') !== 'Complete') { $allSeqComplete = false; break; }
@@ -129,53 +136,41 @@ foreach (['method_statements', 'insurance_status', 'pavement_guarantee', 'wellbe
 $canFinal = $allSeqComplete;
 $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 
+// Helper to keep code extremely clean and prevent cutoff
+function renderSelect($name, $options, $currentVal, $disabledStr, $class='') {
+    $html = "<select name=\"$name\" $disabledStr class=\"$class\" style=\"padding:0.4rem; font-size:0.9rem; border:1px solid #ccc; border-radius:4px; width:100%;\">";
+    foreach ($options as $val => $label) {
+        $sel = ((string)$currentVal === (string)$val) ? 'selected' : '';
+        $html .= "<option value=\"$val\" $sel>$label</option>";
+    }
+    return $html . "</select>";
+}
+
+// Reusable Option Arrays
+$optYesNo = ['No'=>'No', 'Yes'=>'Yes'];
+$optYesNoNA = ['No'=>'No', 'Yes'=>'Yes', 'NA'=>'N/A'];
+$optGeo = ['Not Complete'=>'Not Complete', 'Awaiting Result'=>'Awaiting Result', 'Complete'=>'Complete', 'NA'=>'N/A'];
+$optCond = ['Not Started'=>'Not Started', 'In Process'=>'In Process', 'Complete'=>'Complete', 'NA'=>'N/A'];
+$optNotCompComp = ['Not Complete'=>'Not Complete', 'Complete'=>'Complete'];
+$optNotCompCompNA = ['Not Complete'=>'Not Complete', 'Complete'=>'Complete', 'NA'=>'N/A'];
+$optNotStartProcComp = ['Not Started'=>'Not Started', 'In Process'=>'In Process', 'Complete'=>'Complete'];
+$optLevels = ['Pending'=>'Pending', 'In Progress'=>'In Progress', 'Complete'=>'Complete', 'NA'=>'N/A'];
+
 $pageTitle = 'Execution - ' . $project['name'];
 require_once 'header.php';
 ?>
 
 <style>
-/* Custom Accordion Styles */
-.custom-accordion {
-    background: var(--bg-card);
-    border: 1px solid var(--border-glass);
-    border-radius: var(--radius-md);
-    margin-bottom: 1.5rem;
-    box-shadow: var(--shadow-sm);
-}
-.custom-accordion summary {
-    padding: 1.25rem 1.5rem;
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    cursor: pointer;
-    background: rgba(255,255,255,0.02);
-    list-style: none;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-radius: var(--radius-md);
-    user-select: none;
-    transition: background 0.2s ease;
-}
+.custom-accordion { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
+.custom-accordion summary { padding: 1.25rem 1.5rem; font-size: 1.2rem; font-weight: 600; color: var(--text-primary); cursor: pointer; background: rgba(255,255,255,0.02); list-style: none; display: flex; justify-content: space-between; align-items: center; border-radius: var(--radius-md); user-select: none; transition: background 0.2s ease; }
 .custom-accordion summary:hover { background: rgba(255,255,255,0.05); }
 .custom-accordion summary::-webkit-details-marker { display: none; }
 .custom-accordion summary::after { content: '▼'; font-size: 1rem; color: var(--primary-color); transition: transform 0.3s ease; }
 .custom-accordion[open] summary::after { transform: rotate(180deg); }
 .custom-accordion[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid var(--border-glass); }
 .accordion-content { padding: 1.5rem; }
-
-/* Stage Tracker Styles */
-.stage-tracker {
-    display: flex; align-items: center; justify-content: space-between;
-    background: var(--bg-card); border: 1px solid var(--border-glass);
-    border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 2rem;
-}
-.stage-tracker-info { flex: 1; }
-.stage-badge {
-    display: inline-block; padding: 0.5rem 1rem; border-radius: 20px;
-    background: rgba(99, 102, 241, 0.15); color: var(--primary-color);
-    font-weight: 700; font-size: 1.1rem; border: 1px solid rgba(99, 102, 241, 0.3);
-}
+.stage-tracker { display: flex; align-items: center; justify-content: space-between; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 2rem; }
+.stage-badge { display: inline-block; padding: 0.5rem 1rem; border-radius: 20px; background: rgba(99, 102, 241, 0.15); color: var(--primary-color); font-weight: 700; font-size: 1.1rem; border: 1px solid rgba(99, 102, 241, 0.3); }
 .progress-bar-bg { height: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; margin-top: 1rem; overflow: hidden; }
 .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary-color), var(--secondary-color)); transition: width 0.5s ease; }
 </style>
@@ -183,17 +178,14 @@ require_once 'header.php';
 <div class="main-container">
     
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h1 class="page-title" style="margin-bottom: 0;"><?php echo htmlspecialchars($project['name']); ?></h1>
+        <h1 class="page-title" style="margin-bottom: 0;"><?= htmlspecialchars($project['name']) ?></h1>
     </div>
 
     <div class="stage-tracker">
-        <div class="stage-tracker-info">
+        <div style="flex: 1;">
             <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">Current System Stage</div>
             <div class="stage-badge">Stage <?= $stageNum ?>/11: <?= $currentStageName ?></div>
-            <div class="progress-bar-bg">
-                <div class="progress-bar-fill" style="width: <?= $progressPercent ?>%;"></div>
-            </div>
-            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Status auto-calculates based on clearance and block progress below.</div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: <?= $progressPercent ?>%;"></div></div>
         </div>
     </div>
 
@@ -204,42 +196,38 @@ require_once 'header.php';
         </div>
     <?php endif; ?>
 
-    <?php if ($message): ?><div class="alert alert-success"><?php echo htmlspecialchars($message); ?></div><?php endif; ?>
-    <?php if ($error): ?><div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
+    <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
     <div class="projects-section" style="margin-bottom: 2rem;">
         <div class="project-meta">
-            <div class="meta-item"><span class="meta-label">Client: </span><span><?php echo htmlspecialchars($project['client_name'] ?? 'Unknown'); ?></span></div>
-            <div class="meta-item"><span class="meta-label">Type: </span><span><?php echo ucwords(str_replace('-', ' ', $project['type'])); ?></span></div>
-            <div class="meta-item"><span class="meta-label">City: </span><span><?php echo htmlspecialchars($project['city']); ?></span></div>
-            <div class="meta-item"><span class="meta-label">Finish Level: </span><span style="color: var(--primary-color); font-weight: 600;"><?php echo htmlspecialchars($project['finishlevel'] ?? 'N/A'); ?></span></div>
+            <div class="meta-item"><span class="meta-label">Client: </span><span><?= htmlspecialchars($project['client_name'] ?? 'Unknown') ?></span></div>
+            <div class="meta-item"><span class="meta-label">Type: </span><span><?= ucwords(str_replace('-', ' ', $project['type'])) ?></span></div>
+            <div class="meta-item"><span class="meta-label">City: </span><span><?= htmlspecialchars($project['city']) ?></span></div>
+            <div class="meta-item"><span class="meta-label">Finish Level: </span><span style="color: var(--primary-color); font-weight: 600;"><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></span></div>
         </div>
     </div>
 
-    <details class="custom-accordion" id="project-log">
-        <summary>💬 Project Activity Log</summary>
-        <div class="accordion-content">
-            <form method="POST" class="log-input-form">
-                <div class="log-input-container" style="display: flex; gap: 0.5rem;">
-                    <textarea name="log_message" class="log-textarea" placeholder="Add update, next step, or note..." required style="flex:1; padding: 0.5rem;"></textarea>
-                    <button type="submit" name="add_log" class="btn btn-primary btn-sm">Post</button>
-                </div>
-            </form>
-            <div class="log-container" style="max-height: 300px; overflow-y: auto; margin-top: 1rem;">
-                <?php if (empty($projectLogs)): ?>
-                    <p style="color: var(--text-muted);">No activity logs yet.</p>
-                <?php else: ?>
-                    <?php foreach ($projectLogs as $log): ?>
-                        <div style="padding: 0.75rem; background: var(--bg-secondary); margin-bottom: 0.5rem; border-radius: 6px; border-left: 3px solid <?= getUserColor($log['username']) ?>">
-                            <strong style="color: <?= getUserColor($log['username']) ?>;">@<?= htmlspecialchars($log['username']) ?></strong>
-                            <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;"><?= date('d M Y, H:i', strtotime($log['created_at'])) ?></span>
-                            <div style="margin-top: 0.25rem;"><?= htmlspecialchars($log['message']) ?></div>
-                        </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+    <div class="section-card" id="project-log" style="margin-bottom: 2rem;">
+        <div class="section-header"><h2>💬 Project Activity Log</h2></div>
+        <form method="POST" style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 1rem;">
+            <div style="display: flex; gap: 0.5rem;">
+                <textarea name="log_message" placeholder="Add update, next step, or note..." required style="flex:1; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary);"></textarea>
+                <button type="submit" name="add_log" class="btn btn-primary btn-sm">Post</button>
             </div>
+        </form>
+        <div style="max-height: 300px; overflow-y: auto;">
+            <?php if (empty($projectLogs)): ?>
+                <p style="color: var(--text-muted);">No activity logs yet.</p>
+            <?php else: foreach ($projectLogs as $log): ?>
+                <div style="padding: 0.75rem; background: var(--bg-secondary); margin-bottom: 0.5rem; border-radius: 6px; border-left: 3px solid <?= getUserColor($log['username']) ?>">
+                    <strong style="color: <?= getUserColor($log['username']) ?>;">@<?= htmlspecialchars($log['username']) ?></strong>
+                    <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;"><?= date('d M Y, H:i', strtotime($log['created_at'])) ?></span>
+                    <div style="margin-top: 0.25rem;"><?= htmlspecialchars($log['message']) ?></div>
+                </div>
+            <?php endforeach; endif; ?>
         </div>
-    </details>
+    </div>
 
     <details class="custom-accordion" <?= $bcaOpen ?>>
         <summary>📋 Pre-Construction & BCA Clearances</summary>
@@ -251,7 +239,7 @@ require_once 'header.php';
                     <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
                         <legend style="font-weight: 600;">🏠 Acquisition Complete</legend>
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                            <div class="form-group"><label>Status</label><select name="acquisition_complete" <?= $disabledAttr ?>><option value="No" <?= ($mob['acquisition_complete'] ?? 'No') === 'No' ? 'selected' : '' ?>>No</option><option value="Yes" <?= ($mob['acquisition_complete'] ?? 'No') === 'Yes' ? 'selected' : '' ?>>Yes</option></select></div>
+                            <div class="form-group"><label>Status</label><?= renderSelect('acquisition_complete', $optYesNo, $mob['acquisition_complete']??'No', $disabledAttr) ?></div>
                             <div class="form-group"><label>Date</label><input type="date" name="acquisition_date" value="<?= $mob['acquisition_date'] ?? '' ?>" <?= $disabledAttr ?>></div>
                         </div>
                     </fieldset>
@@ -260,39 +248,39 @@ require_once 'header.php';
                 <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
                     <legend style="font-weight: 600;">📋 Non-Sequential Tasks</legend>
                     <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                        <div class="form-group"><label>Archaeologist Assigned</label><select name="archaeologist_assigned" <?= $disabledAttr ?>><option value="NA" <?= ($mob['archaeologist_assigned'] ?? 'NA') === 'NA' ? 'selected' : '' ?>>N/A</option><option value="Yes" <?= ($mob['archaeologist_assigned'] ?? 'NA') === 'Yes' ? 'selected' : '' ?>>Yes</option><option value="No" <?= ($mob['archaeologist_assigned'] ?? 'NA') === 'No' ? 'selected' : '' ?>>No</option></select></div>
-                        <div class="form-group"><label>Change of Applicant</label><select name="change_of_applicant" <?= $disabledAttr ?>><option value="NA" <?= ($mob['change_of_applicant'] ?? 'NA') === 'NA' ? 'selected' : '' ?>>N/A</option><option value="Complete" <?= ($mob['change_of_applicant'] ?? 'NA') === 'Complete' ? 'selected' : '' ?>>Complete</option><option value="Not Complete" <?= ($mob['change_of_applicant'] ?? 'NA') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option></select></div>
-                        <div class="form-group"><label>Geological Test</label><select name="geological_test" <?= $disabledAttr ?>><option value="NA" <?= ($mob['geological_test'] ?? 'NA') === 'NA' ? 'selected' : '' ?>>N/A</option><option value="Complete" <?= ($mob['geological_test'] ?? 'NA') === 'Complete' ? 'selected' : '' ?>>Complete</option><option value="Not Complete" <?= ($mob['geological_test'] ?? 'NA') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Awaiting Result" <?= ($mob['geological_test'] ?? 'NA') === 'Awaiting Result' ? 'selected' : '' ?>>Awaiting Result</option></select></div>
-                        <div class="form-group"><label>Condition Report Contacts</label><select name="condition_report_contacts" <?= $disabledAttr ?>><option value="Not Started" <?= ($mob['condition_report_contacts'] ?? 'Not Started') === 'Not Started' ? 'selected' : '' ?>>Not Started</option><option value="In Process" <?= ($mob['condition_report_contacts'] ?? 'Not Started') === 'In Process' ? 'selected' : '' ?>>In Process</option><option value="Complete" <?= ($mob['condition_report_contacts'] ?? 'Not Started') === 'Complete' ? 'selected' : '' ?>>Complete</option><option value="NA" <?= ($mob['condition_report_contacts'] ?? 'Not Started') === 'NA' ? 'selected' : '' ?>>NA</option></select></div>
-                        <div class="form-group"><label>Condition Reports</label><select name="condition_reports" <?= $disabledAttr ?>><option value="Not Started" <?= ($mob['condition_reports'] ?? 'Not Started') === 'Not Started' ? 'selected' : '' ?>>Not Started</option><option value="In Process" <?= ($mob['condition_reports'] ?? 'Not Started') === 'In Process' ? 'selected' : '' ?>>In Process</option><option value="Complete" <?= ($mob['condition_reports'] ?? 'Not Started') === 'Complete' ? 'selected' : '' ?>>Complete</option><option value="NA" <?= ($mob['condition_reports'] ?? 'Not Started') === 'NA' ? 'selected' : '' ?>>NA</option></select></div>
+                        <div class="form-group"><label>Archaeologist Assigned</label><?= renderSelect('archaeologist_assigned', $optYesNoNA, $mob['archaeologist_assigned']??'NA', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Change of Applicant</label><?= renderSelect('change_of_applicant', $optNotCompCompNA, $mob['change_of_applicant']??'NA', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Geological Test</label><?= renderSelect('geological_test', $optGeo, $mob['geological_test']??'NA', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Cond. Report Contacts</label><?= renderSelect('condition_report_contacts', $optCond, $mob['condition_report_contacts']??'Not Started', $disabledAttr) ?></div>
+                        <div class="form-group"><label>Condition Reports</label><?= renderSelect('condition_reports', $optCond, $mob['condition_reports']??'Not Started', $disabledAttr) ?></div>
                     </div>
                 </fieldset>
 
                 <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; opacity: <?= $canSequential ? '1' : '0.5' ?>; margin-bottom: 1.5rem;">
                     <legend style="font-weight: 600;">🔗 Sequential Chain</legend>
                     <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                        <div class="form-group"><label>Method Statements</label><select name="method_statements" <?= !$canSequential ? 'disabled' : $disabledAttr ?>><option value="Not Complete" <?= ($mob['method_statements'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($mob['method_statements'] ?? 'Not Complete') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div>
-                        <div class="form-group"><label>Insurance</label><select name="insurance_status" <?= !$canSequential ? 'disabled' : $disabledAttr ?>><option value="Not Started" <?= ($mob['insurance_status'] ?? 'Not Started') === 'Not Started' ? 'selected' : '' ?>>Not Started</option><option value="In Process" <?= ($mob['insurance_status'] ?? 'Not Started') === 'In Process' ? 'selected' : '' ?>>In Process</option><option value="Complete" <?= ($mob['insurance_status'] ?? 'Not Started') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div>
-                        <div class="form-group"><label>Pavement Guarantee</label><select name="pavement_guarantee" <?= !$canSequential ? 'disabled' : $disabledAttr ?>><option value="Not Started" <?= ($mob['pavement_guarantee'] ?? 'Not Started') === 'Not Started' ? 'selected' : '' ?>>Not Started</option><option value="In Process" <?= ($mob['pavement_guarantee'] ?? 'Not Started') === 'In Process' ? 'selected' : '' ?>>In Process</option><option value="Complete" <?= ($mob['pavement_guarantee'] ?? 'Not Started') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div>
-                        <div class="form-group"><label>Wellbeing Guarantee</label><select name="wellbeing_guarantee" <?= !$canSequential ? 'disabled' : $disabledAttr ?>><option value="Not Started" <?= ($mob['wellbeing_guarantee'] ?? 'Not Started') === 'Not Started' ? 'selected' : '' ?>>Not Started</option><option value="In Process" <?= ($mob['wellbeing_guarantee'] ?? 'Not Started') === 'In Process' ? 'selected' : '' ?>>In Process</option><option value="Complete" <?= ($mob['wellbeing_guarantee'] ?? 'Not Started') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div>
-                        <div class="form-group"><label>Umbrella Guarantee</label><select name="umbrella_guarantee" <?= !$canSequential ? 'disabled' : $disabledAttr ?>><option value="Not Started" <?= ($mob['umbrella_guarantee'] ?? 'Not Started') === 'Not Started' ? 'selected' : '' ?>>Not Started</option><option value="In Process" <?= ($mob['umbrella_guarantee'] ?? 'Not Started') === 'In Process' ? 'selected' : '' ?>>In Process</option><option value="Complete" <?= ($mob['umbrella_guarantee'] ?? 'Not Started') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div>
+                        <?php $seqDis = !$canSequential ? 'disabled' : $disabledAttr; ?>
+                        <div class="form-group"><label>Method Statements</label><?= renderSelect('method_statements', $optNotCompComp, $mob['method_statements']??'Not Complete', $seqDis) ?></div>
+                        <div class="form-group"><label>Insurance</label><?= renderSelect('insurance_status', $optNotStartProcComp, $mob['insurance_status']??'Not Started', $seqDis) ?></div>
+                        <div class="form-group"><label>Pavement Guarantee</label><?= renderSelect('pavement_guarantee', $optNotStartProcComp, $mob['pavement_guarantee']??'Not Started', $seqDis) ?></div>
+                        <div class="form-group"><label>Wellbeing Guarantee</label><?= renderSelect('wellbeing_guarantee', $optNotStartProcComp, $mob['wellbeing_guarantee']??'Not Started', $seqDis) ?></div>
+                        <div class="form-group"><label>Umbrella Guarantee</label><?= renderSelect('umbrella_guarantee', $optNotStartProcComp, $mob['umbrella_guarantee']??'Not Started', $seqDis) ?></div>
                     </div>
                 </fieldset>
 
                 <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; opacity: <?= $canFinal ? '1' : '0.5' ?>;">
                     <legend style="font-weight: 600;">🏗️ Clearance Phase</legend>
                     <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                        <div class="form-group"><label>Responsibility Form</label><select name="responsibility_form" <?= !$canFinal ? 'disabled' : $disabledAttr ?>><option value="Not Complete" <?= ($mob['responsibility_form'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div>
-                        <div class="form-group" style="background: rgba(239, 68, 68, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--danger);"><label>Demolition Clearance</label><select name="mob_demolition" <?= !$canClearance ? 'disabled' : $disabledAttr ?>><option value="No" <?= ($mob['mob_demolition'] ?? 'No') === 'No' ? 'selected' : '' ?>>No Clearance</option><option value="Yes" <?= ($mob['mob_demolition'] ?? 'No') === 'Yes' ? 'selected' : '' ?>>Cleared</option><option value="NA" <?= ($mob['mob_demolition'] ?? 'No') === 'NA' ? 'selected' : '' ?>>N/A</option></select></div>
-                        <div class="form-group" style="background: rgba(245, 158, 11, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--warning);"><label>Excavation Clearance</label><select name="mob_excavation" <?= !$canClearance ? 'disabled' : $disabledAttr ?>><option value="No" <?= ($mob['mob_excavation'] ?? 'No') === 'No' ? 'selected' : '' ?>>No Clearance</option><option value="Yes" <?= ($mob['mob_excavation'] ?? 'No') === 'Yes' ? 'selected' : '' ?>>Cleared</option><option value="NA" <?= ($mob['mob_excavation'] ?? 'No') === 'NA' ? 'selected' : '' ?>>N/A</option></select></div>
-                        <div class="form-group" style="background: rgba(34, 197, 94, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--success);"><label>Construction Clearance</label><select name="mob_construction" <?= !$canClearance ? 'disabled' : $disabledAttr ?>><option value="No" <?= ($mob['mob_construction'] ?? 'No') === 'No' ? 'selected' : '' ?>>No Clearance</option><option value="Yes" <?= ($mob['mob_construction'] ?? 'No') === 'Yes' ? 'selected' : '' ?>>Cleared</option><option value="NA" <?= ($mob['mob_construction'] ?? 'No') === 'NA' ? 'selected' : '' ?>>N/A</option></select></div>
+                        <?php $finDis = !$canFinal ? 'disabled' : $disabledAttr; $clrDis = !$canClearance ? 'disabled' : $disabledAttr; ?>
+                        <div class="form-group"><label>Responsibility Form</label><?= renderSelect('responsibility_form', $optNotCompComp, $mob['responsibility_form']??'Not Complete', $finDis) ?></div>
+                        <div class="form-group" style="background: rgba(239, 68, 68, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--danger);"><label>Demolition Clearance</label><?= renderSelect('mob_demolition', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_demolition']??'No', $clrDis) ?></div>
+                        <div class="form-group" style="background: rgba(245, 158, 11, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--warning);"><label>Excavation Clearance</label><?= renderSelect('mob_excavation', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_excavation']??'No', $clrDis) ?></div>
+                        <div class="form-group" style="background: rgba(34, 197, 94, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--success);"><label>Construction Clearance</label><?= renderSelect('mob_construction', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_construction']??'No', $clrDis) ?></div>
                     </div>
                 </fieldset>
 
                 <?php if ($canUpdateStatus): ?>
-                    <div class="form-actions" style="margin-top: 1rem;">
-                        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save BCA Updates</button>
-                    </div>
+                    <div class="form-actions" style="margin-top: 1rem;"><button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save BCA Updates</button></div>
                 <?php endif; ?>
             </form>
         </div>
@@ -306,7 +294,6 @@ require_once 'header.php';
             <?php else: ?>
                 <form method="POST">
                     <input type="hidden" name="action" value="update_blocks">
-                    
                     <?php 
                     $requiresFinishes = !in_array($project['finishlevel'], ['Shell', null, '']);
                     foreach ($projectBlocks as $block): 
@@ -321,30 +308,15 @@ require_once 'header.php';
                                 <table class="data-table" style="background: transparent;">
                                     <thead><tr><th>Level</th><th>Construction Status</th><th>Finishes Status</th></tr></thead>
                                     <tbody>
-                                        <?php 
-                                        $levels = $blockLevels[$block['id']] ?? [];
-                                        foreach ($levels as $lvl): 
-                                        ?>
+                                        <?php $levels = $blockLevels[$block['id']] ?? []; foreach ($levels as $lvl): ?>
                                             <tr>
                                                 <td style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($lvl['level_name']) ?></td>
-                                                <td>
-                                                    <select name="levels[<?= $lvl['id'] ?>][construction_status]" <?= $disabledAttr ?> style="padding: 0.4rem; font-size: 0.85rem; width: 80%;">
-                                                        <option value="Pending" <?= $lvl['construction_status'] === 'Pending' ? 'selected' : '' ?>>Pending</option>
-                                                        <option value="In Progress" <?= $lvl['construction_status'] === 'In Progress' ? 'selected' : '' ?>>In Progress</option>
-                                                        <option value="Complete" <?= $lvl['construction_status'] === 'Complete' ? 'selected' : '' ?>>Complete</option>
-                                                        <option value="NA" <?= $lvl['construction_status'] === 'NA' ? 'selected' : '' ?>>N/A</option>
-                                                    </select>
-                                                </td>
+                                                <td><?= renderSelect("levels[{$lvl['id']}][construction_status]", $optLevels, $lvl['construction_status'], $disabledAttr) ?></td>
                                                 <td>
                                                     <?php if ($requiresFinishes): ?>
-                                                        <select name="levels[<?= $lvl['id'] ?>][finishes_status]" <?= $disabledAttr ?> style="padding: 0.4rem; font-size: 0.85rem; width: 80%;">
-                                                            <option value="Pending" <?= $lvl['finishes_status'] === 'Pending' ? 'selected' : '' ?>>Pending</option>
-                                                            <option value="In Progress" <?= $lvl['finishes_status'] === 'In Progress' ? 'selected' : '' ?>>In Progress</option>
-                                                            <option value="Complete" <?= $lvl['finishes_status'] === 'Complete' ? 'selected' : '' ?>>Complete</option>
-                                                            <option value="NA" <?= $lvl['finishes_status'] === 'NA' ? 'selected' : '' ?>>N/A</option>
-                                                        </select>
+                                                        <?= renderSelect("levels[{$lvl['id']}][finishes_status]", $optLevels, $lvl['finishes_status'], $disabledAttr) ?>
                                                     <?php else: ?>
-                                                        <select disabled style="padding: 0.4rem; font-size: 0.85rem; width: 80%; opacity: 0.5;"><option>N/A (Shell Form)</option></select>
+                                                        <select disabled style="padding:0.4rem; font-size:0.9rem; border:1px solid #ccc; border-radius:4px; width:100%; opacity:0.5;"><option>N/A (Shell Form)</option></select>
                                                     <?php endif; ?>
                                                 </td>
                                             </tr>
@@ -355,18 +327,15 @@ require_once 'header.php';
 
                             <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Post-Construction Milestones</h4>
                             <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                                <div class="form-group"><label>Compliance Submitted</label><select name="blocks[<?= $block['id'] ?>][compliance_submitted]" <?= $disabledAttr ?>><option value="No" <?= $block['compliance_submitted'] === 'No' ? 'selected' : '' ?>>No</option><option value="Yes" <?= $block['compliance_submitted'] === 'Yes' ? 'selected' : '' ?>>Yes</option><option value="NA" <?= $block['compliance_submitted'] === 'NA' ? 'selected' : '' ?>>N/A</option></select></div>
-                                <div class="form-group"><label>Compliance Certified</label><select name="blocks[<?= $block['id'] ?>][compliance_certified]" <?= $disabledAttr ?>><option value="No" <?= $block['compliance_certified'] === 'No' ? 'selected' : '' ?>>No</option><option value="Yes" <?= $block['compliance_certified'] === 'Yes' ? 'selected' : '' ?>>Yes</option><option value="NA" <?= $block['compliance_certified'] === 'NA' ? 'selected' : '' ?>>N/A</option></select></div>
-                                <div class="form-group"><label>Condominium Formed</label><select name="blocks[<?= $block['id'] ?>][condominium_formed]" <?= $disabledAttr ?>><option value="No" <?= $block['condominium_formed'] === 'No' ? 'selected' : '' ?>>No</option><option value="Yes" <?= $block['condominium_formed'] === 'Yes' ? 'selected' : '' ?>>Yes</option><option value="NA" <?= $block['condominium_formed'] === 'NA' ? 'selected' : '' ?>>N/A</option></select></div>
-                                <div class="form-group"><label>CP Meters Installed</label><select name="blocks[<?= $block['id'] ?>][cp_meters_installed]" <?= $disabledAttr ?>><option value="No" <?= $block['cp_meters_installed'] === 'No' ? 'selected' : '' ?>>No</option><option value="Yes" <?= $block['cp_meters_installed'] === 'Yes' ? 'selected' : '' ?>>Yes</option><option value="NA" <?= $block['cp_meters_installed'] === 'NA' ? 'selected' : '' ?>>N/A</option></select></div>
+                                <div class="form-group"><label>Compliance Submitted</label><?= renderSelect("blocks[{$block['id']}][compliance_submitted]", $optYesNoNA, $block['compliance_submitted'], $disabledAttr) ?></div>
+                                <div class="form-group"><label>Compliance Certified</label><?= renderSelect("blocks[{$block['id']}][compliance_certified]", $optYesNoNA, $block['compliance_certified'], $disabledAttr) ?></div>
+                                <div class="form-group"><label>Condominium Formed</label><?= renderSelect("blocks[{$block['id']}][condominium_formed]", $optYesNoNA, $block['condominium_formed'], $disabledAttr) ?></div>
+                                <div class="form-group"><label>CP Meters Installed</label><?= renderSelect("blocks[{$block['id']}][cp_meters_installed]", $optYesNoNA, $block['cp_meters_installed'], $disabledAttr) ?></div>
                             </div>
                         </fieldset>
                     <?php endforeach; ?>
-
                     <?php if ($canUpdateStatus): ?>
-                        <div class="form-actions" style="margin-top: 1rem;">
-                            <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save Block Progress</button>
-                        </div>
+                        <div class="form-actions" style="margin-top: 1rem;"><button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save Block Progress</button></div>
                     <?php endif; ?>
                 </form>
             <?php endif; ?>
@@ -378,31 +347,48 @@ require_once 'header.php';
         <div class="accordion-content">
             <form method="POST" action="">
                 <input type="hidden" name="action" value="update_services">
-                <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-                    <div class="form-group service-item"><label>Existing Meter/s for Removal</label><div class="service-controls"><select name="existing_meters_required" class="requirement-toggle" <?= $servicesDisabledAttr ?>><option value="Not Required" <?= ($services['existing_meters_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : '' ?>>Not Required</option><option value="Required" <?= ($services['existing_meters_required'] ?? '') === 'Required' ? 'selected' : '' ?>>Required</option></select><select name="existing_meters_complete" class="completion-status" <?= ($services['existing_meters_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : $servicesDisabledAttr ?>><option value="Not Complete" <?= ($services['existing_meters_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($services['existing_meters_complete'] ?? '') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div></div>
-                    <div class="form-group service-item"><label>Enemalta Lines for Deviation</label><div class="service-controls"><select name="enemalta_deviation_required" class="requirement-toggle" <?= $servicesDisabledAttr ?>><option value="Not Required" <?= ($services['enemalta_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : '' ?>>Not Required</option><option value="Required" <?= ($services['enemalta_deviation_required'] ?? '') === 'Required' ? 'selected' : '' ?>>Required</option></select><select name="enemalta_deviation_complete" class="completion-status" <?= ($services['enemalta_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : $servicesDisabledAttr ?>><option value="Not Complete" <?= ($services['enemalta_deviation_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($services['enemalta_deviation_complete'] ?? '') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div></div>
-                    <div class="form-group service-item"><label>GO Lines for Deviation</label><div class="service-controls"><select name="go_deviation_required" class="requirement-toggle" <?= $servicesDisabledAttr ?>><option value="Not Required" <?= ($services['go_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : '' ?>>Not Required</option><option value="Required" <?= ($services['go_deviation_required'] ?? '') === 'Required' ? 'selected' : '' ?>>Required</option></select><select name="go_deviation_complete" class="completion-status" <?= ($services['go_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : $servicesDisabledAttr ?>><option value="Not Complete" <?= ($services['go_deviation_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($services['go_deviation_complete'] ?? '') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div></div>
-                    <div class="form-group service-item"><label>Melita Lines for Deviation</label><div class="service-controls"><select name="melita_deviation_required" class="requirement-toggle" <?= $servicesDisabledAttr ?>><option value="Not Required" <?= ($services['melita_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : '' ?>>Not Required</option><option value="Required" <?= ($services['melita_deviation_required'] ?? '') === 'Required' ? 'selected' : '' ?>>Required</option></select><select name="melita_deviation_complete" class="completion-status" <?= ($services['melita_deviation_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : $servicesDisabledAttr ?>><option value="Not Complete" <?= ($services['melita_deviation_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($services['melita_deviation_complete'] ?? '') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div></div>
-                    <div class="form-group service-item"><label>LC Lamps</label><div class="service-controls"><select name="lc_lamps_required" class="requirement-toggle" <?= $servicesDisabledAttr ?>><option value="Not Required" <?= ($services['lc_lamps_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : '' ?>>Not Required</option><option value="Required" <?= ($services['lc_lamps_required'] ?? '') === 'Required' ? 'selected' : '' ?>>Required</option></select><select name="lc_lamps_complete" class="completion-status" <?= ($services['lc_lamps_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : $servicesDisabledAttr ?>><option value="Not Complete" <?= ($services['lc_lamps_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($services['lc_lamps_complete'] ?? '') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div></div>
-                    <div class="form-group service-item"><label>Temp Elec Meter Installation</label><div class="service-controls"><select name="temp_elec_meter_required" class="requirement-toggle" <?= $servicesDisabledAttr ?>><option value="Not Required" <?= ($services['temp_elec_meter_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : '' ?>>Not Required</option><option value="Required" <?= ($services['temp_elec_meter_required'] ?? '') === 'Required' ? 'selected' : '' ?>>Required</option></select><select name="temp_elec_meter_complete" class="completion-status" <?= ($services['temp_elec_meter_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : $servicesDisabledAttr ?>><option value="Not Complete" <?= ($services['temp_elec_meter_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($services['temp_elec_meter_complete'] ?? '') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div></div>
-                    <div class="form-group service-item"><label>Temp WSC Meter Installation</label><div class="service-controls"><select name="temp_wsc_meter_required" class="requirement-toggle" <?= $servicesDisabledAttr ?>><option value="Not Required" <?= ($services['temp_wsc_meter_required'] ?? 'Not Required') === 'Not Required' ? 'selected' : '' ?>>Not Required</option><option value="Required" <?= ($services['temp_wsc_meter_required'] ?? '') === 'Required' ? 'selected' : '' ?>>Required</option></select><select name="temp_wsc_meter_complete" class="completion-status" <?= ($services['temp_wsc_meter_required'] ?? 'Not Required') === 'Not Required' ? 'disabled' : $servicesDisabledAttr ?>><option value="Not Complete" <?= ($services['temp_wsc_meter_complete'] ?? 'Not Complete') === 'Not Complete' ? 'selected' : '' ?>>Not Complete</option><option value="Complete" <?= ($services['temp_wsc_meter_complete'] ?? '') === 'Complete' ? 'selected' : '' ?>>Complete</option></select></div></div>
+                <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                    <?php 
+                    $srvMap = [
+                        'existing_meters' => 'Existing Meter/s for Removal', 'enemalta_deviation' => 'Enemalta Lines for Deviation',
+                        'go_deviation' => 'GO Lines for Deviation', 'melita_deviation' => 'Melita Lines for Deviation',
+                        'lc_lamps' => 'LC Lamps', 'temp_elec_meter' => 'Temp Elec Meter Installation', 'temp_wsc_meter' => 'Temp WSC Meter Installation'
+                    ];
+                    $optReq = ['Not Required'=>'Not Required', 'Required'=>'Required'];
+                    foreach ($srvMap as $key => $label):
+                        $reqVal = $services["{$key}_required"] ?? 'Not Required';
+                        $compVal = $services["{$key}_complete"] ?? 'Not Complete';
+                        $compDis = ($reqVal === 'Not Required') ? 'disabled' : $servicesDisabledAttr;
+                    ?>
+                    <div class="form-group" style="padding: 1rem; border: 1px solid var(--border-glass); border-radius: 8px;">
+                        <label style="font-weight: 600; margin-bottom: 0.5rem; display: block;"><?= $label ?></label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <?= renderSelect("{$key}_required", $optReq, $reqVal, $servicesDisabledAttr, 'req-toggle') ?>
+                            <?= renderSelect("{$key}_complete", $optNotCompComp, $compVal, $compDis, 'comp-status') ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
                 <?php if ($canEditServices): ?>
-                    <div class="form-actions" style="margin-top: 1rem;"><button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save Services Updates</button></div>
+                    <div class="form-actions" style="margin-top: 1.5rem;"><button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">Save Services Updates</button></div>
                 <?php endif; ?>
             </form>
         </div>
     </details>
-
-    <script>
-    document.querySelectorAll('.requirement-toggle').forEach(function(select) {
-        select.addEventListener('change', function() {
-            const compSelect = this.parentElement.querySelector('.completion-status');
-            compSelect.disabled = (this.value !== 'Required');
-            if (this.value !== 'Required') compSelect.value = 'Not Complete';
-        });
-    });
-    </script>
 </div>
+
+<script>
+document.querySelectorAll('select.req-toggle').forEach(function(select) {
+    select.addEventListener('change', function() {
+        const compSelect = this.parentElement.querySelector('select.comp-status');
+        if (this.value === 'Required') {
+            compSelect.disabled = false;
+        } else {
+            compSelect.disabled = true;
+            compSelect.value = 'Not Complete';
+        }
+    });
+});
+</script>
 
 <?php require_once 'footer.php'; ?>
