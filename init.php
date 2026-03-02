@@ -63,3 +63,16 @@ if (isLoggedIn()) {
 function isServicesEngineer() {
     return getCurrentRole() === 'services_engineer';
 }
+/**
+ * Automatically grants the creator of a client access to view/manage it
+ */
+function autoAssignCreatorToClient($pdo, $clientId, $userId) {
+    try {
+        $stmt = $pdo->prepare("INSERT IGNORE INTO user_client_access (user_id, client_id) VALUES (?, ?)");
+        $stmt->execute([$userId, $clientId]);
+        return true;
+    } catch (PDOException $e) {
+        error_log("Error auto-assigning client access: " . $e->getMessage());
+        return false;
+    }
+}
