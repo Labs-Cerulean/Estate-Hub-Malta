@@ -85,6 +85,7 @@ $ohsaProjects = [];
 $ohsaStages = ['Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 foreach ($projectsRaw as $p) {
+    if (($project['project_status'] ?? 'Active') !== 'Active') continue;
     $stage = deriveProjectStage($pdo, $p['id']);
     
     if (in_array($stage, $ohsaStages)) {
