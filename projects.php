@@ -161,7 +161,8 @@ require_once 'header.php';
 .matrix-table {
     width: max-content; /* Forces table to be as wide as its content needs */
     min-width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate; /* CRITICAL FIX: prevents sticky borders from bleeding text */
+    border-spacing: 0;
     text-align: left;
     font-size: 0.85rem;
 }
@@ -177,22 +178,6 @@ require_once 'header.php';
     color: var(--text-primary);
     border-bottom: 2px solid var(--border-glass);
     white-space: nowrap;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-/* Make the first column (Project Name) sticky on the left */
-.matrix-table thead th:first-child {
-    position: sticky;
-    left: 0;
-    z-index: 15; /* Top and Left */
-    border-right: 1px solid var(--border-glass);
-}
-.matrix-table tbody td:first-child {
-    position: sticky;
-    left: 0;
-    background: #1e1e2d;
-    z-index: 5; /* Left */
-    border-right: 1px solid var(--border-glass);
 }
 
 .matrix-table td {
@@ -203,12 +188,43 @@ require_once 'header.php';
     white-space: nowrap; /* Prevents text from overlapping or squishing */
 }
 
+/* 1. STICKY LEFT COLUMN (Project Name) */
+.matrix-table thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 20; /* Top AND Left */
+    border-right: 2px solid var(--border-glass);
+}
+.matrix-table tbody td:first-child {
+    position: sticky;
+    left: 0;
+    background: #1e1e2d;
+    z-index: 5; 
+    border-right: 2px solid var(--border-glass);
+}
+
+/* 2. STICKY RIGHT COLUMN (Action Button) */
+.matrix-table thead th:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 20; /* Top AND Right */
+    border-left: 2px solid var(--border-glass);
+}
+.matrix-table tbody td:last-child {
+    position: sticky;
+    right: 0;
+    background: #1e1e2d;
+    z-index: 5; 
+    border-left: 2px solid var(--border-glass);
+}
+
 /* Hover effects */
 .matrix-table tbody tr:hover td {
     background: rgba(255,255,255,0.03);
 }
-.matrix-table tbody tr:hover td:first-child {
-    background: #2a2a3b; /* Maintain solid color on hover for sticky column */
+.matrix-table tbody tr:hover td:first-child,
+.matrix-table tbody tr:hover td:last-child {
+    background: #2a2a3b; /* Maintain solid color on hover for sticky columns */
 }
 
 /* Form Modal */
@@ -246,7 +262,7 @@ require_once 'header.php';
                     <th style="text-align: center;">Excavation</th>
                     <th style="text-align: center;">Construction</th>
                     <th style="text-align: center;">Finishes</th>
-                    <?php if ($canAssignTeam): ?><th style="text-align: center; border-left: 2px solid var(--border-glass);">Action</th><?php endif; ?>
+                    <?php if ($canAssignTeam): ?><th style="text-align: center;">Action</th><?php endif; ?>
                 </tr>
             </thead>
             <tbody>
@@ -284,7 +300,7 @@ require_once 'header.php';
                             <td style="text-align: center;"><?= renderStatusBadge($p['fin_status']) ?></td>
                             
                             <?php if ($canAssignTeam): ?>
-                            <td style="text-align: center; border-left: 2px solid var(--border-glass);">
+                            <td style="text-align: center;">
                                 <button onclick='openAssignModal(<?= json_encode([
                                     "id" => $p["id"], "name" => $p["name"],
                                     "pm_const" => $p["pm_construction_id"], "pm_fin" => $p["pm_finishes_id"],
