@@ -62,9 +62,10 @@ if (!empty($projectIds)) {
     }
 }
 
-// 3. Filter for Stages 3 to 11 and compute dynamic statuses
+// 3. Filter for Stages 4 to 11 (Mobilisation Onwards)
 $matrixProjects = [];
-$allowedStages = ['Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
+// Removed 'Permit' so it only shows Mobilisation onwards
+$allowedStages = ['Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 foreach ($projectsRaw as $p) {
     // Exclude withdrawn or on-hold projects entirely
@@ -239,7 +240,7 @@ require_once 'header.php';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
             <h1 class="page-title" style="margin-bottom: 0;">Project Execution Matrix</h1>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Live operational status for projects in Stages 3 through 11.</p>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Live operational status for projects in Stages 4 through 11.</p>
         </div>
     </div>
 
