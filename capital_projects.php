@@ -10,7 +10,7 @@ if (!hasPermission('view_capital_projects') && !isAdmin()) {
 
 $message = ''; $error = '';
 $projectId = $_GET['project_id'] ?? null;
-$canEdit = hasPermission('edit_project_details') || isAdmin(); // Assuming admins/editors handle financials
+$canEdit = hasPermission('edit_project_details') || isAdmin();
 
 // ==========================================
 // HANDLE POST REQUESTS (Only active if editing a specific project)
@@ -22,15 +22,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
         if ($action === 'update_financials') {
             $stmt = $pdo->prepare("
                 INSERT INTO project_capital_financials 
-                (project_id, ct_reference, award_date, commencement_date, completion_target, order_value, retention_percentage, less_fines, retention_release_date, retention_released) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (project_id, actual_client, ct_reference, award_date, commencement_date, completion_target, order_value, retention_percentage, less_fines, retention_release_date, retention_released) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
-                ct_reference=VALUES(ct_reference), award_date=VALUES(award_date), commencement_date=VALUES(commencement_date), 
+                actual_client=VALUES(actual_client), ct_reference=VALUES(ct_reference), award_date=VALUES(award_date), commencement_date=VALUES(commencement_date), 
                 completion_target=VALUES(completion_target), order_value=VALUES(order_value), retention_percentage=VALUES(retention_percentage), 
                 less_fines=VALUES(less_fines), retention_release_date=VALUES(retention_release_date), retention_released=VALUES(retention_released)
             ");
             $stmt->execute([
-                $projectId, $_POST['ct_reference'], $_POST['award_date'] ?: null, $_POST['commencement_date'] ?: null, 
+                $projectId, $_POST['actual_client'] ?? null, $_POST['ct_reference'], $_POST['award_date'] ?: null, $_POST['commencement_date'] ?: null, 
                 $_POST['completion_target'] ?: null, $_POST['order_value'] ?: 0, $_POST['retention_percentage'] ?: 5, 
                 $_POST['less_fines'] ?: 0, $_POST['retention_release_date'] ?: null, $_POST['retention_released'] ?: 0
             ]);
@@ -245,6 +245,8 @@ require_once 'header.php';
                 <thead>
                     <tr>
                         <th>Project Name</th>
+                        <th>Winning Co.</th>
+                        <th>Actual Client / Authority</th>
                         <th>Ref (CT No)</th>
                         <th>Award Date</th>
                         <th>Completion Target</th>
@@ -264,11 +266,15 @@ require_once 'header.php';
                 </thead>
                 <tbody>
                     <?php if (empty($matrixData)): ?>
-                        <tr><td colspan="16" style="text-align: center; padding: 2rem;">No active capital projects found.</td></tr>
+                        <tr><td colspan="18" style="text-align: center; padding: 2rem;">No active capital projects found.</td></tr>
                     <?php else: ?>
                         <?php foreach($matrixData as $row): $f = $row['fin']; $k = $row['kpis']; ?>
                             <tr>
                                 <td><a href="capital_projects.php?project_id=<?= $row['id'] ?>" style="color: var(--primary-color); text-decoration: none;"><?= htmlspecialchars($row['name']) ?></a></td>
+                                
+                                <td><span style="color: #0ea5e9; font-weight: 500;"><?= htmlspecialchars($row['client_name'] ?? 'N/A') ?></span></td>
+                                <td><?= htmlspecialchars($f['actual_client'] ?? '-') ?></td>
+                                
                                 <td><?= htmlspecialchars($f['ct_reference'] ?? '-') ?></td>
                                 <td><?= !empty($f['award_date']) ? date('d M Y', strtotime($f['award_date'])) : '-' ?></td>
                                 <td><?= !empty($f['completion_target']) ? date('d M Y', strtotime($f['completion_target'])) : '-' ?></td>
@@ -317,6 +323,11 @@ require_once 'header.php';
                 <form method="POST">
                     <input type="hidden" name="action" value="update_financials">
                     <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+                        
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>Actual Client / Authority (Who is paying?)</label>
+                            <input type="text" name="actual_client" value="<?= htmlspecialchars($fin['actual_client'] ?? '') ?>" placeholder="e.g. Infrastructure Malta" <?= $canEdit ? '' : 'disabled' ?>>
+                        </div>
                         <div class="form-group"><label>CT Reference</label><input type="text" name="ct_reference" value="<?= htmlspecialchars($fin['ct_reference'] ?? '') ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                         <div class="form-group"><label>Base Order Value (€)</label><input type="number" step="0.01" name="order_value" value="<?= $fin['order_value'] ?? '0.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                         <div class="form-group"><label>Retention Percentage (%)</label><input type="number" step="0.01" name="retention_percentage" value="<?= $fin['retention_percentage'] ?? '5.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
