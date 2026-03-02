@@ -11,8 +11,8 @@ $isAdmin = isAdmin();
 // Capability checks
 $canViewTracking = hasPermission('view_tracking') || $isAdmin;
 
-// 1. Determine Dashboard View Type
-$dashboardType = 'Project Dashboard';
+// 1. Determine Dashboard View Type based on PDF specifications
+$dashboardType = 'Project Dashboard'; // Default for Architects, Engineers, PMO, etc.
 if ($userRole === 'admin') {
     $dashboardType = 'Admin Dashboard';
 } elseif ($userRole === 'director') {
@@ -20,12 +20,14 @@ if ($userRole === 'admin') {
 } elseif (in_array($userRole, ['sales_manager', 'sales_agent'])) {
     $dashboardType = 'Sales Dashboard';
 } elseif ($userRole === 'condominium_agent') {
-    $dashboardType = 'None'; 
+    $dashboardType = 'None'; // Restricted Dashboard
 }
 
 // 2. Define Visible Stages based on Role
 $visibleStages = [];
-if ($canViewTracking) { $visibleStages = ['Feasibility', 'Tracking']; }
+if ($canViewTracking) {
+    $visibleStages = ['Feasibility', 'Tracking'];
+}
 
 switch ($userRole) {
     case 'sales_manager':
@@ -84,7 +86,7 @@ if ($dashboardType !== 'None') {
     $filterCity = $_GET['filter_city'] ?? 'all';
     $filterClient = $_GET['filter_client'] ?? 'all';
     $filterIsland = $_GET['filter_island'] ?? 'all';
-    $filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; // NEW: Active vs Withdrawn
+    $filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; // Active vs Withdrawn
     
     $sortBy = $_GET['sort'] ?? 'stage';
     $sortOrder = $_GET['order'] ?? 'DESC';
@@ -254,6 +256,7 @@ require_once 'header.php';
 .cell-list-item:last-child { margin-bottom: 0; }
 .action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
 .action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; }
+.summer-break-icon { margin-left: 0.5rem; font-size: 1.1rem; cursor: help; filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.5)); }
 </style>
 
 <div class="main-container">
@@ -400,7 +403,12 @@ require_once 'header.php';
                                 </td>
                                 
                                 <td style="font-weight: 600; color: var(--text-primary);">
-                                    <?= htmlspecialchars($project['name']) ?>
+                                    <div style="display: flex; align-items: center;">
+                                        <?= htmlspecialchars($project['name']) ?>
+                                        <?php if (!empty($project['summer_break_flag']) && $project['summer_break_flag'] == 1): ?>
+                                            <span class="summer-break-icon" title="Summer Break Alarm Active (Tourism Area)">☀️</span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                                 
                                 <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
