@@ -36,7 +36,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (($_POST['action'] ?? null) === 'update_mobilisation' && $canUpdateStatus) {
         try {
             $updates = []; $values = [];
-            $allowedFields = ['acquisition_complete', 'acquisition_date', 'archaeologist_assigned', 'change_of_applicant', 'geological_test', 'condition_report_contacts', 'condition_reports', 'method_statements', 'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee', 'responsibility_form', 'mob_demolition', 'mob_excavation', 'mob_construction'];
+            $allowedFields = [
+                'acquisition_complete', 'acquisition_date', 'archaeologist_assigned', 'change_of_applicant', 
+                'geological_test', 'condition_report_contacts', 'condition_reports', 'method_statements', 
+                'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee', 
+                'responsibility_form', 'mob_demolition', 'mob_excavation', 'mob_construction',
+                'demo_status', 'excavation_status' // NEW FIELDS ADDED HERE
+            ];
             foreach ($allowedFields as $field) {
                 if (isset($_POST[$field]) && $_POST[$field] !== '') { $updates[] = "$field = ?"; $values[] = $_POST[$field]; }
             }
@@ -136,7 +142,6 @@ foreach (['method_statements', 'insurance_status', 'pavement_guarantee', 'wellbe
 $canFinal = $allSeqComplete;
 $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 
-// Helper to keep code extremely clean and prevent cutoff
 function renderSelect($name, $options, $currentVal, $disabledStr, $class='') {
     $html = "<select name=\"$name\" $disabledStr class=\"$class\" style=\"padding:0.4rem; font-size:0.9rem; border:1px solid #ccc; border-radius:4px; width:100%;\">";
     foreach ($options as $val => $label) {
@@ -146,7 +151,6 @@ function renderSelect($name, $options, $currentVal, $disabledStr, $class='') {
     return $html . "</select>";
 }
 
-// Reusable Option Arrays
 $optYesNo = ['No'=>'No', 'Yes'=>'Yes'];
 $optYesNoNA = ['No'=>'No', 'Yes'=>'Yes', 'NA'=>'N/A'];
 $optGeo = ['Not Complete'=>'Not Complete', 'Awaiting Result'=>'Awaiting Result', 'Complete'=>'Complete', 'NA'=>'N/A'];
@@ -186,6 +190,7 @@ require_once 'header.php';
             <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">Current System Stage</div>
             <div class="stage-badge">Stage <?= $stageNum ?>/11: <?= $currentStageName ?></div>
             <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: <?= $progressPercent ?>%;"></div></div>
+            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Status auto-calculates based on clearance and block progress below.</div>
         </div>
     </div>
 
@@ -269,13 +274,25 @@ require_once 'header.php';
                 </fieldset>
 
                 <fieldset style="border: 1px solid var(--border-glass); border-radius: 12px; padding: 1.5rem; opacity: <?= $canFinal ? '1' : '0.5' ?>;">
-                    <legend style="font-weight: 600;">🏗️ Clearance Phase</legend>
-                    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <legend style="font-weight: 600;">🏗️ Clearances & Site Prep Execution</legend>
+                    <div class="form-grid" style="grid-template-columns: 1fr; gap: 1rem;">
                         <?php $finDis = !$canFinal ? 'disabled' : $disabledAttr; $clrDis = !$canClearance ? 'disabled' : $disabledAttr; ?>
                         <div class="form-group"><label>Responsibility Form</label><?= renderSelect('responsibility_form', $optNotCompComp, $mob['responsibility_form']??'Not Complete', $finDis) ?></div>
-                        <div class="form-group" style="background: rgba(239, 68, 68, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--danger);"><label>Demolition Clearance</label><?= renderSelect('mob_demolition', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_demolition']??'No', $clrDis) ?></div>
-                        <div class="form-group" style="background: rgba(245, 158, 11, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--warning);"><label>Excavation Clearance</label><?= renderSelect('mob_excavation', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_excavation']??'No', $clrDis) ?></div>
-                        <div class="form-group" style="background: rgba(34, 197, 94, 0.1); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--success);"><label>Construction Clearance</label><?= renderSelect('mob_construction', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_construction']??'No', $clrDis) ?></div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 6px; border-left: 3px solid var(--danger);">
+                            <div class="form-group" style="margin:0;"><label>Demolition Clearance</label><?= renderSelect('mob_demolition', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_demolition']??'No', $clrDis) ?></div>
+                            <div class="form-group" style="margin:0;"><label>Demolition Execution</label><?= renderSelect('demo_status', $optLevels, $mob['demo_status']??'Pending', $clrDis) ?></div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: rgba(245, 158, 11, 0.1); padding: 1rem; border-radius: 6px; border-left: 3px solid var(--warning);">
+                            <div class="form-group" style="margin:0;"><label>Excavation Clearance</label><?= renderSelect('mob_excavation', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_excavation']??'No', $clrDis) ?></div>
+                            <div class="form-group" style="margin:0;"><label>Excavation Execution</label><?= renderSelect('excavation_status', $optLevels, $mob['excavation_status']??'Pending', $clrDis) ?></div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr; gap: 1rem; background: rgba(34, 197, 94, 0.1); padding: 1rem; border-radius: 6px; border-left: 3px solid var(--success);">
+                            <div class="form-group" style="margin:0;"><label>Construction Clearance</label><?= renderSelect('mob_construction', ['No'=>'No Clearance', 'Yes'=>'Cleared', 'NA'=>'N/A'], $mob['mob_construction']??'No', $clrDis) ?></div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted);">(Construction Execution is tracked Block-by-Block below)</div>
+                        </div>
                     </div>
                 </fieldset>
 
