@@ -25,13 +25,27 @@ $message = ''; $error = '';
 // HANDLE POST REQUESTS
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    
+    // --- NEW: LOG & ACTION MANAGEMENT ---
     if (isset($_POST['add_log'])) {
         $logMsg = trim($_POST['log_message'] ?? '');
+        $assignedTo = !empty($_POST['assigned_to']) ? $_POST['assigned_to'] : null;
+        $status = $assignedTo ? 'Action - Pending' : 'Info';
+        
         if (!empty($logMsg)) {
-            $pdo->prepare("INSERT INTO project_logs (project_id, user_id, message) VALUES (?, ?, ?)")->execute([$projectId, getCurrentUserId(), $logMsg]);
+            $stmt = $pdo->prepare("INSERT INTO project_logs (project_id, user_id, message, assigned_to, status) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$projectId, getCurrentUserId(), $logMsg, $assignedTo, $status]);
             header("Location: mobilisation_detail.php?project_id=$projectId#project-log"); exit;
         }
     }
+    
+    if (isset($_POST['close_action'])) {
+        $logId = $_POST['log_id'];
+        $stmt = $pdo->prepare("UPDATE project_logs SET status = 'Action - Closed', closed_at = NOW(), closed_by = ? WHERE id = ? AND project_id = ?");
+        $stmt->execute([getCurrentUserId(), $logId, $projectId]);
+        header("Location: mobilisation_detail.php?project_id=$projectId#project-log"); exit;
+    }
+    // ------------------------------------
     
     if (($_POST['action'] ?? null) === 'update_mobilisation' && $canUpdateStatus) {
         try {
@@ -88,11 +102,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ==========================================
 // FETCH DATA FOR UI
 // ==========================================
-$logsStmt = $pdo->prepare("SELECT pl.*, u.username, u.first_name, u.last_name FROM project_logs pl JOIN users u ON pl.user_id = u.id WHERE pl.project_id = ? ORDER BY pl.created_at DESC LIMIT 100");
+
+// 1. Fetch Advanced Logs
+$logsStmt = $pdo->prepare("
+    SELECT pl.*, 
+           u.username as author_username, 
+           au.username as assignee_username, 
+           cu.username as closer_username
+    FROM project_logs pl 
+    JOIN users u ON pl.user_id = u.id 
+    LEFT JOIN users au ON pl.assigned_to = au.id
+    LEFT JOIN users cu ON pl.closed_by = cu.id
+    WHERE pl.project_id = ? 
+    ORDER BY pl.created_at DESC 
+    LIMIT 100
+");
 $logsStmt->execute([$projectId]);
 $projectLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// 2. Fetch Assignable Users (Only users who have access to this specific project)
+$clientId = $project['clientid'] ?? 0;
+$assignUsersStmt = $pdo->prepare("
+    SELECT DISTINCT u.id, u.first_name, u.last_name, u.username, u.role
+    FROM users u
+    LEFT JOIN user_client_access uca ON u.id = uca.user_id AND uca.client_id = ?
+    LEFT JOIN user_project_access upa ON u.id = upa.user_id AND upa.project_id = ?
+    LEFT JOIN user_project_exclusions upe ON u.id = upe.user_id AND upe.project_id = ?
+    WHERE u.is_active = 'Yes'
+    AND (
+        u.role IN ('admin', 'director', 'system_manager', 'project_manager', 'accountant') 
+        OR upa.project_id IS NOT NULL 
+        OR (uca.client_id IS NOT NULL AND upe.project_id IS NULL)
+    )
+    ORDER BY u.role ASC, u.first_name ASC
+");
+$assignUsersStmt->execute([$clientId, $projectId, $projectId]);
+$assignableUsers = $assignUsersStmt->fetchAll(PDO::FETCH_ASSOC);
+
 function getUserColor($username) {
+    if (!$username) return '#6B7280';
     $colors = ['#6366F1', '#8B5CF6', '#EC4899', '#10B981', '#F59E0B', '#3B82F6', '#EF4444', '#14B8A6', '#F97316', '#06B6D4'];
     return $colors[abs(crc32($username)) % count($colors)];
 }
@@ -256,22 +304,84 @@ require_once 'header.php';
         </div>
     </div>
 
-    <div class="section-card" id="project-log" style="margin-bottom: 2rem;">
-        <div class="section-header"><h2>💬 Project Activity Log</h2></div>
-        <form method="POST" style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 1rem;">
-            <div style="display: flex; gap: 0.5rem;">
-                <textarea name="log_message" placeholder="Add update, next step, or note..." required style="flex:1; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary);"></textarea>
-                <button type="submit" name="add_log" class="btn btn-primary btn-sm">Post</button>
+    <div class="section-card" id="project-log" style="margin-bottom: 2rem; border-top: 4px solid var(--primary-color);">
+        <div class="section-header"><h2>📝 Activity Log & Task Assignments</h2></div>
+        
+        <form method="POST" style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 1.5rem;">
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <textarea name="log_message" placeholder="Add an update, observation, or assign a task..." required style="flex:1; min-width: 300px; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); resize: vertical; min-height: 48px;"></textarea>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; min-width: 250px;">
+                    <select name="assigned_to" style="padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary);">
+                        <option value="">-- Info Only (No Assignment) --</option>
+                        <?php 
+                        $currentRoleGroup = '';
+                        foreach ($assignableUsers as $u) {
+                            $roleLabel = ucwords(str_replace('_', ' ', $u['role']));
+                            if ($currentRoleGroup !== $roleLabel) {
+                                if ($currentRoleGroup !== '') echo "</optgroup>";
+                                echo "<optgroup label=\"$roleLabel\">";
+                                $currentRoleGroup = $roleLabel;
+                            }
+                            echo "<option value=\"{$u['id']}\">{$u['first_name']} {$u['last_name']} (@{$u['username']})</option>";
+                        }
+                        if ($currentRoleGroup !== '') echo "</optgroup>";
+                        ?>
+                    </select>
+                    <button type="submit" name="add_log" class="btn btn-primary" style="margin: 0; padding: 0.75rem;">Post to Log</button>
+                </div>
             </div>
         </form>
-        <div style="max-height: 300px; overflow-y: auto;">
+
+        <div style="max-height: 500px; overflow-y: auto; padding-right: 0.5rem;">
             <?php if (empty($projectLogs)): ?>
-                <p style="color: var(--text-muted);">No activity logs yet.</p>
+                <p style="color: var(--text-muted); text-align: center; padding: 2rem;">No activity logged yet.</p>
             <?php else: foreach ($projectLogs as $log): ?>
-                <div style="padding: 0.75rem; background: var(--bg-secondary); margin-bottom: 0.5rem; border-radius: 6px; border-left: 3px solid <?= getUserColor($log['username']) ?>">
-                    <strong style="color: <?= getUserColor($log['username']) ?>;">@<?= htmlspecialchars($log['username']) ?></strong>
-                    <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;"><?= date('d M Y, H:i', strtotime($log['created_at'])) ?></span>
-                    <div style="margin-top: 0.25rem;"><?= htmlspecialchars($log['message']) ?></div>
+                <?php 
+                $isAction = ($log['status'] !== 'Info');
+                $isClosed = ($log['status'] === 'Action - Closed');
+                $borderColor = getUserColor($log['author_username']);
+                
+                if ($isAction) {
+                    $borderColor = $isClosed ? '#10B981' : '#F59E0B'; // Green if closed, Amber if pending
+                }
+                ?>
+                
+                <div style="padding: 1rem; background: var(--bg-secondary); margin-bottom: 0.75rem; border-radius: 8px; border-left: 4px solid <?= $borderColor ?>;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <strong style="color: <?= getUserColor($log['author_username']) ?>;">@<?= htmlspecialchars($log['author_username']) ?></strong>
+                            <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;"><?= date('d M Y, H:i', strtotime($log['created_at'])) ?></span>
+                        </div>
+                        
+                        <?php if ($isAction): ?>
+                            <?php if ($isClosed): ?>
+                                <span style="font-size: 0.75rem; background: rgba(16, 185, 129, 0.1); color: #10B981; padding: 0.3rem 0.6rem; border-radius: 12px; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3);">
+                                    ✅ Closed by @<?= htmlspecialchars($log['closer_username'] ?? 'Unknown') ?> on <?= date('d M, H:i', strtotime($log['closed_at'])) ?>
+                                </span>
+                            <?php else: ?>
+                                <span style="font-size: 0.75rem; background: rgba(245, 158, 11, 0.1); color: #F59E0B; padding: 0.3rem 0.6rem; border-radius: 12px; font-weight: bold; border: 1px solid rgba(245, 158, 11, 0.3);">
+                                    ⏳ Pending Action for @<?= htmlspecialchars($log['assignee_username'] ?? 'Unknown') ?>
+                                </span>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div style="font-size: 0.95rem; color: var(--text-primary); margin-bottom: <?= ($isAction && !$isClosed) ? '1rem' : '0' ?>;">
+                        <?= nl2br(htmlspecialchars($log['message'])) ?>
+                    </div>
+
+                    <?php if ($isAction && !$isClosed): ?>
+                        <div style="display: flex; justify-content: flex-end;">
+                            <form method="POST">
+                                <input type="hidden" name="log_id" value="<?= $log['id'] ?>">
+                                <button type="submit" name="close_action" class="btn btn-sm" style="background: #10B981; color: white; border: none; padding: 0.4rem 1rem; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                                    <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                    Mark as Complete
+                                </button>
+                            </form>
+                        </div>
+                    <?php endif; ?>
                 </div>
             <?php endforeach; endif; ?>
         </div>
@@ -484,7 +594,7 @@ function enforceSequentialConstruction() {
             if (!select) return;
 
             if (!canStartNext) {
-                // Lock this row (Previous level is not complete)
+                // Lock this row
                 select.value = 'Pending';
                 select.style.pointerEvents = 'none';
                 select.style.background = 'var(--bg-primary)';
@@ -499,7 +609,6 @@ function enforceSequentialConstruction() {
                 row.style.opacity = '1';
                 row.title = "";
 
-                // If THIS row is not complete, lock all rows above it
                 if (select.value !== 'Complete' && select.value !== 'NA') {
                     canStartNext = false;
                 }
