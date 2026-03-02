@@ -2,9 +2,9 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// Check if user is admin or manager
-if (!isAdmin() && getCurrentRole() !== 'manager') {
-    header('Location: dashboard.php');
+// TO:
+if (!hasPermission('can_manage_pros')) {
+    header('Location: dashboard.php?error=unauthorized');
     exit;
 }
 

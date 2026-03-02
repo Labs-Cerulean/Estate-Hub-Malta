@@ -2,405 +2,299 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// Only admins and managers can create projects
-if (!isAdmin() && getCurrentRole() !== 'manager') {
-    header('Location: dashboard.php');
+// Check Capabilities
+if (!hasPermission('add_project') && !isAdmin()) {
+    header('Location: dashboard.php?error=unauthorized');
     exit;
 }
 
-$message = '';
+$message = ''; $error = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'create') {
     try {
-        $stmt = $pdo->prepare("
-            INSERT INTO projects (clientid, name, city, island, type, finishlevel)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ");
-        $stmt->execute([
-            $_POST['clientid'],
-            $_POST['name'],
-            $_POST['city'],
-            $_POST['island'],
-            $_POST['type'],
-            ($_POST['type'] === 'in-house' ? $_POST['finishlevel'] : null)
-        ]);
+        $pdo->beginTransaction();
+
+        // 1. INSERT CORE PROJECT DETAILS
+        $clientId = $_POST['clientid'] ?? null;
+        $name = trim($_POST['name'] ?? '');
+        $city = trim($_POST['city'] ?? '');
+        $island = $_POST['island'] ?? '';
+        $type = $_POST['type'] ?? '';
+        $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
+        $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
+        $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
         
+        $stmt = $pdo->prepare("INSERT INTO projects (clientid, name, city, island, type, finishlevel, is_tracking, summer_break_flag, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, getCurrentUserId()]);
         $projectId = $pdo->lastInsertId();
-        
-        // Insert PA numbers with status and professionals
-        if (!empty($_POST['pa_entries'])) {
-            $paStmt = $pdo->prepare("
-                INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id)
-                VALUES (?, ?, ?, ?, ?)
-            ");
-            
-            foreach ($_POST['pa_entries'] as $paEntry) {
-                $paNumber = trim($paEntry['number'] ?? '');
-                if (!empty($paNumber)) {
-                    $paStatus = $paEntry['status'] ?? 'Endorsed';
-                    $architectId = !empty($paEntry['architect']) ? $paEntry['architect'] : null;
-                    $engineerId = !empty($paEntry['engineer']) ? $paEntry['engineer'] : null;
-                    
+
+        // Initialize Mobilisation Checklist Tracker for this project
+        $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)")->execute([$projectId]);
+
+        // 2. INSERT PA NUMBERS
+        if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
+            $paStmt = $pdo->prepare("INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id) VALUES (?, ?, ?, ?, ?)");
+            foreach ($_POST['paentries'] as $paEntry) {
+                if (!empty(trim($paEntry['pa_number']))) {
                     $paStmt->execute([
-                        $projectId,
-                        $paNumber,
-                        $paStatus,
-                        $architectId,
-                        $engineerId
+                        $projectId, trim($paEntry['pa_number']), $paEntry['pa_status'] ?? 'Tracking',
+                        !empty($paEntry['architect_id']) ? $paEntry['architect_id'] : null,
+                        !empty($paEntry['structural_engineer_id']) ? $paEntry['structural_engineer_id'] : null
                     ]);
                 }
             }
         }
+
+        // 3. INSERT BLOCKS & AUTO-GENERATE LEVELS
+        $hasBlocks = false;
+        if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
+            foreach ($_POST['blocks'] as $b) {
+                $bName = trim($b['name'] ?? '');
+                $bType = $b['type'] ?? 'Block';
+                $bLow = (int)($b['lowest'] ?? 0);
+                $bHigh = (int)($b['highest'] ?? 0);
+
+                if (empty($bName)) continue;
+                $hasBlocks = true;
+                if ($bLow > $bHigh) { $temp = $bLow; $bLow = $bHigh; $bHigh = $temp; } // Swap if backwards
+
+                $pdo->prepare("INSERT INTO project_blocks (project_id, block_name, block_type, lowest_level, highest_level) VALUES (?, ?, ?, ?, ?)")
+                    ->execute([$projectId, $bName, $bType, $bLow, $bHigh]);
+                $bId = $pdo->lastInsertId();
+
+                // Auto-generate levels for this block
+                $levelStmt = $pdo->prepare("INSERT INTO block_levels (block_id, level_number, level_name) VALUES (?, ?, ?)");
+                for ($lvl = $bLow; $lvl <= $bHigh; $lvl++) {
+                    $lvlName = ($lvl === 0) ? "Level 0 (Ground)" : "Level " . $lvl;
+                    $levelStmt->execute([$bId, $lvl, $lvlName]);
+                }
+            }
+        }
         
-        // Create default mobilisation record
-        $mobStmt = $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)");
-        $mobStmt->execute([$projectId]);
+        // If the user deleted all blocks from the UI, generate a default one
+        if (!$hasBlocks) {
+            $pdo->prepare("INSERT INTO project_blocks (project_id, block_name, block_type, lowest_level, highest_level) VALUES (?, 'Main Building', 'Block', 0, 0)")
+                ->execute([$projectId]);
+            $bId = $pdo->lastInsertId();
+            $pdo->prepare("INSERT INTO block_levels (block_id, level_number, level_name) VALUES (?, 0, 'Level 0 (Ground)')")->execute([$bId]);
+        }
+
+        $pdo->commit();
         
-        // Auto-assign creator to project's client
-        autoAssignCreatorToProjectClient($pdo, $projectId);
+        // Redirect to dashboard on success
+        header("Location: dashboard.php"); 
+        exit;
         
-        $message = 'Project created successfully! You now have access to this project.';
     } catch (PDOException $e) {
-        $message = 'Error creating project: ' . $e->getMessage();
+        if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+        $error = 'Error creating project: ' . $e->getMessage();
     }
 }
 
-// Get accessible clients for dropdown
-$userId = getCurrentUserId();
-$isAdmin = isAdmin();
+// Get data for dropdowns
+$clients = isAdmin() ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, getCurrentUserId());
+$architects = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type = 'architect' ORDER BY name")->fetchAll();
+$engineers = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type = 'structural_engineer' ORDER BY name")->fetchAll();
 
-if ($isAdmin) {
-    // Admins see all clients
-    $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll();
-} else {
-    // Non-admins see only their assigned clients
-    $clients = getUserClients($pdo, $userId);
-}
-
-// Get architects
-$architects = $pdo->query("
-    SELECT id, name, firm_name 
-    FROM professionals 
-    WHERE role_type = 'architect' 
-    ORDER BY name
-")->fetchAll();
-
-// Get structural engineers
-$engineers = $pdo->query("
-    SELECT id, name, firm_name 
-    FROM professionals 
-    WHERE role_type = 'structural_engineer' 
-    ORDER BY name
-")->fetchAll();
-
-// Set page title
-$pageTitle = 'Create Project';
-
-// Now output HTML
+$pageTitle = 'Create New Project';
 require_once 'header.php';
 ?>
 
+<div class="main-container">
+    <h1 class="page-title">Create New Project</h1>
 
-    <div class="main-container">
-        <h1 class="page-title">Create New Project</h1>
-        
-        <?php if ($message): ?>
-            <div class="alert alert-info"><?= htmlspecialchars($message) ?></div>
-        <?php endif; ?>
-        
-        <?php if (empty($clients)): ?>
-            <div class="alert alert-warning">
-                <p>You don't have access to any clients yet. You need to either:</p>
-                <ul>
-                    <li>Create a new client first (you'll automatically get access)</li>
-                    <li>Ask an admin to assign you to existing clients</li>
-                </ul>
-                <a href="clients.php" class="btn">Go to Client Management</a>
-            </div>
-        <?php else: ?>
-            <form method="POST" class="project-form">
-                <!-- Basic Information -->
-                <div class="form-section">
-                    <h2>Basic Information</h2>
-                    
+    <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($message); ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="message error" style="padding:1rem; background:rgba(239,68,68,0.1); color:var(--danger); border:1px solid var(--danger); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($error); ?></div><?php endif; ?>
+
+    <section class="form-section">
+        <form method="POST">
+            <input type="hidden" name="action" value="create">
+
+            <div style="margin-bottom: 2rem;">
+                <h3 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Core Details</h3>
+                
+                <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
                     <div class="form-group">
-                        <label>Client:*</label>
+                        <label>Client</label>
                         <select name="clientid" required>
-                            <option value="">-- Select Client --</option>
-                            <?php foreach ($clients as $client): ?>
-                                <option value="<?= $client['id'] ?>"><?= htmlspecialchars($client['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <?php if (!$isAdmin): ?>
-                            <small class="help-text">You can only create projects for clients you have access to.</small>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Project Name:*</label>
-                        <input type="text" name="name" required>
-                    </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Island:*</label>
-                            <select name="island" id="island" onchange="updateCities()" required>
-                                <option value="">Select Island</option>
-                                <option value="Malta">Malta</option>
-                                <option value="Gozo">Gozo</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>City / Locality:*</label>
-                            <select name="city" id="city-select" required disabled>
-                                <option value="">Select Island First</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Type:*</label>
-                            <select name="type" id="projectType" required>
-                                <option value="in-house">In-House</option>
-                                <option value="3rd-party">3rd Party</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group" id="finishLevelGroup">
-                            <label>Finish Level:*</label>
-                            <select name="finishlevel" id="finishLevel">
-                                <option value="Common Parts Only">Common Parts Only</option>
-                                <option value="Semi Finished">Semi Finished</option>
-                                <option value="Finished">Finished</option>
-                                <option value="Shell">Shell</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- PA Numbers Section -->
-                <div class="form-section">
-                    <h2>PA Numbers</h2>
-                    <div id="paEntriesContainer">
-                        <div class="pa-entry">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>PA Number:</label>
-                                    <input type="text" name="pa_entries[0][number]" placeholder="e.g., PA01234/25">
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label>Status:</label>
-                                    <select name="pa_entries[0][status]">
-                                        <option value="Endorsed">Endorsed</option>
-                                        <option value="Decided">Decided</option>
-                                        <option value="Fee Payment">Fee Payment</option>
-                                        <option value="Refused">Refused</option>
-                                        <option value="Pending/Awaiting Decision">Pending/Awaiting Decision</option>
-                                        <option value="Recommended for Approval">Recommended for Approval</option>
-                                        <option value="Recommended for Refusal">Recommended for Refusal</option>
-                                        <option value="Under Appeal">Under Appeal</option>
-                                        <option value="Revoked/Annulled">Revoked/Annulled</option>
-                                        <option value="Tracking">Tracking</option>
-                                        <option value="Withdrawn">Withdrawn</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Architect:</label>
-                                    <select name="pa_entries[0][architect]">
-                                        <option value="">-- Select Architect --</option>
-                                        <?php foreach ($architects as $arch): ?>
-                                            <option value="<?= $arch['id'] ?>">
-                                                <?= htmlspecialchars($arch['name']) ?> 
-                                                (<?= htmlspecialchars($arch['firm_name']) ?>)
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label>Structural Engineer:</label>
-                                    <select name="pa_entries[0][engineer]">
-                                        <option value="">-- Select Engineer --</option>
-                                        <?php foreach ($engineers as $eng): ?>
-                                            <option value="<?= $eng['id'] ?>">
-                                                <?= htmlspecialchars($eng['name']) ?> 
-                                                (<?= htmlspecialchars($eng['firm_name']) ?>)
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <button type="button" onclick="addPAEntry()" class="btn btn-secondary">Add Another PA Number</button>
-                </div>
-                
-                <?php if (!$isAdmin): ?>
-                    <div class="info-box">
-                        <p><strong>Note:</strong> When you create this project, you will automatically get access to it through the client assignment.</p>
-                    </div>
-                <?php endif; ?>
-                
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Create Project</button>
-                    <a href="dashboard.php" class="btn btn-secondary">Cancel</a>
-                </div>
-            </form>
-        <?php endif; ?>
-    </div>
-    
-    <script>
-        let paEntryCount = 1;
-        
-        function addPAEntry() {
-            const container = document.getElementById('paEntriesContainer');
-            const newEntry = document.createElement('div');
-            newEntry.className = 'pa-entry';
-            newEntry.innerHTML = `
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>PA Number:</label>
-                        <input type="text" name="pa_entries[${paEntryCount}][number]" placeholder="e.g., PA01234/25">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Status:</label>
-                        <select name="pa_entries[${paEntryCount}][status]">
-                            <option value="Endorsed">Endorsed</option>
-                            <option value="Decided">Decided</option>
-                            <option value="Fee Payment">Fee Payment</option>
-                            <option value="Refused">Refused</option>
-                            <option value="Pending/Awaiting Decision">Pending/Awaiting Decision</option>
-                            <option value="Recommended for Approval">Recommended for Approval</option>
-                            <option value="Recommended for Refusal">Recommended for Refusal</option>
-                            <option value="Under Appeal">Under Appeal</option>
-                            <option value="Revoked/Annulled">Revoked/Annulled</option>
-                            <option value="Tracking">Tracking</option>
-                            <option value="Withdrawn">Withdrawn</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Architect:</label>
-                        <select name="pa_entries[${paEntryCount}][architect]">
-                            <option value="">-- Select Architect --</option>
-                            <?php foreach ($architects as $arch): ?>
-                                <option value="<?= $arch['id'] ?>">
-                                    <?= htmlspecialchars($arch['name']) ?> 
-                                    (<?= htmlspecialchars($arch['firm_name']) ?>)
-                                </option>
+                            <option value="">Select Client</option>
+                            <?php foreach ($clients as $c): ?>
+                                <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    
                     <div class="form-group">
-                        <label>Structural Engineer:</label>
-                        <select name="pa_entries[${paEntryCount}][engineer]">
-                            <option value="">-- Select Engineer --</option>
-                            <?php foreach ($engineers as $eng): ?>
-                                <option value="<?= $eng['id'] ?>">
-                                    <?= htmlspecialchars($eng['name']) ?> 
-                                    (<?= htmlspecialchars($eng['firm_name']) ?>)
-                                </option>
-                            <?php endforeach; ?>
+                        <label>Project Name</label>
+                        <input type="text" name="name" required placeholder="e.g., The Horizon Suites">
+                    </div>
+                    <div class="form-group">
+                        <label>Island</label>
+                        <select name="island" id="island" onchange="updateCities()" required>
+                            <option value="Malta" selected>Malta</option>
+                            <option value="Gozo">Gozo</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>City / Locality</label>
+                        <select name="city" id="city-select" required>
+                            <option value="">Select City</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Project Type</label>
+                        <select name="type" id="project-type" onchange="toggleFinishLevel()" required>
+                            <option value="in-house">In-House (Self Funded)</option>
+                            <option value="3rd-party">Capital Project (3rd Party)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="finish-level-group">
+                        <label>Finish Level</label>
+                        <select name="finishlevel" id="finish-level">
+                            <option value="Shell">Shell</option>
+                            <option value="Common Parts Only">Common Parts Only</option>
+                            <option value="Semi Finished">Semi Finished</option>
+                            <option value="Finished">Finished</option>
                         </select>
                     </div>
                 </div>
-                
-                <button type="button" onclick="this.parentElement.remove()" class="btn btn-danger btn-small">Remove</button>
-            `;
-            container.appendChild(newEntry);
-            paEntryCount++;
-        }
-        
-        // Toggle finish level visibility based on project type
-        document.getElementById('projectType').addEventListener('change', function() {
-            const finishLevelGroup = document.getElementById('finishLevelGroup');
-            const finishLevelSelect = document.getElementById('finishLevel');
-            
-            if (this.value === 'in-house') {
-                finishLevelGroup.style.display = 'block';
-                finishLevelSelect.required = true;
-            } else {
-                finishLevelGroup.style.display = 'none';
-                finishLevelSelect.required = false;
-            }
-        });
 
-        // Malta and Gozo locations data
-        // City data
-          const locations = {
-            'Malta': [
-              { label: 'Northern', cities: ['Dingli', 'Ghargur', 'Mellieha', 'Mosta', 'Naxxar', 'Qawra', 'Rabat', 'San Pawl il-Bahar','Xemxija'] },
-              { label: 'Central', cities: ['Attard', 'Balzan', 'Birkirkara', 'Floriana', 'Gzira', 'Haz-Zebbug', 'Iklin', 'Lija', 'Luqa', 'Marsa', 'Msida', 'Pembroke', 'Pieta', 'Qormi', 'San Giljan', 'Sliema', 'St Venera', 'Swieqi', 'Valletta', 'Ta Xbiex'] },
-              { label: 'Southern', cities: ['Birgu', 'Bormla', 'Fgura', 'Ghaxaq', 'Kirkop', 'Safi', 'Haz-Zebbug', 'Luqa', 'Marsascala', 'Marsaxlokk', 'Mqabba', 'Paola', 'Santa Lucia', 'Senglea', 'Siggiewi', 'Tarxien', 'Xghajra', 'Zabbar', 'Zejtun', 'Qrendi', 'Zurrieq'] }
-            ],
-            'Gozo': [
-              { label: 'Gozo', cities: ['Fontana', 'Ghajnsielem', 'Gharb', 'Ghasri', 'Kercem', 'Marsalforn', 'Munxar', 'Nadur', 'Qala', 'Rabat Victoria', 'San Lawrenz', 'Sannat', 'Xaghra', 'Xewkija', 'Zebbug Gozo'] }
-            ]
-          };
+                <div style="display: flex; gap: 2rem; margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.02); border-radius: 8px;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: var(--warning);">
+                        <input type="checkbox" name="is_tracking" style="width: 18px; height: 18px;">
+                        <strong>Project is in Tracking Stage (Early Feasibility)</strong>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: var(--danger);">
+                        <input type="checkbox" name="summer_break_flag" style="width: 18px; height: 18px;">
+                        <strong>Summer Break Alarm Active (Tourism Area)</strong>
+                    </label>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 3rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
+                    <h3>PA Numbers & Permits</h3>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addPAEntry()">+ Add PA Number</button>
+                </div>
+                <div id="pa-entries-container" style="display: grid; gap: 1rem;"></div>
+            </div>
+
+            <div style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
+                    <div>
+                        <h3 style="margin: 0; color: var(--primary-color);">Building Blocks & Levels</h3>
+                        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Define the physical blocks and their level ranges for execution tracking.</p>
+                    </div>
+                    <button type="button" class="btn btn-sm" onclick="addBlockEntry()" style="background: var(--primary-color);">+ Add Block</button>
+                </div>
+                <div id="block-entries-container" style="display: grid; gap: 1rem;"></div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1.25rem; font-size: 1.1rem;">Create Project</button>
+        </form>
+    </section>
+</div>
+
+<script src="localities.js"></script>
+
+<script>
+// --- PA Numbers Logic ---
+let paEntryCount = 0;
+const architects = <?= json_encode($architects) ?>;
+const engineers = <?= json_encode($engineers) ?>;
+
+const paStatuses = [
+    "Tracking", "Screening", "Processing", "Awaiting Recommendation",
+    "Awaiting Decision", "Approved", "Endorsed", "Refused",
+    "Withdrawn", "Suspended", "Appealed", "Revoked"
+];
+
+function addPAEntry() {
+    const container = document.getElementById('pa-entries-container');
+    const div = document.createElement('div');
+    div.id = `pa-entry-${paEntryCount}`;
+    div.style.cssText = "background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; position: relative;";
+
+    const statusOptions = paStatuses.map(status => `<option value="${status}">${status}</option>`).join('');
+
+    div.innerHTML = `
+        <div class="form-group" style="margin:0;"><label>PA Number</label><input type="text" name="paentries[${paEntryCount}][pa_number]" placeholder="e.g. PA/1234/24" required></div>
+        <div class="form-group" style="margin:0;"><label>Status</label>
+            <select name="paentries[${paEntryCount}][pa_status]">
+                ${statusOptions}
+            </select>
+        </div>
+        <div class="form-group" style="margin:0;"><label>Architect</label><select name="paentries[${paEntryCount}][architect_id]">
+            <option value="">Select Architect</option>
+            ${architects.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')}
+        </select></div>
+        <div class="form-group" style="margin:0;"><label>Engineer</label><select name="paentries[${paEntryCount}][structural_engineer_id]">
+            <option value="">Select Engineer</option>
+            ${engineers.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('')}
+        </select></div>
+        <button type="button" onclick="document.getElementById('pa-entry-${paEntryCount}').remove()" class="btn btn-sm btn-danger" style="position: absolute; top: -10px; right: -10px; border-radius: 50%; width: 30px; height: 30px; padding: 0;">X</button>
+    `;
+    container.appendChild(div);
+    paEntryCount++;
+}
+
+// --- Blocks Logic ---
+let blockEntryCount = 0;
+
+function addBlockEntry() {
+    const container = document.getElementById('block-entries-container');
+    const div = document.createElement('div');
+    div.id = `block-entry-${blockEntryCount}`;
+    div.style.cssText = "background: rgba(99, 102, 241, 0.05); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--primary-color); display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 1rem; align-items: end; position: relative;";
+
+    div.innerHTML = `
+        <div class="form-group" style="margin:0;"><label>Block Name</label><input type="text" name="blocks[${blockEntryCount}][name]" placeholder="e.g. Block A or Garage Complex" required></div>
+        <div class="form-group" style="margin:0;"><label>Type</label><select name="blocks[${blockEntryCount}][type]">
+            <option value="Block">Block</option>
+            <option value="Garage Complex">Garage Complex</option>
+            <option value="Villa">Villa</option>
+            <option value="Commercial">Commercial</option>
+        </select></div>
+        <div class="form-group" style="margin:0;"><label>Lowest Level (e.g. -2)</label><input type="number" name="blocks[${blockEntryCount}][lowest]" value="0" required></div>
+        <div class="form-group" style="margin:0;"><label>Highest Level (e.g. 5)</label><input type="number" name="blocks[${blockEntryCount}][highest]" value="0" required></div>
         
-        function updateCities() {
-            const islandSelect = document.getElementById('island');
-            const citySelect = document.getElementById('city-select');
-            const island = islandSelect.value;
-        
-            // Clear current options
-            citySelect.innerHTML = '';
-        
-            if (!island || !locations[island]) {
-              const option = document.createElement('option');
-              option.value = '';
-              option.textContent = 'Select Island First';
-              citySelect.appendChild(option);
-              citySelect.disabled = true;
-              return;
-            }
-        
-            // Add a default option
-            const defaultOption = document.createElement('option');
-            defaultOption.value = '';
-            defaultOption.textContent = 'Select City / Locality';
-            citySelect.appendChild(defaultOption);
-        
-            const list = locations[island];
-            list.forEach(group => {
-              if (group.label && group.cities) {
-                const optgroup = document.createElement('optgroup');
-                optgroup.label = group.label;
-                group.cities.forEach(city => {
-                  const opt = document.createElement('option');
-                  opt.value = city;
-                  opt.textContent = city;
-                  optgroup.appendChild(opt);
-                });
-                citySelect.appendChild(optgroup);
-              } else {
-                const opt = document.createElement('option');
-                opt.value = group;
-                opt.textContent = group;
-                citySelect.appendChild(opt);
-              }
-            });
-        
-            citySelect.disabled = false;
-        }
-        
-        // Initialize on page load if island is already selected
-        document.addEventListener('DOMContentLoaded', function() {
-            const islandSelect = document.getElementById('island');
-            if (islandSelect && islandSelect.value) {
-                updateCities();
-            }
-            });
-    </script>
+        <button type="button" onclick="document.getElementById('block-entry-${blockEntryCount}').remove()" class="btn btn-sm btn-danger" style="position: absolute; top: -10px; right: -10px; border-radius: 50%; width: 30px; height: 30px; padding: 0;">X</button>
+    `;
+    container.appendChild(div);
+    blockEntryCount++;
+}
+
+function escapeHtml(text) { return text ? String(text).replace(/[&<>"'`=\/]/g, function(s){return entityMap[s];}) : ''; }
+const entityMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'};
+
+// --- Cities Link Logic ---
+function updateCities() {
+    const islandSelect = document.getElementById('island');
+    const citySelect = document.getElementById('city-select');
+    
+    citySelect.innerHTML = '<option value="">Select City</option>';
+    
+    if (typeof locations !== 'undefined' && locations[islandSelect.value]) {
+        locations[islandSelect.value].forEach(city => {
+            const opt = document.createElement('option'); 
+            opt.value = city; 
+            opt.textContent = city;
+            citySelect.appendChild(opt);
+        });
+    } else {
+        console.warn("localities.js not found. Could not load cities.");
+    }
+}
+
+function toggleFinishLevel() { document.getElementById('finish-level-group').style.display = document.getElementById('project-type').value === 'in-house' ? 'block' : 'none'; }
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Load 1 empty row of each by default for convenience
+    addPAEntry();
+    addBlockEntry(); 
+    
+    // Populate dropdown with default Malta cities on load
+    updateCities();
+});
+</script>
+
 <?php require_once 'footer.php'; ?>

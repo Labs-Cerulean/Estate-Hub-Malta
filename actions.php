@@ -2,305 +2,153 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-$message = '';
 $userId = getCurrentUserId();
+$message = '';
+$error = '';
 
-// Handle action completion toggle
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    $logId = (int)($_POST['log_id'] ?? 0);
-    
-    if ($action === 'complete' && $logId) {
-        if (completeAction($pdo, $userId, $logId)) {
-            $message = 'Action marked as complete!';
-        } else {
-            $message = 'Error updating action.';
-        }
+// Handle "Mark as Complete"
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'close_task') {
+    try {
+        $logId = $_POST['log_id'];
+        
+        // Ensure they can only close tasks assigned to them (or if they are admin)
+        $authCheck = isAdmin() ? "" : "AND assigned_to = ?";
+        $params = isAdmin() ? [getCurrentUserId(), $logId] : [getCurrentUserId(), $logId, $userId];
+        
+        $stmt = $pdo->prepare("UPDATE project_logs SET status = 'Action - Closed', closed_at = NOW(), closed_by = ? WHERE id = ? $authCheck");
+        $stmt->execute($params);
+        
+        $message = "Action marked as complete!";
+    } catch (Exception $e) {
+        $error = "Error updating action: " . $e->getMessage();
     }
-    
-    if ($action === 'uncomplete' && $logId) {
-        if (uncompleteAction($pdo, $userId, $logId)) {
-            $message = 'Action marked as incomplete!';
-        } else {
-            $message = 'Error updating action.';
-        }
-    }
-    
-    // Redirect to prevent form resubmission
-    header('Location: actions.php' . ($message ? '?msg=' . urlencode($message) : ''));
-    exit;
 }
 
-// Get message from redirect
-if (isset($_GET['msg'])) {
-    $message = $_GET['msg'];
+// Fetch Pending Actions assigned to the user
+$pendingStmt = $pdo->prepare("
+    SELECT pl.*, p.name as project_name, u.username as assigner_username
+    FROM project_logs pl
+    JOIN projects p ON pl.project_id = p.id
+    JOIN users u ON pl.user_id = u.id
+    WHERE pl.assigned_to = ? AND pl.status = 'Action - Pending'
+    ORDER BY pl.created_at DESC
+");
+$pendingStmt->execute([$userId]);
+$pendingActions = $pendingStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch Recently Closed Actions (Limit to 20 for history)
+$closedStmt = $pdo->prepare("
+    SELECT pl.*, p.name as project_name, u.username as assigner_username, cu.username as closer_username
+    FROM project_logs pl
+    JOIN projects p ON pl.project_id = p.id
+    JOIN users u ON pl.user_id = u.id
+    LEFT JOIN users cu ON pl.closed_by = cu.id
+    WHERE pl.assigned_to = ? AND pl.status = 'Action - Closed'
+    ORDER BY pl.closed_at DESC
+    LIMIT 20
+");
+$closedStmt->execute([$userId]);
+$closedActions = $closedStmt->fetchAll(PDO::FETCH_ASSOC);
+
+function getUserColor($username) {
+    if (!$username) return '#6B7280';
+    $colors = ['#6366F1', '#8B5CF6', '#EC4899', '#10B981', '#F59E0B', '#3B82F6', '#EF4444', '#14B8A6', '#F97316', '#06B6D4'];
+    return $colors[abs(crc32($username)) % count($colors)];
 }
 
-// Get filter
-$showCompleted = isset($_GET['completed']) && $_GET['completed'] === '1';
-
-// Get all actions
-$actions = getUserActions($pdo, $userId, $showCompleted);
-
-// Separate incomplete and complete
-$incompleteActions = array_filter($actions, fn($a) => $a['is_complete'] === 'No');
-$completeActions = array_filter($actions, fn($a) => $a['is_complete'] === 'Yes');
-
-$pageTitle = 'Actions';
+$pageTitle = 'My Assigned Actions';
 require_once 'header.php';
 ?>
 
-<div class="main-container">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-        <h1 class="page-title">My Actions</h1>
-        <a href="actions.php?completed=<?= $showCompleted ? '0' : '1' ?>" 
-           class="btn btn-sm">
-            <?= $showCompleted ? 'Hide Completed' : 'Show Completed' ?>
-        </a>
+<div class="main-container" style="max-width: 1000px;">
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+            <h1 class="page-title" style="margin-bottom: 0;">My Actions</h1>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Tasks and directives assigned to you across all projects.</p>
+        </div>
     </div>
 
-    <?php if ($message): ?>
-        <div class="message success" style="margin-bottom: 1.5rem;">
-            <?= htmlspecialchars($message) ?>
-        </div>
-    <?php endif; ?>
+    <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-    <!-- Incomplete Actions -->
-    <div class="section-card" style="margin-bottom: 2rem;">
-        <div class="section-header">
-            <h2 style="margin: 0;">Active Actions (<?= count($incompleteActions) ?>)</h2>
-        </div>
-        
-        <?php if (empty($incompleteActions)): ?>
-            <div style="text-align: center; padding: 2rem; color: #9CA3AF;">
-                <p>No active actions. Great job!</p>
+    <h3 style="color: #F59E0B; margin-bottom: 1rem; border-bottom: 2px solid rgba(245, 158, 11, 0.3); padding-bottom: 0.5rem;">
+        ⏳ Pending Actions (<?= count($pendingActions) ?>)
+    </h3>
+    
+    <div style="margin-bottom: 3rem;">
+        <?php if (empty($pendingActions)): ?>
+            <div style="text-align: center; padding: 3rem; background: var(--bg-card); border-radius: 8px; border: 1px dashed var(--border-glass);">
+                <p style="color: var(--text-muted); font-size: 1.1rem;">You're all caught up! No pending actions.</p>
             </div>
         <?php else: ?>
-            <div class="actions-list">
-                <?php foreach ($incompleteActions as $action): ?>
-                    <?php
-                    $timestamp = date('d M Y, H:i', strtotime($action['log_created_at']));
-                    $userName = trim($action['first_name'] . ' ' . $action['last_name']) ?: $action['username'];
-                    ?>
+            <?php foreach ($pendingActions as $task): ?>
+                <div class="card" style="margin-bottom: 1rem; border-left: 4px solid #F59E0B; display: flex; flex-direction: column; gap: 0.75rem;">
                     
-                    <div class="action-item">
-                        <div class="action-checkbox">
-                            <form method="POST" style="display: inline;">
-                                <input type="hidden" name="action" value="complete">
-                                <input type="hidden" name="log_id" value="<?= $action['log_id'] ?>">
-                                <button type="submit" class="checkbox-btn" title="Mark as complete">
-                                    <span class="checkbox-empty"></span>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <div style="font-weight: 700; color: var(--primary-color); font-size: 1.1rem; margin-bottom: 0.25rem;">
+                                <?= htmlspecialchars($task['project_name']) ?>
+                            </div>
+                            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                                Assigned by <strong style="color: <?= getUserColor($task['assigner_username']) ?>;">@<?= htmlspecialchars($task['assigner_username']) ?></strong> 
+                                on <?= date('d M Y, H:i', strtotime($task['created_at'])) ?>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 0.5rem;">
+                            <a href="mobilisation_detail.php?project_id=<?= $task['project_id'] ?>#project-log" class="btn btn-sm btn-secondary" style="margin: 0; padding: 0.4rem 0.8rem;">View Project</a>
+                            
+                            <form method="POST" style="margin: 0;">
+                                <input type="hidden" name="action" value="close_task">
+                                <input type="hidden" name="log_id" value="<?= $task['id'] ?>">
+                                <button type="submit" class="btn btn-sm" style="margin: 0; padding: 0.4rem 0.8rem; background: #10B981; color: white; border: none; display: flex; align-items: center; gap: 0.3rem;">
+                                    <svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                    Mark Complete
                                 </button>
                             </form>
                         </div>
-                        
-                        <div class="action-content">
-                            <div class="action-header">
-                                <span class="action-user"><?= htmlspecialchars($userName) ?></span>
-                                <span class="action-separator">•</span>
-                                <span class="action-timestamp"><?= $timestamp ?></span>
-                            </div>
-                            
-                            <div class="action-project">
-                                <a href="mobilisation_detail.php?project_id=<?= $action['project_id'] ?>#project-log">
-                                    <?= htmlspecialchars($action['project_name']) ?>
-                                </a>
-                                <?php if ($action['client_name']): ?>
-                                    <span style="color: #9CA3AF; margin-left: 0.5rem;">
-                                        (<?= htmlspecialchars($action['client_name']) ?>)
-                                    </span>
-                                <?php endif; ?>
-                            </div>
-                            
-                            <div class="action-message">
-                                <?= htmlspecialchars($action['message']) ?>
-                            </div>
-                        </div>
                     </div>
-                <?php endforeach; ?>
-            </div>
+                    
+                    <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 6px; color: var(--text-primary); font-size: 0.95rem; border: 1px solid var(--border-glass);">
+                        <?= nl2br(htmlspecialchars($task['message'])) ?>
+                    </div>
+                    
+                </div>
+            <?php endforeach; ?>
         <?php endif; ?>
     </div>
 
-    <!-- Completed Actions -->
-    <?php if ($showCompleted && !empty($completeActions)): ?>
-        <div class="section-card">
-            <div class="section-header">
-                <h2 style="margin: 0;">Completed Actions (<?= count($completeActions) ?>)</h2>
-            </div>
-            
-            <div class="actions-list">
-                <?php foreach ($completeActions as $action): ?>
-                    <?php
-                    $timestamp = date('d M Y, H:i', strtotime($action['log_created_at']));
-                    $completedTime = date('d M Y, H:i', strtotime($action['completed_at']));
-                    $userName = trim($action['first_name'] . ' ' . $action['last_name']) ?: $action['username'];
-                    ?>
-                    
-                    <div class="action-item completed">
-                        <div class="action-checkbox">
-                            <form method="POST" style="display: inline;">
-                                <input type="hidden" name="action" value="uncomplete">
-                                <input type="hidden" name="log_id" value="<?= $action['log_id'] ?>">
-                                <button type="submit" class="checkbox-btn" title="Mark as incomplete">
-                                    <span class="checkbox-checked">✓</span>
-                                </button>
-                            </form>
-                        </div>
-                        
-                        <div class="action-content">
-                            <div class="action-header">
-                                <span class="action-user"><?= htmlspecialchars($userName) ?></span>
-                                <span class="action-separator">•</span>
-                                <span class="action-timestamp"><?= $timestamp ?></span>
-                                <span class="completed-badge">Completed <?= $completedTime ?></span>
+    <h3 style="color: #10B981; margin-bottom: 1rem; border-bottom: 2px solid rgba(16, 185, 129, 0.3); padding-bottom: 0.5rem;">
+        ✅ Recently Completed (Last 20)
+    </h3>
+    
+    <div>
+        <?php if (empty($closedActions)): ?>
+            <p style="color: var(--text-muted);">No recently closed actions.</p>
+        <?php else: ?>
+            <?php foreach ($closedActions as $task): ?>
+                <div style="padding: 1rem; background: var(--bg-card); margin-bottom: 0.75rem; border-radius: 8px; border-left: 4px solid #10B981; opacity: 0.75;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">
+                                <?= htmlspecialchars($task['project_name']) ?>
                             </div>
-                            
-                            <div class="action-project">
-                                <a href="mobilisation_detail.php?project_id=<?= $action['project_id'] ?>#project-log">
-                                    <?= htmlspecialchars($action['project_name']) ?>
-                                </a>
-                                <?php if ($action['client_name']): ?>
-                                    <span style="color: #9CA3AF; margin-left: 0.5rem;">
-                                        (<?= htmlspecialchars($action['client_name']) ?>)
-                                    </span>
-                                <?php endif; ?>
-                            </div>
-                            
-                            <div class="action-message">
-                                <?= htmlspecialchars($action['message']) ?>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">
+                                Assigned by @<?= htmlspecialchars($task['assigner_username']) ?> | 
+                                Closed on <?= date('d M Y, H:i', strtotime($task['closed_at'])) ?>
                             </div>
                         </div>
+                        <a href="mobilisation_detail.php?project_id=<?= $task['project_id'] ?>#project-log" class="btn btn-sm btn-secondary" style="margin: 0; padding: 0.2rem 0.5rem; font-size: 0.75rem;">View</a>
                     </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    <?php endif; ?>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                        <strike><?= nl2br(htmlspecialchars($task['message'])) ?></strike>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+
 </div>
-
-<style>
-.actions-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.action-item {
-    display: flex;
-    gap: 1rem;
-    padding: 1rem;
-    background: white;
-    border: 1px solid #E5E7EB;
-    border-radius: 8px;
-    transition: all 0.2s;
-}
-
-.action-item:hover {
-    background: #F9FAFB;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.action-item.completed {
-    opacity: 0.6;
-}
-
-.action-item.completed .action-message {
-    text-decoration: line-through;
-    color: #9CA3AF;
-}
-
-.action-checkbox {
-    flex-shrink: 0;
-}
-
-.checkbox-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-}
-
-.checkbox-empty {
-    display: block;
-    width: 24px;
-    height: 24px;
-    border: 2px solid #D1D5DB;
-    border-radius: 6px;
-    transition: all 0.2s;
-}
-
-.checkbox-btn:hover .checkbox-empty {
-    border-color: #6366F1;
-    background: #F0F9FF;
-}
-
-.checkbox-checked {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: #10B981;
-    color: white;
-    border-radius: 6px;
-    font-weight: 700;
-    font-size: 1rem;
-}
-
-.action-content {
-    flex: 1;
-}
-
-.action-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.85rem;
-}
-
-.action-user {
-    font-weight: 700;
-    color: #374151;
-}
-
-.action-separator {
-    color: #D1D5DB;
-}
-
-.action-timestamp {
-    color: #9CA3AF;
-}
-
-.completed-badge {
-    background: #10B981;
-    color: white;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    margin-left: auto;
-}
-
-.action-project {
-    margin-bottom: 0.5rem;
-    font-size: 0.9rem;
-}
-
-.action-project a {
-    color: #6366F1;
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.action-project a:hover {
-    text-decoration: underline;
-}
-
-.action-message {
-    color: #374151;
-    line-height: 1.6;
-}
-</style>
 
 <?php require_once 'footer.php'; ?>
