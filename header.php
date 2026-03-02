@@ -13,6 +13,14 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation') || hasPermission('view_drawings') || isAdmin();
 $showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || isAdmin();
 $showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || isAdmin();
+
+// Fetch Pending Actions Count
+$pendingActionsCount = 0;
+if (isLoggedIn() && isset($pdo)) {
+    $stmtAct = $pdo->prepare("SELECT COUNT(*) FROM project_logs WHERE assigned_to = ? AND status = 'Action - Pending'");
+    $stmtAct->execute([getCurrentUserId()]);
+    $pendingActionsCount = $stmtAct->fetchColumn();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -123,7 +131,17 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
                         <?php endif; ?>
                     </a>
                     
-                    <a href="actions.php" class="nav-link <?= $currentPage === 'actions' ? 'active' : '' ?>">Actions</a>
+                    <?php $actBadgeColor = $pendingActionsCount > 0 ? '#F59E0B' : '#6B7280'; ?>
+                    <a href="actions.php" class="nav-link <?= $currentPage === 'actions' ? 'active' : '' ?>" style="position: relative;">
+                        Actions
+                        <?php if ($pendingActionsCount > 0): ?>
+                            <span class="notification-badge" style="position: absolute; top: -8px; right: -8px; background: <?= $actBadgeColor ?>; color: white; border-radius: 50%; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; padding: 0 5px;">
+                                <?= $pendingActionsCount ?>
+                            </span>
+                        <?php else: ?>
+                            <span class="notification-badge-zero" style="position: absolute; top: -8px; right: -8px; background: <?= $actBadgeColor ?>; color: white; border-radius: 50%; width: 10px; height: 10px;"></span>
+                        <?php endif; ?>
+                    </a>
                     
                     <div style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem; padding-left: 1rem; border-left: 1px solid rgba(255,255,255,0.1);">
                         <a href="profile.php" style="text-align: right; text-decoration: none; color: inherit; display: block;" class="profile-nav-item">
