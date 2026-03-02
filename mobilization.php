@@ -20,6 +20,7 @@ $stageColors = [
 $activeProjects = [];
 
 foreach ($accessibleProjects as $project) {
+    if (($project['project_status'] ?? 'Active') !== 'Active') continue;
     $stage = deriveProjectStage($pdo, $project['id']);
     
     // STRICT FILTER: Only show projects in Stages 2 through 6
