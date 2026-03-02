@@ -11,7 +11,7 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 
 // Define visibility for Dropdowns based on user capabilities
 $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation') || hasPermission('view_drawings') || isAdmin();
-$showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || isAdmin();
+$showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || isAdmin();
 $showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || isAdmin();
 ?>
 <!DOCTYPE html>
@@ -69,7 +69,7 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
 
                     <?php if ($showCommercial): ?>
                     <div class="nav-dropdown">
-                        <span class="nav-link <?= in_array($currentPage, ['works_sales', 'property_sales']) ? 'active' : '' ?>">
+                        <span class="nav-link <?= in_array($currentPage, ['works_sales', 'property_sales', 'capital_projects']) ? 'active' : '' ?>">
                             Commercial ▾
                         </span>
                         <div class="dropdown-content">
@@ -78,6 +78,9 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
                             <?php endif; ?>
                             <?php if (hasPermission('view_property_sales') || isAdmin()): ?>
                                 <a href="property_sales.php" class="<?= $currentPage === 'property_sales' ? 'active' : '' ?>">Property Sales</a>
+                            <?php endif; ?>
+                            <?php if (hasPermission('view_capital_projects') || isAdmin()): ?>
+                                <a href="capital_projects.php" class="<?= $currentPage === 'capital_projects' ? 'active' : '' ?>">Capital Projects</a>
                             <?php endif; ?>
                         </div>
                     </div>
