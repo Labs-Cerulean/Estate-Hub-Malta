@@ -211,33 +211,27 @@ require_once 'header.php';
 .legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
 .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
 
-/* Space Optimization for the Table */
+/* Allow natural text wrapping for data columns */
 .table-container table { width: 100%; table-layout: auto; }
-.nowrap-cell { white-space: nowrap; }
-
-/* Constrain the Client column */
-.truncate-text {
-    max-width: 140px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: inline-block;
-    vertical-align: middle;
+.table-container td { 
+    white-space: normal; /* Let long names wrap normally */
+    word-break: break-word; /* Ensure super long words don't overflow */
+    vertical-align: middle; 
 }
 
-/* Compact side-by-side Action buttons */
+/* Ensure the action buttons layout gracefully */
 .action-buttons-wrapper { 
     display: flex; 
     flex-wrap: wrap; 
     gap: 6px; 
-    justify-content: flex-start; /* Align left */
-    max-width: 200px; /* Prevent it from pushing other columns out */
+    justify-content: flex-start;
+    min-width: 140px; 
 }
 .action-buttons-wrapper .btn-sm { 
     margin: 0; 
-    padding: 0.25rem 0.6rem; 
-    font-size: 0.75rem; 
-    flex: 0 1 auto; /* Don't stretch 100% */
+    padding: 0.4rem 0.75rem; 
+    font-size: 0.8rem; 
+    flex: 1 1 auto; 
     text-align: center;
     white-space: nowrap;
 }
@@ -403,7 +397,7 @@ require_once 'header.php';
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 50px;"><a href="<?= getSortUrl('stage') ?>" class="sortable-header">Stage<?= getSortIndicator('stage') ?></a></th>
+                            <th style="width: 50px; text-align: center;"><a href="<?= getSortUrl('stage') ?>" class="sortable-header">Stage<?= getSortIndicator('stage') ?></a></th>
                             <th><a href="<?= getSortUrl('name') ?>" class="sortable-header">Project Name<?= getSortIndicator('name') ?></a></th>
                             <th><a href="<?= getSortUrl('client') ?>" class="sortable-header">Client<?= getSortIndicator('client') ?></a></th>
                             <th><a href="<?= getSortUrl('type') ?>" class="sortable-header">Type<?= getSortIndicator('type') ?></a></th>
@@ -416,7 +410,7 @@ require_once 'header.php';
                                 <th>Structural Engineer</th>
                             <?php endif; ?>
                             
-                            <th style="width: 200px;">Actions</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -428,15 +422,11 @@ require_once 'header.php';
                                           title="Stage <?= $project['stage_num'] ?>: <?= $project['stage'] ?>"></span>
                                 </td>
                                 
-                                <td style="font-weight: 600;" class="nowrap-cell"><?= htmlspecialchars($project['name']) ?></td>
+                                <td style="font-weight: 600;"><?= htmlspecialchars($project['name']) ?></td>
+                                
+                                <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
                                 
                                 <td>
-                                    <span class="truncate-text" title="<?= htmlspecialchars($project['client_name'] ?? 'N/A') ?>">
-                                        <?= htmlspecialchars($project['client_name'] ?? 'N/A') ?>
-                                    </span>
-                                </td>
-                                
-                                <td class="nowrap-cell">
                                     <?php if ($project['type'] === 'in-house'): ?>
                                         <span style="color: var(--primary-color); font-weight: 500;">In-House</span>
                                     <?php elseif ($project['type'] === '3rd-party'): ?>
@@ -446,14 +436,14 @@ require_once 'header.php';
                                     <?php endif; ?>
                                 </td>
 
-                                <td class="nowrap-cell"><?= htmlspecialchars($project['city']) ?></td>
-                                <td class="nowrap-cell"><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
+                                <td><?= htmlspecialchars($project['city']) ?></td>
+                                <td><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
 
                                 <?php 
                                 $projectPAs = $paByProject[$project['id']] ?? []; 
                                 if (!$isSalesDb): 
                                 ?>
-                                    <td class="nowrap-cell">
+                                    <td>
                                         <?php if (!empty($projectPAs)): ?>
                                             <?php foreach ($projectPAs as $index => $pa): ?>
                                                 <?php 
@@ -467,23 +457,19 @@ require_once 'header.php';
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                     </td>
 
-                                    <td class="nowrap-cell">
+                                    <td>
                                         <?php if (!empty($projectPAs)): ?>
                                             <?php foreach ($projectPAs as $index => $pa): ?>
-                                                <span class="truncate-text" title="<?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>">
-                                                    <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
-                                                </span>
+                                                <?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?>
                                                 <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
                                             <?php endforeach; ?>
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                     </td>
 
-                                    <td class="nowrap-cell">
+                                    <td>
                                         <?php if (!empty($projectPAs)): ?>
                                             <?php foreach ($projectPAs as $index => $pa): ?>
-                                                <span class="truncate-text" title="<?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>">
-                                                    <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
-                                                </span>
+                                                <?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?>
                                                 <?php if ($index < count($projectPAs) - 1): ?><br><?php endif; ?>
                                             <?php endforeach; ?>
                                         <?php else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
