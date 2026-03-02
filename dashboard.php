@@ -152,7 +152,6 @@ if ($dashboardType !== 'None') {
 
             // 3. Stage Logic Calculation
             if ($pStatus === 'Withdrawn' || $pStatus === 'On-Hold') {
-                // Override stage name so Director explicitly knows it's dead
                 $stage = $pStatus;
                 $stageNum = ($pStatus === 'Withdrawn') ? -1 : 0; 
             } else {
@@ -172,7 +171,6 @@ if ($dashboardType !== 'None') {
             $projects[$key]['stage'] = $stage;
             $projects[$key]['stage_num'] = $stageNum;
 
-            // Only count ACTIVE projects towards operational KPIs
             if ($pStatus === 'Active') {
                 if ($stageNum >= 9) $finalCount++;
                 elseif ($stageNum >= 5) $execCount++;
@@ -247,9 +245,66 @@ require_once 'header.php';
 .stage-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.3); flex-shrink: 0; }
 .legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
 .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
-.table-container { overflow-x: auto; }
-.table-container table { width: 100%; table-layout: auto; border-collapse: collapse; }
-.table-container th, .table-container td { padding: 1rem 0.75rem; vertical-align: top; word-break: normal; }
+
+/* Dashboard Container & Sticky Header Logic */
+.dashboard-wrapper {
+    position: relative;
+    width: 100%;
+    /* Keep horizontal scrollbar visible without scrolling the whole page down */
+    max-height: calc(100vh - 200px); 
+    overflow-x: auto;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-glass);
+    box-shadow: var(--shadow-sm);
+}
+
+.dashboard-wrapper table { 
+    width: max-content; 
+    min-width: 100%; 
+    table-layout: auto; 
+    border-collapse: separate; /* Required for sticky borders to not bleed */
+    border-spacing: 0;
+}
+
+.dashboard-wrapper th { 
+    position: sticky; 
+    top: 0; 
+    background: #1e1e2d; /* Solid background */
+    z-index: 10; 
+    padding: 1rem 0.75rem; 
+    vertical-align: middle; 
+    border-bottom: 2px solid var(--border-glass); 
+    white-space: nowrap; 
+}
+
+.dashboard-wrapper td { 
+    padding: 1rem 0.75rem; 
+    vertical-align: top; 
+    word-break: normal; 
+    border-bottom: 1px solid var(--border-glass); 
+}
+
+/* Make the Actions column sticky on the right */
+.dashboard-wrapper thead th:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 20;
+    border-left: 2px solid var(--border-glass);
+}
+.dashboard-wrapper tbody td:last-child {
+    position: sticky;
+    right: 0;
+    background: #1e1e2d;
+    z-index: 5;
+    border-left: 2px solid var(--border-glass);
+}
+
+/* Hover effect */
+.dashboard-wrapper tbody tr:hover td { background: rgba(255,255,255,0.03); }
+.dashboard-wrapper tbody tr:hover td:last-child { background: #2a2a3b; }
+
 .nowrap-cell { white-space: nowrap; }
 .min-w-150 { min-width: 150px; }
 .cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; }
@@ -373,16 +428,16 @@ require_once 'header.php';
 
             <?php if ($projectCount > 0): ?>
             <?php $isSalesDb = ($dashboardType === 'Sales Dashboard'); ?>
-            <div class="table-container">
+            <div class="dashboard-wrapper">
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 50px; text-align: center;"><a href="<?= getSortUrl('stage') ?>" class="sortable-header">Stage<?= getSortIndicator('stage') ?></a></th>
-                            <th class="min-w-150"><a href="<?= getSortUrl('name') ?>" class="sortable-header">Project Name<?= getSortIndicator('name') ?></a></th>
-                            <th class="min-w-150"><a href="<?= getSortUrl('client') ?>" class="sortable-header">Client<?= getSortIndicator('client') ?></a></th>
-                            <th class="nowrap-cell"><a href="<?= getSortUrl('type') ?>" class="sortable-header">Type<?= getSortIndicator('type') ?></a></th>
-                            <th class="nowrap-cell"><a href="<?= getSortUrl('city') ?>" class="sortable-header">City<?= getSortIndicator('city') ?></a></th>
-                            <th class="nowrap-cell"><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
+                            <th style="width: 50px; text-align: center;"><a href="<?= getSortUrl('stage') ?>" class="sortable-header" style="color: inherit;">Stage<?= getSortIndicator('stage') ?></a></th>
+                            <th class="min-w-150"><a href="<?= getSortUrl('name') ?>" class="sortable-header" style="color: inherit;">Project Name<?= getSortIndicator('name') ?></a></th>
+                            <th class="min-w-150"><a href="<?= getSortUrl('client') ?>" class="sortable-header" style="color: inherit;">Client<?= getSortIndicator('client') ?></a></th>
+                            <th class="nowrap-cell"><a href="<?= getSortUrl('type') ?>" class="sortable-header" style="color: inherit;">Type<?= getSortIndicator('type') ?></a></th>
+                            <th class="nowrap-cell"><a href="<?= getSortUrl('city') ?>" class="sortable-header" style="color: inherit;">City<?= getSortIndicator('city') ?></a></th>
+                            <th class="nowrap-cell"><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header" style="color: inherit;">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
                             
                             <?php if (!$isSalesDb): ?>
                                 <th class="nowrap-cell">PA Number</th>
