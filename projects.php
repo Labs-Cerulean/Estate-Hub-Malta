@@ -67,7 +67,9 @@ $matrixProjects = [];
 $allowedStages = ['Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 foreach ($projectsRaw as $p) {
-    if (($project['project_status'] ?? 'Active') !== 'Active') continue;
+    // Exclude withdrawn or on-hold projects entirely
+    if (($p['project_status'] ?? 'Active') !== 'Active') continue;
+
     $stage = deriveProjectStage($pdo, $p['id']);
     
     if (in_array($stage, $allowedStages)) {
@@ -83,7 +85,7 @@ foreach ($projectsRaw as $p) {
         if (isset($blockData[$p['id']])) {
             foreach ($blockData[$p['id']] as $bd) {
                 if ($bd['construction_status']) $constStatuses[] = $bd['construction_status'];
-                if ($bd['finishes_overall_status']) $finStatuses[$bd['block_id']] = $bd['finishes_overall_status']; // Group by block
+                if ($bd['finishes_overall_status']) $finStatuses[$bd['block_id']] = $bd['finishes_overall_status']; 
             }
         }
         
@@ -91,7 +93,7 @@ foreach ($projectsRaw as $p) {
         if (!empty($constStatuses)) {
             if (in_array('In Progress', $constStatuses)) { $p['const_status'] = 'In Progress'; }
             elseif (count(array_unique($constStatuses)) === 1 && (end($constStatuses) === 'Complete' || end($constStatuses) === 'NA')) { $p['const_status'] = 'Complete'; }
-            elseif (in_array('Complete', $constStatuses)) { $p['const_status'] = 'In Progress'; } // Some complete, some pending
+            elseif (in_array('Complete', $constStatuses)) { $p['const_status'] = 'In Progress'; } 
         }
         
         // Aggregate Finishes
@@ -126,7 +128,6 @@ foreach ($projectsRaw as $p) {
     }
 }
 
-// Function to render status badges
 function renderStatusBadge($status) {
     $colors = [
         'Pending' => 'background: rgba(107, 114, 128, 0.1); color: #9ca3af; border: 1px solid #4b5563;',
@@ -135,7 +136,7 @@ function renderStatusBadge($status) {
         'NA' => 'background: rgba(255, 255, 255, 0.05); color: #6b7280; border: 1px solid #374151;'
     ];
     $style = $colors[$status] ?? $colors['Pending'];
-    return "<span style='padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
+    return "<span style='display: inline-block; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
 }
 
 $pageTitle = 'Project Status Matrix';
@@ -143,20 +144,81 @@ require_once 'header.php';
 ?>
 
 <style>
-.matrix-table-container { overflow-x: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); }
-.matrix-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
-.matrix-table th { background: rgba(255,255,255,0.02); padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-glass); white-space: nowrap; }
-.matrix-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); }
-.matrix-table tr:hover { background: rgba(255,255,255,0.02); }
+/* Advanced Matrix UI styling */
+.matrix-wrapper {
+    position: relative;
+    width: 100%;
+    /* Confines the table height so the horizontal scrollbar is always visible without page scrolling */
+    max-height: calc(100vh - 180px); 
+    overflow-x: auto;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-glass);
+    box-shadow: var(--shadow-sm);
+}
 
-/* Modal Styles */
-.modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+.matrix-table {
+    width: max-content; /* Forces table to be as wide as its content needs */
+    min-width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.85rem;
+}
+
+/* Sticky Header row */
+.matrix-table thead th {
+    position: sticky;
+    top: 0;
+    background: #1e1e2d; /* Solid background so text doesn't show through */
+    z-index: 10;
+    padding: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--border-glass);
+    white-space: nowrap;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* Make the first column (Project Name) sticky on the left */
+.matrix-table thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 15; /* Top and Left */
+    border-right: 1px solid var(--border-glass);
+}
+.matrix-table tbody td:first-child {
+    position: sticky;
+    left: 0;
+    background: #1e1e2d;
+    z-index: 5; /* Left */
+    border-right: 1px solid var(--border-glass);
+}
+
+.matrix-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-glass);
+    vertical-align: middle;
+    color: var(--text-secondary);
+    white-space: nowrap; /* Prevents text from overlapping or squishing */
+}
+
+/* Hover effects */
+.matrix-table tbody tr:hover td {
+    background: rgba(255,255,255,0.03);
+}
+.matrix-table tbody tr:hover td:first-child {
+    background: #2a2a3b; /* Maintain solid color on hover for sticky column */
+}
+
+/* Form Modal */
+.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
 </style>
 
-<div class="main-container" style="max-width: 1600px;">
+<div class="main-container" style="max-width: 100%; padding: 1.5rem;">
     
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
@@ -168,7 +230,7 @@ require_once 'header.php';
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-    <div class="matrix-table-container">
+    <div class="matrix-wrapper">
         <table class="matrix-table">
             <thead>
                 <tr>
@@ -184,7 +246,7 @@ require_once 'header.php';
                     <th style="text-align: center;">Excavation</th>
                     <th style="text-align: center;">Construction</th>
                     <th style="text-align: center;">Finishes</th>
-                    <?php if ($canAssignTeam): ?><th style="text-align: right;">Action</th><?php endif; ?>
+                    <?php if ($canAssignTeam): ?><th style="text-align: center; border-left: 2px solid var(--border-glass);">Action</th><?php endif; ?>
                 </tr>
             </thead>
             <tbody>
@@ -193,7 +255,7 @@ require_once 'header.php';
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): ?>
                         <tr>
-                            <td style="font-weight: 700; color: var(--primary-color); white-space: nowrap;">
+                            <td style="font-weight: 700; color: var(--primary-color);">
                                 <?= htmlspecialchars($p['name']) ?>
                             </td>
                             <td><?= htmlspecialchars($p['stage']) ?></td>
@@ -222,12 +284,12 @@ require_once 'header.php';
                             <td style="text-align: center;"><?= renderStatusBadge($p['fin_status']) ?></td>
                             
                             <?php if ($canAssignTeam): ?>
-                            <td style="text-align: right;">
+                            <td style="text-align: center; border-left: 2px solid var(--border-glass);">
                                 <button onclick='openAssignModal(<?= json_encode([
                                     "id" => $p["id"], "name" => $p["name"],
                                     "pm_const" => $p["pm_construction_id"], "pm_fin" => $p["pm_finishes_id"],
                                     "sub_demo" => $p["sub_demolition_id"], "sub_exc" => $p["sub_excavation_id"], "sub_const" => $p["sub_construction_id"]
-                                ], JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Assign Team</button>
+                                ], JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" style="padding: 0.35rem 0.75rem; margin: 0;">Assign Team</button>
                             </td>
                             <?php endif; ?>
                         </tr>
@@ -291,7 +353,7 @@ require_once 'header.php';
                 </div>
             </div>
             
-            <button type="submit" class="btn btn-primary" style="width: 100%;">Save Assignments</button>
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save Assignments</button>
         </form>
     </div>
 </div>
@@ -314,7 +376,6 @@ function closeModal() {
     document.getElementById('assignModal').style.display = 'none';
 }
 
-// Close modal if clicking outside of it
 window.onclick = function(event) {
     let modal = document.getElementById('assignModal');
     if (event.target == modal) { modal.style.display = "none"; }
