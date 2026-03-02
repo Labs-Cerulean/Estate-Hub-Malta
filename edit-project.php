@@ -157,7 +157,7 @@ require_once 'header.php';
                     </div>
                     <div class="form-group">
                         <label>City / Locality</label>
-                        <select name="city" id="city-select" required>
+                        <select name="city" id="city-select" data-selected="<?= htmlspecialchars($project['city']) ?>" required>
                             <option value="<?= htmlspecialchars($project['city']) ?>" selected><?= htmlspecialchars($project['city']) ?></option>
                         </select>
                     </div>
@@ -215,6 +215,8 @@ require_once 'header.php';
     </section>
 </div>
 
+<script src="localities.js"></script>
+
 <script>
 // --- PA Numbers Logic ---
 let paEntryCount = 0;
@@ -224,18 +226,9 @@ const existingPANumbers = <?= json_encode($paNumbers) ?>;
 
 // Comprehensive Malta PA Status List
 const paStatuses = [
-    "Tracking",
-    "Screening",
-    "Processing",
-    "Awaiting Recommendation",
-    "Awaiting Decision",
-    "Approved",
-    "Endorsed",
-    "Refused",
-    "Withdrawn",
-    "Suspended",
-    "Appealed",
-    "Revoked"
+    "Tracking", "Screening", "Processing", "Awaiting Recommendation",
+    "Awaiting Decision", "Approved", "Endorsed", "Refused",
+    "Withdrawn", "Suspended", "Appealed", "Revoked"
 ];
 
 function addPAEntry(paData = null) {
@@ -249,7 +242,6 @@ function addPAEntry(paData = null) {
     const aId = paData ? paData.architect_id : '';
     const eId = paData ? paData.structural_engineer_id : '';
 
-    // Generate Status Options
     const statusOptions = paStatuses.map(status => {
         return `<option value="${status}" ${paStat === status ? 'selected' : ''}>${status}</option>`;
     }).join('');
@@ -312,37 +304,37 @@ function addBlockEntry(blockData = null) {
 function escapeHtml(text) { return text ? String(text).replace(/[&<>"'`=\/]/g, function(s){return entityMap[s];}) : ''; }
 const entityMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'};
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (existingPANumbers && existingPANumbers.length > 0) { existingPANumbers.forEach(pa => addPAEntry(pa)); } else { addPAEntry(); }
-    if (existingBlocks && existingBlocks.length > 0) { existingBlocks.forEach(b => addBlockEntry(b)); } else { addBlockEntry({block_name: 'Main Building', block_type: 'Block', lowest_level: 0, highest_level: 0}); }
-});
-
-// City Data
-const locations = {
-    'Malta': [{ label: 'Northern', cities: ['Mellieha', 'Mosta', 'Naxxar'] }, { label: 'Central', cities: ['Sliema', 'St Venera'] }, { label: 'Southern', cities: ['Paola', 'Zejtun'] }],
-    'Gozo': [{ label: 'Gozo', cities: ['Rabat Victoria', 'Xaghra'] }]
-};
-
+// --- Cities Link Logic ---
 function updateCities() {
     const islandSelect = document.getElementById('island');
     const citySelect = document.getElementById('city-select');
-    const currentCity = citySelect.value;
-    citySelect.innerHTML = '';
-    const defaultOption = document.createElement('option'); defaultOption.value = ''; defaultOption.textContent = 'Select City'; citySelect.appendChild(defaultOption);
+    const currentCity = citySelect.getAttribute('data-selected') || citySelect.value;
     
-    if (locations[islandSelect.value]) {
-        locations[islandSelect.value].forEach(group => {
-            const optgroup = document.createElement('optgroup'); optgroup.label = group.label;
-            group.cities.forEach(city => {
-                const opt = document.createElement('option'); opt.value = city; opt.textContent = city;
-                if (city === currentCity) opt.selected = true;
-                optgroup.appendChild(opt);
-            });
-            citySelect.appendChild(optgroup);
+    citySelect.innerHTML = '<option value="">Select City</option>';
+    
+    // Check if localities.js successfully loaded
+    if (typeof locations !== 'undefined' && locations[islandSelect.value]) {
+        locations[islandSelect.value].forEach(city => {
+            const opt = document.createElement('option'); 
+            opt.value = city; 
+            opt.textContent = city;
+            if (city === currentCity) opt.selected = true;
+            citySelect.appendChild(opt);
         });
+    } else {
+        console.warn("localities.js not found. Could not load cities.");
     }
 }
+
 function toggleFinishLevel() { document.getElementById('finish-level-group').style.display = document.getElementById('project-type').value === 'in-house' ? 'block' : 'none'; }
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (existingPANumbers && existingPANumbers.length > 0) { existingPANumbers.forEach(pa => addPAEntry(pa)); } else { addPAEntry(); }
+    if (existingBlocks && existingBlocks.length > 0) { existingBlocks.forEach(b => addBlockEntry(b)); } else { addBlockEntry({block_name: 'Main Building', block_type: 'Block', lowest_level: 0, highest_level: 0}); }
+    
+    // Populate dropdown with correct cities on load
+    updateCities();
+});
 </script>
 
 <?php require_once 'footer.php'; ?>
