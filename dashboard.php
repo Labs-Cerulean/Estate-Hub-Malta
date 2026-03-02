@@ -23,7 +23,7 @@ if ($userRole === 'admin') {
     $dashboardType = 'None'; // Restricted Dashboard
 }
 
-// 2. Define Visible Stages based on Role ("not everyone should see all stages")
+// 2. Define Visible Stages based on Role
 $visibleStages = [];
 if ($canViewTracking) {
     $visibleStages = ['Feasibility', 'Tracking'];
@@ -32,7 +32,6 @@ if ($canViewTracking) {
 switch ($userRole) {
     case 'sales_manager':
     case 'sales_agent':
-        // Sales cares about the end-product
         $visibleStages = array_merge($visibleStages, ['Finishes', 'Compliance', 'Condominium', 'Handed Over']);
         break;
     case 'end_customer':
@@ -42,14 +41,12 @@ switch ($userRole) {
         $visibleStages = array_merge($visibleStages, ['Condominium', 'Handed Over']);
         break;
     case 'subcontractor':
-        // Subcontractors only care about execution
         $visibleStages = array_merge($visibleStages, ['Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over']);
         break;
     case 'ohsa_rep':
         $visibleStages = array_merge($visibleStages, ['Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over']);
         break;
     default:
-        // Admins, Directors, PMs, Architects, Engineers see the entire standard pipeline
         $visibleStages = array_merge($visibleStages, ['Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over']);
         break;
 }
@@ -75,16 +72,13 @@ $stageColors = [
     'Handed Over' => '#22c55e'    // Green
 ];
 
-// If user has no dashboard access, don't process heavy queries
 if ($dashboardType !== 'None') {
-    // Get filter and sort parameters
     $filterType = $_GET['filter_type'] ?? 'all';
     $filterStatus = $_GET['filter_status'] ?? 'all'; 
     $filterCity = $_GET['filter_city'] ?? 'all';
     $filterClient = $_GET['filter_client'] ?? 'all';
     $filterIsland = $_GET['filter_island'] ?? 'all';
     
-    // Default to sorting by Stage (Descending - highest stage first)
     $sortBy = $_GET['sort'] ?? 'stage';
     $sortOrder = $_GET['order'] ?? 'DESC';
 
@@ -127,17 +121,15 @@ if ($dashboardType !== 'None') {
             }
         }
 
-        // CALCULATE STAGES & KPI STATS
-        $preExecCount = 0; // Stages 1-4
-        $execCount = 0;    // Stages 5-8
-        $finalCount = 0;   // Stages 9-11
-        $companyKpis = []; // For Director Role
+        $preExecCount = 0; 
+        $execCount = 0;    
+        $finalCount = 0;   
+        $companyKpis = []; 
 
         foreach ($projects as $key => $project) {
             $stage = deriveProjectStage($pdo, $project['id']);
             $stageNum = $stageEnum[$stage] ?? 1;
             
-            // STRICT FILTER: Remove projects in stages the user is not allowed to see
             if (!in_array($stage, $visibleStages)) {
                 unset($projects[$key]);
                 continue;
@@ -146,12 +138,10 @@ if ($dashboardType !== 'None') {
             $projects[$key]['stage'] = $stage;
             $projects[$key]['stage_num'] = $stageNum;
 
-            // KPI Grouping
             if ($stageNum >= 9) $finalCount++;
             elseif ($stageNum >= 5) $execCount++;
             else $preExecCount++;
 
-            // Aggregate for Director Company Dashboard
             if ($dashboardType === 'Company Dashboard') {
                 $cName = $project['client_name'] ?? 'Unassigned';
                 if (!isset($companyKpis[$cName])) {
@@ -164,18 +154,16 @@ if ($dashboardType !== 'None') {
             }
         }
         
-        $projects = array_values($projects); // Re-index array
+        $projects = array_values($projects); 
         $projectCount = count($projects);
         $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
 
-        // Apply visual filters
         if ($filterType !== 'all') $projects = array_filter($projects, fn($p) => $p['type'] === $filterType);
         if ($filterCity !== 'all') $projects = array_filter($projects, fn($p) => $p['city'] === $filterCity);
         if ($filterClient !== 'all') $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
         if ($filterIsland !== 'all') $projects = array_filter($projects, fn($p) => $p['island'] === $filterIsland);
         if ($filterStatus !== 'all') $projects = array_filter($projects, fn($p) => $p['stage'] === $filterStatus);
 
-        // Sort projects
         usort($projects, function($a, $b) use ($sortBy, $sortOrder) {
             if ($sortBy === 'stage') {
                 $comparison = $a['stage_num'] <=> $b['stage_num'];
@@ -219,7 +207,6 @@ require_once 'header.php';
 ?>
 
 <style>
-/* Legend & Dot Styles */
 .stage-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.3); flex-shrink: 0; }
 .legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
 .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
@@ -256,7 +243,7 @@ require_once 'header.php';
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Finishes'] ?>;"><?= $execCount ?></div><div class="stat-label">In Finishes</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Ready / Handed Over</div></div>
                 
-            <?php else: /* Standard Project Dashboard */ ?>
+            <?php else: ?>
                 <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Assigned Projects</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Permit'] ?>;"><?= $preExecCount ?></div><div class="stat-label">Pre-Execution</div></div>
                 <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">In Execution</div></div>
@@ -332,8 +319,8 @@ require_once 'header.php';
                             <label>Project Type</label>
                             <select name="filter_type">
                                 <option value="all" <?= $filterType === 'all' ? 'selected' : '' ?>>All Types</option>
-                                <option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option>
-                                <option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party</option>
+                                <option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House (Self Funded)</option>
+                                <option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>Capital Project (3rd Party)</option>
                             </select>
                         </div>
                         <div class="filter-group">
@@ -390,6 +377,7 @@ require_once 'header.php';
                             <th><a href="<?= getSortUrl('stage') ?>" class="sortable-header">Stage<?= getSortIndicator('stage') ?></a></th>
                             <th><a href="<?= getSortUrl('name') ?>" class="sortable-header">Project Name<?= getSortIndicator('name') ?></a></th>
                             <th><a href="<?= getSortUrl('client') ?>" class="sortable-header">Client<?= getSortIndicator('client') ?></a></th>
+                            <th><a href="<?= getSortUrl('type') ?>" class="sortable-header">Type<?= getSortIndicator('type') ?></a></th>
                             <th><a href="<?= getSortUrl('city') ?>" class="sortable-header">City<?= getSortIndicator('city') ?></a></th>
                             <th><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
                             
@@ -413,6 +401,17 @@ require_once 'header.php';
                                 
                                 <td style="font-weight: 600;"><?= htmlspecialchars($project['name']) ?></td>
                                 <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
+                                
+                                <td>
+                                    <?php if ($project['type'] === 'in-house'): ?>
+                                        <span style="color: var(--primary-color); font-weight: 500;">In-House</span>
+                                    <?php elseif ($project['type'] === '3rd-party'): ?>
+                                        <span style="color: #0ea5e9; font-weight: 500;">Capital Project</span>
+                                    <?php else: ?>
+                                        <?= htmlspecialchars($project['type']) ?>
+                                    <?php endif; ?>
+                                </td>
+
                                 <td><?= htmlspecialchars($project['city']) ?></td>
                                 <td><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></td>
 
@@ -466,7 +465,7 @@ require_once 'header.php';
                                             <a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white;">Sales</a>
                                         <?php endif; ?>
                                         
-                                        <?php if (hasPermission('view_capital_projects') || $isAdmin): ?>
+                                        <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?>
                                             <a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white;">Capital</a>
                                         <?php endif; ?>
                                         
