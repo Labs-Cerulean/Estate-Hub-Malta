@@ -14,12 +14,16 @@ $message = ''; $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
+    // Convert the checkbox array into a comma-separated string
+    $specialtyArray = $_POST['specialty'] ?? [];
+    $specialtyString = is_array($specialtyArray) ? implode(', ', $specialtyArray) : '';
+
     try {
         if ($action === 'add') {
             $stmt = $pdo->prepare("INSERT INTO subcontractors (name, specialty, contact_person, phone, email) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([
                 trim($_POST['name']),
-                trim($_POST['specialty'] ?? ''),
+                $specialtyString,
                 trim($_POST['contact_person'] ?? ''),
                 trim($_POST['phone'] ?? ''),
                 trim($_POST['email'] ?? '')
@@ -30,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("UPDATE subcontractors SET name=?, specialty=?, contact_person=?, phone=?, email=? WHERE id=?");
             $stmt->execute([
                 trim($_POST['name']),
-                trim($_POST['specialty'] ?? ''),
+                $specialtyString,
                 trim($_POST['contact_person'] ?? ''),
                 trim($_POST['phone'] ?? ''),
                 trim($_POST['email'] ?? ''),
@@ -63,16 +67,55 @@ require_once 'header.php';
 
 <style>
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
-.modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
+
+/* Checkbox Grid UI */
+.checkbox-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    background: rgba(255,255,255,0.02);
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-glass);
+}
+.checkbox-grid label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+.checkbox-grid input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+/* Specialty Tags in Table */
+.spec-tag {
+    display: inline-block;
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary-color);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin: 0.1rem;
+    white-space: nowrap;
+}
 </style>
 
 <div class="main-container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
             <h1 class="page-title" style="margin-bottom: 0;">Subcontractor Directory</h1>
-            <p style="color: var(--text-secondary); margin-top: 0.25rem;">Manage execution partners (Demolition, Excavation, Construction, etc.)</p>
+            <p style="color: var(--text-secondary); margin-top: 0.25rem;">Manage execution partners and define their multiple specialties.</p>
         </div>
         <button onclick="openModal('add')" class="btn btn-primary">+ Add Subcontractor</button>
     </div>
@@ -85,7 +128,7 @@ require_once 'header.php';
             <thead>
                 <tr>
                     <th>Company Name</th>
-                    <th>Primary Specialty</th>
+                    <th>Specialties</th>
                     <th>Contact Person</th>
                     <th>Phone</th>
                     <th>Email</th>
@@ -99,7 +142,18 @@ require_once 'header.php';
                     <?php foreach ($subcontractors as $sub): ?>
                         <tr>
                             <td style="font-weight: 600; color: var(--primary-color);"><?= htmlspecialchars($sub['name']) ?></td>
-                            <td><?= htmlspecialchars($sub['specialty'] ?? '-') ?></td>
+                            <td>
+                                <?php 
+                                if (!empty($sub['specialty'])) {
+                                    $specs = explode(', ', $sub['specialty']);
+                                    foreach ($specs as $spec) {
+                                        echo "<span class='spec-tag'>" . htmlspecialchars($spec) . "</span> ";
+                                    }
+                                } else {
+                                    echo "<span style='color: var(--text-muted);'>-</span>";
+                                }
+                                ?>
+                            </td>
                             <td><?= htmlspecialchars($sub['contact_person'] ?? '-') ?></td>
                             <td><?= htmlspecialchars($sub['phone'] ?? '-') ?></td>
                             <td>
@@ -142,16 +196,15 @@ require_once 'header.php';
             </div>
             
             <div class="form-group">
-                <label>Primary Specialty</label>
-                <select name="specialty" id="modalSpecialty">
-                    <option value="">-- Select --</option>
-                    <option value="Demolition">Demolition</option>
-                    <option value="Excavation">Excavation</option>
-                    <option value="Turnkey Construction">Turnkey Construction</option>
-                    <option value="Plumbing & Electrical">Plumbing & Electrical</option>
-                    <option value="Finishes">Finishes</option>
-                    <option value="General Multi-Discipline">General Multi-Discipline</option>
-                </select>
+                <label>Disciplines / Specialties (Select all that apply)</label>
+                <div class="checkbox-grid">
+                    <label><input type="checkbox" name="specialty[]" value="Demolition" class="spec-checkbox"> Demolition</label>
+                    <label><input type="checkbox" name="specialty[]" value="Excavation" class="spec-checkbox"> Excavation</label>
+                    <label><input type="checkbox" name="specialty[]" value="Turnkey Construction" class="spec-checkbox"> Turnkey Construction</label>
+                    <label><input type="checkbox" name="specialty[]" value="Finishes" class="spec-checkbox"> Finishes</label>
+                    <label><input type="checkbox" name="specialty[]" value="Plumbing & Electrical" class="spec-checkbox"> Plumbing & Electrical</label>
+                    <label><input type="checkbox" name="specialty[]" value="General Multi-Discipline" class="spec-checkbox"> General Multi-Discipline</label>
+                </div>
             </div>
             
             <div class="form-group">
@@ -182,17 +235,18 @@ function openModal(mode, data = null) {
     const action = document.getElementById('modalAction');
     const id = document.getElementById('modalId');
     const name = document.getElementById('modalName');
-    const specialty = document.getElementById('modalSpecialty');
     const contact = document.getElementById('modalContact');
     const phone = document.getElementById('modalPhone');
     const email = document.getElementById('modalEmail');
+    
+    // Clear all checkboxes first
+    document.querySelectorAll('.spec-checkbox').forEach(cb => cb.checked = false);
 
     if (mode === 'add') {
         title.textContent = 'Add Subcontractor';
         action.value = 'add';
         id.value = '';
         name.value = '';
-        specialty.value = '';
         contact.value = '';
         phone.value = '';
         email.value = '';
@@ -201,10 +255,19 @@ function openModal(mode, data = null) {
         action.value = 'edit';
         id.value = data.id;
         name.value = data.name;
-        specialty.value = data.specialty || '';
         contact.value = data.contact_person || '';
         phone.value = data.phone || '';
         email.value = data.email || '';
+        
+        // Re-check the boxes based on saved string
+        if (data.specialty) {
+            const savedSpecs = data.specialty.split(', ').map(s => s.trim());
+            document.querySelectorAll('.spec-checkbox').forEach(cb => {
+                if (savedSpecs.includes(cb.value)) {
+                    cb.checked = true;
+                }
+            });
+        }
     }
 
     modal.style.display = 'block';
