@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             foreach ($_POST['paentries'] as $paEntry) {
                 if (!empty($paEntry['pa_number'])) {
                     $paStmt->execute([
-                        $projectId, trim($paEntry['pa_number']), $paEntry['pa_status'] ?? 'Endorsed',
+                        $projectId, trim($paEntry['pa_number']), $paEntry['pa_status'] ?? 'Tracking',
                         !empty($paEntry['architect_id']) ? $paEntry['architect_id'] : null,
                         !empty($paEntry['structural_engineer_id']) ? $paEntry['structural_engineer_id'] : null
                     ]);
@@ -124,8 +124,8 @@ require_once 'header.php';
 <div class="main-container">
     <h1 class="page-title">Edit Project: <?= htmlspecialchars($project['name']); ?></h1>
 
-    <?php if ($message): ?><div class="message success"><?= htmlspecialchars($message); ?></div><?php endif; ?>
-    <?php if ($error): ?><div class="message error"><?= htmlspecialchars($error); ?></div><?php endif; ?>
+    <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($message); ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="message error" style="padding:1rem; background:rgba(239,68,68,0.1); color:var(--danger); border:1px solid var(--danger); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($error); ?></div><?php endif; ?>
 
     <section class="form-section">
         <form method="POST">
@@ -193,7 +193,7 @@ require_once 'header.php';
 
             <div style="margin-bottom: 3rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
-                    <h3>PA Numbers</h3>
+                    <h3>PA Numbers & Permits</h3>
                     <button type="button" class="btn btn-sm btn-secondary" onclick="addPAEntry()">+ Add PA Number</button>
                 </div>
                 <div id="pa-entries-container" style="display: grid; gap: 1rem;"></div>
@@ -222,6 +222,22 @@ const architects = <?= json_encode($architects) ?>;
 const engineers = <?= json_encode($engineers) ?>;
 const existingPANumbers = <?= json_encode($paNumbers) ?>;
 
+// Comprehensive Malta PA Status List
+const paStatuses = [
+    "Tracking",
+    "Screening",
+    "Processing",
+    "Awaiting Recommendation",
+    "Awaiting Decision",
+    "Approved",
+    "Endorsed",
+    "Refused",
+    "Withdrawn",
+    "Suspended",
+    "Appealed",
+    "Revoked"
+];
+
 function addPAEntry(paData = null) {
     const container = document.getElementById('pa-entries-container');
     const div = document.createElement('div');
@@ -229,17 +245,22 @@ function addPAEntry(paData = null) {
     div.style.cssText = "background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; position: relative;";
 
     const paNum = paData ? paData.pa_number : '';
-    const paStat = paData ? paData.pa_status : 'Endorsed';
+    const paStat = paData ? paData.pa_status : 'Tracking';
     const aId = paData ? paData.architect_id : '';
     const eId = paData ? paData.structural_engineer_id : '';
 
+    // Generate Status Options
+    const statusOptions = paStatuses.map(status => {
+        return `<option value="${status}" ${paStat === status ? 'selected' : ''}>${status}</option>`;
+    }).join('');
+
     div.innerHTML = `
         <div class="form-group" style="margin:0;"><label>PA Number</label><input type="text" name="paentries[${paEntryCount}][pa_number]" value="${escapeHtml(paNum)}" placeholder="e.g. PA/1234/24" required></div>
-        <div class="form-group" style="margin:0;"><label>Status</label><select name="paentries[${paEntryCount}][pa_status]">
-            <option value="Endorsed" ${paStat==='Endorsed'?'selected':''}>Endorsed</option>
-            <option value="Decided" ${paStat==='Decided'?'selected':''}>Decided</option>
-            <option value="Tracking" ${paStat==='Tracking'?'selected':''}>Tracking</option>
-        </select></div>
+        <div class="form-group" style="margin:0;"><label>Status</label>
+            <select name="paentries[${paEntryCount}][pa_status]">
+                ${statusOptions}
+            </select>
+        </div>
         <div class="form-group" style="margin:0;"><label>Architect</label><select name="paentries[${paEntryCount}][architect_id]">
             <option value="">Select Architect</option>
             ${architects.map(a => `<option value="${a.id}" ${a.id==aId?'selected':''}>${escapeHtml(a.name)}</option>`).join('')}
