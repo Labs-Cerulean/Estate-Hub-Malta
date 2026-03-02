@@ -34,10 +34,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $pms = $pdo->query("SELECT id, first_name, last_name, username FROM users WHERE role = 'project_manager' AND is_active = 'Yes' ORDER BY first_name")->fetchAll();
 $subs = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name")->fetchAll();
 
-// 2. Fetch Projects and their Mobilisation statuses
-$projectsRaw = getAccessibleProjects($pdo, getCurrentUserId());
-$projectIds = array_column($projectsRaw, 'id');
+// 2. GET FILTERS
+$filterType = $_GET['filter_type'] ?? 'all';
+$filterFinish = $_GET['filter_finish'] ?? 'all';
+$filterCity = $_GET['filter_city'] ?? 'all';
+$filterClient = $_GET['filter_client'] ?? 'all';
+$filterIsland = $_GET['filter_island'] ?? 'all';
 
+// 3. Fetch Projects and their Mobilisation statuses
+$projectsRaw = getAccessibleProjects($pdo, getCurrentUserId());
+
+// Extract data for Filter Dropdowns
+$cities = array_unique(array_filter(array_column($projectsRaw, 'city')));
+sort($cities);
+
+$clientIds = array_unique(array_column($projectsRaw, 'clientid'));
+$clients = [];
+if (!empty($clientIds)) {
+    $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
+    $clientStmt = $pdo->prepare("SELECT id, name FROM clients WHERE id IN ($placeholders) ORDER BY name");
+    $clientStmt->execute(array_values($clientIds));
+    $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$projectIds = array_column($projectsRaw, 'id');
 $mobData = [];
 $blockData = [];
 
@@ -62,9 +82,8 @@ if (!empty($projectIds)) {
     }
 }
 
-// 3. Filter for Stages 4 to 11 (Mobilisation Onwards)
+// 4. Filter for Stages 4 to 11 (Mobilisation Onwards)
 $matrixProjects = [];
-// Removed 'Permit' so it only shows Mobilisation onwards
 $allowedStages = ['Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 foreach ($projectsRaw as $p) {
@@ -128,6 +147,15 @@ foreach ($projectsRaw as $p) {
         $matrixProjects[] = $p;
     }
 }
+
+// 5. APPLY FILTERS to Matrix Array
+if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
+if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
+if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['city'] === $filterCity);
+if ($filterClient !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
+if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
+
+$matrixProjects = array_values($matrixProjects); // Re-index array
 
 function renderStatusBadge($status) {
     $colors = [
@@ -244,6 +272,60 @@ require_once 'header.php';
         </div>
     </div>
 
+    <div class="filters-section" style="margin-bottom: 1.5rem;">
+        <form method="GET" id="matrixFilters">
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label>Finish Requirement</label>
+                    <select name="filter_finish">
+                        <option value="all" <?= $filterFinish === 'all' ? 'selected' : '' ?>>All Levels</option>
+                        <option value="Shell" <?= $filterFinish === 'Shell' ? 'selected' : '' ?>>Shell</option>
+                        <option value="Common Parts Only" <?= $filterFinish === 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
+                        <option value="Semi Finished" <?= $filterFinish === 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option>
+                        <option value="Finished" <?= $filterFinish === 'Finished' ? 'selected' : '' ?>>Finished</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Project Type</label>
+                    <select name="filter_type">
+                        <option value="all" <?= $filterType === 'all' ? 'selected' : '' ?>>All Types</option>
+                        <option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option>
+                        <option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party (Capital)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Client</label>
+                    <select name="filter_client">
+                        <option value="all">All Clients</option>
+                        <?php foreach ($clients as $client): ?>
+                            <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>City</label>
+                    <select name="filter_city">
+                        <option value="all">All Cities</option>
+                        <?php foreach ($cities as $city): ?>
+                            <option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>><?= htmlspecialchars($city) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Island</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item"><input type="checkbox" name="island_malta" id="island_malta" value="Malta" <?= ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : '' ?>><label for="island_malta">Malta</label></div>
+                        <div class="checkbox-item"><input type="checkbox" name="island_gozo" id="island_gozo" value="Gozo" <?= ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : '' ?>><label for="island_gozo">Gozo</label></div>
+                    </div>
+                </div>
+            </div>
+            <div class="filter-buttons">
+                <button type="submit" class="btn">Apply Filters</button>
+                <a href="projects.php" class="reset-btn">Reset</a>
+            </div>
+        </form>
+    </div>
+
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
@@ -268,12 +350,13 @@ require_once 'header.php';
             </thead>
             <tbody>
                 <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="13" style="text-align: center; padding: 2rem;">No active projects in execution stages found.</td></tr>
+                    <tr><td colspan="13" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): ?>
                         <tr>
                             <td style="font-weight: 700; color: var(--primary-color);">
-                                <?= htmlspecialchars($p['name']) ?>
+                                <?= htmlspecialchars($p['name']) ?><br>
+                                <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
                             </td>
                             <td><?= htmlspecialchars($p['stage']) ?></td>
                             <td><?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></td>
@@ -397,6 +480,37 @@ window.onclick = function(event) {
     let modal = document.getElementById('assignModal');
     if (event.target == modal) { modal.style.display = "none"; }
 }
+
+// Island filtering logic (same as dashboard)
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('matrixFilters');
+    if (!form) return;
+
+    const maltaCheckbox = document.getElementById('island_malta');
+    const gozoCheckbox = document.getElementById('island_gozo');
+
+    function validateIslands(e) {
+        if (!maltaCheckbox.checked && !gozoCheckbox.checked) { e.preventDefault(); this.checked = true; alert('At least one island must be selected'); }
+    }
+
+    if(maltaCheckbox) maltaCheckbox.addEventListener('change', validateIslands);
+    if(gozoCheckbox) gozoCheckbox.addEventListener('change', validateIslands);
+
+    form.addEventListener('submit', function(e) {
+        const existingInput = form.querySelector('input[name="filter_island"]');
+        if (existingInput) existingInput.remove();
+
+        let filterValue = 'all';
+        if (maltaCheckbox && maltaCheckbox.checked && (!gozoCheckbox || !gozoCheckbox.checked)) filterValue = 'Malta';
+        else if (gozoCheckbox && gozoCheckbox.checked && (!maltaCheckbox || !maltaCheckbox.checked)) filterValue = 'Gozo';
+
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'filter_island';
+        input.value = filterValue;
+        form.appendChild(input);
+    });
+});
 </script>
 <?php endif; ?>
 
