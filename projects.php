@@ -40,6 +40,8 @@ $filterFinish = $_GET['filter_finish'] ?? 'all';
 $filterCity = $_GET['filter_city'] ?? 'all';
 $filterClient = $_GET['filter_client'] ?? 'all';
 $filterIsland = $_GET['filter_island'] ?? 'all';
+$filterPm = $_GET['filter_pm'] ?? 'all';
+$filterSub = $_GET['filter_sub'] ?? 'all';
 
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
@@ -177,6 +179,13 @@ if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p
 if ($filterClient !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
 
+if ($filterPm !== 'all') {
+    $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm));
+}
+if ($filterSub !== 'all') {
+    $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub));
+}
+
 // 6. APPLY SORTS
 $stageEnumMap = ['Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
@@ -214,9 +223,14 @@ $matrixProjects = array_values($matrixProjects); // Re-index array
 
 // Helper functions for sort headers
 function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterFinish, $filterCity, $filterClient, $filterIsland;
+    global $sortBy, $sortOrder, $filterType, $filterFinish, $filterCity, $filterClient, $filterIsland, $filterPm, $filterSub;
     $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
-    $params = ['sort' => $column, 'order' => $newOrder, 'filter_type' => $filterType, 'filter_finish' => $filterFinish, 'filter_city' => $filterCity, 'filter_client' => $filterClient];
+    $params = [
+        'sort' => $column, 'order' => $newOrder, 
+        'filter_type' => $filterType, 'filter_finish' => $filterFinish, 
+        'filter_city' => $filterCity, 'filter_client' => $filterClient,
+        'filter_pm' => $filterPm, 'filter_sub' => $filterSub
+    ];
     if ($filterIsland !== 'all') $params['filter_island'] = $filterIsland;
     return 'projects.php?' . http_build_query($params);
 }
@@ -291,7 +305,7 @@ require_once 'header.php';
             <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
             <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
             
-            <div class="filters-grid">
+            <div class="filters-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
                 <div class="filter-group">
                     <label>Finish Requirement</label>
                     <select name="filter_finish">
@@ -316,6 +330,24 @@ require_once 'header.php';
                         <option value="all">All Clients</option>
                         <?php foreach ($clients as $client): ?>
                             <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Project Manager</label>
+                    <select name="filter_pm">
+                        <option value="all">All Managers</option>
+                        <?php foreach ($pms as $pm): ?>
+                            <option value="<?= $pm['id'] ?>" <?= $filterPm == $pm['id'] ? 'selected' : '' ?>><?= htmlspecialchars($pm['first_name'] . ' ' . $pm['last_name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Subcontractor</label>
+                    <select name="filter_sub">
+                        <option value="all">All Subcontractors</option>
+                        <?php foreach ($subs as $sub): ?>
+                            <option value="<?= $sub['id'] ?>" <?= $filterSub == $sub['id'] ? 'selected' : '' ?>><?= htmlspecialchars($sub['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
