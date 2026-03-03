@@ -24,7 +24,10 @@ $paData = [];
 try {
     $paStmt = $pdo->query("SELECT project_id, pa_number FROM project_pa_numbers");
     foreach ($paStmt->fetchAll() as $row) {
-        $paData[$row['project_id']] = $row['pa_number'];
+        if (!isset($paData[$row['project_id']])) {
+            $paData[$row['project_id']] = [];
+        }
+        $paData[$row['project_id']][] = $row['pa_number'];
     }
 } catch(PDOException $e) {} // Failsafe
 
