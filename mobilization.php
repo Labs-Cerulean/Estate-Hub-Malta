@@ -19,7 +19,18 @@ $stageColors = [
 
 $activeProjects = [];
 
+// Explicitly fetch all PA numbers so they display in the sidebar
+$paData = [];
+try {
+    $paStmt = $pdo->query("SELECT project_id, pa_number FROM project_pa_numbers");
+    foreach ($paStmt->fetchAll() as $row) {
+        $paData[$row['project_id']] = $row['pa_number'];
+    }
+} catch(PDOException $e) {} // Failsafe
+
 foreach ($accessibleProjects as $project) {
+    // Attach the PA number to the project data
+    $project['pa_number'] = $paData[$project['id']] ?? null;
     if (($project['project_status'] ?? 'Active') !== 'Active') continue;
     $stage = deriveProjectStage($pdo, $project['id']);
     
