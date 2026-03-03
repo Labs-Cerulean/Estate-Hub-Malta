@@ -297,6 +297,7 @@ require_once 'header.php';
 
     <div class="projects-section" style="margin-bottom: 2rem;">
         <div class="project-meta">
+            <div class="meta-item"><span class="meta-label">PA Ref: </span><span style="color: var(--primary-color); font-weight: 700;"><?= !empty($project['pa_number']) ? htmlspecialchars($project['pa_number']) : 'N/A' ?></span></div>
             <div class="meta-item"><span class="meta-label">Client: </span><span><?= htmlspecialchars($project['client_name'] ?? 'Unknown') ?></span></div>
             <div class="meta-item"><span class="meta-label">Type: </span><span><?= ucwords(str_replace('-', ' ', $project['type'])) ?></span></div>
             <div class="meta-item"><span class="meta-label">City: </span><span><?= htmlspecialchars($project['city']) ?></span></div>
