@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'manage_professionals' => isset($_POST['manage_professionals']) ? 1 : 0,
         'manage_users' => isset($_POST['manage_users']) ? 1 : 0,
         'manage_subcontractors' => isset($_POST['manage_subcontractors']) ? 1 : 0,
-        // New Navigation Visibility Flags
+        // Navigation Visibility Flags
         'view_mobilisation' => isset($_POST['view_mobilisation']) ? 1 : 0,
         'view_projects' => isset($_POST['view_projects']) ? 1 : 0,
         'view_ohsa' => isset($_POST['view_ohsa']) ? 1 : 0,
@@ -39,15 +39,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
         $role = $_POST['role'] ?? 'viewer';
+        $first_name = trim($_POST['first_name'] ?? '');
+        $last_name = trim($_POST['last_name'] ?? '');
 
-        if (empty($username) || empty($email) || empty($password)) {
-            $error = 'Username, email, and password are required';
+        if (empty($username) || empty($password)) {
+            $error = 'Username and password are required';
         } else {
             try {
                 $pdo->beginTransaction();
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("INSERT INTO users (username, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, 'Yes')");
-                $stmt->execute([$username, $email, $hash, $role]);
+                $stmt = $pdo->prepare("INSERT INTO users (first_name, last_name, username, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?, ?, 'Yes')");
+                $stmt->execute([$first_name, $last_name, $username, $email, $hash, $role]);
                 $newId = $pdo->lastInsertId();
 
                 $stmtCaps = $pdo->prepare("
@@ -62,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtCaps->execute($params);
 
                 $pdo->commit();
-                $message = 'User created successfully!';
+                $message = 'User created successfully! Select them from the list to configure their project access levels.';
             } catch (PDOException $e) { $pdo->rollBack(); $error = 'Error: ' . $e->getMessage(); }
         }
     }
@@ -78,6 +80,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=? WHERE id=?");
             $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $userId]);
             
+            // Password update if provided
+            if (!empty($_POST['new_password'])) {
+                $pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
+                $pdo->prepare("UPDATE users SET password_hash=? WHERE id=?")->execute([$pass, $userId]);
+            }
+
             $stmt2 = $pdo->prepare("
                 INSERT INTO user_capabilities (
                     user_id, view_tracking, add_project, edit_project_details, update_project_status, 
@@ -97,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt2->execute($params);
             
             $pdo->commit();
-            $message = 'User profile updated successfully!';
+            $message = 'User profile & permissions updated successfully!';
         } catch (PDOException $e) { $pdo->rollBack(); $error = 'Update Error: ' . $e->getMessage(); }
     }
 
@@ -110,8 +118,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'restore_project') { if ($_POST['user_id'] && $_POST['project_id']) { removeProjectExclusion($pdo, $_POST['user_id'], $_POST['project_id']); $message = 'Restored.'; } }
     elseif ($action === 'assign_project') { if ($_POST['user_id'] && $_POST['project_id']) { assignUserToProject($pdo, $_POST['user_id'], $_POST['project_id']); $message = 'Assigned explicitly.'; } }
     elseif ($action === 'remove_assigned_project') { if ($_POST['user_id'] && $_POST['project_id']) { removeUserFromProject($pdo, $_POST['user_id'], $_POST['project_id']); $message = 'Access removed.'; } }
-    elseif ($action === 'change_password') { if (strlen($_POST['new_password']) >= 6) { changePassword($pdo, $_POST['user_id'], $_POST['new_password']); $message = 'Password changed.'; } else { $error = 'Min 6 chars.'; } }
-    elseif ($action === 'delete_user') { if ($_POST['user_id'] !== getCurrentUserId()) { deleteUser($pdo, $_POST['user_id']); $message = 'Deleted.'; $_GET['user_id'] = null; } else { $error = 'Cannot delete yourself.'; } }
 }
 
 $users = getAllUsers($pdo);
@@ -142,28 +148,37 @@ $rolesList = [
     'sales_manager', 'sales_agent', 'end_customer', 'viewer'
 ];
 
-$pageTitle = 'User Management Rev 2.0';
+$pageTitle = 'User Management';
 require_once 'header.php';
 ?>
+
+<style>
+/* Safe Custom Modal CSS */
+.custom-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.75); backdrop-filter: blur(4px); }
+.custom-modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
+.custom-close-btn { position: absolute; top: 1.5rem; right: 1.5rem; color: var(--text-muted); font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
+.custom-close-btn:hover { color: var(--text-primary); }
+</style>
 
 <div class="main-container">
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
     <div class="two-column-layout">
+        
         <div class="user-list">
             <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <h2>All Users</h2>
-                <button onclick="showCreateUserForm()" class="btn btn-primary btn-sm">Add New User</button>
+                <button type="button" onclick="openCreateModal()" class="btn btn-primary btn-sm">+ Add New User</button>
             </div>
             <table class="data-table">
                 <thead><tr><th>Username</th><th>User Type</th><th>Status</th><th>Action</th></tr></thead>
                 <tbody>
                     <?php foreach ($users as $u): ?>
                     <tr>
-                        <td><?= htmlspecialchars($u['username']) ?></td>
-                        <td><span class="role-badge role-viewer"><?= ucwords(str_replace('_', ' ', $u['role'])) ?></span></td>
-                        <td><?= $u['is_active'] ?></td>
+                        <td style="font-weight: 600;">@<?= htmlspecialchars($u['username']) ?></td>
+                        <td><span style="font-size: 0.75rem; text-transform: uppercase;"><?= ucwords(str_replace('_', ' ', $u['role'])) ?></span></td>
+                        <td><span style="color: <?= $u['is_active'] === 'Yes' ? '#10B981' : '#EF4444' ?>; font-weight: bold;"><?= $u['is_active'] ?></span></td>
                         <td><a href="?user_id=<?= $u['id'] ?>" class="btn btn-sm btn-secondary">Edit</a></td>
                     </tr>
                     <?php endforeach; ?>
@@ -245,7 +260,11 @@ require_once 'header.php';
                         </div>
                     </div>
 
-                    <div class="form-group"><label>Account Status</label><select name="is_active"><option value="Yes" <?= $selectedUser['is_active'] == 'Yes' ? 'selected' : '' ?>>Active</option><option value="No" <?= $selectedUser['is_active'] == 'No' ? 'selected' : '' ?>>Inactive</option></select></div>
+                    <div class="form-row">
+                        <div class="form-group"><label>Account Status</label><select name="is_active"><option value="Yes" <?= $selectedUser['is_active'] == 'Yes' ? 'selected' : '' ?>>Active</option><option value="No" <?= $selectedUser['is_active'] == 'No' ? 'selected' : '' ?>>Inactive</option></select></div>
+                        <div class="form-group"><label>Change Password</label><input type="password" name="new_password" placeholder="Leave blank to keep current"></div>
+                    </div>
+                    
                     <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save Profile & Permissions</button>
                 </form>
 
@@ -298,24 +317,76 @@ require_once 'header.php';
                     </div>
                 </div>
             <?php else: ?>
-                <div class="empty-state"><p>Select a user from the list.</p></div>
+                <div class="empty-state"><p>Select a user from the list to edit their profile and permissions.</p></div>
             <?php endif; ?>
         </div>
     </div>
 </div>
 
+<div id="createModal" class="custom-modal">
+    <div class="custom-modal-content">
+        <span class="custom-close-btn" onclick="closeCreateModal()">&times;</span>
+        <h2 style="margin-top: 0; color: var(--primary-color);">Create New User</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;">
+            Create the basic profile here. Once created, you can edit their specific permissions and project access levels from the list.
+        </p>
+        
+        <form method="POST">
+            <input type="hidden" name="action" value="create_user">
+            
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group" style="margin: 0;">
+                    <label>First Name</label>
+                    <input type="text" name="first_name" required>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label>Last Name</label>
+                    <input type="text" name="last_name" required>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label>Username (Login ID)</label>
+                <input type="text" name="username" required>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label>Email Address</label>
+                <input type="email" name="email">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label>System Role</label>
+                <select name="role" required>
+                    <?php foreach($rolesList as $r): ?>
+                        <option value="<?= $r ?>"><?= ucwords(str_replace('_', ' ', $r)) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label>Initial Password</label>
+                <input type="password" name="password" placeholder="Required" required>
+            </div>
+            
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Create User</button>
+        </form>
+    </div>
+</div>
+
 <script>
-// Exact mapping updated for v2.1 Rules
+// Open/Close Create Modal
+function openCreateModal() { document.getElementById('createModal').style.display = 'block'; }
+function closeCreateModal() { document.getElementById('createModal').style.display = 'none'; }
+window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
+
+// Capability Defaults Script
 const roleDefaults = {
     'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
     'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
     'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    
-    // UPDATED: Project Manager Defaults
     'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    // UPDATED: Accountant Defaults
     'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects'],
-    
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings'],
@@ -338,16 +409,12 @@ function toggleAccessSections(type) {
     const level2Div = document.getElementById(type + 'Level2Fields');
     const level3Div = document.getElementById(type + 'Level3Fields');
     
-    // UPDATED: PM is now Level 3 (Assigned by specific projects only)
     const level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
     const level3Roles = ['subcontractor', 'condominium_agent', 'end_customer', 'project_manager'];
     const level0Roles = ['admin']; 
     
     if (level1Div) level1Div.style.display = level1Roles.includes(role) ? 'block' : 'none';
-    
-    // UPDATED: Accountant falls under Level 2 (Assigned by Client) which is the default for anyone not in L0, L1, or L3
     if (level2Div) level2Div.style.display = (level0Roles.includes(role) || level1Roles.includes(role) || level3Roles.includes(role)) ? 'none' : 'block';
-    
     if (level3Div) level3Div.style.display = level3Roles.includes(role) ? 'block' : 'none';
 }
 
