@@ -88,7 +88,7 @@ if (!empty($projectIds)) {
 
 // 3. Filter for active execution stages
 $ohsaProjects = [];
-$ohsaStages = ['Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
+$ohsaStages = ['Mobilisation','Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 foreach ($projectsRaw as $p) {
     // Exclude withdrawn or on-hold projects entirely
