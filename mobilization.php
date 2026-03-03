@@ -262,7 +262,19 @@ require_once 'header.php';
                                 <span style="color: var(--primary-color); font-weight: 600;"><?= htmlspecialchars($project['island'] ?? 'Malta') ?></span>
                             </div>
                             <span style="color: var(--primary-color); font-weight: 600; font-size: 0.85em;">
-                                PA Ref: <?= !empty($project['pa_number']) ? htmlspecialchars($project['pa_number']) : 'N/A' ?>
+                                PA Ref: 
+                                <?php 
+                                if (!empty($project['pa_numbers'])) {
+                                    $paLinks = [];
+                                    foreach ($project['pa_numbers'] as $pa) {
+                                        $url = getEAppsUrl($pa);
+                                        $paLinks[] = "<a href=\"$url\" target=\"_blank\" style=\"color: inherit; text-decoration: underline;\">" . htmlspecialchars($pa) . "</a>";
+                                    }
+                                    echo implode(', ', $paLinks);
+                                } else {
+                                    echo 'Not Assigned';
+                                }
+                                ?>
                             </span>
                         </div>
                         
