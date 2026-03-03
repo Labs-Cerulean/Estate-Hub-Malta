@@ -10,6 +10,16 @@ if (!hasProjectAccess($pdo, $projectId)) { header('Location: dashboard.php?error
 $project = getProjectWithClient($pdo, $projectId);
 if (!$project) { header('Location: dashboard.php'); exit; }
 
+// Explicitly fetch the PA Number for this specific project
+try {
+    $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ? LIMIT 1");
+    $paStmt->execute([$projectId]);
+    $fetchedPa = $paStmt->fetchColumn();
+    if ($fetchedPa) {
+        $project['pa_number'] = $fetchedPa;
+    }
+} catch(PDOException $e) {}
+
 if ($project['is_tracking'] == 1 && !hasPermission('view_tracking') && !isAdmin()) {
     header('Location: dashboard.php?error=access_denied'); exit;
 }
