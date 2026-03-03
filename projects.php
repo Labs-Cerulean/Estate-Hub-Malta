@@ -34,12 +34,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $pms = $pdo->query("SELECT id, first_name, last_name, username FROM users WHERE role = 'project_manager' AND is_active = 'Yes' ORDER BY first_name")->fetchAll();
 $subs = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name")->fetchAll();
 
-// 2. GET FILTERS
+// 2. GET FILTERS AND SORTS
 $filterType = $_GET['filter_type'] ?? 'all';
 $filterFinish = $_GET['filter_finish'] ?? 'all';
 $filterCity = $_GET['filter_city'] ?? 'all';
 $filterClient = $_GET['filter_client'] ?? 'all';
 $filterIsland = $_GET['filter_island'] ?? 'all';
+
+$sortBy = $_GET['sort'] ?? 'name';
+$sortOrder = $_GET['order'] ?? 'ASC';
+$allowedSorts = ['name', 'stage', 'finishlevel', 'demo_status', 'exc_status', 'const_status', 'fin_status', 'pm_const', 'pm_fin'];
+if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
+$allowedOrders = ['ASC', 'DESC'];
+if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
 
 // 3. Fetch Projects and their Mobilisation statuses
 $projectsRaw = getAccessibleProjects($pdo, getCurrentUserId());
@@ -70,7 +77,7 @@ if (!empty($projectIds)) {
     $mobStmt->execute($projectIds);
     foreach ($mobStmt->fetchAll() as $row) { $mobData[$row['project_id']] = $row; }
     
-    // Fetch Block & Floor Execution Statuses (Upgraded to pull names and sort correctly for the dropdown view)
+    // Fetch Block & Floor Execution Statuses
     $blockStmt = $pdo->prepare("
         SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, bl.level_name, bl.construction_status 
         FROM project_blocks pb 
@@ -83,10 +90,8 @@ if (!empty($projectIds)) {
         $pid = $row['project_id'];
         $bid = $row['block_id'];
         
-        // Data for high-level matrix calculation
         $blockData[$pid][] = $row; 
         
-        // Data nested for the expanded drop-down UI
         if (!isset($detailedBlocks[$pid])) $detailedBlocks[$pid] = [];
         if (!isset($detailedBlocks[$pid][$bid])) {
             $detailedBlocks[$pid][$bid] = [
@@ -114,11 +119,9 @@ foreach ($projectsRaw as $p) {
     $stage = deriveProjectStage($pdo, $p['id']);
     
     if (in_array($stage, $allowedStages)) {
-        // Grab Demolition & Excavation
         $p['demo_status'] = $mobData[$p['id']]['demo_status'] ?? 'Pending';
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         
-        // Calculate High-Level Construction Status
         $p['const_status'] = 'Pending';
         $constStatuses = [];
         $finStatuses = [];
@@ -130,14 +133,12 @@ foreach ($projectsRaw as $p) {
             }
         }
         
-        // Aggregate Construction
         if (!empty($constStatuses)) {
             if (in_array('In Progress', $constStatuses)) { $p['const_status'] = 'In Progress'; }
             elseif (count(array_unique($constStatuses)) === 1 && (end($constStatuses) === 'Complete' || end($constStatuses) === 'NA')) { $p['const_status'] = 'Complete'; }
             elseif (in_array('Complete', $constStatuses)) { $p['const_status'] = 'In Progress'; } 
         }
         
-        // Aggregate Finishes
         $p['fin_status'] = 'Pending';
         if (in_array($p['finishlevel'], ['Shell', null, ''])) {
             $p['fin_status'] = 'NA';
@@ -147,7 +148,6 @@ foreach ($projectsRaw as $p) {
             elseif (in_array('Complete', $finStatuses)) { $p['fin_status'] = 'In Progress'; }
         }
 
-        // Map PMs and Subs names
         $p['pm_const_name'] = 'Unassigned';
         $p['pm_fin_name'] = 'Unassigned';
         foreach ($pms as $pm) {
@@ -165,19 +165,66 @@ foreach ($projectsRaw as $p) {
         }
         
         $p['stage'] = $stage;
-        $p['detailed_blocks'] = $detailedBlocks[$p['id']] ?? []; // Attach the nested block/level data
+        $p['detailed_blocks'] = $detailedBlocks[$p['id']] ?? []; 
         $matrixProjects[] = $p;
     }
 }
 
-// 5. APPLY FILTERS to Matrix Array
+// 5. APPLY FILTERS
 if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
 if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
 if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['city'] === $filterCity);
 if ($filterClient !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
 
-$matrixProjects = array_values($matrixProjects);
+// 6. APPLY SORTS
+$stageEnumMap = ['Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
+$statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
+
+usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageEnumMap, $statusEnumMap) {
+    $valA = ''; $valB = '';
+    
+    if ($sortBy === 'stage') {
+        $valA = $stageEnumMap[$a['stage']] ?? 0;
+        $valB = $stageEnumMap[$b['stage']] ?? 0;
+    } elseif (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) {
+        $valA = $statusEnumMap[$a[$sortBy]] ?? 0;
+        $valB = $statusEnumMap[$b[$sortBy]] ?? 0;
+    } elseif (in_array($sortBy, ['pm_const', 'pm_fin'])) {
+        $key = $sortBy . '_name';
+        $valA = $a[$key] ?? '';
+        $valB = $b[$key] ?? '';
+    } else {
+        $valA = $a[$sortBy] ?? '';
+        $valB = $b[$sortBy] ?? '';
+    }
+
+    if ($valA == $valB) return 0;
+    
+    if (is_numeric($valA) && is_numeric($valB)) {
+        $comp = $valA <=> $valB;
+    } else {
+        $comp = strcasecmp((string)$valA, (string)$valB);
+    }
+    
+    return $sortOrder === 'ASC' ? $comp : -$comp;
+});
+
+$matrixProjects = array_values($matrixProjects); // Re-index array
+
+// Helper functions for sort headers
+function getSortUrl($column) {
+    global $sortBy, $sortOrder, $filterType, $filterFinish, $filterCity, $filterClient, $filterIsland;
+    $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
+    $params = ['sort' => $column, 'order' => $newOrder, 'filter_type' => $filterType, 'filter_finish' => $filterFinish, 'filter_city' => $filterCity, 'filter_client' => $filterClient];
+    if ($filterIsland !== 'all') $params['filter_island'] = $filterIsland;
+    return 'projects.php?' . http_build_query($params);
+}
+function getSortIndicator($column) {
+    global $sortBy, $sortOrder;
+    if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
+    return '';
+}
 
 function renderStatusBadge($status) {
     $colors = [
@@ -199,6 +246,11 @@ require_once 'header.php';
 .matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.85rem; }
 .matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
 .matrix-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; }
+
+/* Header Sort Links */
+.sort-link { color: inherit; text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.sort-link:hover { color: var(--primary-color); }
+.sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 
 /* Sticky Columns for Main Rows */
 .matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
@@ -236,6 +288,9 @@ require_once 'header.php';
 
     <div class="filters-section" style="margin-bottom: 1.5rem;">
         <form method="GET" id="matrixFilters">
+            <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
+            <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
+            
             <div class="filters-grid">
                 <div class="filter-group">
                     <label>Finish Requirement</label>
@@ -295,17 +350,18 @@ require_once 'header.php';
         <table class="matrix-table">
             <thead>
                 <tr>
-                    <th>Project Name</th>
-                    <th>Stage</th>
-                    <th>Finish Requirement</th>
+                    <th><a href="<?= getSortUrl('name') ?>" class="sort-link">Project Name <span class="sort-indicator"><?= getSortIndicator('name') ?></span></a></th>
+                    <th><a href="<?= getSortUrl('stage') ?>" class="sort-link">Stage <span class="sort-indicator"><?= getSortIndicator('stage') ?></span></a></th>
+                    <th><a href="<?= getSortUrl('finishlevel') ?>" class="sort-link">Finish Req <span class="sort-indicator"><?= getSortIndicator('finishlevel') ?></span></a></th>
                     
-                    <th style="border-left: 2px solid var(--border-glass); text-align: center;">Demolition</th>
-                    <th style="text-align: center;">Excavation</th>
-                    <th style="text-align: center;">Construction</th>
-                    <th style="text-align: center;">Finishes</th>
+                    <th style="border-left: 2px solid var(--border-glass); text-align: center;"><a href="<?= getSortUrl('demo_status') ?>" class="sort-link" style="justify-content:center;">Demolition <span class="sort-indicator"><?= getSortIndicator('demo_status') ?></span></a></th>
+                    <th style="text-align: center;"><a href="<?= getSortUrl('exc_status') ?>" class="sort-link" style="justify-content:center;">Excavation <span class="sort-indicator"><?= getSortIndicator('exc_status') ?></span></a></th>
+                    <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
+                    <th style="text-align: center;"><a href="<?= getSortUrl('fin_status') ?>" class="sort-link" style="justify-content:center;">Finishes <span class="sort-indicator"><?= getSortIndicator('fin_status') ?></span></a></th>
 
-                    <th style="border-left: 2px solid var(--border-glass);">PM (Construction)</th>
-                    <th>PM (Finishes)</th>
+                    <th style="border-left: 2px solid var(--border-glass);"><a href="<?= getSortUrl('pm_const') ?>" class="sort-link">PM (Const) <span class="sort-indicator"><?= getSortIndicator('pm_const') ?></span></a></th>
+                    <th><a href="<?= getSortUrl('pm_fin') ?>" class="sort-link">PM (Finishes) <span class="sort-indicator"><?= getSortIndicator('pm_fin') ?></span></a></th>
+                    
                     <th style="border-left: 2px solid var(--border-glass);">Sub (Demolition)</th>
                     <th>Sub (Excavation)</th>
                     <th>Sub (Construction)</th>
