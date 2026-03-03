@@ -242,9 +242,14 @@ require_once 'header.php';
                                 <?= $project['stage'] ?>
                             </span>
                         </div>
-                        <div class="item-client">
-                            <span><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></span>
-                            <span style="color: var(--primary-color); font-weight: 600;"><?= htmlspecialchars($project['island'] ?? 'Malta') ?></span>
+                        <div class="item-client" style="flex-direction: column; gap: 0.25rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></span>
+                                <span style="color: var(--primary-color); font-weight: 600;"><?= htmlspecialchars($project['island'] ?? 'Malta') ?></span>
+                            </div>
+                            <span style="color: var(--primary-color); font-weight: 600; font-size: 0.85em;">
+                                PA Ref: <?= !empty($project['pa_number']) ? htmlspecialchars($project['pa_number']) : 'N/A' ?>
+                            </span>
                         </div>
                         
                         <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary);">
