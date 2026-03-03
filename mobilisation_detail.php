@@ -10,13 +10,13 @@ if (!hasProjectAccess($pdo, $projectId)) { header('Location: dashboard.php?error
 $project = getProjectWithClient($pdo, $projectId);
 if (!$project) { header('Location: dashboard.php'); exit; }
 
-// Explicitly fetch the PA Number for this specific project
+// Explicitly fetch all PA Numbers for this specific project
 try {
-    $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ? LIMIT 1");
+    $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ?");
     $paStmt->execute([$projectId]);
-    $fetchedPa = $paStmt->fetchColumn();
-    if ($fetchedPa) {
-        $project['pa_number'] = $fetchedPa;
+    $fetchedPas = $paStmt->fetchAll(PDO::FETCH_COLUMN);
+    if ($fetchedPas) {
+        $project['pa_numbers'] = $fetchedPas;
     }
 } catch(PDOException $e) {}
 
