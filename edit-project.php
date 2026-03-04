@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     try {
         $pdo->beginTransaction();
 
-        // 1. UPDATE CORE PROJECT DETAILS (Now includes project_status)
+       // 1. UPDATE CORE PROJECT DETAILS
         $clientId = $_POST['clientid'] ?? null;
         $name = trim($_POST['name'] ?? '');
         $city = trim($_POST['city'] ?? '');
@@ -28,11 +28,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
         $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
         $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
-        $projectStatus = $_POST['project_status'] ?? 'Active'; // NEW
+        $projectStatus = $_POST['project_status'] ?? 'Active'; 
         
-        $stmt = $pdo->prepare("UPDATE projects SET clientid=?, name=?, city=?, island=?, type=?, finishlevel=?, is_tracking=?, summer_break_flag=?, project_status=? WHERE id=?");
-        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, $projectStatus, $projectId]);
+        // --- NEW MAP COORDINATES ---
+        $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
+        $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
+
+        $stmt = $pdo->prepare("
+            UPDATE projects 
+            SET clientid = ?, name = ?, city = ?, island = ?, type = ?, 
+                finishlevel = ?, is_tracking = ?, summer_break_flag = ?, 
+                project_status = ?, latitude = ?, longitude = ? 
+            WHERE id = ?
+        ");
         
+        $stmt->execute([
+            $clientId, 
+            $name, 
+            $city, 
+            $island, 
+            $type, 
+            $finishLevel, 
+            $isTracking, 
+            $summerBreak, 
+            $projectStatus, 
+            $latitude,    // <-- NEW
+            $longitude,   // <-- NEW
+            $projectId
+        ]);
         // 2. UPDATE PA NUMBERS
         if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
             $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?")->execute([$projectId]);
@@ -175,6 +198,14 @@ require_once 'header.php';
                             <option value="in-house" <?= $project['type'] == 'in-house' ? 'selected' : '' ?>>In-House</option>
                             <option value="3rd-party" <?= $project['type'] == '3rd-party' ? 'selected' : '' ?>>3rd Party</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Exact Latitude (Optional)</label>
+                        <input type="text" name="latitude" value="<?= htmlspecialchars($project['latitude'] ?? '') ?>" placeholder="e.g., 35.912245">
+                    </div>
+                    <div class="form-group">
+                        <label>Exact Longitude (Optional)</label>
+                        <input type="text" name="longitude" value="<?= htmlspecialchars($project['longitude'] ?? '') ?>" placeholder="e.g., 14.504212">
                     </div>
                     <div class="form-group" id="finish-level-group" style="display: <?= $project['type'] == 'in-house' ? 'block' : 'none' ?>;">
                         <label>Finish Level</label>
