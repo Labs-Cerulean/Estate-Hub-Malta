@@ -44,6 +44,7 @@ require_once 'header.php';
         border-radius: var(--radius-md);
         overflow: hidden;
         box-shadow: var(--shadow-md);
+        position: relative;
     }
     .map-header {
         padding: 1rem 1.5rem;
@@ -52,58 +53,48 @@ require_once 'header.php';
         display: flex;
         justify-content: space-between;
         align-items: center;
+        z-index: 1000;
     }
     #projectMap {
         flex: 1;
         width: 100%;
-        background: #1a1a24; /* Dark background before tiles load */
+        background: #1a1a24; 
+        z-index: 1;
     }
     
     /* Custom Popup Styles */
-    .leaflet-popup-content-wrapper {
-        background: var(--bg-card);
-        color: var(--text-primary);
-        border-radius: 8px;
-        border: 1px solid var(--border-glass);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    .leaflet-popup-content-wrapper { background: var(--bg-card); color: var(--text-primary); border-radius: 8px; border: 1px solid var(--border-glass); box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    .leaflet-popup-tip { background: var(--bg-card); border: 1px solid var(--border-glass); }
+    .popup-title { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 0.25rem; }
+    .popup-meta { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
+    .popup-btn { display: inline-block; background: var(--primary-color); color: white; padding: 0.4rem 0.8rem; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 0.8rem; text-align: center; width: 100%; }
+    .popup-btn:hover { background: var(--primary-hover); color: white; }
+
+    /* Custom Marker Pin */
+    .custom-pin {
+        display: flex; align-items: center; justify-content: center;
     }
-    .leaflet-popup-tip {
-        background: var(--bg-card);
-        border: 1px solid var(--border-glass);
+    .custom-pin-inner {
+        width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.6);
     }
-    .popup-title {
-        font-size: 1.1rem;
-        font-weight: bold;
-        color: var(--primary-color);
-        margin-bottom: 0.25rem;
+
+    /* Floating Legend */
+    .map-legend {
+        position: absolute; bottom: 30px; left: 15px; z-index: 999;
+        background: rgba(30, 30, 45, 0.9); backdrop-filter: blur(5px);
+        border: 1px solid var(--border-glass); border-radius: 8px;
+        padding: 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        max-height: 300px; overflow-y: auto; min-width: 200px;
     }
-    .popup-meta {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        margin-bottom: 0.75rem;
-    }
-    .popup-btn {
-        display: inline-block;
-        background: var(--primary-color);
-        color: white;
-        padding: 0.4rem 0.8rem;
-        border-radius: 4px;
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 0.8rem;
-        text-align: center;
-        width: 100%;
-    }
-    .popup-btn:hover {
-        background: var(--primary-hover);
-        color: white;
-    }
+    .legend-title { font-weight: bold; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.25rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); }
+    .legend-color { width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
 </style>
 
 <div class="main-container" style="max-width: 100%;">
     <div style="margin-bottom: 1rem;">
         <h1 class="page-title" style="margin-bottom: 0;">Portfolio Map View</h1>
-        <p style="color: var(--text-secondary); margin-top: 0.25rem;">Interactive geographical distribution of active projects. Projects in the same locality are clustered.</p>
+        <p style="color: var(--text-secondary); margin-top: 0.25rem;">Interactive geographical distribution. Exact coordinates are used if available, otherwise clustered by locality.</p>
     </div>
 
     <div class="map-container">
@@ -123,12 +114,18 @@ require_once 'header.php';
                 Showing <?= count($mapProjects) ?> projects
             </div>
         </div>
+        
         <div id="projectMap"></div>
+        
+        <div class="map-legend" id="mapLegend" style="display: none;">
+            <div class="legend-title">Developers / Clients</div>
+            <div id="legendContent"></div>
+        </div>
     </div>
 </div>
 
 <script>
-// 1. Hardcoded coordinate dictionary for Localities (Zero Data Entry!)
+// 1. Hardcoded Locality Fallbacks
 const localityCoords = {
     // Malta
     "Attard": [35.8914, 14.4431], "Balzan": [35.8983, 14.4533], "Birkirkara": [35.8972, 14.4611],
@@ -156,22 +153,45 @@ const localityCoords = {
     "Xewkija": [36.0322, 14.2583], "Żebbuġ (Gozo)": [36.0717, 14.2369]
 };
 
-// 2. Load Project Data from PHP
+// 2. Dynamic Color Palette for Developers
+const colorPalette = [
+    '#ef4444', // Red
+    '#3b82f6', // Blue
+    '#10b981', // Green
+    '#f59e0b', // Amber
+    '#a855f7', // Purple
+    '#ec4899', // Pink
+    '#06b6d4', // Cyan
+    '#f97316', // Orange
+    '#8b5cf6', // Violet
+    '#14b8a6'  // Teal
+];
+
+let clientColors = {};
+let colorIndex = 0;
+
+function getClientColor(clientName) {
+    let name = clientName ? clientName.trim() : 'In-House (Internal)';
+    if (!clientColors[name]) {
+        clientColors[name] = colorPalette[colorIndex % colorPalette.length];
+        colorIndex++;
+    }
+    return clientColors[name];
+}
+
+// Load Data
 const projectsData = <?= json_encode($mapProjects, JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
-// 3. Initialize Map
-// Dark theme map tiles for a modern look
-const map = L.map('projectMap').setView([35.91, 14.4], 11); // Center on Malta
+// 3. Initialize Map (Dark theme)
+const map = L.map('projectMap').setView([35.91, 14.4], 11);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    attribution: '&copy; OpenStreetMap',
     subdomains: 'abcd',
     maxZoom: 19
 }).addTo(map);
 
-// 4. Initialize Marker Cluster Group
-// This handles the "Spiderfy" bubble expansion automatically
 let markersGroup = L.markerClusterGroup({
-    maxClusterRadius: 40,
+    maxClusterRadius: 35,
     spiderfyOnMaxZoom: true,
     showCoverageOnHover: false,
     zoomToBoundsOnClick: true
@@ -180,26 +200,47 @@ let markersGroup = L.markerClusterGroup({
 function renderMarkers(filterStage = 'all') {
     markersGroup.clearLayers();
     let visibleCount = 0;
+    
+    // Track which clients are visible to build the legend
+    let visibleClients = new Set();
 
     projectsData.forEach(p => {
         if (filterStage !== 'all' && p.stage !== filterStage) return;
 
-        // Try to find the city in our dictionary. Fallback to Malta center if missing.
-        let coords = localityCoords[p.city];
-        if (!coords) { coords = [35.91, 14.4]; } 
+        // EXACT COORDS VS FALLBACK LOGIC
+        let coords;
+        if (p.latitude && p.longitude && p.latitude !== '' && p.longitude !== '') {
+            coords = [parseFloat(p.latitude), parseFloat(p.longitude)];
+        } else {
+            coords = localityCoords[p.city] || [35.91, 14.4];
+        }
 
-        const marker = L.marker(coords);
+        const clientName = p.client_name || 'In-House (Internal)';
+        const pinColor = getClientColor(clientName);
+        visibleClients.add(clientName);
+
+        // Create Custom HTML Pin
+        const customIcon = L.divIcon({
+            className: 'custom-pin',
+            html: `<div class="custom-pin-inner" style="background-color: ${pinColor};"></div>`,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+        });
         
-        // Build the Popup Card
+        const marker = L.marker(coords, { icon: customIcon });
+        
         const popupContent = `
             <div style="min-width: 200px;">
                 <div class="popup-title">${p.name}</div>
                 <div class="popup-meta">
-                    <strong>City:</strong> ${p.city}<br>
-                    <strong>Client:</strong> ${p.client_name || 'N/A'}<br>
-                    <strong>Stage:</strong> <span style="color: #10b981; font-weight: bold;">${p.stage}</span>
+                    <strong>Developer:</strong> <span style="color: ${pinColor}; font-weight: bold;">${clientName}</span><br>
+                    <strong>Location:</strong> ${p.city}<br>
+                    <strong>Stage:</strong> <span style="color: #fff;">${p.stage}</span><br>
+                    <span style="font-size: 0.75rem; color: #6b7280; font-style: italic;">
+                        ${(p.latitude && p.longitude) ? '📍 Exact Coordinates' : '📍 Locality Approximation'}
+                    </span>
                 </div>
-                <a href="${p.url}" class="popup-btn">View Execution Dashboard</a>
+                <a href="${p.url}" class="popup-btn">Open Project Dashboard</a>
             </div>
         `;
         
@@ -210,16 +251,35 @@ function renderMarkers(filterStage = 'all') {
 
     map.addLayer(markersGroup);
     document.getElementById('projectCount').textContent = `Showing ${visibleCount} projects`;
+
+    // Render Legend
+    const legendContainer = document.getElementById('mapLegend');
+    const legendContent = document.getElementById('legendContent');
+    legendContent.innerHTML = '';
+    
+    if (visibleClients.size > 0) {
+        legendContainer.style.display = 'block';
+        Array.from(visibleClients).sort().forEach(client => {
+            const color = getClientColor(client);
+            legendContent.innerHTML += `
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: ${color};"></div>
+                    <span>${client}</span>
+                </div>
+            `;
+        });
+    } else {
+        legendContainer.style.display = 'none';
+    }
 }
 
 // Initial Render
 renderMarkers();
 
-// 5. Handle Filtering
+// Filtering
 document.getElementById('stageFilter').addEventListener('change', function(e) {
     renderMarkers(e.target.value);
 });
-
 </script>
 
 <?php require_once 'footer.php'; ?>
