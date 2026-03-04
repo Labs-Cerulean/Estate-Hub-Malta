@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     try {
         $pdo->beginTransaction();
 
-        // 1. INSERT CORE PROJECT DETAILS
+       // 1. UPDATE CORE PROJECT DETAILS
         $clientId = $_POST['clientid'] ?? null;
         $name = trim($_POST['name'] ?? '');
         $city = trim($_POST['city'] ?? '');
@@ -23,13 +23,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
         $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
         $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
+        $projectStatus = $_POST['project_status'] ?? 'Active'; 
         
-        $stmt = $pdo->prepare("INSERT INTO projects (clientid, name, city, island, type, finishlevel, is_tracking, summer_break_flag, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, getCurrentUserId()]);
-        $projectId = $pdo->lastInsertId();
+        // --- NEW MAP COORDINATES ---
+        $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
+        $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
 
-        // Initialize Mobilisation Checklist Tracker for this project
-        $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)")->execute([$projectId]);
+        $stmt = $pdo->prepare("
+            UPDATE projects 
+            SET clientid = ?, name = ?, city = ?, island = ?, type = ?, 
+                finishlevel = ?, is_tracking = ?, summer_break_flag = ?, 
+                project_status = ?, latitude = ?, longitude = ? 
+            WHERE id = ?
+        ");
+        
+        $stmt->execute([
+            $clientId, 
+            $name, 
+            $city, 
+            $island, 
+            $type, 
+            $finishLevel, 
+            $isTracking, 
+            $summerBreak, 
+            $projectStatus, 
+            $latitude,    // <-- NEW
+            $longitude,   // <-- NEW
+            $projectId
+        ]);;
 
         // 2. INSERT PA NUMBERS
         if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
@@ -139,6 +160,15 @@ require_once 'header.php';
                         <select name="city" id="city-select" required>
                             <option value="">Select City</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Exact Latitude (Optional)</label>
+                        <input type="text" name="latitude" value="<?= htmlspecialchars($project['latitude'] ?? '') ?>" placeholder="e.g. 35.912245">
+                        <small style="color: var(--text-muted); font-size: 0.75rem;">Leave blank to default to City center on the map.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Exact Longitude (Optional)</label>
+                        <input type="text" name="longitude" value="<?= htmlspecialchars($project['longitude'] ?? '') ?>" placeholder="e.g. 14.504212">
                     </div>
                     <div class="form-group">
                         <label>Project Type</label>
