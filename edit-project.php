@@ -192,14 +192,7 @@ require_once 'header.php';
                             <option value="<?= htmlspecialchars($project['city']) ?>" selected><?= htmlspecialchars($project['city']) ?></option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>Project Type</label>
-                        <select name="type" id="project-type" onchange="toggleFinishLevel()" required>
-                            <option value="in-house" <?= $project['type'] == 'in-house' ? 'selected' : '' ?>>In-House</option>
-                            <option value="3rd-party" <?= $project['type'] == '3rd-party' ? 'selected' : '' ?>>3rd Party</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
+                        <div class="form-group">
                         <label>Exact Latitude (Optional)</label>
                         <input type="text" name="latitude" value="<?= htmlspecialchars($project['latitude'] ?? '') ?>" placeholder="e.g., 35.912245">
                     </div>
@@ -207,6 +200,14 @@ require_once 'header.php';
                         <label>Exact Longitude (Optional)</label>
                         <input type="text" name="longitude" value="<?= htmlspecialchars($project['longitude'] ?? '') ?>" placeholder="e.g., 14.504212">
                     </div>
+                    <div class="form-group">
+                        <label>Project Type</label>
+                        <select name="type" id="project-type" onchange="toggleFinishLevel()" required>
+                            <option value="in-house" <?= $project['type'] == 'in-house' ? 'selected' : '' ?>>In-House</option>
+                            <option value="3rd-party" <?= $project['type'] == '3rd-party' ? 'selected' : '' ?>>3rd Party</option>
+                        </select>
+                    </div>
+                
                     <div class="form-group" id="finish-level-group" style="display: <?= $project['type'] == 'in-house' ? 'block' : 'none' ?>;">
                         <label>Finish Level</label>
                         <select name="finishlevel" id="finish-level">
