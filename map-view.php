@@ -204,13 +204,31 @@ function getClientColor(clientName) {
 // Load Data
 const projectsData = <?= json_encode($mapProjects, JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
-// 3. Initialize Map (Dark theme)
+// 3. Initialize Map
 const map = L.map('projectMap').setView([35.91, 14.4], 11);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap',
+
+// Define the Dark Theme Street Map
+const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
     subdomains: 'abcd',
     maxZoom: 19
-}).addTo(map);
+});
+
+// Define the Esri High-Res Satellite Map
+const satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    maxZoom: 19
+});
+
+// Set the default map (let's use Satellite as the default!)
+satelliteMap.addTo(map);
+
+// Add the Layer Control Toggle to the top right
+const baseMaps = {
+    "Satellite View": satelliteMap,
+    "Dark Street View": darkMap
+};
+L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
 
 let markersGroup = L.markerClusterGroup({
     maxClusterRadius: 35,
