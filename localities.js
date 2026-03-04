@@ -11,7 +11,7 @@ const locations = {
         "Żejtun", "Żurrieq"
     ],
     'Gozo': [
-        "Fontana", "Għajnsielem", "Għarb", "Għasri", "Kerċem", "Munxar", "Nadur", "Qala", 
+        "Fontana", "Għajnsielem", "Għarb", "Għasri", "Kerċem", "Marsalforn", "Munxar", "Nadur", "Qala", 
         "Rabat (Victoria)", "San Lawrenz", "Sannat", "Xagħra", "Xewkija", "Żebbuġ (Gozo)"
     ]
 };
