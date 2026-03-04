@@ -53,7 +53,7 @@ require_once 'header.php';
         display: flex;
         justify-content: space-between;
         align-items: center;
-        z-index: 1000;
+        z-index: 10; /* Lowered from 1000 so it goes UNDER your main site header */
     }
     #projectMap {
         flex: 1;
