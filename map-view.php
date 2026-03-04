@@ -67,8 +67,30 @@ require_once 'header.php';
     .leaflet-popup-tip { background: var(--bg-card); border: 1px solid var(--border-glass); }
     .popup-title { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 0.25rem; }
     .popup-meta { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
-    .popup-btn { display: inline-block; background: var(--primary-color); color: white; padding: 0.4rem 0.8rem; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 0.8rem; text-align: center; width: 100%; }
-    .popup-btn:hover { background: var(--primary-hover); color: white; }
+    /* Upgraded Popup Button */
+    .popup-btn { 
+        display: block; 
+        box-sizing: border-box;
+        background: var(--primary-color); 
+        color: #ffffff !important; 
+        padding: 0.6rem 1rem; 
+        margin-top: 0.75rem;
+        border-radius: 6px; 
+        text-decoration: none; 
+        font-weight: 600; 
+        font-size: 0.85rem; 
+        text-align: center; 
+        width: 100%; 
+        transition: all 0.2s ease;
+        border: 1px solid var(--primary-color);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .popup-btn:hover { 
+        background: transparent; 
+        color: var(--primary-color) !important; 
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        transform: translateY(-2px);
+    }
 
     /* Custom Marker Pin */
     .custom-pin {
