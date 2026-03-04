@@ -192,7 +192,7 @@ require_once 'header.php';
                             <option value="<?= htmlspecialchars($project['city']) ?>" selected><?= htmlspecialchars($project['city']) ?></option>
                         </select>
                     </div>
-                        <div class="form-group">
+                    <div class="form-group">
                         <label>Exact Latitude (Optional)</label>
                         <input type="text" name="latitude" value="<?= htmlspecialchars($project['latitude'] ?? '') ?>" placeholder="e.g., 35.912245">
                     </div>
