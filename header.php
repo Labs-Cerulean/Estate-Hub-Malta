@@ -48,7 +48,7 @@ if (isLoggedIn() && isset($pdo)) {
                     
                     <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
 
-                    <a href="map-view.php" class="nav-link <?= $currentPage === 'map0view' ? 'active' : '' ?>">Map View</a>
+                    //<a href="map-view.php" class="nav-link <?= $currentPage === 'map0view' ? 'active' : '' ?>">Map View</a>
                     
                     <?php if (hasPermission('view_projects') || isAdmin()): ?>
                         <a href="projects.php" class="nav-link <?= $currentPage === 'projects' ? 'active' : '' ?>">Projects</a>
