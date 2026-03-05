@@ -80,7 +80,8 @@ if ($dashboardType !== 'None') {
         $paByProject = [];
         if (!empty($projectIds)) {
             $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-            $paStmt = $pdo->prepare("SELECT pan.project_id, pan.pa_number, arch.name AS architect_name, se.name AS structural_engineer_name FROM project_pa_numbers pan LEFT JOIN professionals arch ON arch.id = pan.architect_id LEFT JOIN professionals se ON se.id = pan.structural_engineer_id WHERE pan.project_id IN ($placeholders)");
+            // FIX: Added pan.pa_status to the SQL Query so we can display it!
+            $paStmt = $pdo->prepare("SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.name AS architect_name, se.name AS structural_engineer_name FROM project_pa_numbers pan LEFT JOIN professionals arch ON arch.id = pan.architect_id LEFT JOIN professionals se ON se.id = pan.structural_engineer_id WHERE pan.project_id IN ($placeholders)");
             $paStmt->execute($projectIds);
             foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $pa) $paByProject[$pa['project_id']][] = $pa;
         }
@@ -123,13 +124,10 @@ if ($dashboardType !== 'None') {
         if ($filterCity !== 'all') $projects = array_filter($projects, fn($p) => $p['city'] === $filterCity);
         if ($filterClient !== 'all') {
             if ($filterClient === 'group_excel') {
-                // Find any client with 'Excel' in their name
                 $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
             } elseif ($filterClient === 'group_blue_clay') {
-                // Find any client with 'Blue Clay' or 'Blueclay' in their name
                 $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
             } else {
-                // Standard individual client filter
                 $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
             }
         }
@@ -363,11 +361,36 @@ require_once 'header.php';
                                     <?php $projectPAs = $paByProject[$project['id']] ?? []; if (!$isSalesDb): ?>
                                         <td class="nowrap-cell">
                                             <?php if (!empty($projectPAs)): foreach ($projectPAs as $pa): ?>
-                                                <div class="cell-list-item"><?php $paText = htmlspecialchars(formatPANumber($pa['pa_number'])); $paUrl = buildPaUrl($pa['pa_number']); if ($paUrl): ?><a href="<?= htmlspecialchars($paUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $paText ?></a><?php else: echo $paText; endif; ?></div>
+                                                <div class="cell-list-item">
+                                                    <?php 
+                                                    $paText = htmlspecialchars(formatPANumber($pa['pa_number'])); 
+                                                    $paUrl = buildPaUrl($pa['pa_number']); 
+                                                    // FIX: Display PA Status Badge
+                                                    $statusText = !empty($pa['pa_status']) ? ' <span style="font-size:0.75rem; color:var(--text-muted);">[' . htmlspecialchars($pa['pa_status']) . ']</span>' : '';
+                                                    if ($paUrl): ?>
+                                                        <a href="<?= htmlspecialchars($paUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $paText ?></a><?= $statusText ?>
+                                                    <?php else: ?>
+                                                        <?= $paText ?><?= $statusText ?>
+                                                    <?php endif; ?>
+                                                </div>
                                             <?php endforeach; else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                         </td>
-                                        <td><?php if (!empty($projectPAs)): foreach ($projectPAs as $pa): ?><div class="cell-list-item"><?= htmlspecialchars(!empty($pa['architect_name']) ? $pa['architect_name'] : 'TBC') ?></div><?php endforeach; else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?></td>
-                                        <td><?php if (!empty($projectPAs)): foreach ($projectPAs as $pa): ?><div class="cell-list-item"><?= htmlspecialchars(!empty($pa['structural_engineer_name']) ? $pa['structural_engineer_name'] : 'TBC') ?></div><?php endforeach; else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?></td>
+                                        
+                                        <td>
+                                            <?php 
+                                            $uniqueArchs = array_unique(array_filter(array_column($projectPAs, 'architect_name')));
+                                            if (!empty($uniqueArchs)): foreach ($uniqueArchs as $arch): ?>
+                                                <div class="cell-list-item"><?= htmlspecialchars($arch) ?></div>
+                                            <?php endforeach; else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
+                                        </td>
+                                        
+                                        <td>
+                                            <?php 
+                                            $uniqueEngs = array_unique(array_filter(array_column($projectPAs, 'structural_engineer_name')));
+                                            if (!empty($uniqueEngs)): foreach ($uniqueEngs as $eng): ?>
+                                                <div class="cell-list-item"><?= htmlspecialchars($eng) ?></div>
+                                            <?php endforeach; else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
+                                        </td>
                                     <?php endif; ?>
 
                                     <td>
