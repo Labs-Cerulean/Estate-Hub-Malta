@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $city = trim($_POST['city'] ?? '');
         $island = $_POST['island'] ?? '';
         $type = $_POST['type'] ?? '';
-        $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
+        $finishLevel = !empty($_POST['finishlevel']) ? $_POST['finishlevel'] : null;
         $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
         $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
         $projectStatus = $_POST['project_status'] ?? 'Active'; 
@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
         $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
 
-        // --- FULL INTEGRITY CHECK (Matches create-project.php) ---
+        // Integrity Checks
         if (empty($clientId)) throw new Exception("A Developer/Client must be selected.");
         if (empty($name)) throw new Exception("Project Name is required.");
         if (empty($city)) throw new Exception("City / Locality is required.");
@@ -49,18 +49,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         ");
         
         $stmt->execute([
-            $clientId, 
-            $name, 
-            $city, 
-            $island, 
-            $type, 
-            $finishLevel, 
-            $isTracking, 
-            $summerBreak, 
-            $projectStatus, 
-            $latitude,
-            $longitude,
-            $projectId
+            $clientId, $name, $city, $island, $type, $finishLevel, 
+            $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, $projectId
         ]);
 
         // 2. UPDATE PA NUMBERS
@@ -77,7 +67,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
                 }
             }
         } else {
-            // If all removed in UI
             $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?")->execute([$projectId]);
         }
 
@@ -138,10 +127,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     }
 }
 
-// Get data for dropdowns
+// Fetch Dropdown Data
 $clients = isAdmin() ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, getCurrentUserId());
-
-// FIX: Allow 'both' to show in the dropdowns on the edit screen too!
 $architects = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type IN ('architect', 'both') ORDER BY name")->fetchAll();
 $engineers = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type IN ('structural_engineer', 'both') ORDER BY name")->fetchAll();
 
@@ -158,7 +145,10 @@ require_once 'header.php';
 ?>
 
 <div class="main-container">
-    <h1 class="page-title">Edit Project: <?= htmlspecialchars($project['name']); ?></h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h1 class="page-title" style="margin: 0;">Edit Project: <?= htmlspecialchars($project['name']); ?></h1>
+        <a href="dashboard.php" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
 
     <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($message); ?></div><?php endif; ?>
     <?php if ($error): ?><div class="message error" style="padding:1rem; background:rgba(239,68,68,0.1); color:var(--danger); border:1px solid var(--danger); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($error); ?></div><?php endif; ?>
@@ -172,7 +162,7 @@ require_once 'header.php';
                 
                 <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
                     <div class="form-group">
-                        <label>Client <span style="color: #ef4444;">*</span></label>
+                        <label>Developer / Client <span style="color: #ef4444;">*</span></label>
                         <select name="clientid" required>
                             <option value="">-- Select Client --</option>
                             <?php foreach ($clients as $c): ?>
@@ -228,7 +218,7 @@ require_once 'header.php';
                         <label>Finish Level</label>
                         <select name="finishlevel" id="finish-level">
                             <option value="">-- Select Finish Requirement --</option>
-                            <option value="Shell" <?= $project['finishlevel'] == 'Shell' ? 'selected' : '' ?>>Shell Only</option>
+                            <option value="Shell" <?= $project['finishlevel'] == 'Shell' ? 'selected' : '' ?>>Shell</option>
                             <option value="Common Parts Only" <?= $project['finishlevel'] == 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
                             <option value="Semi Finished" <?= $project['finishlevel'] == 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option>
                             <option value="Finished" <?= $project['finishlevel'] == 'Finished' ? 'selected' : '' ?>>Finished</option>
@@ -236,13 +226,13 @@ require_once 'header.php';
                     </div>
                 </div>
 
-                <div style="display: flex; gap: 2rem; margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.02); border-radius: 8px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 2rem; margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.02); border-radius: 8px;">
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #0ea5e9;">
-                        <input type="checkbox" name="is_tracking" <?= $project['is_tracking'] ? 'checked' : '' ?> style="width: 18px; height: 18px;">
+                        <input type="checkbox" name="is_tracking" value="1" <?= $project['is_tracking'] ? 'checked' : '' ?> style="width: 18px; height: 18px;">
                         <strong>Pre-Execution Phase (Tracking/Feasibility)</strong>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #f59e0b;">
-                        <input type="checkbox" name="summer_break_flag" <?= $project['summer_break_flag'] ? 'checked' : '' ?> style="width: 18px; height: 18px;">
+                        <input type="checkbox" name="summer_break_flag" value="1" <?= $project['summer_break_flag'] ? 'checked' : '' ?> style="width: 18px; height: 18px;">
                         <strong>Summer Break Area (Tourism Zone)</strong>
                     </label>
                 </div>
@@ -279,19 +269,10 @@ const architects = <?= json_encode($architects) ?>;
 const engineers = <?= json_encode($engineers) ?>;
 const existingPANumbers = <?= json_encode($paNumbers) ?>;
 
-// FIX: Strict array matching the DB ENUM for Project PA Statuses
 const paStatuses = [
-    "Tracking", 
-    "Pending/Awaiting Decision", 
-    "Recommended for Approval", 
-    "Recommended for Refusal", 
-    "Decided", 
-    "Endorsed", 
-    "Fee Payment", 
-    "Under Appeal", 
-    "Refused", 
-    "Revoked/Annulled", 
-    "Withdrawn"
+    "Tracking", "Pending/Awaiting Decision", "Recommended for Approval", 
+    "Recommended for Refusal", "Decided", "Endorsed", "Fee Payment", 
+    "Under Appeal", "Refused", "Revoked/Annulled", "Withdrawn"
 ];
 
 function addPAEntry(paData = null) {
@@ -313,11 +294,11 @@ function addPAEntry(paData = null) {
         <div class="form-group" style="margin:0;"><label>PA Number</label><input type="text" name="paentries[${paEntryCount}][pa_number]" value="${escapeHtml(paNum)}" placeholder="e.g. PA/1234/24" required></div>
         <div class="form-group" style="margin:0;"><label>Status</label><select name="paentries[${paEntryCount}][pa_status]">${statusOptions}</select></div>
         <div class="form-group" style="margin:0;"><label>Architect</label><select name="paentries[${paEntryCount}][architect_id]">
-            <option value="">-- Select Architect --</option>
+            <option value="">Select Architect</option>
             ${architects.map(a => `<option value="${a.id}" ${a.id==aId?'selected':''}>${escapeHtml(a.name)}</option>`).join('')}
         </select></div>
         <div class="form-group" style="margin:0;"><label>Engineer</label><select name="paentries[${paEntryCount}][structural_engineer_id]">
-            <option value="">-- Select Engineer --</option>
+            <option value="">Select Engineer</option>
             ${engineers.map(e => `<option value="${e.id}" ${e.id==eId?'selected':''}>${escapeHtml(e.name)}</option>`).join('')}
         </select></div>
         <button type="button" onclick="document.getElementById('pa-entry-${paEntryCount}').remove()" class="btn btn-sm btn-danger" style="position: absolute; top: -10px; right: -10px; border-radius: 50%; width: 30px; height: 30px; padding: 0;">X</button>
@@ -341,7 +322,6 @@ function addBlockEntry(blockData = null) {
     const bLow = blockData ? blockData.lowest_level : 0;
     const bHigh = blockData ? blockData.highest_level : 0;
 
-    // FIX: Match DB Enum for Block Types
     div.innerHTML = `
         <input type="hidden" name="blocks[${blockEntryCount}][id]" value="${bId}">
         <div class="form-group" style="margin:0;"><label>Block Name</label><input type="text" name="blocks[${blockEntryCount}][name]" value="${escapeHtml(bName)}" required></div>
@@ -391,8 +371,6 @@ function toggleFinishLevel() { document.getElementById('finish-level-group').sty
 document.addEventListener('DOMContentLoaded', function() {
     if (existingPANumbers && existingPANumbers.length > 0) { existingPANumbers.forEach(pa => addPAEntry(pa)); } 
     if (existingBlocks && existingBlocks.length > 0) { existingBlocks.forEach(b => addBlockEntry(b)); } 
-    
-    // Trigger city generation on load
     updateCities();
 });
 </script>
