@@ -2,28 +2,36 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
+// Detect if we are loading inside the overlay modal
+$isModal = isset($_REQUEST['modal']) && $_REQUEST['modal'] == 1;
+
 $projectId = $_GET['id'] ?? null;
-if (!$projectId) { header('Location: dashboard.php'); exit; }
+if (!$projectId) { 
+    if ($isModal) { echo "<script>window.parent.postMessage('closeModal', '*');</script>"; exit; }
+    header('Location: dashboard.php'); exit; 
+}
 
 if (!canEditProjectDetails($pdo, $projectId)) {
-    header('Location: dashboard.php?error=unauthorized');
-    exit;
+    if ($isModal) { echo "<script>window.parent.postMessage('closeModal', '*');</script>"; exit; }
+    header('Location: dashboard.php?error=unauthorized'); exit;
 }
 
 $project = getProjectWithClient($pdo, $projectId);
-if (!$project) { header('Location: dashboard.php'); exit; }
+if (!$project) { 
+    if ($isModal) { echo "<script>window.parent.postMessage('closeModal', '*');</script>"; exit; }
+    header('Location: dashboard.php'); exit; 
+}
 
 $message = ''; $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'update') {
     try {
-        // 1. EXTRACT CORE PROJECT DETAILS
         $clientId = !empty($_POST['clientid']) ? $_POST['clientid'] : null;
         $name = trim($_POST['name'] ?? '');
         $city = trim($_POST['city'] ?? '');
         $island = $_POST['island'] ?? '';
         $type = $_POST['type'] ?? '';
-        $finishLevel = !empty($_POST['finishlevel']) ? $_POST['finishlevel'] : null;
+        $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
         $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
         $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
         $projectStatus = $_POST['project_status'] ?? 'Active'; 
@@ -31,7 +39,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
         $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
 
-        // Integrity Checks
         if (empty($clientId)) throw new Exception("A Developer/Client must be selected.");
         if (empty($name)) throw new Exception("Project Name is required.");
         if (empty($city)) throw new Exception("City / Locality is required.");
@@ -48,12 +55,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             WHERE id = ?
         ");
         
-        $stmt->execute([
-            $clientId, $name, $city, $island, $type, $finishLevel, 
-            $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, $projectId
-        ]);
+        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, $projectId]);
 
-        // 2. UPDATE PA NUMBERS
         if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
             $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?")->execute([$projectId]);
             $paStmt = $pdo->prepare("INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id) VALUES (?, ?, ?, ?, ?)");
@@ -70,7 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?")->execute([$projectId]);
         }
 
-        // 3. UPDATE BLOCKS & AUTO-GENERATE LEVELS
         $submittedBlockIds = [];
         if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
             foreach ($_POST['blocks'] as $b) {
@@ -118,6 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $message = 'Project updated successfully!';
         $project = getProjectWithClient($pdo, $projectId); 
         
+        // THE FIX: If loaded in modal, wait 1.2 seconds so user sees success, then tell Dashboard to refresh!
+        if ($isModal) {
+            $message .= "<script>setTimeout(() => { window.parent.postMessage('projectUpdated', '*'); }, 1200);</script>";
+        }
+
     } catch (PDOException $e) {
         if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
         $error = 'Database Error: ' . $e->getMessage();
@@ -127,7 +134,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     }
 }
 
-// Fetch Dropdown Data
 $clients = isAdmin() ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, getCurrentUserId());
 $architects = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type IN ('architect', 'both') ORDER BY name")->fetchAll();
 $engineers = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type IN ('structural_engineer', 'both') ORDER BY name")->fetchAll();
@@ -144,18 +150,30 @@ $pageTitle = 'Edit Project - ' . $project['name'];
 require_once 'header.php';
 ?>
 
+<?php if ($isModal): ?>
+<style>
+    header, nav, footer, .sidebar { display: none !important; }
+    .main-container { padding: 1.5rem !important; margin: 0 auto !important; max-width: 100% !important; box-shadow: none !important; border: none !important; }
+    body, html { background: transparent !important; padding: 0 !important; margin: 0 !important; }
+</style>
+<?php endif; ?>
+
 <div class="main-container">
+    
+    <?php if (!$isModal): ?>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <h1 class="page-title" style="margin: 0;">Edit Project: <?= htmlspecialchars($project['name']); ?></h1>
         <a href="dashboard.php" class="btn btn-secondary">Back to Dashboard</a>
     </div>
+    <?php endif; ?>
 
-    <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($message); ?></div><?php endif; ?>
+    <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= $message; /* Intentionally not HTML escaped to allow script injection */ ?></div><?php endif; ?>
     <?php if ($error): ?><div class="message error" style="padding:1rem; background:rgba(239,68,68,0.1); color:var(--danger); border:1px solid var(--danger); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($error); ?></div><?php endif; ?>
 
     <section class="form-section">
         <form method="POST">
             <input type="hidden" name="action" value="update">
+            <input type="hidden" name="modal" value="<?= $isModal ? 1 : 0 ?>">
 
             <div style="margin-bottom: 2rem;">
                 <h3 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Core Details</h3>
@@ -294,11 +312,11 @@ function addPAEntry(paData = null) {
         <div class="form-group" style="margin:0;"><label>PA Number</label><input type="text" name="paentries[${paEntryCount}][pa_number]" value="${escapeHtml(paNum)}" placeholder="e.g. PA/1234/24" required></div>
         <div class="form-group" style="margin:0;"><label>Status</label><select name="paentries[${paEntryCount}][pa_status]">${statusOptions}</select></div>
         <div class="form-group" style="margin:0;"><label>Architect</label><select name="paentries[${paEntryCount}][architect_id]">
-            <option value="">Select Architect</option>
+            <option value="">-- Select Architect --</option>
             ${architects.map(a => `<option value="${a.id}" ${a.id==aId?'selected':''}>${escapeHtml(a.name)}</option>`).join('')}
         </select></div>
         <div class="form-group" style="margin:0;"><label>Engineer</label><select name="paentries[${paEntryCount}][structural_engineer_id]">
-            <option value="">Select Engineer</option>
+            <option value="">-- Select Engineer --</option>
             ${engineers.map(e => `<option value="${e.id}" ${e.id==eId?'selected':''}>${escapeHtml(e.name)}</option>`).join('')}
         </select></div>
         <button type="button" onclick="document.getElementById('pa-entry-${paEntryCount}').remove()" class="btn btn-sm btn-danger" style="position: absolute; top: -10px; right: -10px; border-radius: 50%; width: 30px; height: 30px; padding: 0;">X</button>
@@ -371,6 +389,7 @@ function toggleFinishLevel() { document.getElementById('finish-level-group').sty
 document.addEventListener('DOMContentLoaded', function() {
     if (existingPANumbers && existingPANumbers.length > 0) { existingPANumbers.forEach(pa => addPAEntry(pa)); } 
     if (existingBlocks && existingBlocks.length > 0) { existingBlocks.forEach(b => addBlockEntry(b)); } 
+    
     updateCities();
 });
 </script>
