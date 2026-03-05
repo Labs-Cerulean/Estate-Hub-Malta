@@ -147,7 +147,9 @@ require_once 'header.php';
             
             <div class="form-group">
                 <label>City / Locality <span style="color: #ef4444;">*</span></label>
-                <input type="text" name="city" required placeholder="e.g., Sliema">
+                <select name="city" id="locality" required>
+                    <option value="">-- Select Locality --</option>
+                </select>
             </div>
             <div class="form-group">
                 <label>Island <span style="color: #ef4444;">*</span></label>
@@ -223,8 +225,15 @@ require_once 'header.php';
                         <label>Status</label>
                         <select name="paentries[0][pa_status]">
                             <option value="Tracking">Tracking</option>
-                            <option value="Approved">Approved</option>
-                            <option value="Rejected">Rejected</option>
+                            <option value="Pending/Awaiting Decision">Pending/Awaiting Decision</option>
+                            <option value="Recommended for Approval">Recommended for Approval</option>
+                            <option value="Recommended for Refusal">Recommended for Refusal</option>
+                            <option value="Decided">Decided</option>
+                            <option value="Endorsed">Endorsed</option>
+                            <option value="Fee Payment">Fee Payment</option>
+                            <option value="Under Appeal">Under Appeal</option>
+                            <option value="Refused">Refused</option>
+                            <option value="Revoked/Annulled">Revoked/Annulled</option>
                             <option value="Withdrawn">Withdrawn</option>
                         </select>
                     </div>
@@ -264,6 +273,10 @@ require_once 'header.php';
                             <option value="Block">Block</option>
                             <option value="Villa">Villa</option>
                             <option value="House">House</option>
+                            <option value="Commercial">Commercial</option>
+                            <option value="Garage">Garage</option>
+                            <option value="Mixed Use">Mixed Use</option>
+                            <option value="Other">Other</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -283,6 +296,8 @@ require_once 'header.php';
         </div>
     </form>
 </div>
+
+<script src="localities.js"></script>
 
 <script>
 const architectsOpts = `<?php foreach ($architects as $a) echo "<option value='{$a['id']}'>" . htmlspecialchars($a['name'], ENT_QUOTES) . "</option>"; ?>`;
@@ -306,8 +321,15 @@ function addPARow() {
                 <label>Status</label>
                 <select name="paentries[${paCounter}][pa_status]">
                     <option value="Tracking">Tracking</option>
-                    <option value="Approved">Approved</option>
-                    <option value="Rejected">Rejected</option>
+                    <option value="Pending/Awaiting Decision">Pending/Awaiting Decision</option>
+                    <option value="Recommended for Approval">Recommended for Approval</option>
+                    <option value="Recommended for Refusal">Recommended for Refusal</option>
+                    <option value="Decided">Decided</option>
+                    <option value="Endorsed">Endorsed</option>
+                    <option value="Fee Payment">Fee Payment</option>
+                    <option value="Under Appeal">Under Appeal</option>
+                    <option value="Refused">Refused</option>
+                    <option value="Revoked/Annulled">Revoked/Annulled</option>
                     <option value="Withdrawn">Withdrawn</option>
                 </select>
             </div>
@@ -351,6 +373,10 @@ function addBlockRow() {
                     <option value="Block">Block</option>
                     <option value="Villa">Villa</option>
                     <option value="House">House</option>
+                    <option value="Commercial">Commercial</option>
+                    <option value="Garage">Garage</option>
+                    <option value="Mixed Use">Mixed Use</option>
+                    <option value="Other">Other</option>
                 </select>
             </div>
             <div class="form-group">
