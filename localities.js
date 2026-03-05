@@ -7,7 +7,7 @@ const locations = {
         "Mdina", "Mellieħa", "Mġarr", "Mosta", "Mqabba", "Msida", "Mtarfa", "Naxxar", "Paola", 
         "Pembroke", "Pietà", "Qormi", "Qrendi", "Rabat", "Safi", "San Ġiljan (St. Julian's)", 
         "San Ġwann", "San Pawl il-Baħar (St. Paul's Bay)", "Santa Luċija", "Santa Venera", "Siġġiewi", 
-        "Sliema", "Swieqi", "Ta' Xbiex", "Tarxien", "Valletta", "Xgħajra", "Żabbar", "Żebbuġ", 
+        "Sliema", "Swieqi", "Ta' Xbiex", "Tarxien", "Valletta","Xemxija", "Xgħajra", "Żabbar", "Żebbuġ", 
         "Żejtun", "Żurrieq"
     ],
     'Gozo': [
