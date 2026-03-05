@@ -13,8 +13,7 @@ $error = '';
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'create') {
     try {
-        $pdo->beginTransaction();
-
+        // 1. Extract Core Project Details First
         $clientId = !empty($_POST['clientid']) ? $_POST['clientid'] : null;
         $name = trim($_POST['name'] ?? '');
         $city = trim($_POST['city'] ?? '');
@@ -28,6 +27,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
         $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
 
+        // --- FULL INTEGRITY CHECK: Stop execution immediately if critical data is missing ---
+        if (empty($clientId)) throw new Exception("A Developer/Client must be selected.");
+        if (empty($name)) throw new Exception("Project Name is required.");
+        if (empty($city)) throw new Exception("City / Locality is required.");
+        if (empty($island)) throw new Exception("Island is required.");
+        if (empty($type)) throw new Exception("Project Type is required.");
+
+        $pdo->beginTransaction();
+
+        // 2. Insert Core Project
         $stmt = $pdo->prepare("
             INSERT INTO projects (clientid, name, city, island, type, finishlevel, is_tracking, summer_break_flag, project_status, latitude, longitude, created_by) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -86,15 +95,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         
     } catch (PDOException $e) {
         if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
-        $error = 'Error creating project: ' . $e->getMessage();
+        $error = 'Database Error: ' . $e->getMessage();
+    } catch (Exception $e) {
+        if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+        $error = $e->getMessage(); // Friendly validation error
     }
 }
 
-// THE FIX: Corrected to use 'role_type' and lowercase values to match your DB
+// Fetch Dropdown Data
 $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-
 $architects = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('architect', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-
 $engineers = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('structural_engineer', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Create Project';
@@ -120,10 +130,11 @@ require_once 'header.php';
                 <label>Project Name <span style="color: #ef4444;">*</span></label>
                 <input type="text" name="name" required placeholder="e.g., The Horizon Suites">
             </div>
+            
             <div class="form-group">
-                <label>Developer / Client</label>
-                <select name="clientid">
-                    <option value="">-- In-House (Internal) --</option>
+                <label>Developer / Client <span style="color: #ef4444;">*</span></label>
+                <select name="clientid" required>
+                    <option value="">-- Select Client --</option>
                     <?php foreach ($clients as $c): ?>
                         <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
                     <?php endforeach; ?>
@@ -131,16 +142,17 @@ require_once 'header.php';
             </div>
             
             <div class="form-group">
-                <label>City / Locality <span style="color: #ef4444;">*</span></label>
-                <select name="city" id="city" required>
-                    <option value="">-- Select Locality --</option>
+                <label>Island <span style="color: #ef4444;">*</span></label>
+                <select name="island" id="island" required>
+                    <option value="">-- Select Island --</option>
+                    <option value="Malta">Malta</option>
+                    <option value="Gozo">Gozo</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>Island <span style="color: #ef4444;">*</span></label>
-                <select name="island" required>
-                    <option value="Malta">Malta</option>
-                    <option value="Gozo">Gozo</option>
+                <label>City / Locality <span style="color: #ef4444;">*</span></label>
+                <select name="city" id="city" required disabled>
+                    <option value="">-- Select Island First --</option>
                 </select>
             </div>
 
@@ -282,26 +294,37 @@ require_once 'header.php';
 <script src="localities.js"></script>
 
 <script>
-// THE FIX: This logic takes the data from localities.js and injects it into the dropdown
 document.addEventListener('DOMContentLoaded', function() {
+    const islandSelect = document.getElementById('island');
     const citySelect = document.getElementById('city');
-    if (citySelect && typeof locations !== 'undefined') {
-        // Clear existing options except the placeholder
-        citySelect.innerHTML = '<option value="">-- Select Locality --</option>';
-        
-        // Loop through Malta and Gozo
-        for (const island in locations) {
-            const optgroup = document.createElement('optgroup');
-            optgroup.label = island;
+    
+    if (islandSelect && citySelect && typeof locations !== 'undefined') {
+        islandSelect.addEventListener('change', function() {
+            const selectedIsland = this.value;
             
-            // Add each city
-            locations[island].forEach(city => {
-                const option = document.createElement('option');
-                option.value = city;
-                option.textContent = city;
-                optgroup.appendChild(option);
-            });
-            citySelect.appendChild(optgroup);
+            // Reset the city dropdown
+            citySelect.innerHTML = '<option value="">-- Select Locality --</option>';
+            
+            if (selectedIsland && locations[selectedIsland]) {
+                citySelect.disabled = false; // Enable the dropdown
+                
+                // Populate with cities for the chosen island
+                locations[selectedIsland].forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city;
+                    option.textContent = city;
+                    citySelect.appendChild(option);
+                });
+            } else {
+                // Keep it disabled if no valid island is selected
+                citySelect.innerHTML = '<option value="">-- Select Island First --</option>';
+                citySelect.disabled = true;
+            }
+        });
+        
+        // If the island is somehow pre-filled, trigger the update immediately
+        if (islandSelect.value) {
+            islandSelect.dispatchEvent(new Event('change'));
         }
     }
 });
