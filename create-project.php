@@ -15,7 +15,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     try {
         $pdo->beginTransaction();
 
-        // 1. Extract Core Project Details
         $clientId = !empty($_POST['clientid']) ? $_POST['clientid'] : null;
         $name = trim($_POST['name'] ?? '');
         $city = trim($_POST['city'] ?? '');
@@ -24,13 +23,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $finishLevel = !empty($_POST['finishlevel']) ? $_POST['finishlevel'] : null;
         $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
         $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
-        $projectStatus = 'Active'; // Always active on creation
+        $projectStatus = 'Active'; 
         
-        // Map Coordinates
         $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
         $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
 
-        // 2. Insert Core Project
         $stmt = $pdo->prepare("
             INSERT INTO projects (clientid, name, city, island, type, finishlevel, is_tracking, summer_break_flag, project_status, latitude, longitude, created_by) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -42,10 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         
         $projectId = $pdo->lastInsertId();
 
-        // 3. Initialize Mobilisation Checklist Tracker for this project
         $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)")->execute([$projectId]);
 
-        // 4. Insert PA Numbers (Only if filled out)
         if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
             $paStmt = $pdo->prepare("INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id) VALUES (?, ?, ?, ?, ?)");
             foreach ($_POST['paentries'] as $paEntry) {
@@ -61,28 +56,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             }
         }
 
-        // 5. Insert Blocks & Auto-Generate Levels (Only if filled out)
         if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
             foreach ($_POST['blocks'] as $b) {
                 $bName = trim($b['name'] ?? '');
                 $bType = $b['type'] ?? 'Block';
                 
-                // Skip if the user left the block name blank
-                if (empty($bName) || !isset($b['lowest']) || !isset($b['highest']) || $b['lowest'] === '' || $b['highest'] === '') {
-                    continue; 
-                }
+                if (empty($bName) || !isset($b['lowest']) || !isset($b['highest']) || $b['lowest'] === '' || $b['highest'] === '') continue; 
                 
                 $bLow = (int)$b['lowest'];
                 $bHigh = (int)$b['highest'];
                 
-                // Swap if backwards
                 if ($bLow > $bHigh) { $temp = $bLow; $bLow = $bHigh; $bHigh = $temp; } 
 
                 $bStmt = $pdo->prepare("INSERT INTO project_blocks (project_id, block_name, block_type, lowest_level, highest_level) VALUES (?, ?, ?, ?, ?)");
                 $bStmt->execute([$projectId, $bName, $bType, $bLow, $bHigh]);
                 $bId = $pdo->lastInsertId();
 
-                // Auto-generate levels for this block
                 $levelStmt = $pdo->prepare("INSERT INTO block_levels (block_id, level_number, level_name) VALUES (?, ?, ?)");
                 for ($lvl = $bLow; $lvl <= $bHigh; $lvl++) {
                     $lvlName = ($lvl === 0) ? "Level 0 (Ground)" : "Level " . $lvl;
@@ -92,8 +81,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         }
 
         $pdo->commit();
-        
-        // Redirect to dashboard on success
         header("Location: dashboard.php"); 
         exit;
         
@@ -103,14 +90,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     }
 }
 
-// Fetch Dropdown Data
+// THE FIX: Corrected to use 'role_type' and lowercase values to match your DB
 $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch Architects (Includes 'Architect' and 'Both')
-$architects = $pdo->query("SELECT id, name FROM professionals WHERE type IN ('Architect', 'Both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+$architects = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('architect', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch Structural Engineers (Includes 'Structural Engineer' and 'Both')
-$engineers = $pdo->query("SELECT id, name FROM professionals WHERE type IN ('Structural Engineer', 'Both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+$engineers = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('structural_engineer', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Create Project';
 require_once 'header.php';
@@ -183,7 +168,6 @@ require_once 'header.php';
             <div class="form-group">
                 <label>Exact Latitude</label>
                 <input type="text" name="latitude" placeholder="e.g. 35.912245">
-                <small style="color: var(--text-muted); font-size: 0.75rem;">Leave blank to default to City center on the map.</small>
             </div>
             <div class="form-group">
                 <label>Exact Longitude</label>
@@ -197,15 +181,13 @@ require_once 'header.php';
                     <input type="checkbox" name="is_tracking" id="is_tracking" value="1">
                     <label for="is_tracking" style="font-weight: bold; color: #0ea5e9;">Pre-Execution Phase</label>
                 </div>
-                <small style="display: block; margin-top: 0.25rem; margin-left: 1.75rem; color: var(--text-muted);">Check this if the project is still in Feasibility or Tracking and hasn't received permits yet.</small>
             </div>
 
             <div class="checkbox-group" style="padding: 1rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px;">
                 <div class="checkbox-item" style="margin-bottom: 0;">
                     <input type="checkbox" name="summer_break_flag" id="summer_break_flag" value="1">
-                    <label for="summer_break_flag" style="font-weight: bold; color: #f59e0b;">Summer Break Area (June-Sept)</label>
+                    <label for="summer_break_flag" style="font-weight: bold; color: #f59e0b;">Summer Break Area</label>
                 </div>
-                <small style="display: block; margin-top: 0.25rem; margin-left: 1.75rem; color: var(--text-muted);">Check this if the site is located in a MTA designated summer break locality.</small>
             </div>
         </div>
 
@@ -300,6 +282,30 @@ require_once 'header.php';
 <script src="localities.js"></script>
 
 <script>
+// THE FIX: This logic takes the data from localities.js and injects it into the dropdown
+document.addEventListener('DOMContentLoaded', function() {
+    const citySelect = document.getElementById('city');
+    if (citySelect && typeof locations !== 'undefined') {
+        // Clear existing options except the placeholder
+        citySelect.innerHTML = '<option value="">-- Select Locality --</option>';
+        
+        // Loop through Malta and Gozo
+        for (const island in locations) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = island;
+            
+            // Add each city
+            locations[island].forEach(city => {
+                const option = document.createElement('option');
+                option.value = city;
+                option.textContent = city;
+                optgroup.appendChild(option);
+            });
+            citySelect.appendChild(optgroup);
+        }
+    }
+});
+
 const architectsOpts = `<?php foreach ($architects as $a) echo "<option value='{$a['id']}'>" . htmlspecialchars($a['name'], ENT_QUOTES) . "</option>"; ?>`;
 const engineersOpts = `<?php foreach ($engineers as $e) echo "<option value='{$e['id']}'>" . htmlspecialchars($e['name'], ENT_QUOTES) . "</option>"; ?>`;
 
