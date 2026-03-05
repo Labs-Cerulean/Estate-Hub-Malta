@@ -147,7 +147,7 @@ require_once 'header.php';
             
             <div class="form-group">
                 <label>City / Locality <span style="color: #ef4444;">*</span></label>
-                <select name="city" id="locality" required>
+                <select name="city" id="city" required>
                     <option value="">-- Select Locality --</option>
                 </select>
             </div>
