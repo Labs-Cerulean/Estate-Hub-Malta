@@ -121,7 +121,18 @@ if ($dashboardType !== 'None') {
 
         if ($filterType !== 'all') $projects = array_filter($projects, fn($p) => $p['type'] === $filterType);
         if ($filterCity !== 'all') $projects = array_filter($projects, fn($p) => $p['city'] === $filterCity);
-        if ($filterClient !== 'all') $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
+        if ($filterClient !== 'all') {
+            if ($filterClient === 'group_excel') {
+                // Find any client with 'Excel' in their name
+                $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
+            } elseif ($filterClient === 'group_blue_clay') {
+                // Find any client with 'Blue Clay' or 'Blueclay' in their name
+                $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
+            } else {
+                // Standard individual client filter
+                $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
+            }
+        }
         if ($filterIsland !== 'all') $projects = array_filter($projects, fn($p) => $p['island'] === $filterIsland);
         if ($filterStatus !== 'all') $projects = array_filter($projects, fn($p) => $p['stage'] === $filterStatus);
 
