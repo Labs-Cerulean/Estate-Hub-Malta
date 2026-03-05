@@ -253,7 +253,15 @@ foreach ($projectsRaw as $p) {
 if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
 if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
 if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['city'] === $filterCity);
-if ($filterClient !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
+if ($filterClient !== 'all') {
+    if ($filterClient === 'group_excel') {
+        $matrixProjects = array_filter($matrixProjects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
+    } elseif ($filterClient === 'group_blue_clay') {
+        $matrixProjects = array_filter($matrixProjects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
+    } else {
+        $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
+    }
+}
 if ($filterPm !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
 if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub)); }
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
@@ -387,7 +395,8 @@ require_once 'header.php';
                         <option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party (Capital)</option>
                     </select>
                 </div>
-                 <div class="filter-group"><label>Client</label>
+                <div class="filter-group">
+                    <label>Client</label>
                     <select name="filter_client">
                         <option value="all">All Clients</option>
                         
