@@ -387,13 +387,20 @@ require_once 'header.php';
                         <option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party (Capital)</option>
                     </select>
                 </div>
-                <div class="filter-group">
-                    <label>Client</label>
+                 <div class="filter-group"><label>Client</label>
                     <select name="filter_client">
                         <option value="all">All Clients</option>
-                        <?php foreach ($clients as $client): ?>
-                            <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option>
-                        <?php endforeach; ?>
+                        
+                        <optgroup label="Umbrella Groups">
+                            <option value="group_excel" <?= $filterClient === 'group_excel' ? 'selected' : '' ?>>🏢 Excel Group (All)</option>
+                            <option value="group_blue_clay" <?= $filterClient === 'group_blue_clay' ? 'selected' : '' ?>>🏢 Blue Clay Collection (All)</option>
+                        </optgroup>
+                        
+                        <optgroup label="Individual Clients">
+                            <?php foreach ($clients as $client): ?>
+                                <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option>
+                            <?php endforeach; ?>
+                        </optgroup>
                     </select>
                 </div>
                 <div class="filter-group">
