@@ -80,7 +80,6 @@ if ($dashboardType !== 'None') {
         $paByProject = [];
         if (!empty($projectIds)) {
             $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-            // FIX: Added pan.pa_status to the SQL Query so we can display it!
             $paStmt = $pdo->prepare("SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.name AS architect_name, se.name AS structural_engineer_name FROM project_pa_numbers pan LEFT JOIN professionals arch ON arch.id = pan.architect_id LEFT JOIN professionals se ON se.id = pan.structural_engineer_id WHERE pan.project_id IN ($placeholders)");
             $paStmt->execute($projectIds);
             foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $pa) $paByProject[$pa['project_id']][] = $pa;
@@ -209,6 +208,15 @@ require_once 'header.php';
 .legend-title { font-weight: bold; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.25rem; }
 .legend-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); }
 .legend-color { width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+
+/* Edit Project Modal Overlay */
+#editProjectModal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.75); backdrop-filter: blur(5px); }
+.modal-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 95%; max-width: 1100px; height: 90vh; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.6); overflow: hidden; }
+.modal-header { padding: 1rem 1.5rem; background: #1e1e2d; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; }
+.modal-header h2 { margin: 0; color: var(--primary-color); font-size: 1.25rem; }
+.modal-close { color: var(--text-muted); font-size: 1.75rem; font-weight: bold; cursor: pointer; line-height: 1; transition: color 0.2s; }
+.modal-close:hover { color: #ef4444; }
+#editProjectIframe { flex-grow: 1; width: 100%; height: 100%; border: none; background: transparent; }
 </style>
 
 <div class="main-container">
@@ -365,7 +373,6 @@ require_once 'header.php';
                                                     <?php 
                                                     $paText = htmlspecialchars(formatPANumber($pa['pa_number'])); 
                                                     $paUrl = buildPaUrl($pa['pa_number']); 
-                                                    // FIX: Display PA Status Badge
                                                     $statusText = !empty($pa['pa_status']) ? ' <span style="font-size:0.75rem; color:var(--text-muted);">[' . htmlspecialchars($pa['pa_status']) . ']</span>' : '';
                                                     if ($paUrl): ?>
                                                         <a href="<?= htmlspecialchars($paUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $paText ?></a><?= $statusText ?>
@@ -398,7 +405,10 @@ require_once 'header.php';
                                             <?php if (hasPermission('view_mobilisation') || $isAdmin): ?><a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary"><?= canUpdateStatus($pdo, $project['id']) ? 'Execution' : 'View Hub' ?></a><?php endif; ?>
                                             <?php if (hasPermission('view_property_sales') || $isAdmin): ?><a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white; border: none;">Sales</a><?php endif; ?>
                                             <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?><a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white; border: none;">Capital</a><?php endif; ?>
-                                            <?php if (canEditProjectDetails($pdo, $project['id'])): ?><a href="edit-project.php?id=<?= $project['id'] ?>" class="btn btn-sm btn-secondary">Edit</a><?php endif; ?>
+                                            
+                                            <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
+                                                <button type="button" onclick="openEditModal(<?= $project['id'] ?>, '<?= htmlspecialchars($project['name'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-sm btn-secondary">Edit</button>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -425,7 +435,52 @@ require_once 'header.php';
     <?php endif; ?>
 </div>
 
+<div id="editProjectModal">
+    <div class="modal-wrapper">
+        <div class="modal-header">
+            <h2 id="modalProjectTitle">Edit Project</h2>
+            <span class="modal-close" onclick="closeEditModal()">&times;</span>
+        </div>
+        <iframe id="editProjectIframe" src=""></iframe>
+    </div>
+</div>
+
 <script>
+// --- Modal & Scroll Preservation Logic ---
+function openEditModal(projectId, projectName) {
+    document.getElementById('modalProjectTitle').innerText = 'Edit Project: ' + projectName;
+    document.getElementById('editProjectIframe').src = 'edit-project.php?id=' + projectId + '&modal=1';
+    document.getElementById('editProjectModal').style.display = 'block';
+}
+
+function closeEditModal() {
+    document.getElementById('editProjectModal').style.display = 'none';
+    document.getElementById('editProjectIframe').src = '';
+}
+
+// When dashboard loads, immediately jump back to exact scroll position if saved
+document.addEventListener("DOMContentLoaded", function() {
+    let savedScroll = sessionStorage.getItem('dashboard_scrollpos');
+    if (savedScroll) {
+        let wrapper = document.querySelector('.dashboard-wrapper');
+        if (wrapper) wrapper.scrollTop = savedScroll;
+        sessionStorage.removeItem('dashboard_scrollpos');
+    }
+});
+
+// Listen for messages from the iframe (Success Save or Invalid Project)
+window.addEventListener('message', function(event) {
+    if (event.data === 'projectUpdated') {
+        // Save exact table scroll position before reloading
+        let wrapper = document.querySelector('.dashboard-wrapper');
+        if (wrapper) sessionStorage.setItem('dashboard_scrollpos', wrapper.scrollTop);
+        window.location.reload();
+    } else if (event.data === 'closeModal') {
+        closeEditModal();
+    }
+});
+
+
 // --- Island Filter Logic ---
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('dashboardFilters');
@@ -461,7 +516,7 @@ function switchView(view) {
             initMap(); 
             mapInitialized = true;
         } else if (mapInitialized && window.map) {
-            window.map.invalidateSize(); // Critical fix for Leaflet loading inside hidden divs
+            window.map.invalidateSize(); 
         }
     } else {
         document.querySelector('.view-toggle-btn[onclick="switchView(\'table\')"]').classList.add('active');
@@ -535,7 +590,6 @@ function initMap() {
     }
 }
 
-// Auto-trigger map init if we loaded on map view (due to filter refresh)
 if ('<?= $currentView ?>' === 'map') {
     initMap();
     mapInitialized = true;
