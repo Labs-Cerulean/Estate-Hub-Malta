@@ -51,7 +51,18 @@ $filterStage  = $_GET['filter_stage'] ?? 'all';
 $filterType   = $_GET['filter_type'] ?? 'all';
 $filterFinish = $_GET['filter_finish'] ?? 'all';
 $filterCity   = $_GET['filter_city'] ?? 'all';
-$filterClient = $_GET['filter_client'] ?? 'all';
+if ($filterClient !== 'all') {
+    if ($filterClient === 'group_excel') {
+        // Find any client with 'Excel' in their name
+        $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
+    } elseif ($filterClient === 'group_blue_clay') {
+        // Find any client with 'Blue Clay' or 'Blueclay' in their name
+        $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
+    } else {
+        // Standard individual client filter
+        $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
+    }
+}
 $filterIsland = $_GET['filter_island'] ?? 'all';
 $filterPm     = $_GET['filter_pm'] ?? 'all';
 $filterSub    = $_GET['filter_sub'] ?? 'all';
