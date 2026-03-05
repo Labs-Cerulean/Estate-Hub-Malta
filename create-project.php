@@ -40,13 +40,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, getCurrentUserId()
         ]);
         
-        // CRITICAL FIX: Save the ID with a capital "I"
         $projectId = $pdo->lastInsertId();
 
         // 3. Initialize Mobilisation Checklist Tracker for this project
         $pdo->prepare("INSERT INTO project_mobilisation (project_id) VALUES (?)")->execute([$projectId]);
 
-        // 4. Insert PA Numbers
+        // 4. Insert PA Numbers (Only if filled out)
         if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
             $paStmt = $pdo->prepare("INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id) VALUES (?, ?, ?, ?, ?)");
             foreach ($_POST['paentries'] as $paEntry) {
@@ -62,17 +61,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             }
         }
 
-        // 5. Insert Blocks & Auto-Generate Levels
-        $hasBlocks = false;
+        // 5. Insert Blocks & Auto-Generate Levels (Only if filled out)
         if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
             foreach ($_POST['blocks'] as $b) {
                 $bName = trim($b['name'] ?? '');
                 $bType = $b['type'] ?? 'Block';
-                $bLow = (int)($b['lowest'] ?? 0);
-                $bHigh = (int)($b['highest'] ?? 0);
-
-                if (empty($bName)) continue;
-                $hasBlocks = true;
+                
+                // Skip if the user left the block name blank
+                if (empty($bName) || !isset($b['lowest']) || !isset($b['highest']) || $b['lowest'] === '' || $b['highest'] === '') {
+                    continue; 
+                }
+                
+                $bLow = (int)$b['lowest'];
+                $bHigh = (int)$b['highest'];
                 
                 // Swap if backwards
                 if ($bLow > $bHigh) { $temp = $bLow; $bLow = $bHigh; $bHigh = $temp; } 
@@ -89,14 +90,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
                 }
             }
         }
-        
-        // Failsafe: If the user deleted all blocks from the UI, generate a default one
-        if (!$hasBlocks) {
-            $pdo->prepare("INSERT INTO project_blocks (project_id, block_name, block_type, lowest_level, highest_level) VALUES (?, 'Main Building', 'Block', 0, 0)")
-                ->execute([$projectId]);
-            $bId = $pdo->lastInsertId();
-            $pdo->prepare("INSERT INTO block_levels (block_id, level_number, level_name) VALUES (?, 0, 'Level 0 (Ground)')")->execute([$bId]);
-        }
 
         $pdo->commit();
         
@@ -112,8 +105,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
 
 // Fetch Dropdown Data
 $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-$architects = $pdo->query("SELECT id, name FROM professionals WHERE type = 'Architect' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-$engineers = $pdo->query("SELECT id, name FROM professionals WHERE type = 'Structural Engineer' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch Architects (Includes 'Architect' and 'Both')
+$architects = $pdo->query("SELECT id, name FROM professionals WHERE type IN ('Architect', 'Both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch Structural Engineers (Includes 'Structural Engineer' and 'Both')
+$engineers = $pdo->query("SELECT id, name FROM professionals WHERE type IN ('Structural Engineer', 'Both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Create Project';
 require_once 'header.php';
@@ -219,7 +216,7 @@ require_once 'header.php';
             <div class="pa-row" style="background: var(--bg-primary); padding: 1rem; border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 1rem; position: relative;">
                 <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
                     <div class="form-group">
-                        <label>PA Number</label>
+                        <label>PA Number (Optional)</label>
                         <input type="text" name="paentries[0][pa_number]" placeholder="e.g., PA/1234/23">
                     </div>
                     <div class="form-group">
@@ -258,8 +255,8 @@ require_once 'header.php';
             <div class="block-row" style="background: var(--bg-primary); padding: 1rem; border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 1rem; position: relative;">
                 <div class="form-grid" style="grid-template-columns: 2fr 1fr 1fr 1fr;">
                     <div class="form-group">
-                        <label>Block Name <span style="color: #ef4444;">*</span></label>
-                        <input type="text" name="blocks[0][name]" value="Main Building" required>
+                        <label>Block Name (Optional)</label>
+                        <input type="text" name="blocks[0][name]" placeholder="e.g., Main Building">
                     </div>
                     <div class="form-group">
                         <label>Type</label>
@@ -271,11 +268,11 @@ require_once 'header.php';
                     </div>
                     <div class="form-group">
                         <label>Lowest Level</label>
-                        <input type="number" name="blocks[0][lowest]" value="0" required title="Negative numbers for basements (e.g., -2)">
+                        <input type="number" name="blocks[0][lowest]" placeholder="e.g., 0" title="Negative numbers for basements (e.g., -2)">
                     </div>
                     <div class="form-group">
                         <label>Highest Level</label>
-                        <input type="number" name="blocks[0][highest]" value="4" required>
+                        <input type="number" name="blocks[0][highest]" placeholder="e.g., 4">
                     </div>
                 </div>
             </div>
@@ -345,8 +342,8 @@ function addBlockRow() {
         <button type="button" onclick="this.parentElement.remove()" style="position: absolute; top: 10px; right: 10px; background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1.2rem;" title="Remove Block">&times;</button>
         <div class="form-grid" style="grid-template-columns: 2fr 1fr 1fr 1fr;">
             <div class="form-group">
-                <label>Block Name <span style="color: #ef4444;">*</span></label>
-                <input type="text" name="blocks[${blockCounter}][name]" required placeholder="e.g., Block B">
+                <label>Block Name</label>
+                <input type="text" name="blocks[${blockCounter}][name]" placeholder="e.g., Block B">
             </div>
             <div class="form-group">
                 <label>Type</label>
@@ -358,11 +355,11 @@ function addBlockRow() {
             </div>
             <div class="form-group">
                 <label>Lowest Level</label>
-                <input type="number" name="blocks[${blockCounter}][lowest]" value="0" required>
+                <input type="number" name="blocks[${blockCounter}][lowest]" placeholder="e.g., 0">
             </div>
             <div class="form-group">
                 <label>Highest Level</label>
-                <input type="number" name="blocks[${blockCounter}][highest]" value="4" required>
+                <input type="number" name="blocks[${blockCounter}][highest]" placeholder="e.g., 4">
             </div>
         </div>
     `;
