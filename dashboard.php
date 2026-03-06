@@ -584,6 +584,11 @@ function initMap() {
                 </div>
             </div>
         `;
+        
+        // --- THESE ARE THE 3 LINES THAT WERE DELETED ---
+        marker.bindPopup(popupContent);
+        markersGroup.addLayer(marker);
+    });
 
     window.map.addLayer(markersGroup);
 
