@@ -568,7 +568,7 @@ function initMap() {
         const marker = L.marker(coords, { icon: customIcon });
         
         const popupContent = `
-            <div style="min-width: 200px;">
+            <div style="min-width: 220px;">
                 <div class="popup-title">${p.name}</div>
                 <div class="popup-meta">
                     <strong>Developer:</strong> <span style="color: ${pinColor}; font-weight: bold;">${clientName}</span><br>
@@ -576,12 +576,14 @@ function initMap() {
                     <strong>Stage:</strong> <span style="color: #fff;">${p.stage}</span><br>
                     <span style="font-size: 0.75rem; color: #6b7280; font-style: italic;">${(p.latitude && p.longitude) ? '📍 Exact Coordinates' : '📍 Locality Approximation'}</span>
                 </div>
-                <a href="mobilisation_detail.php?project_id=${p.id}" class="popup-btn">Open Project Dashboard</a>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem;">
+                    <a href="project-status.php?id=${p.id}" style="display: block; box-sizing: border-box; background: rgba(255,255,255,0.05); color: var(--text-primary); padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--border-glass);">📊 Status Snapshot</a>
+                    
+                    <a href="mobilisation_detail.php?project_id=${p.id}" style="display: block; box-sizing: border-box; background: var(--primary-color); color: #ffffff; padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--primary-color);">⚙️ Open Dashboard</a>
+                </div>
             </div>
         `;
-        marker.bindPopup(popupContent);
-        markersGroup.addLayer(marker);
-    });
 
     window.map.addLayer(markersGroup);
 
