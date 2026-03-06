@@ -356,7 +356,14 @@ require_once 'header.php';
                             <?php foreach ($projects as $project): ?>
                                 <tr style="<?= in_array($project['project_status'] ?? '', ['Withdrawn', 'On-Hold']) ? 'opacity: 0.6;' : '' ?>">
                                     <td style="text-align: center;"><span class="stage-dot" style="background-color: <?= $stageColors[$project['stage']] ?>;" title="<?= $project['stage'] ?>"></span></td>
-                                    <td style="font-weight: 600; color: var(--text-primary);"><div style="display: flex; align-items: center;"><?= htmlspecialchars($project['name']) ?><?php if (!empty($project['summer_break_flag']) && $project['summer_break_flag'] == 1): ?><span class="summer-break-icon" title="Summer Break Alarm Active">☀️</span><?php endif; ?></div></td>
+                                   <td style="font-weight: 600;">
+                                        <a href="project-status.php?id=<?= $project['id'] ?>" style="color: var(--text-primary); text-decoration: none; display: flex; align-items: center; transition: color 0.2s;" onmouseover="this.style.color='var(--primary-color)'" onmouseout="this.style.color='var(--text-primary)'" title="View Project Snapshot">
+                                            <?= htmlspecialchars($project['name']) ?>
+                                            <?php if (!empty($project['summer_break_flag']) && $project['summer_break_flag'] == 1): ?>
+                                                <span class="summer-break-icon" style="margin-left: 0.5rem;" title="Summer Break Alarm Active">☀️</span>
+                                            <?php endif; ?>
+                                        </a>
+                                    </td>
                                     <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
                                     <td class="nowrap-cell">
                                         <?php if ($project['type'] === 'in-house'): ?><span style="color: var(--primary-color); font-weight: 500;">In-House</span>
