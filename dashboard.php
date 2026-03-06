@@ -554,10 +554,13 @@ function initMap() {
 
     projectsData.forEach(p => {
         let coords;
+        let hasExactLocation = false; // Flag to track if we have real GPS data
+        
         if (p.latitude && p.longitude && p.latitude !== '' && p.longitude !== '') {
             coords = [parseFloat(p.latitude), parseFloat(p.longitude)];
+            hasExactLocation = true; // We have an exact pin!
         } else {
-            coords = localityCoords[p.city] || [35.91, 14.4];
+            coords = localityCoords[p.city] || [35.91, 14.4]; // Fallback to town center
         }
 
         const clientName = p.client_name || 'In-House (Internal)';
@@ -567,6 +570,19 @@ function initMap() {
         const customIcon = L.divIcon({ className: 'custom-pin', html: `<div class="custom-pin-inner" style="background-color: ${pinColor};"></div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
         const marker = L.marker(coords, { icon: customIcon });
         
+        // CONDITIONAL GOOGLE MAPS HTML
+        let mapLinksHtml = '';
+        if (hasExactLocation) {
+            const googleMapsUrl = `https://maps.google.com/?q=${coords[0]},${coords[1]}`;
+            mapLinksHtml = `
+                <div style="display: flex; gap: 0.4rem; margin-top: 0.5rem;">
+                    <a href="${googleMapsUrl}" target="_blank" style="flex-grow: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); color: var(--text-primary); padding: 0.4rem; border-radius: 6px; text-decoration: none; font-size: 0.75rem; border: 1px solid var(--border-glass);">🗺️ Google Maps</a>
+                    
+                    <button onclick="navigator.clipboard.writeText('${googleMapsUrl}'); this.innerText='✅ Copied'; setTimeout(()=>this.innerText='📋 Copy', 2000);" style="background: rgba(255,255,255,0.05); color: var(--text-primary); padding: 0.4rem 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); cursor: pointer; font-size: 0.75rem;" title="Copy Link">📋 Copy</button>
+                </div>
+            `;
+        }
+        
         const popupContent = `
             <div style="min-width: 220px;">
                 <div class="popup-title">${p.name}</div>
@@ -574,8 +590,10 @@ function initMap() {
                     <strong>Developer:</strong> <span style="color: ${pinColor}; font-weight: bold;">${clientName}</span><br>
                     <strong>Location:</strong> ${p.city}<br>
                     <strong>Stage:</strong> <span style="color: #fff;">${p.stage}</span><br>
-                    <span style="font-size: 0.75rem; color: #6b7280; font-style: italic;">${(p.latitude && p.longitude) ? '📍 Exact Coordinates' : '📍 Locality Approximation'}</span>
+                    <span style="font-size: 0.75rem; color: #6b7280; font-style: italic;">${hasExactLocation ? '📍 Exact Coordinates' : '📍 Locality Approximation'}</span>
                 </div>
+                
+                ${mapLinksHtml}
                 
                 <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem;">
                     <a href="project-status.php?id=${p.id}" style="display: block; box-sizing: border-box; background: rgba(255,255,255,0.05); color: var(--text-primary); padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--border-glass);">📊 Status Snapshot</a>
@@ -584,8 +602,7 @@ function initMap() {
                 </div>
             </div>
         `;
-        
-        // --- THESE ARE THE 3 LINES THAT WERE DELETED ---
+
         marker.bindPopup(popupContent);
         markersGroup.addLayer(marker);
     });
