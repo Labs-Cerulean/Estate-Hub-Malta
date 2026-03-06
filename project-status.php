@@ -25,8 +25,6 @@ $blocksStmt->execute([$projectId]);
 $blockLevels = $blocksStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // --- DYNAMIC RAG ENGINE ---
-// Colors: Green (Complete/Approved), Amber (In Progress/Processing), Red (Missing/Refused), Gray (Not Started)
-
 function getStatusDot($color) {
     return "<span class='rag-dot' style='background-color: var(--{$color}); box-shadow: 0 0 6px var(--{$color});'></span>";
 }
@@ -55,7 +53,7 @@ if (in_array($stage, ['Feasibility', 'Tracking', 'Permit'])) {
             } else {
                 $color = 'amber';
             }
-            $boardContent .= "<div class='action-item'>".getStatusDot($color)." <span class='action-label'>{$pa['pa_number']}</span> <span class='action-value'>{$status}</span></div>";
+            $boardContent .= "<div class='action-item'>".getStatusDot($color)." <span class='action-label'>{$pa['pa_number']}</span> <span class='action-value' style='color:var(--{$color});'>{$status}</span></div>";
         }
     }
     
@@ -66,34 +64,55 @@ if (in_array($stage, ['Feasibility', 'Tracking', 'Permit'])) {
 elseif ($stage === 'Mobilisation') {
     $boardTitle = "Mobilisation Checklist (What's Left to Start)";
     
-    $mobChecks = [
-        'BCA Notice' => $mobilisation['bca_notice'] ?? '',
-        'SWD Notice' => $mobilisation['swd_notice'] ?? '',
-        'Hoarding Permit' => $mobilisation['hoarding_permit'] ?? '',
-        'Crane Permit' => $mobilisation['crane_permit'] ?? '',
-        'Site Hoarding Setup' => $mobilisation['site_hoarding_setup'] ?? '',
-        'Temp Water Connected' => $mobilisation['temporary_water'] ?? '',
-        'Temp Elec Connected' => $mobilisation['temporary_electricity'] ?? '',
-        'Health & Safety Setup' => $mobilisation['health_safety_setup'] ?? ''
-    ];
+    // Map EXACTLY to mobilisation_detail.php database columns
+    $mobItems = [];
+    if ($project['type'] === 'in-house') {
+        $mobItems['Acquisition Complete'] = $mobilisation['acquisition_complete'] ?? 'No';
+    }
+    $mobItems['Change of Applicant'] = $mobilisation['change_of_applicant'] ?? 'NA';
+    $mobItems['Archaeologist Assigned'] = $mobilisation['archaeologist_assigned'] ?? 'NA';
+    $mobItems['Geological Test'] = $mobilisation['geological_test'] ?? 'Not Complete';
+    $mobItems['Condition Report Contacts'] = $mobilisation['condition_report_contacts'] ?? 'Not Started';
+    $mobItems['Condition Reports (Execution)'] = $mobilisation['condition_reports'] ?? 'Not Started';
+    $mobItems['Method Statements'] = $mobilisation['method_statements'] ?? 'Not Complete';
+    $mobItems['Insurance Status'] = $mobilisation['insurance_status'] ?? 'Not Started';
+    $mobItems['Pavement Guarantee'] = $mobilisation['pavement_guarantee'] ?? 'Not Started';
+    $mobItems['Wellbeing Guarantee'] = $mobilisation['wellbeing_guarantee'] ?? 'Not Started';
+    $mobItems['Umbrella Guarantee'] = $mobilisation['umbrella_guarantee'] ?? 'Not Started';
+    $mobItems['Responsibility Form'] = $mobilisation['responsibility_form'] ?? 'Not Complete';
+    $mobItems['Demolition Clearance'] = $mobilisation['mob_demolition'] ?? 'No';
+    $mobItems['Excavation Clearance'] = $mobilisation['mob_excavation'] ?? 'No';
+    $mobItems['Construction Clearance'] = $mobilisation['mob_construction'] ?? 'No';
     
     $completedTasks = 0;
-    $totalTasks = count($mobChecks);
+    $totalTasks = count($mobItems);
+    $nextBlocker = "None";
 
-    foreach ($mobChecks as $label => $val) {
-        $v = trim(strtolower($val));
-        if (empty($v) || in_array($v, ['no', 'pending', 'missing', 'not started'])) {
-            $boardContent .= "<div class='action-item'>".getStatusDot('red')." <span class='action-label'>{$label}</span> <span class='action-value' style='color:var(--red);'>Pending</span></div>";
-        } elseif (in_array($v, ['in progress', 'partial', 'submitted'])) {
+    foreach ($mobItems as $label => $val) {
+        $val = trim($val);
+        
+        // Determine Next Blocker
+        if ($nextBlocker === "None" && in_array($val, ['No', 'Not Started', 'Not Complete', 'In Process', 'Awaiting Result'])) {
+            $nextBlocker = $label;
+        }
+
+        // Output Status Row
+        if ($val === 'NA') {
+            $boardContent .= "<div class='action-item'>".getStatusDot('gray')." <span class='action-label' style='color:#64748b;'>{$label}</span> <span class='action-value' style='color:#64748b;'>N/A (Not Required)</span></div>";
+            $completedTasks++;
+        } elseif (in_array($val, ['Yes', 'Complete'])) {
+            $boardContent .= "<div class='action-item'>".getStatusDot('green')." <span class='action-label'>{$label}</span> <span class='action-value' style='color:var(--green);'>{$val}</span></div>";
+            $completedTasks++;
+        } elseif (in_array($val, ['In Process', 'Awaiting Result'])) {
             $boardContent .= "<div class='action-item'>".getStatusDot('amber')." <span class='action-label'>{$label}</span> <span class='action-value' style='color:var(--amber);'>{$val}</span></div>";
         } else {
-            $boardContent .= "<div class='action-item'>".getStatusDot('green')." <span class='action-label'>{$label}</span> <span class='action-value' style='color:var(--green);'>Secured / Done</span></div>";
-            $completedTasks++;
+            $displayVal = ($val === 'No' || $val === 'Not Started' || $val === 'Not Complete') ? 'Pending' : $val;
+            $boardContent .= "<div class='action-item'>".getStatusDot('red')." <span class='action-label'>{$label}</span> <span class='action-value' style='color:var(--red);'>{$displayVal}</span></div>";
         }
     }
 
-    $topMetric1 = ['label' => 'Mob. Tasks', 'value' => "$completedTasks / $totalTasks", 'color' => ($completedTasks == $totalTasks ? '#22c55e' : '#f59e0b')];
-    $topMetric2 = ['label' => 'Mobilisation Status', 'value' => $mobilisation['mobilisation_status'] ?? 'In Progress', 'color' => '#0ea5e9'];
+    $topMetric1 = ['label' => 'Tasks Cleared', 'value' => "$completedTasks / $totalTasks", 'color' => ($completedTasks == $totalTasks ? '#22c55e' : '#0ea5e9')];
+    $topMetric2 = ['label' => 'Current Blocker', 'value' => $nextBlocker, 'color' => ($nextBlocker === 'None' ? '#22c55e' : '#f59e0b')];
 } 
 // --- STAGE 3: EXECUTION (Demolition, Excavation, Construction, Finishes) ---
 elseif (in_array($stage, ['Demolition', 'Excavation', 'Construction', 'Finishes'])) {
@@ -119,9 +138,9 @@ elseif (in_array($stage, ['Demolition', 'Excavation', 'Construction', 'Finishes'
                 if ($status === 'Complete') { $color = 'green'; $statusText = 'Complete'; }
                 elseif ($status === 'In Progress') { $color = 'amber'; $statusText = 'In Progress'; }
                 elseif ($status === 'NA') { $color = 'gray'; $statusText = 'N/A'; }
-                else { $color = 'gray'; $statusText = 'Pending'; }
+                else { $color = 'red'; $statusText = 'Pending'; }
 
-                $boardContent .= "<div class='action-item' style='padding-left: 2rem;'>".getStatusDot($color)." <span class='action-label'>{$lvl['level_name']}</span> <span class='action-value' style='color:var(--{$color});'>{$statusText}</span></div>";
+                $boardContent .= "<div class='action-item' style='padding-left: 1.5rem;'>".getStatusDot($color)." <span class='action-label'>{$lvl['level_name']}</span> <span class='action-value' style='color:var(--{$color});'>{$statusText}</span></div>";
             }
         }
     }
@@ -132,7 +151,7 @@ elseif (in_array($stage, ['Demolition', 'Excavation', 'Construction', 'Finishes'
 // --- STAGE 4: FINALIZATION (Compliance, Condominium, Handed Over) ---
 else {
     $boardTitle = "Finalization & Handover";
-    $boardContent .= "<div class='action-item' style='justify-content:center; padding: 2rem;'>".getStatusDot('green')." <strong>Project has reached Finalization phases. Major execution works are logged as complete.</strong></div>";
+    $boardContent .= "<div class='action-item' style='justify-content:center; padding: 2rem; text-align:center;'>".getStatusDot('green')." <strong>Project has reached Finalization phases.<br>Major execution works are logged as complete.</strong></div>";
     
     $topMetric1 = ['label' => 'Current Stage', 'value' => $stage, 'color' => '#22c55e'];
     $topMetric2 = ['label' => 'System Status', 'value' => $project['project_status'], 'color' => '#22c55e'];
@@ -141,7 +160,7 @@ else {
 // Stage Colorizer for Header
 $headerColor = '#0ea5e9'; // Blue
 if (in_array($stage, ['Handed Over', 'Condominium'])) $headerColor = '#22c55e'; // Green
-elseif (in_array($stage, ['Construction', 'Finishes', 'Mobilisation'])) $headerColor = '#eab308'; // Amber
+elseif (in_array($stage, ['Construction', 'Finishes', 'Mobilisation', 'Demolition', 'Excavation'])) $headerColor = '#eab308'; // Amber
 elseif (in_array($stage, ['Withdrawn', 'On-Hold'])) $headerColor = '#ef4444'; // Red
 
 $pageTitle = 'Status: ' . $project['name'];
@@ -167,18 +186,18 @@ require_once 'header.php';
     .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.1); }
     .metric-box { padding: 1rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.05); }
     .metric-box:last-child { border-right: none; }
-    .metric-value { font-size: 1.25rem; font-weight: 800; margin-bottom: 0.2rem; }
+    .metric-value { font-size: 1.1rem; font-weight: 800; margin-bottom: 0.2rem; }
     .metric-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
 
     .action-board { padding: 1.5rem; }
     .action-board-title { font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
     
-    .action-item { display: flex; align-items: center; padding: 0.6rem 0; border-bottom: 1px dashed rgba(255,255,255,0.05); font-size: 0.95rem; }
+    .action-item { display: flex; align-items: center; padding: 0.45rem 0; border-bottom: 1px dashed rgba(255,255,255,0.05); font-size: 0.95rem; }
     .action-item:last-child { border-bottom: none; }
     
     .rag-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 1rem; flex-shrink: 0; }
     .action-label { flex-grow: 1; color: #e2e8f0; font-weight: 500; }
-    .action-value { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    .action-value { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; text-align: right;}
 
     .block-header { padding: 1rem 0 0.25rem 0; font-weight: 700; color: #0ea5e9; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
 
@@ -192,7 +211,7 @@ require_once 'header.php';
 
 <div class="snapshot-container">
     <div style="margin-bottom: 1rem; text-align: left;">
-        <a href="javascript:history.back()" class="btn btn-sm btn-secondary back-btn">← Back to Dashboard</a>
+        <a href="dashboard.php" class="btn btn-sm btn-secondary back-btn">← Back to Dashboard</a>
     </div>
 
     <div class="snapshot-card" style="border-top: 6px solid <?= $headerColor ?>;">
