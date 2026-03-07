@@ -24,10 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $_POST['type']
         ]);
         
-        $clientId = $pdo->lastInsertId();
+      $clientId = $pdo->lastInsertId();
         
-        // Auto-assign creator to client
-        autoAssignCreatorToClient($pdo, $clientId);
+        // Auto-assign creator to client (Pass the current user ID as the 3rd argument)
+        autoAssignCreatorToClient($pdo, $clientId, getCurrentUserId());
+    
         
         $message = 'Client created successfully! You now have access to this client.';
     } catch (PDOException $e) {
