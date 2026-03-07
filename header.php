@@ -10,6 +10,7 @@ $pageTitle = $pageTitle ?? 'Estate Hub';
 $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 
 // Define visibility for Dropdowns based on user capabilities
+$showProjects = hasPermission('view_projects') || hasPermission('view_mobilisation') || hasPermission('view_services') || isAdmin();
 $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation') || hasPermission('view_drawings') || isAdmin();
 $showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || isAdmin();
 $showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || isAdmin();
@@ -48,16 +49,23 @@ if (isLoggedIn() && isset($pdo)) {
                     
                     <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
                     
-                    <?php if (hasPermission('view_projects') || isAdmin()): ?>
-                        <a href="projects.php" class="nav-link <?= $currentPage === 'projects' ? 'active' : '' ?>">Projects</a>
-                    <?php endif; ?>
-
-                    <?php if (hasPermission('view_mobilisation') || isAdmin()): ?>
-                        <a href="mobilization.php" class="nav-link <?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilisation</a>
-                    <?php endif; ?>
-
-                    <?php if (hasPermission('view_services') || isAdmin()): ?>
-                        <a href="engineering.php" class="nav-link <?= $currentPage === 'engineering' ? 'active' : '' ?>">Engineering</a>
+                    <?php if ($showProjects): ?>
+                    <div class="nav-dropdown">
+                        <span class="nav-link <?= in_array($currentPage, ['projects', 'mobilization', 'engineering']) ? 'active' : '' ?>">
+                            Projects ▾
+                        </span>
+                        <div class="dropdown-content">
+                            <?php if (hasPermission('view_projects') || isAdmin()): ?>
+                                <a href="projects.php" class="<?= $currentPage === 'projects' ? 'active' : '' ?>">Project Dashboard</a>
+                            <?php endif; ?>
+                            <?php if (hasPermission('view_mobilisation') || isAdmin()): ?>
+                                <a href="mobilization.php" class="<?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilisation Dashboard</a>
+                            <?php endif; ?>
+                            <?php if (hasPermission('view_services') || isAdmin()): ?>
+                                <a href="engineering.php" class="<?= $currentPage === 'engineering' ? 'active' : '' ?>">Engineering Dashboard</a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                     <?php endif; ?>
 
                     <?php if ($showSiteDocs): ?>
