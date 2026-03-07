@@ -158,9 +158,9 @@ function getSrvState($srvRow, $key) {
     return 'pending';
 }
 function getSrvColor($state) {
-    if ($state === 'complete') return '#22c55e'; // Green
-    if ($state === 'pending') return '#f59e0b'; // Amber
-    return '#64748b'; // Gray
+    if ($state === 'complete') return '#22c55e'; 
+    if ($state === 'pending') return '#f59e0b'; 
+    return '#64748b'; 
 }
 function getSrvLabel($state) {
     if ($state === 'complete') return 'Required (Complete)';
@@ -169,9 +169,9 @@ function getSrvLabel($state) {
 }
 
 function getTempColor($val) {
-    if (in_array($val, ['Connected', 'Yes', 'Complete'])) return '#22c55e'; // Green
-    if (in_array($val, ['In Process'])) return '#f59e0b'; // Amber
-    return '#ef4444'; // Red (Not Started)
+    if (in_array($val, ['Connected', 'Yes', 'Complete'])) return '#22c55e'; 
+    if (in_array($val, ['In Process'])) return '#f59e0b'; 
+    return '#ef4444'; 
 }
 
 $pageTitle = 'Live Engineering & Utilities';
@@ -179,8 +179,13 @@ require_once 'header.php';
 ?>
 
 <style>
-    /* Table Enhancements */
+    /* Fixed Layout Table to prevent squishing */
     .dashboard-wrapper td { vertical-align: top; padding: 1rem 0.75rem; }
+    .main-table { width: 100%; min-width: 1200px; table-layout: fixed; border-collapse: collapse; }
+    .main-table th.col-proj { width: 16%; }
+    .main-table th.col-matrix { width: 8%; text-align: center; }
+    .main-table th.col-supply { width: 11%; }
+    .main-table th.col-arms { width: 65%; }
     
     /* Inline Editing Styles */
     .live-input { width: 100%; background: transparent; border: 1px solid transparent; color: inherit; font-size: 0.8rem; padding: 4px; border-radius: 4px; transition: all 0.2s; box-sizing: border-box; }
@@ -193,17 +198,18 @@ require_once 'header.php';
     .live-select option { background: #1e1e2d; color: #fff; }
 
     /* Interactive Matrix & Buttons */
-    .srv-matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 80px; }
+    .srv-matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 70px; margin: 0 auto; }
     .matrix-dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.5); cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; }
     .matrix-dot:hover { transform: scale(1.3); box-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
-    .temp-btn { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 6px; cursor: pointer; user-select: none; transition: 0.2s; width: 100%; box-sizing: border-box; font-size: 0.8rem; font-weight: 600; }
+    /* Prevents Temp Text from ever wrapping or overlapping */
+    .temp-btn { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px 10px; border-radius: 6px; cursor: pointer; user-select: none; transition: 0.2s; width: 100%; box-sizing: border-box; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
     .temp-btn:hover { background: rgba(255,255,255,0.1); }
-    .temp-indicator { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.5); }
+    .temp-indicator { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.5); flex-shrink: 0; }
 
-    /* ARMS Sub-table */
-    .arms-wrapper { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 0.5rem; border: 1px solid var(--border-glass); min-width: 600px; }
-    .arms-table { width: 100%; border-collapse: collapse; }
+    /* ARMS Sub-table with independent scroll */
+    .arms-wrapper { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 0.5rem; border: 1px solid var(--border-glass); width: 100%; overflow-x: auto; box-sizing: border-box; }
+    .arms-table { width: 100%; border-collapse: collapse; min-width: 850px; }
     .arms-table th { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
     .arms-table td { padding: 2px; }
 
@@ -257,21 +263,21 @@ require_once 'header.php';
                 </div>
                 <?php endif; ?>
                 <div class="filter-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
-                    <label>&nbsp;</label>
-                    <button type="submit" class="btn btn-sm" style="width: 100%; height: 34px;">Apply Filters</button>
+                    <label style="visibility: hidden;">Apply</label>
+                    <button type="submit" class="btn btn-sm" style="width: 100%; height: 35px;">Apply Filters</button>
                 </div>
             </div>
         </form>
     </div>
 
-    <div class="dashboard-wrapper">
-        <table style="min-width: 1400px;">
+    <div class="dashboard-wrapper" style="overflow-x: auto; width: 100%;">
+        <table class="main-table">
             <thead>
                 <tr>
-                    <th style="width: 200px;">Project / Location</th>
-                    <th style="width: 100px; text-align: center;">Services Matrix</th>
-                    <th style="width: 140px;">Site Supply</th>
-                    <th>ARMS Applications & Meters (Live Edit)</th>
+                    <th class="col-proj">Project / Location</th>
+                    <th class="col-matrix">Services Matrix</th>
+                    <th class="col-supply">Site Supply</th>
+                    <th class="col-arms">ARMS Applications & Meters (Live Edit)</th>
                 </tr>
             </thead>
             <tbody>
@@ -305,18 +311,18 @@ require_once 'header.php';
                         </div>
                     </td>
 
-                    <td>
+                    <td style="vertical-align: middle;">
                         <?php 
                         $tW = $mob['temporary_water'] ?? 'Not Started';
                         $tE = $mob['temporary_electricity'] ?? 'Not Started';
                         ?>
                         <div class="temp-btn" style="margin-bottom: 6px;" onclick="cycleTemp('temporary_water', <?= $pId ?>, this)" data-state="<?= $tW ?>" title="Click to toggle Water status">
-                            <span>💧 Water</span>
-                            <div class="temp-indicator" style="background: <?= getTempColor($tW) ?>;"></div>
+                            <span style="pointer-events: none;">💧 Water</span>
+                            <div class="temp-indicator" style="background: <?= getTempColor($tW) ?>; pointer-events: none;"></div>
                         </div>
                         <div class="temp-btn" onclick="cycleTemp('temporary_electricity', <?= $pId ?>, this)" data-state="<?= $tE ?>" title="Click to toggle Electricity status">
-                            <span>⚡ Elec.</span>
-                            <div class="temp-indicator" style="background: <?= getTempColor($tE) ?>;"></div>
+                            <span style="pointer-events: none;">⚡ Elec.</span>
+                            <div class="temp-indicator" style="background: <?= getTempColor($tE) ?>; pointer-events: none;"></div>
                         </div>
                     </td>
 
@@ -325,8 +331,8 @@ require_once 'header.php';
                             <table class="arms-table" id="arms-table-<?= $pId ?>">
                                 <thead>
                                     <tr>
-                                        <th style="width: 110px;">Type</th>
-                                        <th style="width: 110px;">Account No.</th>
+                                        <th style="width: 100px;">Type</th>
+                                        <th style="width: 100px;">Account No.</th>
                                         <th style="width: 120px;">Electrician</th>
                                         <th style="width: 120px;">Applicant</th>
                                         <th style="width: 110px;">Elec. Meter</th>
@@ -396,12 +402,11 @@ async function cycleService(el) {
 
     const newState = nextStateMap[currentState];
 
-    // Optimistic UI Update (Makes it feel instant)
+    // Optimistic UI Update
     el.dataset.state = newState;
     el.style.background = colorMap[newState];
     el.title = `${name}: ${labelMap[newState]} (Click to toggle)`;
 
-    // Save to Database
     const formData = new URLSearchParams();
     formData.append('ajax_action', 'update_service');
     formData.append('project_id', pid);
@@ -413,7 +418,6 @@ async function cycleService(el) {
         const data = await response.json();
         if (data.success) showToast('✅ ' + name + ' Updated');
     } catch (e) {
-        // Revert on error
         el.dataset.state = currentState; el.style.background = colorMap[currentState];
         alert('Connection error.');
     }
@@ -428,7 +432,6 @@ async function cycleTemp(field, projectId, el) {
     const nextStateMap = { 'Not Started': 'In Process', 'In Process': 'Connected', 'Connected': 'Not Started' };
     const colorMap = { 'Not Started': '#ef4444', 'In Process': '#f59e0b', 'Connected': '#22c55e' };
     
-    // Handle edge cases from old DB data
     let safeCurrent = ['Not Started', 'In Process', 'Connected'].includes(currentState) ? currentState : 'Not Started';
     const newState = nextStateMap[safeCurrent];
 
@@ -437,7 +440,6 @@ async function cycleTemp(field, projectId, el) {
     indicator.style.background = colorMap[newState];
     el.title = `Currently: ${newState} (Click to toggle)`;
 
-    // Save to Database
     updateRecord('update_temp', field, projectId, newState, null);
 }
 
