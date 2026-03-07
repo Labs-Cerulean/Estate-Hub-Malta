@@ -179,12 +179,12 @@ require_once 'header.php';
 ?>
 
 <style>
-    /* Fixed Layout Table to prevent squishing */
+    /* Fixed Layout Table - Redesigned Proportions */
     .dashboard-wrapper td { vertical-align: top; padding: 1rem 0.75rem; }
     .main-table { width: 100%; min-width: 1100px; table-layout: fixed; border-collapse: collapse; }
-    .main-table th.col-proj { width: 22%; }
-    .main-table th.col-supply { width: 12%; }
-    .main-table th.col-arms { width: 66%; }
+    .main-table th.col-proj { width: 17%; }
+    .main-table th.col-supply { width: 5%; text-align: center; }
+    .main-table th.col-arms { width: 78%; }
     
     /* Inline Editing Styles */
     .live-input { width: 100%; background: transparent; border: 1px solid transparent; color: inherit; font-size: 0.8rem; padding: 4px; border-radius: 4px; transition: all 0.2s; box-sizing: border-box; }
@@ -196,21 +196,25 @@ require_once 'header.php';
     .live-select:focus { background: #1e1e2d; border-color: var(--primary-color); outline: none; }
     .live-select option { background: #1e1e2d; color: #fff; }
 
-    /* Interactive Matrix & Buttons */
+    /* Interactive Matrix */
     .srv-matrix { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     .matrix-dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.5); cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; flex-shrink: 0; }
     .matrix-dot:hover { transform: scale(1.3); box-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
-    /* Prevents Temp Text from ever wrapping or overlapping */
-    .temp-btn { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px 10px; border-radius: 6px; cursor: pointer; user-select: none; transition: 0.2s; width: 100%; box-sizing: border-box; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+    /* Ultra-Compact Temp Buttons */
+    .temp-btn { display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 6px; cursor: pointer; user-select: none; transition: 0.2s; width: 100%; box-sizing: border-box; font-size: 1rem; }
     .temp-btn:hover { background: rgba(255,255,255,0.1); }
     .temp-indicator { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.5); flex-shrink: 0; }
 
-    /* ARMS Sub-table with independent scroll */
+    /* ARMS Sub-table */
     .arms-wrapper { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 0.5rem; border: 1px solid var(--border-glass); width: 100%; overflow-x: auto; box-sizing: border-box; }
     .arms-table { width: 100%; border-collapse: collapse; min-width: 850px; }
     .arms-table th { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
     .arms-table td { padding: 2px; }
+
+    /* Compact Delete Button (Like Edit PA) */
+    .delete-btn { background: #ef4444; border: none; color: white; cursor: pointer; font-size: 0.9rem; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: 0.2s; margin: 0 auto; padding: 0; }
+    .delete-btn:hover { background: #dc2626; transform: scale(1.1); }
 
     /* Toast Notification */
     #toast { visibility: hidden; min-width: 250px; background-color: var(--success); color: #fff; text-align: center; border-radius: 8px; padding: 12px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; font-weight: bold; transform: translateX(-50%); box-shadow: 0 4px 15px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
@@ -274,7 +278,7 @@ require_once 'header.php';
             <thead>
                 <tr>
                     <th class="col-proj">Project & Services</th>
-                    <th class="col-supply">Site Supply</th>
+                    <th class="col-supply">Supply</th>
                     <th class="col-arms">ARMS Applications & Meters (Live Edit)</th>
                 </tr>
             </thead>
@@ -310,17 +314,17 @@ require_once 'header.php';
                         </div>
                     </td>
 
-                    <td style="vertical-align: middle;">
+                    <td style="vertical-align: middle; text-align: center;">
                         <?php 
                         $tW = $mob['temporary_water'] ?? 'Not Started';
                         $tE = $mob['temporary_electricity'] ?? 'Not Started';
                         ?>
-                        <div class="temp-btn" style="margin-bottom: 6px;" onclick="cycleTemp('temporary_water', <?= $pId ?>, this)" data-state="<?= $tW ?>" title="Click to toggle Water status">
-                            <span style="pointer-events: none;">💧 Water</span>
+                        <div class="temp-btn" style="margin-bottom: 6px;" onclick="cycleTemp('temporary_water', <?= $pId ?>, this)" data-state="<?= $tW ?>" title="Water - Currently: <?= $tW ?> (Click to toggle)">
+                            <span style="pointer-events: none;">💧</span>
                             <div class="temp-indicator" style="background: <?= getTempColor($tW) ?>; pointer-events: none;"></div>
                         </div>
-                        <div class="temp-btn" onclick="cycleTemp('temporary_electricity', <?= $pId ?>, this)" data-state="<?= $tE ?>" title="Click to toggle Electricity status">
-                            <span style="pointer-events: none;">⚡ Elec.</span>
+                        <div class="temp-btn" onclick="cycleTemp('temporary_electricity', <?= $pId ?>, this)" data-state="<?= $tE ?>" title="Electricity - Currently: <?= $tE ?> (Click to toggle)">
+                            <span style="pointer-events: none;">⚡</span>
                             <div class="temp-indicator" style="background: <?= getTempColor($tE) ?>; pointer-events: none;"></div>
                         </div>
                     </td>
@@ -330,24 +334,24 @@ require_once 'header.php';
                             <table class="arms-table" id="arms-table-<?= $pId ?>">
                                 <thead>
                                     <tr>
-                                        <th style="width: 110px;">Type</th>
-                                        <th style="width: 110px;">Account No.</th>
-                                        <th style="width: 120px;">Electrician</th>
-                                        <th style="width: 120px;">Applicant</th>
-                                        <th style="width: 110px;">Elec. Meter</th>
-                                        <th style="width: 110px;">Water Meter</th>
-                                        <th style="width: 110px;">Exp. Date</th>
-                                        <th style="width: 110px;">Status</th>
+                                        <th style="width: 85px;">Type</th>
+                                        <th style="width: 100px;">Account No.</th>
+                                        <th style="width: 100px;">Electrician</th>
+                                        <th style="width: 100px;">Applicant</th>
+                                        <th style="width: 100px;">Elec. Meter</th>
+                                        <th style="width: 100px;">Water Meter</th>
+                                        <th style="width: 105px;">Exp. Date</th>
+                                        <th style="width: 90px;">Status</th>
                                         <th>Notes</th>
-                                        <th style="width: 30px;"></th>
+                                        <th style="width: 25px; text-align: center;"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach($meters as $m): $mId = $m['id']; ?>
                                     <tr id="meter-row-<?= $mId ?>">
                                         <td>
-                                            <select class="live-select" style="color: #0ea5e9; font-weight: bold;" onchange="updateRecord('update_arms', 'meter_type', <?= $pId ?>, this.value, <?= $mId ?>)">
-                                                <option value="Temporary" <?= $m['meter_type']=='Temporary'?'selected':'' ?>>Temporary</option>
+                                            <select class="live-select" style="color: #0ea5e9; font-weight: bold; padding-left: 0;" onchange="updateRecord('update_arms', 'meter_type', <?= $pId ?>, this.value, <?= $mId ?>)">
+                                                <option value="Temporary" <?= $m['meter_type']=='Temporary'?'selected':'' ?>>Temp.</option>
                                                 <option value="Common Parts" <?= $m['meter_type']=='Common Parts'?'selected':'' ?>>Common P.</option>
                                                 <option value="Apartment" <?= $m['meter_type']=='Apartment'?'selected':'' ?>>Apartment</option>
                                             </select>
@@ -357,9 +361,9 @@ require_once 'header.php';
                                         <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['applicant'] ?? '') ?>" onblur="updateRecord('update_arms', 'applicant', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Applicant..."></td>
                                         <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_elec'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_elec', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="EL: ..."></td>
                                         <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_water'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_water', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="W: ..."></td>
-                                        <td><input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="color: #f59e0b;"></td>
+                                        <td><input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="color: #f59e0b; padding-left:0;"></td>
                                         <td>
-                                            <select class="live-select" onchange="updateRecord('update_arms', 'status', <?= $pId ?>, this.value, <?= $mId ?>)">
+                                            <select class="live-select" style="padding-left: 0;" onchange="updateRecord('update_arms', 'status', <?= $pId ?>, this.value, <?= $mId ?>)">
                                                 <option value="Applied" <?= $m['status']=='Applied'?'selected':'' ?>>🟡 Applied</option>
                                                 <option value="Active" <?= $m['status']=='Active'?'selected':'' ?>>🟢 Active</option>
                                                 <option value="Removal Done" <?= $m['status']=='Removal Done'?'selected':'' ?>>⚫ Removed</option>
@@ -367,8 +371,8 @@ require_once 'header.php';
                                             </select>
                                         </td>
                                         <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['notes'] ?? '') ?>" onblur="updateRecord('update_arms', 'notes', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Notes..."></td>
-                                        <td style="text-align: center;">
-                                            <button onclick="deleteMeter(<?= $mId ?>)" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 1.1rem; padding: 0 4px;" title="Delete">&times;</button>
+                                        <td>
+                                            <button onclick="deleteMeter(<?= $mId ?>)" class="delete-btn" title="Remove Record">&times;</button>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
@@ -437,7 +441,7 @@ async function cycleTemp(field, projectId, el) {
     // Optimistic UI Update
     el.dataset.state = newState;
     indicator.style.background = colorMap[newState];
-    el.title = `Currently: ${newState} (Click to toggle)`;
+    el.title = `${field === 'temporary_water' ? 'Water' : 'Electricity'} - Currently: ${newState} (Click to toggle)`;
 
     updateRecord('update_temp', field, projectId, newState, null);
 }
