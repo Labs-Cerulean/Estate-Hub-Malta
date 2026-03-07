@@ -256,8 +256,9 @@ require_once 'header.php';
                     </select>
                 </div>
                 <?php endif; ?>
-                <div class="filter-group" style="display: flex; align-items: flex-end;">
-                    <button type="submit" class="btn btn-sm" style="width: 100%;">Apply Filters</button>
+                <div class="filter-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                    <label>&nbsp;</label>
+                    <button type="submit" class="btn btn-sm" style="width: 100%; height: 34px;">Apply Filters</button>
                 </div>
             </div>
         </form>
