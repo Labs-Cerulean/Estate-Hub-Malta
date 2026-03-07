@@ -181,11 +181,10 @@ require_once 'header.php';
 <style>
     /* Fixed Layout Table to prevent squishing */
     .dashboard-wrapper td { vertical-align: top; padding: 1rem 0.75rem; }
-    .main-table { width: 100%; min-width: 1200px; table-layout: fixed; border-collapse: collapse; }
-    .main-table th.col-proj { width: 16%; }
-    .main-table th.col-matrix { width: 8%; text-align: center; }
-    .main-table th.col-supply { width: 11%; }
-    .main-table th.col-arms { width: 65%; }
+    .main-table { width: 100%; min-width: 1100px; table-layout: fixed; border-collapse: collapse; }
+    .main-table th.col-proj { width: 22%; }
+    .main-table th.col-supply { width: 12%; }
+    .main-table th.col-arms { width: 66%; }
     
     /* Inline Editing Styles */
     .live-input { width: 100%; background: transparent; border: 1px solid transparent; color: inherit; font-size: 0.8rem; padding: 4px; border-radius: 4px; transition: all 0.2s; box-sizing: border-box; }
@@ -198,8 +197,8 @@ require_once 'header.php';
     .live-select option { background: #1e1e2d; color: #fff; }
 
     /* Interactive Matrix & Buttons */
-    .srv-matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 70px; margin: 0 auto; }
-    .matrix-dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.5); cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; }
+    .srv-matrix { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .matrix-dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.5); cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; flex-shrink: 0; }
     .matrix-dot:hover { transform: scale(1.3); box-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
     /* Prevents Temp Text from ever wrapping or overlapping */
@@ -274,8 +273,7 @@ require_once 'header.php';
         <table class="main-table">
             <thead>
                 <tr>
-                    <th class="col-proj">Project / Location</th>
-                    <th class="col-matrix">Services Matrix</th>
+                    <th class="col-proj">Project & Services</th>
                     <th class="col-supply">Site Supply</th>
                     <th class="col-arms">ARMS Applications & Meters (Live Edit)</th>
                 </tr>
@@ -289,25 +287,26 @@ require_once 'header.php';
                 ?>
                 <tr>
                     <td>
-                        <div style="font-weight: 800; color: var(--text-primary); margin-bottom: 4px;"><?= htmlspecialchars($project['name']) ?></div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">📍 <?= htmlspecialchars($project['city']) ?></div>
-                    </td>
-
-                    <td style="text-align: center;">
-                        <div class="srv-matrix">
-                            <?php foreach ($matrixFields as $dbKey => $label): 
-                                $state = getSrvState($srv, $dbKey);
-                            ?>
-                                <div class="matrix-dot" 
-                                     data-pid="<?= $pId ?>" 
-                                     data-srv="<?= $dbKey ?>" 
-                                     data-state="<?= $state ?>" 
-                                     data-name="<?= $label ?>"
-                                     style="background: <?= getSrvColor($state) ?>" 
-                                     title="<?= $label ?>: <?= getSrvLabel($state) ?> (Click to toggle)"
-                                     onclick="cycleService(this)">
-                                </div>
-                            <?php endforeach; ?>
+                        <div style="font-weight: 800; color: var(--text-primary); margin-bottom: 4px; font-size: 1.05rem;"><?= htmlspecialchars($project['name']) ?></div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">📍 <?= htmlspecialchars($project['city']) ?></div>
+                        
+                        <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 6px; display: inline-block; border: 1px solid rgba(255,255,255,0.05);">
+                            <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.5px; font-weight: bold;">Services Required</div>
+                            <div class="srv-matrix">
+                                <?php foreach ($matrixFields as $dbKey => $label): 
+                                    $state = getSrvState($srv, $dbKey);
+                                ?>
+                                    <div class="matrix-dot" 
+                                         data-pid="<?= $pId ?>" 
+                                         data-srv="<?= $dbKey ?>" 
+                                         data-state="<?= $state ?>" 
+                                         data-name="<?= $label ?>"
+                                         style="background: <?= getSrvColor($state) ?>" 
+                                         title="<?= $label ?>: <?= getSrvLabel($state) ?> (Click to toggle)"
+                                         onclick="cycleService(this)">
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
                         </div>
                     </td>
 
@@ -331,8 +330,8 @@ require_once 'header.php';
                             <table class="arms-table" id="arms-table-<?= $pId ?>">
                                 <thead>
                                     <tr>
-                                        <th style="width: 100px;">Type</th>
-                                        <th style="width: 100px;">Account No.</th>
+                                        <th style="width: 110px;">Type</th>
+                                        <th style="width: 110px;">Account No.</th>
                                         <th style="width: 120px;">Electrician</th>
                                         <th style="width: 120px;">Applicant</th>
                                         <th style="width: 110px;">Elec. Meter</th>
@@ -484,7 +483,8 @@ async function deleteMeter(meterId) {
 
 function showToast(msg) {
     const toast = document.getElementById("toast");
-    toast.innerText = msg; toast.className = "show";
+    toast.innerText = msg;
+    toast.className = "show";
     setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 1500);
 }
 </script>
