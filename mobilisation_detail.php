@@ -557,45 +557,44 @@ require_once 'header.php';
                                 <div class="alert alert-info">Finishes tracking is disabled for Shell properties.</div>
                             <?php else: ?>
                                 <div style="display: flex; flex-wrap: wrap; gap: 1rem; background: rgba(0,0,0,0.2); padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Type:</label>
-                                            <?php 
-                                                // Pull the existing type from the database (checking both common column names)
-                                                $rawType = $b['block_type'] ?? $b['type'] ?? 'Residential Block'; 
-                                                
-                                                // Smart detection: If the word 'garage' or 'basement' is in the type, it's a Garage Complex. Otherwise, Residential (House, Villa, Apt).
-                                                $isGarage = (stripos($rawType, 'garage') !== false || stripos($rawType, 'basement') !== false || stripos($rawType, 'parking') !== false);
-                                                $bTypeMatrix = $isGarage ? 'Garage Complex' : 'Residential Block';
-                                            ?>
-                                            <span style="background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.4); padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem;">
-                                                <?= htmlspecialchars($rawType) ?>
-                                            </span>
-                                        </div>
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Finishes Level:</label>
-                                            <select name="blocks[<?= $b['id'] ?>][finish_level]" style="background: #1e1e2d; color: #a855f7; border: 1px solid #a855f7; padding: 4px; border-radius: 4px; font-weight: bold; cursor: pointer;" onchange="this.form.submit()">
-                                                <option value="Common Parts Only" <?= ($b['finish_level'] ?? 'Common Parts Only') == 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
-                                                <option value="Semi-Finished" <?= ($b['finish_level'] ?? '') == 'Semi-Finished' ? 'selected' : '' ?>>Semi-Finished</option>
-                                            </select>
-                                        </div>
-                                        <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 5px;"></div>
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <label style="font-size: 0.75rem; color: var(--text-muted);">Stage:</label>
-                                            <select name="blocks[<?= $b['id'] ?>][stage]" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px;">
-                                                <?php foreach($stageOptions as $opt): ?>
-                                                    <option value="<?= $opt ?>" <?= ($b['stage'] == $opt) ? 'selected' : '' ?>><?= $opt ?></option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                        </div>
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <label style="font-size: 0.75rem; color: var(--text-muted);">Progress:</label>
-                                            <input type="number" name="blocks[<?= $b['id'] ?>][progress]" value="<?= htmlspecialchars($b['progress']) ?>" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px; width: 60px;" min="0" max="100">%
-                                        </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Type:</label>
+                                        <?php 
+                                            // Pull the existing type from the database (checking both common column names)
+                                            $rawType = $block['block_type'] ?? $block['type'] ?? 'Residential Block'; 
+                                            
+                                            // Smart detection: If the word 'garage' or 'basement' is in the type, it's a Garage Complex. Otherwise, Residential (House, Villa, Apt).
+                                            $isGarage = (stripos($rawType, 'garage') !== false || stripos($rawType, 'basement') !== false || stripos($rawType, 'parking') !== false);
+                                            $bTypeMatrix = $isGarage ? 'Garage Complex' : 'Residential Block';
+                                        ?>
+                                        <span style="background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.4); padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem;">
+                                            <?= htmlspecialchars($rawType) ?>
+                                        </span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Finishes Level:</label>
+                                        <select name="blocks[<?= $block['id'] ?>][finish_level]" style="background: #1e1e2d; color: #a855f7; border: 1px solid #a855f7; padding: 4px; border-radius: 4px; font-weight: bold; cursor: pointer;" onchange="this.form.submit()">
+                                            <option value="Common Parts Only" <?= ($block['finish_level'] ?? 'Common Parts Only') == 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
+                                            <option value="Semi-Finished" <?= ($block['finish_level'] ?? '') == 'Semi-Finished' ? 'selected' : '' ?>>Semi-Finished</option>
+                                        </select>
+                                    </div>
+                                    <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 5px;"></div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <label style="font-size: 0.75rem; color: var(--text-muted);">Stage:</label>
+                                        <select name="blocks[<?= $block['id'] ?>][stage]" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px;">
+                                            <?php foreach($stageOptions as $opt): ?>
+                                                <option value="<?= $opt ?>" <?= ($block['stage'] == $opt) ? 'selected' : '' ?>><?= $opt ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <label style="font-size: 0.75rem; color: var(--text-muted);">Progress:</label>
+                                        <input type="number" name="blocks[<?= $block['id'] ?>][progress]" value="<?= htmlspecialchars($block['progress'] ?? '0') ?>" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px; width: 60px;" min="0" max="100">%
                                     </div>
                                 </div>
             
                                 <?php 
-                                $bFinish = $b['finish_level'] ?? 'Common Parts Only';
+                                $bFinish = $block['finish_level'] ?? 'Common Parts Only';
             
                                 $scopeGroups = [
                                     'Engineering Works' => [
@@ -662,11 +661,11 @@ require_once 'header.php';
                                         
                                         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">
                                             <?php foreach ($group['fields'] as $dbKey => $label): 
-                                                $val = $b[$dbKey] ?? 'Not Required';
+                                                $val = $block[$dbKey] ?? 'Not Required';
                                             ?>
                                                 <div>
                                                     <label style="display: block; font-size: 0.65rem; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;"><?= $label ?></label>
-                                                    <select name="blocks[<?= $b['id'] ?>][<?= $dbKey ?>]" style="width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">
+                                                    <select name="blocks[<?= $block['id'] ?>][<?= $dbKey ?>]" style="width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">
                                                         <?php
                                                         // Intercoms has special options
                                                         if ($dbKey === 'fin_intercoms') {
