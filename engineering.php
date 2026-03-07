@@ -179,7 +179,7 @@ require_once 'header.php';
 ?>
 
 <style>
-    /* Fixed Layout Table - Redesigned Proportions */
+    /* Fixed Layout Table */
     .dashboard-wrapper td { vertical-align: top; padding: 1rem 0.75rem; }
     .main-table { width: 100%; min-width: 1100px; table-layout: fixed; border-collapse: collapse; }
     .main-table th.col-proj { width: 17%; }
@@ -206,13 +206,16 @@ require_once 'header.php';
     .temp-btn:hover { background: rgba(255,255,255,0.1); }
     .temp-indicator { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.5); flex-shrink: 0; }
 
-    /* ARMS Sub-table */
-    .arms-wrapper { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 0.5rem; border: 1px solid var(--border-glass); width: 100%; overflow-x: auto; box-sizing: border-box; }
-    .arms-table { width: 100%; border-collapse: collapse; min-width: 850px; }
+    /* ARMS Sub-table (Split Line Layout) */
+    .arms-wrapper { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 0.5rem; border: 1px solid var(--border-glass); width: 100%; box-sizing: border-box; }
+    .arms-table { width: 100%; border-collapse: collapse; }
     .arms-table th { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
-    .arms-table td { padding: 2px; }
+    .arms-table td { padding: 6px 4px; border-bottom: 1px dashed rgba(255,255,255,0.05); vertical-align: top; }
+    
+    /* Stacks inputs inside a single td */
+    .input-stack { display: flex; flex-direction: column; gap: 4px; }
 
-    /* Compact Delete Button (Like Edit PA) */
+    /* Compact Delete Button */
     .delete-btn { background: #ef4444; border: none; color: white; cursor: pointer; font-size: 0.9rem; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: 0.2s; margin: 0 auto; padding: 0; }
     .delete-btn:hover { background: #dc2626; transform: scale(1.1); }
 
@@ -334,44 +337,59 @@ require_once 'header.php';
                             <table class="arms-table" id="arms-table-<?= $pId ?>">
                                 <thead>
                                     <tr>
-                                        <th style="width: 85px;">Type</th>
-                                        <th style="width: 100px;">Account No.</th>
-                                        <th style="width: 100px;">Electrician</th>
-                                        <th style="width: 100px;">Applicant</th>
-                                        <th style="width: 100px;">Elec. Meter</th>
-                                        <th style="width: 100px;">Water Meter</th>
-                                        <th style="width: 105px;">Exp. Date</th>
-                                        <th style="width: 90px;">Status</th>
-                                        <th>Notes</th>
-                                        <th style="width: 25px; text-align: center;"></th>
+                                        <th style="width: 14%;">Type / Status</th>
+                                        <th style="width: 18%;">Account No. / Expiry</th>
+                                        <th style="width: 18%;">Electric / Water Meter</th>
+                                        <th style="width: 18%;">Electrician / Applicant</th>
+                                        <th style="width: 28%;">Notes</th>
+                                        <th style="width: 4%; text-align: center;"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach($meters as $m): $mId = $m['id']; ?>
                                     <tr id="meter-row-<?= $mId ?>">
                                         <td>
-                                            <select class="live-select" style="color: #0ea5e9; font-weight: bold; padding-left: 0;" onchange="updateRecord('update_arms', 'meter_type', <?= $pId ?>, this.value, <?= $mId ?>)">
-                                                <option value="Temporary" <?= $m['meter_type']=='Temporary'?'selected':'' ?>>Temp.</option>
-                                                <option value="Common Parts" <?= $m['meter_type']=='Common Parts'?'selected':'' ?>>Common P.</option>
-                                                <option value="Apartment" <?= $m['meter_type']=='Apartment'?'selected':'' ?>>Apartment</option>
-                                            </select>
+                                            <div class="input-stack">
+                                                <select class="live-select" style="color: #0ea5e9; font-weight: bold; padding-left: 0;" onchange="updateRecord('update_arms', 'meter_type', <?= $pId ?>, this.value, <?= $mId ?>)">
+                                                    <option value="Temporary" <?= $m['meter_type']=='Temporary'?'selected':'' ?>>Temporary</option>
+                                                    <option value="Common Parts" <?= $m['meter_type']=='Common Parts'?'selected':'' ?>>Common Parts</option>
+                                                    <option value="Apartment" <?= $m['meter_type']=='Apartment'?'selected':'' ?>>Apartment</option>
+                                                </select>
+                                                <select class="live-select" style="padding-left: 0;" onchange="updateRecord('update_arms', 'status', <?= $pId ?>, this.value, <?= $mId ?>)">
+                                                    <option value="Applied" <?= $m['status']=='Applied'?'selected':'' ?>>🟡 Applied</option>
+                                                    <option value="Active" <?= $m['status']=='Active'?'selected':'' ?>>🟢 Active</option>
+                                                    <option value="Removal Done" <?= $m['status']=='Removal Done'?'selected':'' ?>>⚫ Removed</option>
+                                                    <option value="Transferred" <?= $m['status']=='Transferred'?'selected':'' ?>>🔵 Transferred</option>
+                                                </select>
+                                            </div>
                                         </td>
-                                        <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['account_no'] ?? '') ?>" onblur="updateRecord('update_arms', 'account_no', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="411..."></td>
-                                        <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['electrician'] ?? '') ?>" onblur="updateRecord('update_arms', 'electrician', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Name..."></td>
-                                        <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['applicant'] ?? '') ?>" onblur="updateRecord('update_arms', 'applicant', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Applicant..."></td>
-                                        <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_elec'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_elec', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="EL: ..."></td>
-                                        <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_water'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_water', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="W: ..."></td>
-                                        <td><input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="color: #f59e0b; padding-left:0;"></td>
+                                        
                                         <td>
-                                            <select class="live-select" style="padding-left: 0;" onchange="updateRecord('update_arms', 'status', <?= $pId ?>, this.value, <?= $mId ?>)">
-                                                <option value="Applied" <?= $m['status']=='Applied'?'selected':'' ?>>🟡 Applied</option>
-                                                <option value="Active" <?= $m['status']=='Active'?'selected':'' ?>>🟢 Active</option>
-                                                <option value="Removal Done" <?= $m['status']=='Removal Done'?'selected':'' ?>>⚫ Removed</option>
-                                                <option value="Transferred" <?= $m['status']=='Transferred'?'selected':'' ?>>🔵 Transferred</option>
-                                            </select>
+                                            <div class="input-stack">
+                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['account_no'] ?? '') ?>" onblur="updateRecord('update_arms', 'account_no', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Acct: 411...">
+                                                <input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="color: #f59e0b; padding-left:0;" title="Expiry Date">
+                                            </div>
                                         </td>
-                                        <td><input type="text" class="live-input" value="<?= htmlspecialchars($m['notes'] ?? '') ?>" onblur="updateRecord('update_arms', 'notes', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Notes..."></td>
+                                        
                                         <td>
+                                            <div class="input-stack">
+                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_elec'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_elec', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="EL: ...">
+                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_water'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_water', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="W: ...">
+                                            </div>
+                                        </td>
+                                        
+                                        <td>
+                                            <div class="input-stack">
+                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['electrician'] ?? '') ?>" onblur="updateRecord('update_arms', 'electrician', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Elec: Name...">
+                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['applicant'] ?? '') ?>" onblur="updateRecord('update_arms', 'applicant', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="App: Name...">
+                                            </div>
+                                        </td>
+                                        
+                                        <td>
+                                            <textarea class="live-input" onblur="updateRecord('update_arms', 'notes', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Notes..." style="height: 56px; resize: none;"><?= htmlspecialchars($m['notes'] ?? '') ?></textarea>
+                                        </td>
+                                        
+                                        <td style="vertical-align: middle;">
                                             <button onclick="deleteMeter(<?= $mId ?>)" class="delete-btn" title="Remove Record">&times;</button>
                                         </td>
                                     </tr>
