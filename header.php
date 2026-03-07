@@ -52,10 +52,12 @@ if (isLoggedIn() && isset($pdo)) {
                         <a href="projects.php" class="nav-link <?= $currentPage === 'projects' ? 'active' : '' ?>">Projects</a>
                     <?php endif; ?>
 
-                    
-
                     <?php if (hasPermission('view_mobilisation') || isAdmin()): ?>
                         <a href="mobilization.php" class="nav-link <?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilisation</a>
+                    <?php endif; ?>
+
+                    <?php if (hasPermission('view_services') || isAdmin()): ?>
+                        <a href="engineering.php" class="nav-link <?= $currentPage === 'engineering' ? 'active' : '' ?>">Engineering</a>
                     <?php endif; ?>
 
                     <?php if ($showSiteDocs): ?>
