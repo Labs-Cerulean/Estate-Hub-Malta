@@ -75,19 +75,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (($_POST['action'] ?? null) === 'update_blocks' && $canUpdateStatus) {
         try {
             $pdo->beginTransaction();
+            // 2. Update Blocks Data & Finishes Matrix
             if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
-                $bStmt = $pdo->prepare("UPDATE project_blocks SET finishes_overall_status=?, finishes_data=?, compliance_submitted=?, compliance_certified=?, condominium_formed=?, cp_meters_installed=? WHERE id=? AND project_id=?");
+                $allowedFinishesFields = [
+                    'fin_electrical', 'fin_plumbing', 'fin_pumps', 'fin_lifts', 'fin_substation', 'fin_septic', 'fin_sewer',
+                    'fin_fire_detection', 'fin_fire_fighting', 'fin_fire_doors', 'fin_intercoms',
+                    'fin_garden', 'fin_pool',
+                    'fin_rend_facade', 'fin_rend_appogg', 'fin_rend_back', 'fin_rend_cp', 'fin_cladding',
+                    'fin_marble_cp', 'fin_marble_sills', 'fin_wp_roof', 'fin_wp_shafts', 'fin_wp_ext',
+                    'fin_gypsum_cp', 'fin_gypsum_facade',
+                    'fin_cp_doors_win', 'fin_int_railings', 'fin_partitions',
+                    'fin_water_tanks', 'fin_wp_balconies', 'fin_tile_balconies', 'fin_apt_fire_doors', 'fin_apt_doors_win', 'fin_ext_railings',
+                    'fin_gar_rend_cp', 'fin_gar_rend', 'fin_gar_main_door', 'fin_gar_vent',
+                    'fin_gar_ind_doors', 'fin_gar_win'
+                ];
+    
                 foreach ($_POST['blocks'] as $bId => $bData) {
-                    $finishesJson = isset($_POST['finishes'][$bId]) ? json_encode($_POST['finishes'][$bId]) : null;
-                    $bStmt->execute([
-                        $bData['finishes_overall_status'] ?? 'Pending',
-                        $finishesJson,
-                        $bData['compliance_submitted'] ?? 'No',
-                        $bData['compliance_certified'] ?? 'No',
-                        $bData['condominium_formed'] ?? 'No',
-                        $bData['cp_meters_installed'] ?? 'No',
-                        $bId, $projectId
-                    ]);
+                    $updates = []; 
+                    $params = [];
+                    
+                    // Update basic block stage/progress
+                    if (isset($bData['stage'])) { $updates[] = "stage = ?"; $params[] = $bData['stage']; }
+                    if (isset($bData['progress'])) { $updates[] = "progress = ?"; $params[] = $bData['progress']; }
+                    
+                    // Update all finishes fields
+                    foreach ($allowedFinishesFields as $f) {
+                        if (isset($bData[$f])) {
+                            $updates[] = "$f = ?";
+                            $params[] = $bData[$f];
+                        }
+                    }
+                    
+                    if (!empty($updates)) {
+                        $params[] = $bId;
+                        $params[] = $project_id;
+                        $sql = "UPDATE project_blocks SET " . implode(', ', $updates) . " WHERE id = ? AND project_id = ?";
+                        $updateBlock = $pdo->prepare($sql);
+                        $updateBlock->execute($params);
+                    }
                 }
             }
             if (isset($_POST['levels']) && is_array($_POST['levels'])) {
@@ -535,16 +560,87 @@ require_once 'header.php';
                             <?php else: ?>
                                 <div class="fin-grid" style="margin-bottom: 2rem;">
                                     <?php 
-                                    foreach ($finishesTemplate as $key => $conf) {
-                                        if (in_array($finTier, $conf['lvls'])) {
-                                            $val = $bFinData[$key] ?? $conf['opts'][0];
-                                            echo "<div class='form-group' style='margin:0; background: var(--bg-primary); padding:0.5rem; border-radius:4px;'>
-                                                    <label style='font-size:0.8rem;'>{$conf['label']}</label>" . 
-                                                    rSel("finishes[{$block['id']}][$key]", $conf['opts'], $val, $disabledAttr) . 
-                                                 "</div>";
-                                        }
-                                    }
-                                    ?>
+                                    $scopeGroups = [
+                                        'Engineering Works' => [
+                                            'icon' => '⚙️', 'color' => '#0ea5e9',
+                                            'fields' => [ 'fin_electrical'=>'Electrical Work', 'fin_plumbing'=>'Plumbing Work', 'fin_pumps'=>'Pumps: Lifts & Reservoirs', 'fin_lifts'=>'Lifts', 'fin_substation'=>'Substation', 'fin_septic'=>'Septic Tanks', 'fin_sewer'=>'Main Sewer Conn.' ]
+                                        ],
+                                        'Fire and ELV' => [
+                                            'icon' => '🔥', 'color' => '#ef4444',
+                                            'fields' => [ 'fin_fire_detection'=>'Fire Detection', 'fin_fire_fighting'=>'Fire Fighting', 'fin_fire_doors'=>'Metal Fire Doors', 'fin_intercoms'=>'Intercoms' ]
+                                        ],
+                                        'Landscaping' => [
+                                            'icon' => '🌳', 'color' => '#22c55e',
+                                            'fields' => [ 'fin_garden'=>'Garden Landscaping', 'fin_pool'=>'Common Pool' ]
+                                        ],
+                                        'Rendering' => [
+                                            'icon' => '🧱', 'color' => '#f97316',
+                                            'fields' => [ 'fin_rend_facade'=>'Rendering Façade', 'fin_rend_appogg'=>'Rendering Appogg', 'fin_rend_back'=>'Rendering Back Façade', 'fin_rend_cp'=>'Rendering Common Parts', 'fin_cladding'=>'Other Cladding' ]
+                                        ],
+                                        'Flooring & Waterproofing' => [
+                                            'icon' => '🛡️', 'color' => '#a855f7',
+                                            'fields' => [ 'fin_marble_cp'=>'Marble in Common Parts', 'fin_marble_sills'=>'Marble Sills', 'fin_wp_roof'=>'Waterproofing Roof', 'fin_wp_shafts'=>'Waterproofing Shafts', 'fin_wp_ext'=>'Waterproofing Other Ext.' ]
+                                        ],
+                                        'Gypsum Works' => [
+                                            'icon' => '🖌️', 'color' => '#14b8a6',
+                                            'fields' => [ 'fin_gypsum_cp'=>'Gypsum in Common Parts', 'fin_gypsum_facade'=>'Gypsum in Facades' ]
+                                        ],
+                                        'Apertures & Railings' => [
+                                            'icon' => '🚪', 'color' => '#eab308',
+                                            'fields' => [ 'fin_cp_doors_win'=>'C.P. Doors & Windows', 'fin_int_railings'=>'All Internal Railings', 'fin_partitions'=>'Terrace/Shaft Partitions' ]
+                                        ],
+                                        'Blocks Additions (Semi-Finished)' => [
+                                            'icon' => '🏠', 'color' => '#6366f1',
+                                            'fields' => [ 'fin_water_tanks'=>'Water Tanks', 'fin_wp_balconies'=>'Waterproofing Balconies', 'fin_tile_balconies'=>'Tiling of Balconies', 'fin_apt_fire_doors'=>'Fire Rated Apt Doors', 'fin_apt_doors_win'=>'Apt Doors & Windows', 'fin_ext_railings'=>'All External Railings' ]
+                                        ],
+                                        'Garage Complexes (Common Parts)' => [
+                                            'icon' => '🚗', 'color' => '#64748b',
+                                            'fields' => [ 'fin_gar_rend_cp'=>'Rendering Garage C.P.', 'fin_gar_rend'=>'Rendering Garages', 'fin_gar_main_door'=>'Garage Main Door/Gate', 'fin_gar_vent'=>'Garage Vent Grilles' ]
+                                        ],
+                                        'Garage Additions (Semi-Finished)' => [
+                                            'icon' => '🚘', 'color' => '#475569',
+                                            'fields' => [ 'fin_gar_ind_doors'=>'Individual Garage Doors', 'fin_gar_win'=>'Garage Windows' ]
+                                        ]
+                                    ];
+                                    
+                                    foreach ($scopeGroups as $gName => $group): ?>
+                                        <div style="margin-top: 1.5rem; background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border-left: 3px solid <?= $group['color'] ?>;">
+                                            <h5 style="margin: 0 0 12px 0; color: <?= $group['color'] ?>; font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                                <span><?= $group['icon'] ?></span> <?= $gName ?>
+                                            </h5>
+                                            
+                                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">
+                                                <?php foreach ($group['fields'] as $dbKey => $label): 
+                                                    $val = $b[$dbKey] ?? 'Not Required';
+                                                ?>
+                                                    <div>
+                                                        <label style="display: block; font-size: 0.65rem; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;"><?= $label ?></label>
+                                                        <select name="blocks[<?= $b['id'] ?>][<?= $dbKey ?>]" style="width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">
+                                                            <?php
+                                                            // Intercoms has special options
+                                                            if ($dbKey === 'fin_intercoms') {
+                                                                $opts = ['Not Required', 'Not started', 'Ongoing CP', 'First Call', 'Second Call', 'Complete'];
+                                                            } else {
+                                                                $opts = ['Not Required', 'Required', 'In Progress', 'Complete'];
+                                                            }
+                                                            
+                                                            foreach ($opts as $opt):
+                                                                $sel = ($val === $opt) ? 'selected' : '';
+                                                                // Dynamic Status Colors inside the dropdown
+                                                                $colorStyle = '';
+                                                                if ($opt === 'Complete') $colorStyle = 'color: #22c55e;';
+                                                                elseif (in_array($opt, ['In Progress', 'Ongoing CP', 'First Call', 'Second Call'])) $colorStyle = 'color: #f59e0b;';
+                                                                elseif ($opt === 'Not Required') $colorStyle = 'color: #64748b;';
+                                                                else $colorStyle = 'color: #ef4444;';
+                                                            ?>
+                                                                <option value="<?= $opt ?>" <?= $sel ?> style="<?= $colorStyle ?>"><?= $opt ?></option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
                                 </div>
                             <?php endif; ?>
 
