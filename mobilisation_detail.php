@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     if (!empty($updates)) {
                         $params[] = $bId;
-                        $params[] = $project_id;
+                        $params[] = $projectId; // <--- Fixed the variable name here
                         $sql = "UPDATE project_blocks SET " . implode(', ', $updates) . " WHERE id = ? AND project_id = ?";
                         $updateBlock = $pdo->prepare($sql);
                         $updateBlock->execute($params);
