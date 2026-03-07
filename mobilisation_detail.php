@@ -76,8 +76,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
             // 2. Update Blocks Data & Finishes Matrix
+           // 2. Update Blocks Data & Finishes Matrix
             if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
                 $allowedFinishesFields = [
+                    'block_type', 'finish_level', 'stage', 'progress', // Config Controllers
                     'fin_electrical', 'fin_plumbing', 'fin_pumps', 'fin_lifts', 'fin_substation', 'fin_septic', 'fin_sewer',
                     'fin_fire_detection', 'fin_fire_fighting', 'fin_fire_doors', 'fin_intercoms',
                     'fin_garden', 'fin_pool',
@@ -94,11 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $updates = []; 
                     $params = [];
                     
-                    // Update basic block stage/progress
-                    if (isset($bData['stage'])) { $updates[] = "stage = ?"; $params[] = $bData['stage']; }
-                    if (isset($bData['progress'])) { $updates[] = "progress = ?"; $params[] = $bData['progress']; }
-                    
-                    // Update all finishes fields
+                    // Dynamically build update query for all allowed fields
                     foreach ($allowedFinishesFields as $f) {
                         if (isset($bData[$f])) {
                             $updates[] = "$f = ?";
