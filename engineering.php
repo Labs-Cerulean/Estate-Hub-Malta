@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     try {
         $action = $_POST['ajax_action'];
         
-        // 1. Update Site Supplies (Water/Elec)
+        // 1. Update Site Supplies
         if ($action === 'update_temp') {
             $field = $_POST['field']; 
             $val = $_POST['value'];
@@ -29,11 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             exit;
         }
 
-        // 2. Update Services Matrix Dots
+        // 2. Update Services Matrix
         if ($action === 'update_service') {
             $pid = (int)$_POST['project_id'];
             $srv = $_POST['service_key'];
-            $state = $_POST['state']; // 'not_required', 'pending', 'complete'
+            $state = $_POST['state']; 
 
             $req = 'Not Required'; $comp = 'Not Complete';
             if ($state === 'pending') { $req = 'Required'; }
@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             exit;
         }
         
-        // 3. Update ARMS Table
+        // 3. Update ARMS Tracker
         if ($action === 'update_arms') {
             $meterId = (int)$_POST['meter_id'];
             $field = $_POST['field'];
@@ -139,7 +139,6 @@ if (!empty($projectIds)) {
     while ($row = $armsStmt->fetch(PDO::FETCH_ASSOC)) { $armsData[$row['project_id']][] = $row; }
 }
 
-// Configuration for the Services Matrix
 $matrixFields = [
     'existing_meters' => 'Existing Meters Removal',
     'enemalta_deviation' => 'Enemalta Deviation',
@@ -179,22 +178,12 @@ require_once 'header.php';
 ?>
 
 <style>
-    /* Fixed Layout Table */
-    .dashboard-wrapper td { vertical-align: top; padding: 1rem 0.75rem; }
-    .main-table { width: 100%; min-width: 1100px; table-layout: fixed; border-collapse: collapse; }
-    .main-table th.col-proj { width: 17%; }
-    .main-table th.col-supply { width: 5%; text-align: center; }
-    .main-table th.col-arms { width: 78%; }
-    
-    /* Inline Editing Styles */
-    .live-input { width: 100%; background: transparent; border: 1px solid transparent; color: inherit; font-size: 0.8rem; padding: 4px; border-radius: 4px; transition: all 0.2s; box-sizing: border-box; }
-    .live-input:hover { border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.1); }
-    .live-input:focus { border-color: var(--primary-color); background: #1e1e2d; outline: none; color: #fff; box-shadow: 0 0 5px rgba(14, 165, 233, 0.5); }
-    
-    .live-select { width: 100%; background: transparent; border: 1px solid transparent; color: inherit; font-size: 0.8rem; padding: 4px; border-radius: 4px; cursor: pointer; appearance: none; }
-    .live-select:hover { border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.1); }
-    .live-select:focus { background: #1e1e2d; border-color: var(--primary-color); outline: none; }
-    .live-select option { background: #1e1e2d; color: #fff; }
+    /* Main Layout Table */
+    .dashboard-wrapper td { vertical-align: top; padding: 1.25rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .main-table { width: 100%; border-collapse: collapse; }
+    .col-proj { width: 22%; min-width: 200px; }
+    .col-supply { width: 80px; text-align: center; }
+    .col-arms { width: auto; }
 
     /* Interactive Matrix */
     .srv-matrix { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -202,24 +191,54 @@ require_once 'header.php';
     .matrix-dot:hover { transform: scale(1.3); box-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
     /* Ultra-Compact Temp Buttons */
-    .temp-btn { display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 6px; cursor: pointer; user-select: none; transition: 0.2s; width: 100%; box-sizing: border-box; font-size: 1rem; }
-    .temp-btn:hover { background: rgba(255,255,255,0.1); }
+    .temp-btn { display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px; border-radius: 6px; cursor: pointer; user-select: none; transition: 0.2s; width: 100%; box-sizing: border-box; font-size: 1.1rem; }
+    .temp-btn:hover { background: rgba(255,255,255,0.15); }
     .temp-indicator { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.5); flex-shrink: 0; }
 
-    /* ARMS Sub-table (Split Line Layout) */
-    .arms-wrapper { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 0.5rem; border: 1px solid var(--border-glass); width: 100%; box-sizing: border-box; }
-    .arms-table { width: 100%; border-collapse: collapse; }
-    .arms-table th { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
-    .arms-table td { padding: 6px 4px; border-bottom: 1px dashed rgba(255,255,255,0.05); vertical-align: top; }
+    /* ==========================================
+       THE NEW FLEXBOX ARMS CARDS
+       ========================================== */
+    .arms-wrapper { display: flex; flex-direction: column; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
     
-    /* Stacks inputs inside a single td */
-    .input-stack { display: flex; flex-direction: column; gap: 4px; }
+    .meter-card { 
+        display: flex; gap: 12px; background: rgba(0,0,0,0.2); 
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; 
+        padding: 12px; align-items: stretch; min-width: 900px; 
+    }
+    
+    .meter-col { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+    .meter-col.col-notes { flex: 1.5; }
+    .meter-col.col-action { flex: 0 0 30px; justify-content: center; align-items: center; }
+    
+    .field-wrapper { display: flex; flex-direction: column; gap: 3px; }
+    
+    .micro-label { 
+        font-size: 0.65rem; text-transform: uppercase; color: #94a3b8; 
+        font-weight: 700; letter-spacing: 0.5px; margin-left: 2px;
+    }
+
+    /* Slick Inputs */
+    .live-input, .live-select { 
+        width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); 
+        color: #f8fafc; font-size: 0.85rem; padding: 7px 8px; border-radius: 4px; 
+        transition: all 0.2s; box-sizing: border-box; font-family: inherit; 
+    }
+    .live-input:hover, .live-select:hover { border-color: rgba(255,255,255,0.3); }
+    .live-input:focus, .live-select:focus { 
+        border-color: #0ea5e9; outline: none; box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.25); 
+    }
+    .live-select option { background: #1e1e2d; color: #fff; }
+    
+    /* Make the textarea exactly the height of the two stacked fields */
+    textarea.live-input { height: 95px; resize: none; line-height: 1.4; }
 
     /* Compact Delete Button */
-    .delete-btn { background: #ef4444; border: none; color: white; cursor: pointer; font-size: 0.9rem; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: 0.2s; margin: 0 auto; padding: 0; }
+    .delete-btn { background: #ef4444; border: none; color: white; cursor: pointer; font-size: 1.1rem; width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: 0.2s; padding: 0; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
     .delete-btn:hover { background: #dc2626; transform: scale(1.1); }
 
-    /* Toast Notification */
+    .add-record-btn { background: rgba(14, 165, 233, 0.1); border: 1px dashed #0ea5e9; color: #0ea5e9; font-size: 0.8rem; font-weight: bold; padding: 8px; border-radius: 6px; cursor: pointer; width: 100%; transition: 0.2s; min-width: 900px; }
+    .add-record-btn:hover { background: #0ea5e9; color: #fff; }
+
     #toast { visibility: hidden; min-width: 250px; background-color: var(--success); color: #fff; text-align: center; border-radius: 8px; padding: 12px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; font-weight: bold; transform: translateX(-50%); box-shadow: 0 4px 15px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
     #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
 </style>
@@ -228,7 +247,7 @@ require_once 'header.php';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <div>
             <h1 class="page-title" style="margin: 0;">🔌 Live Engineering Hub</h1>
-            <p style="color: var(--text-muted); margin: 0; font-size: 0.85rem;">Click the dots and icons to toggle status. Edit ARMS details directly in the table. Changes save instantly.</p>
+            <p style="color: var(--text-muted); margin: 0; font-size: 0.85rem;">Click dots/icons to toggle status. Edit ARMS details directly in the cards below.</p>
         </div>
         <div style="display: flex; gap: 1rem; align-items: center; font-size: 0.75rem; color: var(--text-muted); background: rgba(0,0,0,0.2); padding: 0.5rem 1rem; border-radius: 8px;">
             <strong>Legend:</strong>
@@ -276,13 +295,13 @@ require_once 'header.php';
         </form>
     </div>
 
-    <div class="dashboard-wrapper" style="overflow-x: auto; width: 100%;">
+    <div class="dashboard-wrapper" style="width: 100%;">
         <table class="main-table">
             <thead>
                 <tr>
-                    <th class="col-proj">Project & Services</th>
-                    <th class="col-supply">Supply</th>
-                    <th class="col-arms">ARMS Applications & Meters (Live Edit)</th>
+                    <th class="col-proj" style="text-align: left; padding-bottom: 10px; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Project & Services</th>
+                    <th class="col-supply" style="padding-bottom: 10px; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Supply</th>
+                    <th class="col-arms" style="text-align: left; padding-bottom: 10px; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">ARMS Applications (Live Cards)</th>
                 </tr>
             </thead>
             <tbody>
@@ -295,10 +314,10 @@ require_once 'header.php';
                 <tr>
                     <td>
                         <div style="font-weight: 800; color: var(--text-primary); margin-bottom: 4px; font-size: 1.05rem;"><?= htmlspecialchars($project['name']) ?></div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">📍 <?= htmlspecialchars($project['city']) ?></div>
+                        <div style="font-size: 0.8rem; color: #0ea5e9; margin-bottom: 12px; font-weight: 600;">📍 <?= htmlspecialchars($project['city']) ?></div>
                         
-                        <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 6px; display: inline-block; border: 1px solid rgba(255,255,255,0.05);">
-                            <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.5px; font-weight: bold;">Services Required</div>
+                        <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; display: inline-block; border: 1px solid rgba(255,255,255,0.05); width: 100%; box-sizing: border-box;">
+                            <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 0.5px; font-weight: bold;">Required Matrix</div>
                             <div class="srv-matrix">
                                 <?php foreach ($matrixFields as $dbKey => $label): 
                                     $state = getSrvState($srv, $dbKey);
@@ -309,7 +328,7 @@ require_once 'header.php';
                                          data-state="<?= $state ?>" 
                                          data-name="<?= $label ?>"
                                          style="background: <?= getSrvColor($state) ?>" 
-                                         title="<?= $label ?>: <?= getSrvLabel($state) ?> (Click to toggle)"
+                                         title="<?= $label ?>: <?= getSrvLabel($state) ?>"
                                          onclick="cycleService(this)">
                                     </div>
                                 <?php endforeach; ?>
@@ -317,16 +336,16 @@ require_once 'header.php';
                         </div>
                     </td>
 
-                    <td style="vertical-align: middle; text-align: center;">
+                    <td style="vertical-align: top; padding-top: 1.25rem;">
                         <?php 
                         $tW = $mob['temporary_water'] ?? 'Not Started';
                         $tE = $mob['temporary_electricity'] ?? 'Not Started';
                         ?>
-                        <div class="temp-btn" style="margin-bottom: 6px;" onclick="cycleTemp('temporary_water', <?= $pId ?>, this)" data-state="<?= $tW ?>" title="Water - Currently: <?= $tW ?> (Click to toggle)">
+                        <div class="temp-btn" style="margin-bottom: 8px;" onclick="cycleTemp('temporary_water', <?= $pId ?>, this)" data-state="<?= $tW ?>" title="Water - Currently: <?= $tW ?>">
                             <span style="pointer-events: none;">💧</span>
                             <div class="temp-indicator" style="background: <?= getTempColor($tW) ?>; pointer-events: none;"></div>
                         </div>
-                        <div class="temp-btn" onclick="cycleTemp('temporary_electricity', <?= $pId ?>, this)" data-state="<?= $tE ?>" title="Electricity - Currently: <?= $tE ?> (Click to toggle)">
+                        <div class="temp-btn" onclick="cycleTemp('temporary_electricity', <?= $pId ?>, this)" data-state="<?= $tE ?>" title="Electricity - Currently: <?= $tE ?>">
                             <span style="pointer-events: none;">⚡</span>
                             <div class="temp-indicator" style="background: <?= getTempColor($tE) ?>; pointer-events: none;"></div>
                         </div>
@@ -334,69 +353,77 @@ require_once 'header.php';
 
                     <td>
                         <div class="arms-wrapper">
-                            <table class="arms-table" id="arms-table-<?= $pId ?>">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 14%;">Type / Status</th>
-                                        <th style="width: 18%;">Account No. / Expiry</th>
-                                        <th style="width: 18%;">Electric / Water Meter</th>
-                                        <th style="width: 18%;">Electrician / Applicant</th>
-                                        <th style="width: 28%;">Notes</th>
-                                        <th style="width: 4%; text-align: center;"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach($meters as $m): $mId = $m['id']; ?>
-                                    <tr id="meter-row-<?= $mId ?>">
-                                        <td>
-                                            <div class="input-stack">
-                                                <select class="live-select" style="color: #0ea5e9; font-weight: bold; padding-left: 0;" onchange="updateRecord('update_arms', 'meter_type', <?= $pId ?>, this.value, <?= $mId ?>)">
-                                                    <option value="Temporary" <?= $m['meter_type']=='Temporary'?'selected':'' ?>>Temporary</option>
-                                                    <option value="Common Parts" <?= $m['meter_type']=='Common Parts'?'selected':'' ?>>Common Parts</option>
-                                                    <option value="Apartment" <?= $m['meter_type']=='Apartment'?'selected':'' ?>>Apartment</option>
-                                                </select>
-                                                <select class="live-select" style="padding-left: 0;" onchange="updateRecord('update_arms', 'status', <?= $pId ?>, this.value, <?= $mId ?>)">
-                                                    <option value="Applied" <?= $m['status']=='Applied'?'selected':'' ?>>🟡 Applied</option>
-                                                    <option value="Active" <?= $m['status']=='Active'?'selected':'' ?>>🟢 Active</option>
-                                                    <option value="Removal Done" <?= $m['status']=='Removal Done'?'selected':'' ?>>⚫ Removed</option>
-                                                    <option value="Transferred" <?= $m['status']=='Transferred'?'selected':'' ?>>🔵 Transferred</option>
-                                                </select>
-                                            </div>
-                                        </td>
-                                        
-                                        <td>
-                                            <div class="input-stack">
-                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['account_no'] ?? '') ?>" onblur="updateRecord('update_arms', 'account_no', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Acct: 411...">
-                                                <input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="color: #f59e0b; padding-left:0;" title="Expiry Date">
-                                            </div>
-                                        </td>
-                                        
-                                        <td>
-                                            <div class="input-stack">
-                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_elec'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_elec', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="EL: ...">
-                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_water'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_water', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="W: ...">
-                                            </div>
-                                        </td>
-                                        
-                                        <td>
-                                            <div class="input-stack">
-                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['electrician'] ?? '') ?>" onblur="updateRecord('update_arms', 'electrician', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Elec: Name...">
-                                                <input type="text" class="live-input" value="<?= htmlspecialchars($m['applicant'] ?? '') ?>" onblur="updateRecord('update_arms', 'applicant', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="App: Name...">
-                                            </div>
-                                        </td>
-                                        
-                                        <td>
-                                            <textarea class="live-input" onblur="updateRecord('update_arms', 'notes', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Notes..." style="height: 56px; resize: none;"><?= htmlspecialchars($m['notes'] ?? '') ?></textarea>
-                                        </td>
-                                        
-                                        <td style="vertical-align: middle;">
-                                            <button onclick="deleteMeter(<?= $mId ?>)" class="delete-btn" title="Remove Record">&times;</button>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                            <button onclick="addMeter(<?= $pId ?>)" style="background: transparent; border: 1px dashed rgba(255,255,255,0.2); color: #0ea5e9; font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 4px; transition: 0.2s;">+ Add ARMS Record</button>
+                            <?php foreach($meters as $m): $mId = $m['id']; ?>
+                            <div class="meter-card" id="meter-row-<?= $mId ?>">
+                                
+                                <div class="meter-col">
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Application Type</span>
+                                        <select class="live-select" style="color: #0ea5e9; font-weight: bold;" onchange="updateRecord('update_arms', 'meter_type', <?= $pId ?>, this.value, <?= $mId ?>)">
+                                            <option value="Temporary" <?= $m['meter_type']=='Temporary'?'selected':'' ?>>Temporary</option>
+                                            <option value="Common Parts" <?= $m['meter_type']=='Common Parts'?'selected':'' ?>>Common Parts</option>
+                                            <option value="Apartment" <?= $m['meter_type']=='Apartment'?'selected':'' ?>>Apartment</option>
+                                        </select>
+                                    </div>
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Current Status</span>
+                                        <select class="live-select" onchange="updateRecord('update_arms', 'status', <?= $pId ?>, this.value, <?= $mId ?>)">
+                                            <option value="Applied" <?= $m['status']=='Applied'?'selected':'' ?>>🟡 Applied</option>
+                                            <option value="Active" <?= $m['status']=='Active'?'selected':'' ?>>🟢 Active</option>
+                                            <option value="Removal Done" <?= $m['status']=='Removal Done'?'selected':'' ?>>⚫ Removed</option>
+                                            <option value="Transferred" <?= $m['status']=='Transferred'?'selected':'' ?>>🔵 Transferred</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="meter-col">
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Account Number</span>
+                                        <input type="text" class="live-input" value="<?= htmlspecialchars($m['account_no'] ?? '') ?>" onblur="updateRecord('update_arms', 'account_no', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="e.g. 411000...">
+                                    </div>
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Expiry Date</span>
+                                        <input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="color: #f59e0b;">
+                                    </div>
+                                </div>
+
+                                <div class="meter-col">
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Electric Meter</span>
+                                        <input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_elec'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_elec', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="e.g. EL: 01 084...">
+                                    </div>
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Water Meter</span>
+                                        <input type="text" class="live-input" value="<?= htmlspecialchars($m['meter_no_water'] ?? '') ?>" onblur="updateRecord('update_arms', 'meter_no_water', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="e.g. W: 153...">
+                                    </div>
+                                </div>
+
+                                <div class="meter-col">
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Electrician</span>
+                                        <input type="text" class="live-input" value="<?= htmlspecialchars($m['electrician'] ?? '') ?>" onblur="updateRecord('update_arms', 'electrician', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Name...">
+                                    </div>
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Applicant Name</span>
+                                        <input type="text" class="live-input" value="<?= htmlspecialchars($m['applicant'] ?? '') ?>" onblur="updateRecord('update_arms', 'applicant', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Name...">
+                                    </div>
+                                </div>
+
+                                <div class="meter-col col-notes">
+                                    <div class="field-wrapper">
+                                        <span class="micro-label">Internal Notes & Reminders</span>
+                                        <textarea class="live-input" onblur="updateRecord('update_arms', 'notes', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="Type any notes here..."><?= htmlspecialchars($m['notes'] ?? '') ?></textarea>
+                                    </div>
+                                </div>
+
+                                <div class="meter-col col-action">
+                                    <button onclick="deleteMeter(<?= $mId ?>)" class="delete-btn" title="Delete this record">&times;</button>
+                                </div>
+                                
+                            </div>
+                            <?php endforeach; ?>
+                            
+                            <button onclick="addMeter(<?= $pId ?>)" class="add-record-btn">+ Add ARMS Application Record</button>
                         </div>
                     </td>
                 </tr>
@@ -416,17 +443,15 @@ async function cycleService(el) {
     const name = el.dataset.name;
     const currentState = el.dataset.state;
 
-    // The Cycle Logic
     const nextStateMap = { 'not_required': 'pending', 'pending': 'complete', 'complete': 'not_required' };
     const colorMap = { 'not_required': '#64748b', 'pending': '#f59e0b', 'complete': '#22c55e' };
     const labelMap = { 'not_required': 'Not Required', 'pending': 'Required (Pending)', 'complete': 'Required (Complete)' };
 
     const newState = nextStateMap[currentState];
 
-    // Optimistic UI Update
     el.dataset.state = newState;
     el.style.background = colorMap[newState];
-    el.title = `${name}: ${labelMap[newState]} (Click to toggle)`;
+    el.title = `${name}: ${labelMap[newState]}`;
 
     const formData = new URLSearchParams();
     formData.append('ajax_action', 'update_service');
@@ -449,22 +474,20 @@ async function cycleTemp(field, projectId, el) {
     const currentState = el.dataset.state;
     const indicator = el.querySelector('.temp-indicator');
     
-    // The Cycle Logic
     const nextStateMap = { 'Not Started': 'In Process', 'In Process': 'Connected', 'Connected': 'Not Started' };
     const colorMap = { 'Not Started': '#ef4444', 'In Process': '#f59e0b', 'Connected': '#22c55e' };
     
     let safeCurrent = ['Not Started', 'In Process', 'Connected'].includes(currentState) ? currentState : 'Not Started';
     const newState = nextStateMap[safeCurrent];
 
-    // Optimistic UI Update
     el.dataset.state = newState;
     indicator.style.background = colorMap[newState];
-    el.title = `${field === 'temporary_water' ? 'Water' : 'Electricity'} - Currently: ${newState} (Click to toggle)`;
+    el.title = `${field === 'temporary_water' ? 'Water' : 'Electricity'} - Currently: ${newState}`;
 
     updateRecord('update_temp', field, projectId, newState, null);
 }
 
-// --- 3. Live ARMS Table Logic ---
+// --- 3. Live ARMS Card Logic ---
 async function updateRecord(action, field, projectId, value, meterId) {
     const formData = new URLSearchParams();
     formData.append('ajax_action', action);
