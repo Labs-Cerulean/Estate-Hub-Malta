@@ -78,8 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // 2. Update Blocks Data & Finishes Matrix
             if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
+                // ADDED 'finish_level' back so the block-specific override saves
                 $allowedFinishesFields = [
-                    'finish_level', 'stage', 'progress', // Removed block_type since it comes from edit-project
+                    'finish_level', 'stage', 'progress', 'finishes_overall_status', 
                     'fin_electrical', 'fin_plumbing', 'fin_pumps', 'fin_lifts', 'fin_substation', 'fin_septic', 'fin_sewer',
                     'fin_fire_detection', 'fin_fire_fighting', 'fin_fire_doors', 'fin_intercoms',
                     'fin_garden', 'fin_pool',
@@ -96,7 +97,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $updates = []; 
                     $params = [];
                     
-                    // Dynamically build update query for all allowed fields
                     foreach ($allowedFinishesFields as $f) {
                         if (isset($bData[$f])) {
                             $updates[] = "$f = ?";
@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     if (!empty($updates)) {
                         $params[] = $bId;
-                        $params[] = $projectId; // <--- Fixed the variable name here
+                        $params[] = $projectId;
                         $sql = "UPDATE project_blocks SET " . implode(', ', $updates) . " WHERE id = ? AND project_id = ?";
                         $updateBlock = $pdo->prepare($sql);
                         $updateBlock->execute($params);
@@ -153,7 +153,7 @@ $logsStmt = $pdo->prepare("
 $logsStmt->execute([$projectId]);
 $projectLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 2. Fetch Assignable Users (Only users who have access to this specific project)
+// 2. Fetch Assignable Users
 $clientId = $project['clientid'] ?? 0;
 $assignUsersStmt = $pdo->prepare("
     SELECT DISTINCT u.id, u.first_name, u.last_name, u.username, u.role
@@ -219,61 +219,6 @@ foreach (['method_statements', 'insurance_status', 'pavement_guarantee', 'wellbe
 }
 $canFinal = $allSeqComplete;
 $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
-
-// ==========================================
-// PDF MATRICES: FINISHES
-// ==========================================
-$optElec = ['Not Started', 'First Fix', 'Second Fix', 'Third Fix', 'Completed'];
-$optLifts = ['Not Started', 'Delivered', 'Installing', 'Installed', 'Switched On'];
-$optSub = ['NA', 'Not Started', 'Finishings', 'Installed', 'Switched On', 'Handed Over'];
-$optPool = ['NA', 'Not Started', 'Construction', 'Finishes', 'Completed', 'Switched On'];
-$optRend = ['Not Started', 'Plastering', 'Painting', 'Completed'];
-$optNaRend = ['NA', 'Not Started', 'Plastering', 'Painting', 'Completed'];
-$optNotOngComp = ['Not Started', 'Ongoing', 'Completed'];
-$optNaNotOngComp = ['NA', 'Not Started', 'Ongoing', 'Completed'];
-
-$finishesTemplate = [
-    'elec_work' => ['label' => 'Electrical Work', 'opts' => $optElec, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'plumb_work' => ['label' => 'Plumbing Work', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'pumps' => ['label' => 'Pumps, Lifts, Reservoirs', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'water_tanks' => ['label' => 'Water Tanks', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
-    'lifts' => ['label' => 'Lifts', 'opts' => $optLifts, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'substation' => ['label' => 'Substation', 'opts' => $optSub, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'septic' => ['label' => 'Septic Tanks', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'garden' => ['label' => 'Garden Landscaping', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'pool' => ['label' => 'Common Pool', 'opts' => $optPool, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'fire_det' => ['label' => 'Fire Detection', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'fire_fight' => ['label' => 'Fire Fighting', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'fire_doors' => ['label' => 'Fire Doors', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'intercoms' => ['label' => 'Intercoms', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'rend_facade' => ['label' => 'Rendering Façade', 'opts' => $optRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'rend_appogg' => ['label' => 'Rendering Appogg', 'opts' => $optNaRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'rend_back' => ['label' => 'Rendering Back Façade', 'opts' => $optRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'rend_cp' => ['label' => 'Rendering Common Parts', 'opts' => $optRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'rend_garage_cp' => ['label' => 'Rendering Garage C.P.', 'opts' => $optNaRend, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'rend_garages' => ['label' => 'Rendering Garages', 'opts' => $optNaRend, 'lvls' => ['Semi Finished']],
-    'marble_cp' => ['label' => 'Marble in Common Parts', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'marble_sills' => ['label' => 'Marble Sills', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'waterproof_balc' => ['label' => 'Waterproofing Balconies', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
-    'waterproof_roof' => ['label' => 'Waterproofing Roof', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'waterproof_shafts' => ['label' => 'Waterproofing Shafts', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'waterproof_ext' => ['label' => 'Waterproofing other ext.', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'tiling_balc' => ['label' => 'Tiling of balconies', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
-    'gypsum_cp' => ['label' => 'Gypsum in common parts', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'gypsum_facade' => ['label' => 'Gypsum in facades', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'fire_apt_doors' => ['label' => 'Fire Rated Apt Doors', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
-    'cp_doors_win' => ['label' => 'C.P. doors & windows', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'apt_doors_win' => ['label' => 'Apt doors & windows', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
-    'int_railings' => ['label' => 'All Internal Railings', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'ext_railings' => ['label' => 'All External Railings', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished']],
-    'terrace_parts' => ['label' => 'Terrace/Shaft Partitions', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'planters' => ['label' => 'Planters/Landscaping', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'garage_main_door' => ['label' => 'Garage Main Door/Gate', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'garage_grilles' => ['label' => 'Garage Vent Grilles', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'ind_garage_doors' => ['label' => 'Individual Garage Doors', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished']],
-    'sewer' => ['label' => 'Main Sewer Connection', 'opts' => $optNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-    'other_cladding' => ['label' => 'Other cladding', 'opts' => $optNaNotOngComp, 'lvls' => ['Semi Finished', 'Common Parts Only']],
-];
 
 function rSel($n, $opts, $v, $dis, $cls='') {
     $h = "<select name=\"$n\" $dis class=\"$cls\" style=\"padding:0.4rem; font-size:0.8rem; width:100%; border:1px solid var(--border-glass); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary);\">";
@@ -350,7 +295,7 @@ require_once 'header.php';
             <div class="meta-item"><span class="meta-label">Client: </span><span><?= htmlspecialchars($project['client_name'] ?? 'Unknown') ?></span></div>
             <div class="meta-item"><span class="meta-label">Type: </span><span><?= ucwords(str_replace('-', ' ', $project['type'])) ?></span></div>
             <div class="meta-item"><span class="meta-label">City: </span><span><?= htmlspecialchars($project['city']) ?></span></div>
-            <div class="meta-item"><span class="meta-label">Finish Level: </span><span style="color: var(--primary-color); font-weight: 600;"><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></span></div>
+            <div class="meta-item"><span class="meta-label">Global Finish Level: </span><span style="color: var(--primary-color); font-weight: 600;"><?= htmlspecialchars($project['finishlevel'] ?? 'N/A') ?></span></div>
         </div>
     </div>
 
@@ -508,15 +453,20 @@ require_once 'header.php';
                 <form method="POST">
                     <input type="hidden" name="action" value="update_blocks">
                     <?php 
-                    $requiresFinishes = !in_array($project['finishlevel'], ['Shell', null, '']);
-                    $finTier = in_array($project['finishlevel'], ['Semi Finished', 'Finished']) ? 'Semi Finished' : 'Common Parts Only';
-                    
                     foreach ($projectBlocks as $block): 
-                        $bFinData = json_decode($block['finishes_data'] ?? '{}', true) ?: [];
+                        
+                        // INHERITANCE LOGIC: Pull saved block finish level. If empty, fallback to Project's global finish level.
+                        $bFinishLvl = !empty($block['finish_level']) ? $block['finish_level'] : ($project['finishlevel'] ?? 'Common Parts Only');
+                        
+                        // Normalize it to match our matrix groups perfectly
+                        if ($bFinishLvl === 'Finished') $bFinishLvl = 'Semi-Finished';
+                        if ($bFinishLvl === 'Semi Finished') $bFinishLvl = 'Semi-Finished';
+                        
+                        $isShell = ($bFinishLvl === 'Shell');
                     ?>
                         <fieldset style="border: 1px solid var(--primary-color); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; background: rgba(99, 102, 241, 0.02);">
                             <legend style="font-weight: 600; color: var(--primary-color); font-size: 1.1rem; padding: 0 0.5rem; background: var(--bg-card); border-radius: 4px;">
-                                <?= htmlspecialchars($block['block_name']) ?> (<?= htmlspecialchars($block['block_type']) ?>)
+                                <?= htmlspecialchars($block['block_name']) ?> (<?= htmlspecialchars($block['block_type'] ?? 'Residential Block') ?>)
                             </legend>
                             
                             <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Construction Status (Sequential)</h4>
@@ -548,54 +498,49 @@ require_once 'header.php';
                                 <div style="display:flex; align-items:center; gap:0.5rem;">
                                     <span style="font-size:0.8rem; color:var(--text-secondary);">Master Block Status:</span>
                                     <div style="width: 150px;">
-                                        <?= rSel("blocks[{$block['id']}][finishes_overall_status]", ['Pending','In Progress','Complete','NA'], $block['finishes_overall_status'], $disabledAttr) ?>
+                                        <?= rSel("blocks[{$block['id']}][finishes_overall_status]", ['Pending','In Progress','Complete','NA'], $block['finishes_overall_status'] ?? 'Pending', $disabledAttr) ?>
                                     </div>
                                 </div>
                             </h4>
                             
-                            <?php if (!$requiresFinishes): ?>
-                                <div class="alert alert-info">Finishes tracking is disabled for Shell properties.</div>
-                            <?php else: ?>
-                                <div style="display: flex; flex-wrap: wrap; gap: 1rem; background: rgba(0,0,0,0.2); padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Type:</label>
-                                        <?php 
-                                            // Pull the existing type from the database (checking both common column names)
-                                            $rawType = $block['block_type'] ?? $block['type'] ?? 'Residential Block'; 
-                                            
-                                            // Smart detection: If the word 'garage' or 'basement' is in the type, it's a Garage Complex. Otherwise, Residential (House, Villa, Apt).
-                                            $isGarage = (stripos($rawType, 'garage') !== false || stripos($rawType, 'basement') !== false || stripos($rawType, 'parking') !== false);
-                                            $bTypeMatrix = $isGarage ? 'Garage Complex' : 'Residential Block';
-                                        ?>
-                                        <span style="background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.4); padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem;">
-                                            <?= htmlspecialchars($rawType) ?>
-                                        </span>
-                                    </div>
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Finishes Level:</label>
-                                        <select name="blocks[<?= $block['id'] ?>][finish_level]" style="background: #1e1e2d; color: #a855f7; border: 1px solid #a855f7; padding: 4px; border-radius: 4px; font-weight: bold; cursor: pointer;" onchange="this.form.submit()">
-                                            <option value="Common Parts Only" <?= ($block['finish_level'] ?? 'Common Parts Only') == 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
-                                            <option value="Semi-Finished" <?= ($block['finish_level'] ?? '') == 'Semi-Finished' ? 'selected' : '' ?>>Semi-Finished</option>
-                                        </select>
-                                    </div>
-                                    <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 5px;"></div>
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <label style="font-size: 0.75rem; color: var(--text-muted);">Stage:</label>
-                                        <select name="blocks[<?= $block['id'] ?>][stage]" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px;">
-                                            <?php foreach($stageOptions as $opt): ?>
-                                                <option value="<?= $opt ?>" <?= ($block['stage'] == $opt) ? 'selected' : '' ?>><?= $opt ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <label style="font-size: 0.75rem; color: var(--text-muted);">Progress:</label>
-                                        <input type="number" name="blocks[<?= $block['id'] ?>][progress]" value="<?= htmlspecialchars($block['progress'] ?? '0') ?>" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px; width: 60px;" min="0" max="100">%
-                                    </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 1rem; background: rgba(0,0,0,0.2); padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 1rem;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Type:</label>
+                                    <?php 
+                                        $rawType = $block['block_type'] ?? $block['type'] ?? 'Residential Block'; 
+                                        $bTypeMatrix = (stripos($rawType, 'garage') !== false || stripos($rawType, 'basement') !== false || stripos($rawType, 'parking') !== false) ? 'Garage Complex' : 'Residential Block';
+                                    ?>
+                                    <span style="background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.4); padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem;">
+                                        <?= htmlspecialchars($rawType) ?>
+                                    </span>
                                 </div>
-            
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Finishes Level Override:</label>
+                                    <select name="blocks[<?= $block['id'] ?>][finish_level]" style="background: #1e1e2d; color: #a855f7; border: 1px solid #a855f7; padding: 4px; border-radius: 4px; font-weight: bold; cursor: pointer;" onchange="this.form.submit()">
+                                        <option value="Shell" <?= $bFinishLvl === 'Shell' ? 'selected' : '' ?>>Shell (No Finishes)</option>
+                                        <option value="Common Parts Only" <?= $bFinishLvl === 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
+                                        <option value="Semi-Finished" <?= $bFinishLvl === 'Semi-Finished' ? 'selected' : '' ?>>Semi-Finished</option>
+                                    </select>
+                                </div>
+                                <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 5px;"></div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label style="font-size: 0.75rem; color: var(--text-muted);">Stage:</label>
+                                    <select name="blocks[<?= $block['id'] ?>][stage]" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px;">
+                                        <?php foreach($stageOptions as $opt): ?>
+                                            <option value="<?= $opt ?>" <?= ($block['stage'] ?? '') == $opt ? 'selected' : '' ?>><?= $opt ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label style="font-size: 0.75rem; color: var(--text-muted);">Progress:</label>
+                                    <input type="number" name="blocks[<?= $block['id'] ?>][progress]" value="<?= htmlspecialchars($block['progress'] ?? '0') ?>" style="background: #1e1e2d; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px; width: 60px;" min="0" max="100">%
+                                </div>
+                            </div>
+
+                            <?php if ($isShell): ?>
+                                <div class="alert alert-info">Finishes tracking is disabled because this block is currently marked as Shell.</div>
+                            <?php else: ?>
                                 <?php 
-                                $bFinish = $block['finish_level'] ?? 'Common Parts Only';
-            
                                 $scopeGroups = [
                                     'Engineering Works' => [
                                         'icon' => '⚙️', 'color' => '#0ea5e9',
@@ -650,9 +595,8 @@ require_once 'header.php';
                                 ];
                                 
                                 foreach ($scopeGroups as $gName => $group): 
-                                    // SMART FILTERING LOGIC
                                     if (!in_array($bTypeMatrix, $group['types'])) continue;
-                                    if (!in_array($bFinish, $group['levels'])) continue;
+                                    if (!in_array($bFinishLvl, $group['levels'])) continue;
                                 ?>
                                     <div style="margin-top: 1.5rem; background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border-left: 3px solid <?= $group['color'] ?>;">
                                         <h5 style="margin: 0 0 12px 0; color: <?= $group['color'] ?>; font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
@@ -667,7 +611,6 @@ require_once 'header.php';
                                                     <label style="display: block; font-size: 0.65rem; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;"><?= $label ?></label>
                                                     <select name="blocks[<?= $block['id'] ?>][<?= $dbKey ?>]" style="width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">
                                                         <?php
-                                                        // Intercoms has special options
                                                         if ($dbKey === 'fin_intercoms') {
                                                             $opts = ['Not Required', 'Not started', 'Ongoing CP', 'First Call', 'Second Call', 'Complete'];
                                                         } else {
@@ -676,7 +619,6 @@ require_once 'header.php';
                                                         
                                                         foreach ($opts as $opt):
                                                             $sel = ($val === $opt) ? 'selected' : '';
-                                                            // Dynamic Status Colors inside the dropdown
                                                             $colorStyle = '';
                                                             if ($opt === 'Complete') $colorStyle = 'color: #22c55e;';
                                                             elseif (in_array($opt, ['In Progress', 'Ongoing CP', 'First Call', 'Second Call'])) $colorStyle = 'color: #f59e0b;';
@@ -693,13 +635,13 @@ require_once 'header.php';
                                 <?php endforeach; ?>
                             <?php endif; ?>
 
-                            <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Post-Construction Milestones</h4>
+                            <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; margin-top: 1.5rem;">Post-Construction Milestones</h4>
                             <div class="fin-grid">
                                 <?php $optYNN = ['No','Yes','NA']; ?>
-                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Compliance Submitted</label><?= rSel("blocks[{$block['id']}][compliance_submitted]", $optYNN, $block['compliance_submitted'], $disabledAttr) ?></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Compliance Certified</label><?= rSel("blocks[{$block['id']}][compliance_certified]", $optYNN, $block['compliance_certified'], $disabledAttr) ?></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Condominium Formed</label><?= rSel("blocks[{$block['id']}][condominium_formed]", $optYNN, $block['condominium_formed'], $disabledAttr) ?></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">CP Meters Installed</label><?= rSel("blocks[{$block['id']}][cp_meters_installed]", $optYNN, $block['cp_meters_installed'], $disabledAttr) ?></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Compliance Submitted</label><?= rSel("blocks[{$block['id']}][compliance_submitted]", $optYNN, $block['compliance_submitted'] ?? 'No', $disabledAttr) ?></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Compliance Certified</label><?= rSel("blocks[{$block['id']}][compliance_certified]", $optYNN, $block['compliance_certified'] ?? 'No', $disabledAttr) ?></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">Condominium Formed</label><?= rSel("blocks[{$block['id']}][condominium_formed]", $optYNN, $block['condominium_formed'] ?? 'No', $disabledAttr) ?></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.8rem;">CP Meters Installed</label><?= rSel("blocks[{$block['id']}][cp_meters_installed]", $optYNN, $block['cp_meters_installed'] ?? 'No', $disabledAttr) ?></div>
                             </div>
                         </fieldset>
                     <?php endforeach; ?>
