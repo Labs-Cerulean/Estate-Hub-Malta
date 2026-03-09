@@ -34,11 +34,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
                 retention_percentage=VALUES(retention_percentage), retention_release_date=VALUES(retention_release_date), retention_released=VALUES(retention_released),
                 ret_split_1_pct=VALUES(ret_split_1_pct), ret_split_2_pct=VALUES(ret_split_2_pct), retention_release_date_2=VALUES(retention_release_date_2), retention_released_2=VALUES(retention_released_2)
             ");
-            $stmt->execute([
-                $projectId, $_POST['actual_client'] ?? null, $_POST['ct_reference'], $_POST['award_date'] ?: null, $_POST['commencement_date'] ?: null, 
-                $_POST['completion_target'] ?: null, $_POST['actual_completion_date'] ?: null, $_POST['order_value'] ?: 0, 
-                $_POST['retention_percentage'] ?: 5, $_POST['retention_release_date'] ?: null, $_POST['retention_released'] ?: 0,
-                $_POST['ret_split_1_pct'] ?: 100, $_POST['ret_split_2_pct'] ?: 0, $_POST['retention_release_date_2'] ?: null, $_POST['retention_released_2'] ?: 0
+           $stmt->execute([
+                $projectId, 
+                $_POST['actual_client'] ?? null, 
+                $_POST['ct_reference'], 
+                empty($_POST['award_date']) ? null : $_POST['award_date'], 
+                empty($_POST['commencement_date']) ? null : $_POST['commencement_date'], 
+                empty($_POST['completion_target']) ? null : $_POST['completion_target'], 
+                empty($_POST['actual_completion_date']) ? null : $_POST['actual_completion_date'], 
+                (isset($_POST['order_value']) && $_POST['order_value'] !== '') ? $_POST['order_value'] : 0, 
+                (isset($_POST['retention_percentage']) && $_POST['retention_percentage'] !== '') ? $_POST['retention_percentage'] : 5, 
+                empty($_POST['retention_release_date']) ? null : $_POST['retention_release_date'], 
+                (isset($_POST['retention_released']) && $_POST['retention_released'] !== '') ? $_POST['retention_released'] : 0,
+                (isset($_POST['ret_split_1_pct']) && $_POST['ret_split_1_pct'] !== '') ? $_POST['ret_split_1_pct'] : 100, 
+                (isset($_POST['ret_split_2_pct']) && $_POST['ret_split_2_pct'] !== '') ? $_POST['ret_split_2_pct'] : 0, 
+                empty($_POST['retention_release_date_2']) ? null : $_POST['retention_release_date_2'], 
+                (isset($_POST['retention_released_2']) && $_POST['retention_released_2'] !== '') ? $_POST['retention_released_2'] : 0
             ]);
             $message = "Financial base details updated!";
             $activeTab = 'edit';
