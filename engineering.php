@@ -3,7 +3,7 @@ require_once 'init.php';
 require_once 'session-check.php';
 
 // Check Capabilities
-if (!hasPermission('view_services') && !isAdmin()) {
+if (!hasPermission('edit_services') && !isAdmin()) {
     header('Location: dashboard.php?error=unauthorized');
     exit;
 }
