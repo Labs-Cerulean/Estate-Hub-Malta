@@ -10,7 +10,7 @@ if (!hasPermission('view_capital_projects') && !isAdmin()) {
 
 $message = ''; $error = '';
 $projectId = $_GET['project_id'] ?? null;
-$canEdit = hasPermission('edit_project_details') || isAdmin();
+$canEdit = hasPermission('view_capital_projects') || hasPermission('edit_project_details') || isAdmin();
 
 // ==========================================
 // HANDLE POST REQUESTS
