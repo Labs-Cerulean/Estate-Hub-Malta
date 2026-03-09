@@ -195,7 +195,7 @@ function calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots) {
 }
 
 // ------------------------------------------
-// MULTI-COMPANY CASHFLOW FORECAST GENERATOR
+// MASTER CASHFLOW FORECAST GENERATOR (NET OF RETENTION)
 // ------------------------------------------
 function generateCashflowData($projects, $groupByCompany = false) {
     $currentMonthStr = date('Y-m');
@@ -300,7 +300,7 @@ function generateCashflowData($projects, $groupByCompany = false) {
         }
     }
 
-    if (empty($allMonthsSet)) return ['labels'=>[], 'datasets'=>[]];
+    if (empty($allMonthsSet)) return ['labels'=>[], 'raw_labels'=>[], 'datasets'=>[]];
 
     $allMonths = array_keys($allMonthsSet);
     sort($allMonths);
@@ -316,7 +316,6 @@ function generateCashflowData($projects, $groupByCompany = false) {
     }
 
     $datasets = [];
-    // Color palette for multiple companies
     $colors = ['#10B981', '#0ea5e9', '#f59e0b', '#ec4899', '#8b5cf6', '#f43f5e', '#14b8a6', '#eab308', '#6366f1'];
     $cIndex = 0;
 
@@ -351,7 +350,6 @@ function generateCashflowData($projects, $groupByCompany = false) {
 
         if ($groupByCompany) {
             $color = $colors[$cIndex % count($colors)];
-            // Convert hex to rgb for a subtle background fill
             list($r, $g, $b) = sscanf($color, "#%02x%02x%02x");
             
             $datasets[] = [
@@ -374,7 +372,6 @@ function generateCashflowData($projects, $groupByCompany = false) {
             ];
             $cIndex++;
         } else {
-            // Single project legacy mode
             $datasets[] = [
                 'label' => 'Actual Claimed/Approved',
                 'data' => $finalActual,
@@ -396,7 +393,7 @@ function generateCashflowData($projects, $groupByCompany = false) {
         }
     }
 
-    return ['labels' => $labels, 'datasets' => $datasets];
+    return ['labels' => $labels, 'raw_labels' => $filledMonths, 'datasets' => $datasets];
 }
 
 // ------------------------------------------
@@ -414,7 +411,6 @@ if ($projectId) {
 
     $kpis = calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots);
     
-    // Generate Cashflow Data for this single project
     $singleProjData = [[
         'fin' => $fin, 'kpis' => $kpis, 'claims' => $claims, 
         'comp_status' => $kpis['days_left'] === 'Completed' ? 'completed' : 'ongoing'
@@ -479,8 +475,6 @@ else {
     }
     
     rsort($availableYears); krsort($yearlyStats);
-    
-    // Generate Cashflow grouped by Company
     $globalChartData = generateCashflowData($matrixData, true);
     
     $pageTitle = 'Tender & Capital Summary';
@@ -570,7 +564,17 @@ require_once 'header.php';
     <?php if (!$projectId): ?>
         
         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem;">
-            <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Holistic Cashflow Forecast (Filtered Developers/Companies)</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+                <h3 style="margin: 0; color: #fff; font-size: 1.1rem;">📈 Holistic Cashflow Forecast (Filtered Developers)</h3>
+                <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border-glass);">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase;">Zoom Timeline:</span>
+                    <input type="month" id="chartStart" style="background: #1e1e2d; border: 1px solid var(--border-glass); color: #fff; padding: 4px; border-radius: 4px; font-size: 0.8rem; outline: none;">
+                    <span style="color: var(--text-muted);">-</span>
+                    <input type="month" id="chartEnd" style="background: #1e1e2d; border: 1px solid var(--border-glass); color: #fff; padding: 4px; border-radius: 4px; font-size: 0.8rem; outline: none;">
+                    <button class="btn btn-sm btn-primary" style="margin:0; padding: 4px 10px;" onclick="applyChartFilter()">Apply</button>
+                    <button class="btn btn-sm" style="margin:0; padding: 4px 10px; background: transparent; border: 1px solid var(--border-glass); color: var(--text-muted);" onclick="resetChartFilter()">Reset</button>
+                </div>
+            </div>
             <div style="height: 350px; width: 100%;">
                 <canvas id="globalCashflowChart"></canvas>
             </div>
@@ -851,49 +855,86 @@ require_once 'header.php';
             });
         }
 
-        // Initialize Global Chart (Multi-Company)
-        const gCtx = document.getElementById('globalCashflowChart');
-        if (gCtx) {
-            new Chart(gCtx, {
-                type: 'line',
-                data: {
-                    labels: <?= json_encode($globalChartData['labels'] ?? []) ?>,
-                    datasets: <?= json_encode($globalChartData['datasets'] ?? []) ?>
-                },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false, 
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
+        // Initialize Global Chart
+        const originalChartData = <?= json_encode($globalChartData ?? []) ?>;
+        let myChart = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const gCtx = document.getElementById('globalCashflowChart');
+            if (gCtx && originalChartData.labels) {
+                myChart = new Chart(gCtx, {
+                    type: 'line',
+                    data: {
+                        labels: originalChartData.labels,
+                        datasets: originalChartData.datasets
                     },
-                    plugins: { 
-                        legend: { position: 'right', labels: {color: '#fff', boxWidth: 12} },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    let label = context.dataset.label || '';
-                                    if (label) { label += ': '; }
-                                    if (context.parsed.y !== null) {
-                                        label += new Intl.NumberFormat('en-MT', { style: 'currency', currency: 'EUR' }).format(context.parsed.y);
+                    options: { 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { 
+                            legend: { position: 'right', labels: {color: '#fff', boxWidth: 12} },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) { label += ': '; }
+                                        if (context.parsed.y !== null) {
+                                            label += new Intl.NumberFormat('en-MT', { style: 'currency', currency: 'EUR' }).format(context.parsed.y);
+                                        }
+                                        return label;
                                     }
-                                    return label;
                                 }
                             }
-                        }
-                    }, 
-                    scales: { 
-                        x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, 
-                        y: { 
-                            ticks: {
-                                color: '#9ca3af',
-                                callback: function(value) { return '€' + (value/1000).toFixed(0) + 'k'; }
-                            }, 
-                            grid: {color: 'rgba(255,255,255,0.05)'} 
+                        }, 
+                        scales: { 
+                            x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, 
+                            y: { 
+                                ticks: { color: '#9ca3af', callback: function(value) { return '€' + (value/1000).toFixed(0) + 'k'; } }, 
+                                grid: {color: 'rgba(255,255,255,0.05)'} 
+                            } 
                         } 
-                    } 
+                    }
+                });
+            }
+        });
+
+        // Timeframe Zoom Logic
+        function applyChartFilter() {
+            if (!myChart || !originalChartData.raw_labels) return;
+            const startVal = document.getElementById('chartStart').value;
+            const endVal = document.getElementById('chartEnd').value;
+            
+            if (!startVal && !endVal) return resetChartFilter();
+
+            let newLabels = [];
+            let newDatasets = originalChartData.datasets.map(ds => ({...ds, data: []}));
+
+            originalChartData.raw_labels.forEach((raw, i) => {
+                let include = true;
+                if (startVal && raw < startVal) include = false;
+                if (endVal && raw > endVal) include = false;
+
+                if (include) {
+                    newLabels.push(originalChartData.labels[i]);
+                    originalChartData.datasets.forEach((ds, dsIdx) => {
+                        newDatasets[dsIdx].data.push(ds.data[i]);
+                    });
                 }
             });
+
+            myChart.data.labels = newLabels;
+            myChart.data.datasets = newDatasets;
+            myChart.update();
+        }
+
+        function resetChartFilter() {
+            if (!myChart) return;
+            document.getElementById('chartStart').value = '';
+            document.getElementById('chartEnd').value = '';
+            myChart.data.labels = originalChartData.labels;
+            myChart.data.datasets = originalChartData.datasets;
+            myChart.update();
         }
         </script>
 
@@ -906,7 +947,17 @@ require_once 'header.php';
 
         <?php if ($activeTab === 'cashflow'): ?>
             <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
-                <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Cashflow Curve (Net of Retention)</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+                    <h3 style="margin: 0; color: #fff; font-size: 1.1rem;">📈 Cashflow Curve (Net of Retention)</h3>
+                    <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border-glass);">
+                        <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase;">Zoom Timeline:</span>
+                        <input type="month" id="chartStart" style="background: #1e1e2d; border: 1px solid var(--border-glass); color: #fff; padding: 4px; border-radius: 4px; font-size: 0.8rem; outline: none;">
+                        <span style="color: var(--text-muted);">-</span>
+                        <input type="month" id="chartEnd" style="background: #1e1e2d; border: 1px solid var(--border-glass); color: #fff; padding: 4px; border-radius: 4px; font-size: 0.8rem; outline: none;">
+                        <button class="btn btn-sm btn-primary" style="margin:0; padding: 4px 10px;" onclick="applyChartFilter()">Apply</button>
+                        <button class="btn btn-sm" style="margin:0; padding: 4px 10px; background: transparent; border: 1px solid var(--border-glass); color: var(--text-muted);" onclick="resetChartFilter()">Reset</button>
+                    </div>
+                </div>
                 <div style="height: 350px; width: 100%;">
                     <canvas id="singleCashflowChart"></canvas>
                 </div>
@@ -931,31 +982,86 @@ require_once 'header.php';
             </div>
 
             <script>
-            const sCtx = document.getElementById('singleCashflowChart');
-            if (sCtx) {
-                new Chart(sCtx, {
-                    type: 'line',
-                    data: {
-                        labels: <?= json_encode($chartData['labels'] ?? []) ?>,
-                        datasets: <?= json_encode($chartData['datasets'] ?? []) ?>
-                    },
-                    options: { 
-                        responsive: true, 
-                        maintainAspectRatio: false, 
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: { legend: { position: 'top', labels: {color: '#fff'} } }, 
-                        scales: { 
-                            x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, 
-                            y: { 
-                                ticks: {
-                                    color: '#9ca3af',
-                                    callback: function(value) { return '€' + (value/1000).toFixed(0) + 'k'; }
-                                }, 
-                                grid: {color: 'rgba(255,255,255,0.05)'} 
+            // Initialize Single Chart
+            const originalChartData = <?= json_encode($chartData ?? []) ?>;
+            let myChart = null;
+
+            document.addEventListener('DOMContentLoaded', function() {
+                const sCtx = document.getElementById('singleCashflowChart');
+                if (sCtx && originalChartData.labels) {
+                    myChart = new Chart(sCtx, {
+                        type: 'line',
+                        data: {
+                            labels: originalChartData.labels,
+                            datasets: originalChartData.datasets
+                        },
+                        options: { 
+                            responsive: true, 
+                            maintainAspectRatio: false, 
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: { 
+                                legend: { position: 'top', labels: {color: '#fff'} },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            let label = context.dataset.label || '';
+                                            if (label) { label += ': '; }
+                                            if (context.parsed.y !== null) {
+                                                label += new Intl.NumberFormat('en-MT', { style: 'currency', currency: 'EUR' }).format(context.parsed.y);
+                                            }
+                                            return label;
+                                        }
+                                    }
+                                }
+                            }, 
+                            scales: { 
+                                x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, 
+                                y: { 
+                                    ticks: { color: '#9ca3af', callback: function(value) { return '€' + (value/1000).toFixed(0) + 'k'; } }, 
+                                    grid: {color: 'rgba(255,255,255,0.05)'} 
+                                } 
                             } 
-                        } 
+                        }
+                    });
+                }
+            });
+
+            // Timeframe Zoom Logic
+            function applyChartFilter() {
+                if (!myChart || !originalChartData.raw_labels) return;
+                const startVal = document.getElementById('chartStart').value;
+                const endVal = document.getElementById('chartEnd').value;
+                
+                if (!startVal && !endVal) return resetChartFilter();
+
+                let newLabels = [];
+                let newDatasets = originalChartData.datasets.map(ds => ({...ds, data: []}));
+
+                originalChartData.raw_labels.forEach((raw, i) => {
+                    let include = true;
+                    if (startVal && raw < startVal) include = false;
+                    if (endVal && raw > endVal) include = false;
+
+                    if (include) {
+                        newLabels.push(originalChartData.labels[i]);
+                        originalChartData.datasets.forEach((ds, dsIdx) => {
+                            newDatasets[dsIdx].data.push(ds.data[i]);
+                        });
                     }
                 });
+
+                myChart.data.labels = newLabels;
+                myChart.data.datasets = newDatasets;
+                myChart.update();
+            }
+
+            function resetChartFilter() {
+                if (!myChart) return;
+                document.getElementById('chartStart').value = '';
+                document.getElementById('chartEnd').value = '';
+                myChart.data.labels = originalChartData.labels;
+                myChart.data.datasets = originalChartData.datasets;
+                myChart.update();
             }
             </script>
 
