@@ -184,7 +184,7 @@ function calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots) {
 }
 
 // ------------------------------------------
-// CASHFLOW FORECAST GENERATOR
+// CASHFLOW FORECAST GENERATOR (WITH RETENTION)
 // ------------------------------------------
 function generateCashflowData($projects) {
     $monthlyActuals = [];
@@ -192,21 +192,44 @@ function generateCashflowData($projects) {
     $currentMonthStr = date('Y-m');
 
     foreach ($projects as $p) {
+        $fin = $p['fin'] ?? [];
         $kpis = $p['kpis'];
         $claims = $p['claims'] ?? [];
 
+        $retPct = (float)($fin['retention_percentage'] ?? 5) / 100;
         $lastIpcMonth = null;
+
+        // 1. ACTUALS: Net IPC amounts (Approved minus Retention)
         foreach ($claims as $c) {
             if ($c['status'] == 'Approved' || $c['status'] == 'Paid') {
                 $m = !empty($c['submission_date']) ? substr($c['submission_date'], 0, 7) : date('Y-m');
                 if (!isset($monthlyActuals[$m])) $monthlyActuals[$m] = 0;
-                $monthlyActuals[$m] += (float)$c['amount_approved'];
+                
+                $app = (float)$c['amount_approved'];
+                $net = $app - ($app * $retPct);
+                $monthlyActuals[$m] += $net;
+                
                 if (!$lastIpcMonth || $m > $lastIpcMonth) $lastIpcMonth = $m;
             }
         }
+        
+        // 2. ACTUALS: Retention Releases already paid out
+        if (!empty($fin['retention_released']) && $fin['retention_released'] > 0) {
+            $m = !empty($fin['retention_release_date']) ? substr($fin['retention_release_date'], 0, 7) : $currentMonthStr;
+            if (!isset($monthlyActuals[$m])) $monthlyActuals[$m] = 0;
+            $monthlyActuals[$m] += (float)$fin['retention_released'];
+        }
+        if (!empty($fin['retention_released_2']) && $fin['retention_released_2'] > 0) {
+            $m = !empty($fin['retention_release_date_2']) ? substr($fin['retention_release_date_2'], 0, 7) : $currentMonthStr;
+            if (!isset($monthlyActuals[$m])) $monthlyActuals[$m] = 0;
+            $monthlyActuals[$m] += (float)$fin['retention_released_2'];
+        }
 
-        $remaining = max(0, $kpis['total_value'] - $kpis['tot_approved']);
-        if ($remaining > 0 && $p['comp_status'] !== 'completed') {
+        // 3. FORECAST: Spread Remaining Contract Value (Net of Retention)
+        $remainingGross = max(0, $kpis['total_value'] - $kpis['tot_approved']);
+        $remainingNet = $remainingGross - ($remainingGross * $retPct);
+        
+        if ($remainingNet > 0 && $p['comp_status'] !== 'completed') {
             $endMonth = !empty($kpis['revised_completion']) ? substr($kpis['revised_completion'], 0, 7) : date('Y-m', strtotime('+3 months'));
             $startForecastMonth = $lastIpcMonth ? date('Y-m', strtotime($lastIpcMonth . '-01 +1 month')) : $currentMonthStr;
             
@@ -221,7 +244,7 @@ function generateCashflowData($projects) {
             while ($tmp <= $endTs) { $months++; $tmp = strtotime('+1 month', $tmp); }
             if ($months == 0) $months = 1;
 
-            $monthlyVal = $remaining / $months;
+            $monthlyVal = $remainingNet / $months;
             $tempTs = $startTs;
             for ($i=0; $i<$months; $i++) {
                 $m = date('Y-m', $tempTs);
@@ -230,13 +253,41 @@ function generateCashflowData($projects) {
                 $tempTs = strtotime('+1 month', $tempTs);
             }
         }
+        
+        // 4. FORECAST: Unreleased Retention Spikes
+        $totalRetAmount = $kpis['total_value'] * $retPct;
+        $split1Pct = (float)($fin['ret_split_1_pct'] ?? 100) / 100;
+        $split2Pct = (float)($fin['ret_split_2_pct'] ?? 0) / 100;
+        
+        $expectedRet1 = $totalRetAmount * $split1Pct;
+        $expectedRet2 = $totalRetAmount * $split2Pct;
+        
+        $remRet1 = max(0, $expectedRet1 - (float)($fin['retention_released'] ?? 0));
+        $remRet2 = max(0, $expectedRet2 - (float)($fin['retention_released_2'] ?? 0));
+        
+        $compTarget = !empty($kpis['revised_completion']) ? $kpis['revised_completion'] : date('Y-m-d');
+        $defRet1Month = !empty($fin['retention_release_date']) ? substr($fin['retention_release_date'], 0, 7) : substr($compTarget, 0, 7);
+        $defRet2Month = !empty($fin['retention_release_date_2']) ? substr($fin['retention_release_date_2'], 0, 7) : date('Y-m', strtotime($compTarget . ' + 1 year'));
+        
+        // Push forecast to at least current month so it isn't drawn backwards in time
+        if ($defRet1Month < $currentMonthStr) $defRet1Month = $currentMonthStr;
+        if ($defRet2Month < $currentMonthStr) $defRet2Month = $currentMonthStr;
+
+        if ($remRet1 > 0) {
+            if (!isset($monthlyForecasts[$defRet1Month])) $monthlyForecasts[$defRet1Month] = 0;
+            $monthlyForecasts[$defRet1Month] += $remRet1;
+        }
+        if ($remRet2 > 0) {
+            if (!isset($monthlyForecasts[$defRet2Month])) $monthlyForecasts[$defRet2Month] = 0;
+            $monthlyForecasts[$defRet2Month] += $remRet2;
+        }
     }
 
     $allMonths = array_unique(array_merge(array_keys($monthlyActuals), array_keys($monthlyForecasts)));
     if (empty($allMonths)) return ['labels'=>[], 'actual'=>[], 'forecast'=>[]];
     
     sort($allMonths);
-    // Fill gaps
+    // Fill gaps between min and max month
     $startM = min($allMonths); $endM = max($allMonths);
     $filledMonths = []; $curr = strtotime($startM . '-01'); $last = strtotime($endM . '-01');
     while ($curr <= $last) { $filledMonths[] = date('Y-m', $curr); $curr = strtotime('+1 month', $curr); }
@@ -259,6 +310,7 @@ function generateCashflowData($projects) {
         }
     }
 
+    // Attach forecast to the end of the actuals line
     $runningForecast = $lastActualIndex >= 0 ? $finalActual[$lastActualIndex] : 0;
     if ($lastActualIndex >= 0) $finalForecast[$lastActualIndex] = $runningForecast;
 
@@ -302,6 +354,7 @@ if ($projectId) {
 // VIEW MODE: GLOBAL SUMMARY MATRIX & FILTERS
 // ------------------------------------------
 else {
+    $filterProject = $_GET['filter_project'] ?? 'all';
     $filterClient = $_GET['filter_client'] ?? 'all';
     $filterStatus = $_GET['filter_status'] ?? 'Active'; 
     $filterYear = $_GET['filter_year'] ?? 'all';
@@ -336,6 +389,8 @@ else {
         if ($k['days_left'] === 'Completed') $compStatus = 'completed';
         elseif (is_numeric($k['days_left']) && $k['days_left'] < 0) $compStatus = 'overdue';
 
+        // Apply Filters
+        if ($filterProject !== 'all' && $p['id'] != $filterProject) continue;
         if ($filterClient !== 'all' && $p['clientid'] != $filterClient) continue;
         if ($filterYear !== 'all' && $year !== $filterYear) continue;
         if ($filterStatus === 'Active' && $compStatus === 'completed') continue;
@@ -440,7 +495,7 @@ require_once 'header.php';
     <?php if (!$projectId): ?>
         
         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem;">
-            <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Holistic Cashflow Forecast (Filtered Projects)</h3>
+            <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Holistic Cashflow Forecast (Net of Retention)</h3>
             <div style="height: 250px; width: 100%;">
                 <canvas id="globalCashflowChart"></canvas>
             </div>
@@ -466,6 +521,17 @@ require_once 'header.php';
 
         <div class="filters-section" style="margin-bottom: 1.5rem; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass);">
             <form method="GET" class="filters-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
+                
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted);">Project</label>
+                    <select name="filter_project" style="width: 100%; padding: 0.5rem; border-radius: 4px; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass);">
+                        <option value="all">All Projects</option>
+                        <?php foreach ($allProjects as $projItem): ?>
+                            <option value="<?= $projItem['id'] ?>" <?= $filterProject == $projItem['id'] ? 'selected' : '' ?>><?= htmlspecialchars($projItem['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
                 <div class="form-group" style="margin: 0;">
                     <label style="font-size: 0.75rem; color: var(--text-muted);">Client / Developer</label>
                     <select name="filter_client" style="width: 100%; padding: 0.5rem; border-radius: 4px; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass);">
@@ -718,8 +784,8 @@ require_once 'header.php';
                 data: {
                     labels: <?= json_encode($globalChartData['labels'] ?? []) ?>,
                     datasets: [
-                        { label: 'Cumulative Actuals (Excl VAT)', data: <?= json_encode($globalChartData['actual'] ?? []) ?>, borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3, spanGaps: true },
-                        { label: 'Forecast Trajectory', data: <?= json_encode($globalChartData['forecast'] ?? []) ?>, borderColor: '#8B5CF6', borderDash: [5, 5], fill: false, tension: 0.3, spanGaps: true }
+                        { label: 'Cumulative Cashflow (Net of Retention)', data: <?= json_encode($globalChartData['actual'] ?? []) ?>, borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3, spanGaps: true },
+                        { label: 'Forecast (Inc. Retention Release Spikes)', data: <?= json_encode($globalChartData['forecast'] ?? []) ?>, borderColor: '#8B5CF6', borderDash: [5, 5], fill: false, tension: 0.3, spanGaps: true }
                     ]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: {color: '#fff'} } }, scales: { x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, y: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} } } }
@@ -736,7 +802,7 @@ require_once 'header.php';
 
         <?php if ($activeTab === 'cashflow'): ?>
             <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
-                <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Cashflow Curve (Actual vs Forecast)</h3>
+                <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Cashflow Curve (Net of Retention)</h3>
                 <div style="height: 300px; width: 100%;">
                     <canvas id="singleCashflowChart"></canvas>
                 </div>
@@ -768,8 +834,8 @@ require_once 'header.php';
                     data: {
                         labels: <?= json_encode($chartData['labels'] ?? []) ?>,
                         datasets: [
-                            { label: 'Actual Claimed/Approved', data: <?= json_encode($chartData['actual'] ?? []) ?>, borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3, spanGaps: true },
-                            { label: 'Forecast Path to Completion', data: <?= json_encode($chartData['forecast'] ?? []) ?>, borderColor: '#8B5CF6', borderDash: [5, 5], fill: false, tension: 0.3, spanGaps: true }
+                            { label: 'Cumulative Net Cashflow (Actuals)', data: <?= json_encode($chartData['actual'] ?? []) ?>, borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3, spanGaps: true },
+                            { label: 'Forecast Path to Completion (Inc. Retention)', data: <?= json_encode($chartData['forecast'] ?? []) ?>, borderColor: '#8B5CF6', borderDash: [5, 5], fill: false, tension: 0.3, spanGaps: true }
                         ]
                     },
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: {color: '#fff'} } }, scales: { x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, y: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} } } }
