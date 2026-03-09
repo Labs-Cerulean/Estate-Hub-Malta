@@ -23,25 +23,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
         if ($action === 'update_financials') {
             $stmt = $pdo->prepare("
                 INSERT INTO project_capital_financials 
-                (project_id, actual_client, ct_reference, award_date, commencement_date, completion_target, order_value, 
+                (project_id, actual_client, ct_reference, award_date, commencement_date, completion_target, actual_completion_date, order_value, 
                  retention_percentage, retention_release_date, retention_released, ret_split_1_pct, ret_split_2_pct, retention_release_date_2, retention_released_2) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                 actual_client=VALUES(actual_client), ct_reference=VALUES(ct_reference), award_date=VALUES(award_date), commencement_date=VALUES(commencement_date), 
-                completion_target=VALUES(completion_target), order_value=VALUES(order_value), 
+                completion_target=VALUES(completion_target), actual_completion_date=VALUES(actual_completion_date), order_value=VALUES(order_value), 
                 retention_percentage=VALUES(retention_percentage), retention_release_date=VALUES(retention_release_date), retention_released=VALUES(retention_released),
                 ret_split_1_pct=VALUES(ret_split_1_pct), ret_split_2_pct=VALUES(ret_split_2_pct), retention_release_date_2=VALUES(retention_release_date_2), retention_released_2=VALUES(retention_released_2)
             ");
             $stmt->execute([
                 $projectId, $_POST['actual_client'] ?? null, $_POST['ct_reference'], $_POST['award_date'] ?: null, $_POST['commencement_date'] ?: null, 
-                $_POST['completion_target'] ?: null, $_POST['order_value'] ?: 0, 
+                $_POST['completion_target'] ?: null, $_POST['actual_completion_date'] ?: null, $_POST['order_value'] ?: 0, 
                 $_POST['retention_percentage'] ?: 5, $_POST['retention_release_date'] ?: null, $_POST['retention_released'] ?: 0,
                 $_POST['ret_split_1_pct'] ?: 100, $_POST['ret_split_2_pct'] ?: 0, $_POST['retention_release_date_2'] ?: null, $_POST['retention_released_2'] ?: 0
             ]);
             $message = "Financial base details updated!";
         }
         
-        // Variations
+        // Variations, EoTs, Deductions, Claims logic...
         elseif ($action === 'add_variation') {
             $stmt = $pdo->prepare("INSERT INTO project_capital_variations (project_id, variation_ref, description, amount, status, submitted_date) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$projectId, $_POST['variation_ref'], $_POST['description'], $_POST['amount'], $_POST['status'], $_POST['submitted_date'] ?: null]);
@@ -56,8 +56,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
             $pdo->prepare("DELETE FROM project_capital_variations WHERE id=? AND project_id=?")->execute([$_POST['id'], $projectId]);
             $message = "Variation deleted.";
         }
-
-        // Extension of Time (EoT)
         elseif ($action === 'add_eot') {
             $stmt = $pdo->prepare("INSERT INTO project_capital_eot (project_id, eot_ref, description, days_extended, status, submitted_date) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$projectId, $_POST['eot_ref'], $_POST['description'], $_POST['days_extended'], $_POST['status'], $_POST['submitted_date'] ?: null]);
@@ -72,8 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
             $pdo->prepare("DELETE FROM project_capital_eot WHERE id=? AND project_id=?")->execute([$_POST['id'], $projectId]);
             $message = "Extension of Time deleted.";
         }
-
-        // Deductions
         elseif ($action === 'add_deduction') {
             $stmt = $pdo->prepare("INSERT INTO project_capital_deductions (project_id, deduction_ref, description, amount, status, date_logged) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$projectId, $_POST['deduction_ref'], $_POST['description'], $_POST['amount'], $_POST['status'], $_POST['date_logged'] ?: null]);
@@ -88,8 +84,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
             $pdo->prepare("DELETE FROM project_capital_deductions WHERE id=? AND project_id=?")->execute([$_POST['id'], $projectId]);
             $message = "Deduction deleted.";
         }
-
-        // Claims
         elseif ($action === 'add_claim') {
             $stmt = $pdo->prepare("INSERT INTO project_capital_claims (project_id, ipc_reference, amount_claimed, amount_approved, submission_date, status) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$projectId, $_POST['ipc_reference'], $_POST['amount_claimed'], $_POST['amount_approved'], $_POST['submission_date'] ?: null, $_POST['status']]);
@@ -104,7 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
             $pdo->prepare("DELETE FROM project_capital_claims WHERE id=? AND project_id=?")->execute([$_POST['id'], $projectId]);
             $message = "Claim deleted.";
         }
-
     } catch (PDOException $e) {
         $error = "Database Error: " . $e->getMessage();
     }
@@ -139,29 +132,29 @@ function calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots) {
         }
     }
     
-    // Retention Math (Calculated on Approved Value)
     $retPct = (float)($fin['retention_percentage'] ?? 5) / 100;
     $retAmount = $totApproved * $retPct;
     $retReleased = (float)($fin['retention_released'] ?? 0) + (float)($fin['retention_released_2'] ?? 0);
     $retCurrentlyHeld = max(0, $retAmount - $retReleased);
 
-    // Extension of Time Math
     $approvedEotDays = 0;
     foreach ($eots as $e) {
         if ($e['status'] === 'Approved') $approvedEotDays += (int)$e['days_extended'];
     }
 
-    // Time calculations
     $daysLeft = 0; $timeElapsed = 0;
     $completionTarget = $fin['completion_target'] ?? null;
+    $actualCompletion = $fin['actual_completion_date'] ?? null;
     $revisedCompletion = $completionTarget;
     
-    // Recalculate Completion Date if EoT is approved
     if ($completionTarget && $approvedEotDays > 0) {
         $revisedCompletion = date('Y-m-d', strtotime($completionTarget . " + $approvedEotDays days"));
     }
 
-    if (!empty($fin['commencement_date']) && !empty($revisedCompletion)) {
+    if ($actualCompletion) {
+        $daysLeft = 'Completed';
+        $timeElapsed = 100;
+    } elseif (!empty($fin['commencement_date']) && !empty($revisedCompletion)) {
         $start = new DateTime($fin['commencement_date']);
         $end = new DateTime($revisedCompletion);
         $now = new DateTime();
@@ -169,7 +162,6 @@ function calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots) {
         if ($now < $end) {
             $daysLeft = $now->diff($end)->days;
         } elseif ($now > $end) {
-            // Negative days left indicates Overdue
             $daysLeft = -$now->diff($end)->days;
         }
         
@@ -224,12 +216,19 @@ if ($projectId) {
     $pageTitle = 'Capital Financials - ' . $project['name'];
 } 
 // ------------------------------------------
-// VIEW MODE: GLOBAL SUMMARY MATRIX
+// VIEW MODE: GLOBAL SUMMARY MATRIX & FILTERS
 // ------------------------------------------
 else {
-    $stmt = $pdo->query("SELECT p.id, p.name, p.clientid, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id WHERE p.type = '3rd-party' AND p.project_status = 'Active' ORDER BY p.name ASC");
+    // 1. Fetch Filters
+    $filterClient = $_GET['filter_client'] ?? 'all';
+    $filterStatus = $_GET['filter_status'] ?? 'Active'; // Default to Active
+    $filterYear = $_GET['filter_year'] ?? 'all';
+
+    // 2. Fetch All 3rd Party Projects (regardless of active status so we can see completed ones if searched)
+    $stmt = $pdo->query("SELECT p.id, p.name, p.clientid, c.name as client_name, p.project_status FROM projects p LEFT JOIN clients c ON p.clientid = c.id WHERE p.type = '3rd-party' ORDER BY p.name ASC");
     $allProjects = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // 3. Fetch Data Maps
     $allFin = $pdo->query("SELECT * FROM project_capital_financials")->fetchAll(PDO::FETCH_ASSOC);
     $allVars = $pdo->query("SELECT * FROM project_capital_variations")->fetchAll(PDO::FETCH_ASSOC);
     $allEots = $pdo->query("SELECT * FROM project_capital_eot")->fetchAll(PDO::FETCH_ASSOC);
@@ -242,7 +241,13 @@ else {
     $dedMap = []; foreach($allDeds as $d) $dedMap[$d['project_id']][] = $d;
     $claimMap = []; foreach($allClaims as $c) $claimMap[$c['project_id']][] = $c;
 
+    // 4. Build Filter Dropdown Options
+    $availableClients = [];
+    $availableYears = [];
+
     $matrixData = [];
+    $yearlyStats = [];
+
     foreach ($allProjects as $p) {
         $f = $finMap[$p['id']] ?? [];
         $v = $varMap[$p['id']] ?? [];
@@ -251,11 +256,46 @@ else {
         $c = $claimMap[$p['id']] ?? [];
         
         $k = calculateCapitalKPIs($f, $v, $c, $d, $e);
+        
+        // Extract Year
+        $year = !empty($f['award_date']) ? date('Y', strtotime($f['award_date'])) : 'Unscheduled';
+        if (!in_array($year, $availableYears)) $availableYears[] = $year;
+        if ($p['clientid'] && !isset($availableClients[$p['clientid']])) $availableClients[$p['clientid']] = $p['client_name'];
+        
+        // Extract Status
+        $compStatus = 'ongoing';
+        if ($k['days_left'] === 'Completed') $compStatus = 'completed';
+        elseif (is_numeric($k['days_left']) && $k['days_left'] < 0) $compStatus = 'overdue';
+
+        // Apply Filters
+        if ($filterClient !== 'all' && $p['clientid'] != $filterClient) continue;
+        if ($filterYear !== 'all' && $year !== $filterYear) continue;
+        if ($filterStatus === 'Active' && $compStatus === 'completed') continue;
+        if ($filterStatus === 'Completed' && $compStatus !== 'completed') continue;
+        if ($filterStatus === 'Overdue' && $compStatus !== 'overdue') continue;
+
+        // Aggregate Yearly Stats (Only for projects that pass the filter)
+        if (!isset($yearlyStats[$year])) {
+            $yearlyStats[$year] = ['count' => 0, 'base' => 0, 'vars' => 0, 'total' => 0, 'claimed' => 0, 'approved' => 0];
+        }
+        $yearlyStats[$year]['count']++;
+        $yearlyStats[$year]['base'] += $k['base_value'];
+        $yearlyStats[$year]['vars'] += $k['app_vars'];
+        $yearlyStats[$year]['total'] += $k['total_value'];
+        $yearlyStats[$year]['claimed'] += $k['tot_claimed'];
+        $yearlyStats[$year]['approved'] += $k['tot_approved'];
+
+        $p['year'] = $year;
+        $p['comp_status'] = $compStatus;
         $p['fin'] = $f; 
         $p['vars'] = $v;
         $p['kpis'] = $k;
         $matrixData[] = $p;
     }
+    
+    rsort($availableYears);
+    krsort($yearlyStats);
+    
     $pageTitle = 'Tender & Capital Summary';
 }
 
@@ -264,47 +304,51 @@ require_once 'header.php';
 
 <style>
 /* Base Styles */
-.currency { font-variant-numeric: tabular-nums; text-align: right; }
-.badge { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
+.currency { font-variant-numeric: tabular-nums; }
+.badge { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; display: inline-block; text-transform: uppercase; letter-spacing: 0.5px; }
 .badge-green { background: rgba(34, 197, 94, 0.1); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
 .badge-yellow { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
 .badge-red { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
 .badge-gray { background: rgba(107, 114, 128, 0.1); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
 
-/* Global Matrix Frozen Table */
-.matrix-wrapper { position: relative; width: 100%; max-height: calc(100vh - 180px); overflow: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); }
-.matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; }
-.matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-.matrix-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; }
-.matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
-.matrix-table tbody tr.main-row td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); font-weight: 700; }
-.matrix-table tbody tr.main-row:hover td { background: rgba(255,255,255,0.03); }
-.matrix-table tbody tr.main-row:hover td:first-child { background: #2a2a3b; z-index: 60; }
-.matrix-table tbody tr.main-row:hover td:last-child { background: #2a2a3b; z-index: 60; }
+/* Stacked Table Layout for Global View */
+.stacked-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--bg-card); border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-glass); }
+.stacked-table th { background: #1e1e2d; padding: 1rem; color: var(--text-muted); font-weight: 600; text-align: left; text-transform: uppercase; font-size: 0.75rem; border-bottom: 2px solid var(--border-glass); }
+.stacked-table td { padding: 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: top; color: var(--text-secondary); }
+.stacked-table tr:hover td { background: rgba(255,255,255,0.02); }
 
-/* Detail View Accordions & Modals */
+/* Stacked Cell Internal Styling */
+.cell-stack { display: flex; flex-direction: column; gap: 6px; }
+.micro-lbl { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
+.val-txt { font-size: 0.85rem; font-weight: 600; color: #fff; display: flex; justify-content: space-between; }
+.val-sub { color: var(--text-muted); font-weight: normal; }
+
+/* Filter Section & Yearly Cards */
+.yearly-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+.yearly-card { background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1rem; border-top: 3px solid var(--primary-color); }
+.stat-row { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 4px; }
+
+/* Action Dropdown Menu Fix */
+.action-dropdown { position: relative; display: inline-block; width: 100%; }
+.action-dropdown-content { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background-color: #1e1e2d; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 999; border: 1px solid var(--border-glass); border-radius: 6px; overflow: hidden; }
+.action-dropdown-content a { color: var(--text-primary); padding: 10px 12px; text-decoration: none; display: block; font-size: 0.8rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.02); transition: 0.2s; }
+.action-dropdown-content a:hover { background-color: rgba(255,255,255,0.05); color: var(--primary-color); }
+.action-dropdown:hover .action-dropdown-content { display: block; }
+
+/* Sub row */
+.sub-row td { background: rgba(16, 185, 129, 0.05) !important; padding: 0 !important; }
+
+/* Modal & Accordions */
 .custom-accordion { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
-.custom-accordion summary { padding: 1.25rem 1.5rem; font-size: 1.1rem; font-weight: 600; color: var(--text-primary); cursor: pointer; background: rgba(255,255,255,0.02); list-style: none; display: flex; justify-content: space-between; align-items: center; border-radius: var(--radius-md); user-select: none; }
+.custom-accordion summary { padding: 1.25rem 1.5rem; font-size: 1.1rem; font-weight: 600; color: var(--text-primary); cursor: pointer; background: rgba(255,255,255,0.02); list-style: none; display: flex; justify-content: space-between; align-items: center; border-radius: var(--radius-md); }
 .custom-accordion summary::after { content: '▼'; font-size: 0.9rem; color: var(--primary-color); transition: transform 0.3s ease; }
 .custom-accordion[open] summary::after { transform: rotate(180deg); }
 .custom-accordion[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid var(--border-glass); }
 .accordion-content { padding: 1.5rem; }
-
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
-
-.btn-expand { background: none; border: 1px solid var(--border-glass); color: var(--text-primary); border-radius: 4px; cursor: pointer; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; margin-right: 0.5rem; font-weight: bold; transition: all 0.2s; }
-.btn-expand:hover { background: rgba(255,255,255,0.1); }
-
-/* Action Dropdown Menu */
-.action-dropdown { position: relative; display: inline-block; }
-.action-dropdown-content { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background-color: #1e1e2d; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 999; border: 1px solid var(--border-glass); border-radius: 6px; overflow: hidden; }
-.action-dropdown-content a { color: var(--text-primary); padding: 10px 12px; text-decoration: none; display: block; font-size: 0.8rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.02); transition: 0.2s; }
-.action-dropdown-content a:last-child { border-bottom: none; }
-.action-dropdown-content a:hover { background-color: rgba(255,255,255,0.05); color: var(--primary-color); }
-.action-dropdown:hover .action-dropdown-content { display: block; }
 </style>
 
 <div class="main-container" style="max-width: <?= $projectId ? '1200px' : '100%' ?>; padding: 1.5rem;">
@@ -327,112 +371,180 @@ require_once 'header.php';
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
     <?php if (!$projectId): ?>
-        <div class="matrix-wrapper">
-            <table class="matrix-table">
-                <thead>
-                    <tr>
-                        <th>Project Name</th>
-                        <th>Winning Co.</th>
-                        <th>Actual Client / Authority</th>
-                        <th>Ref (CT No)</th>
-                        <th>Award Date</th>
-                        <th>Target Date</th>
-                        <th style="text-align: center;">Days Left</th>
-                        <th class="currency" style="border-left: 2px solid var(--border-glass);">Order Val (€)</th>
-                        <th class="currency">Appr. Vars (€)</th>
-                        <th class="currency" style="font-weight:800; color:#10B981;">Total Contract (€)</th>
-                        <th class="currency" style="color: #ef4444;">Deductions (€)</th>
-                        <th class="currency" style="color: #f59e0b;">Pend. Vars (€)</th>
-                        <th class="currency" style="border-left: 2px solid var(--border-glass);">Claimed (€)</th>
-                        <th class="currency">Approved (€)</th>
-                        <th style="text-align: center;">Latest IPC</th>
-                        <th style="text-align: center;">% Claimed</th>
-                        <th style="text-align: center; border-left: 2px solid var(--border-glass);">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($matrixData)): ?>
-                        <tr><td colspan="17" style="text-align: center; padding: 2rem;">No active capital projects found.</td></tr>
-                    <?php else: ?>
-                        <?php foreach($matrixData as $row): $f = $row['fin']; $k = $row['kpis']; $vars = $row['vars']; ?>
-                            <tr class="main-row">
-                                <td>
-                                    <div style="display: flex; align-items: center;">
-                                        <button class="btn-expand" onclick="toggleVars(<?= $row['id'] ?>)" title="View Variations">⏬</button>
-                                        <a href="capital_projects.php?project_id=<?= $row['id'] ?>" style="color: var(--primary-color); text-decoration: none;"><?= htmlspecialchars($row['name']) ?></a>
+        
+        <?php if (!empty($yearlyStats)): ?>
+            <div class="yearly-grid">
+                <?php foreach ($yearlyStats as $y => $s): ?>
+                    <div class="yearly-card">
+                        <h4 style="margin: 0 0 10px 0; color: #fff; font-size: 1.1rem; display: flex; justify-content: space-between;">
+                            <?= $y === 'Unscheduled' ? 'Unscheduled / Pending' : $y . ' Projects' ?>
+                            <span class="badge badge-gray"><?= $s['count'] ?> Active</span>
+                        </h4>
+                        <div class="stat-row"><span class="val-sub">Base Value:</span> <strong class="currency">€<?= number_format($s['base'],2) ?></strong></div>
+                        <div class="stat-row"><span class="val-sub">Total Variations:</span> <strong class="currency" style="color: #f59e0b;">€<?= number_format($s['vars'],2) ?></strong></div>
+                        <div class="stat-row"><span class="val-sub">Total Contract:</span> <strong class="currency" style="color: #0ea5e9;">€<?= number_format($s['total'],2) ?></strong></div>
+                        <div class="stat-row" style="margin-top: 8px; border: none;"><span class="val-sub">Total Claimed:</span> <strong class="currency">€<?= number_format($s['claimed'],2) ?></strong></div>
+                        <div class="stat-row" style="border: none;"><span class="val-sub">Total Approved:</span> <strong class="currency" style="color: #10B981;">€<?= number_format($s['approved'],2) ?></strong></div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="filters-section" style="margin-bottom: 1.5rem; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass);">
+            <form method="GET" class="filters-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted);">Client / Developer</label>
+                    <select name="filter_client" style="width: 100%; padding: 0.5rem; border-radius: 4px; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass);">
+                        <option value="all">All Clients</option>
+                        <?php foreach ($availableClients as $cid => $cname): ?>
+                            <option value="<?= $cid ?>" <?= $filterClient == $cid ? 'selected' : '' ?>><?= htmlspecialchars($cname) ?></option>
+                        <?php endendforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted);">Completion Status</label>
+                    <select name="filter_status" style="width: 100%; padding: 0.5rem; border-radius: 4px; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass);">
+                        <option value="All" <?= $filterStatus === 'All' ? 'selected' : '' ?>>All Projects</option>
+                        <option value="Active" <?= $filterStatus === 'Active' ? 'selected' : '' ?>>🟢 Active & Ongoing</option>
+                        <option value="Overdue" <?= $filterStatus === 'Overdue' ? 'selected' : '' ?>>🔴 Overdue Only</option>
+                        <option value="Completed" <?= $filterStatus === 'Completed' ? 'selected' : '' ?>>✔️ Completed Only</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted);">Year Awarded</label>
+                    <select name="filter_year" style="width: 100%; padding: 0.5rem; border-radius: 4px; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass);">
+                        <option value="all">All Years</option>
+                        <?php foreach ($availableYears as $yr): ?>
+                            <option value="<?= $yr ?>" <?= $filterYear == $yr ? 'selected' : '' ?>><?= htmlspecialchars($yr) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <button type="submit" class="btn btn-primary" style="width: 100%; margin: 0; padding: 0.5rem;">Apply Filters</button>
+                </div>
+            </form>
+        </div>
+
+        <table class="stacked-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Project Details</th>
+                    <th style="width: 18%;">Timeline & Status</th>
+                    <th style="width: 20%;">Contract Value (€)</th>
+                    <th style="width: 25%;">Claims & Invoicing (€)</th>
+                    <th style="width: 12%; text-align: center;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($matrixData)): ?>
+                    <tr><td colspan="5" style="text-align: center; padding: 2rem;">No capital projects found matching your filters.</td></tr>
+                <?php else: ?>
+                    <?php foreach($matrixData as $row): $f = $row['fin']; $k = $row['kpis']; $vars = $row['vars']; ?>
+                        <tr class="main-row">
+                            <td>
+                                <div class="cell-stack">
+                                    <div style="font-weight: 800; font-size: 1rem; color: var(--primary-color);">
+                                        <a href="capital_projects.php?project_id=<?= $row['id'] ?>" style="color: inherit; text-decoration: none;"><?= htmlspecialchars($row['name']) ?></a>
                                     </div>
-                                </td>
-                                <td><span style="color: #0ea5e9; font-weight: 500;"><?= htmlspecialchars($row['client_name'] ?? 'N/A') ?></span></td>
-                                <td><?= htmlspecialchars($f['actual_client'] ?? '-') ?></td>
-                                <td><?= htmlspecialchars($f['ct_reference'] ?? '-') ?></td>
-                                <td><?= !empty($f['award_date']) ? date('d M y', strtotime($f['award_date'])) : '-' ?></td>
-                                
-                                <td>
-                                    <?= !empty($f['completion_target']) ? date('d M y', strtotime($f['completion_target'])) : '-' ?>
-                                    <?php if ($k['approved_eot_days'] > 0): ?>
-                                        <br><span class="badge badge-yellow" style="font-size: 0.65rem; margin-top: 2px;">Rev: <?= date('d M y', strtotime($k['revised_completion'])) ?></span>
-                                    <?php endif; ?>
-                                </td>
-                                
-                                <td style="text-align: center; font-weight: 600; color: <?= $k['days_left'] < 0 ? '#ef4444' : ($k['days_left'] < 30 ? '#f59e0b' : 'inherit') ?>;">
-                                    <?= $k['days_left'] < 0 ? 'Overdue (' . abs($k['days_left']) . ')' : $k['days_left'] ?>
-                                </td>
-                                
-                                <td class="currency" style="border-left: 2px solid var(--border-glass);"><?= number_format($k['base_value'], 2) ?></td>
-                                <td class="currency"><?= number_format($k['app_vars'], 2) ?></td>
-                                <td class="currency" style="font-weight: 800; color: #10B981;"><?= number_format($k['total_value'], 2) ?></td>
-                                <td class="currency" style="color: #ef4444;"><?= number_format($k['tot_deductions'], 2) ?></td>
-                                <td class="currency" style="color: #f59e0b;"><?= number_format($k['pen_vars'], 2) ?></td>
-                                
-                                <td class="currency" style="border-left: 2px solid var(--border-glass);"><?= number_format($k['tot_claimed'], 2) ?></td>
-                                <td class="currency"><?= number_format($k['tot_approved'], 2) ?></td>
-                                <td style="text-align: center;"><span class="badge badge-gray"><?= htmlspecialchars($k['latest_ipc']) ?></span></td>
-                                <td style="text-align: center; font-weight: 600;"><?= $k['pct_claimed'] ?>%</td>
-                                
-                                <td style="text-align: center; border-left: 2px solid var(--border-glass); overflow: visible;">
-                                    <div class="action-dropdown">
-                                        <button class="btn btn-sm btn-primary" style="margin: 0; padding: 0.3rem 0.75rem;">Manage ▾</button>
-                                        <div class="action-dropdown-content">
-                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>">📝 Edit Details</a>
-                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=var">➕ Add Variation</a>
-                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=ded">📉 Add Deduction</a>
-                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=eot">⏳ Add EoT</a>
-                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=ipc">🧾 Add IPC Claim</a>
-                                        </div>
+                                    <div class="val-txt"><span class="micro-lbl" style="width: 70px;">Winning Co:</span> <span class="val-sub"><?= htmlspecialchars($row['client_name'] ?? 'N/A') ?></span></div>
+                                    <div class="val-txt"><span class="micro-lbl" style="width: 70px;">Authority:</span> <span class="val-sub"><?= htmlspecialchars($f['actual_client'] ?? '-') ?></span></div>
+                                    <div class="val-txt"><span class="micro-lbl" style="width: 70px;">Ref (CT):</span> <span class="val-sub" style="color: #fff; font-weight: bold;"><?= htmlspecialchars($f['ct_reference'] ?? '-') ?></span></div>
+                                </div>
+                            </td>
+
+                            <td style="border-left: 1px solid var(--border-glass);">
+                                <div class="cell-stack">
+                                    <div class="val-txt"><span class="micro-lbl" style="width: 60px;">Awarded:</span> <span><?= !empty($f['award_date']) ? date('d M y', strtotime($f['award_date'])) : '-' ?></span></div>
+                                    <div class="val-txt"><span class="micro-lbl" style="width: 60px;">Target:</span> 
+                                        <span>
+                                            <?= !empty($k['revised_completion']) ? date('d M y', strtotime($k['revised_completion'])) : '-' ?>
+                                            <?php if ($k['approved_eot_days'] > 0): ?> <span style="color:#f59e0b; font-size:0.7rem;">(+<?= $k['approved_eot_days'] ?>d)</span> <?php endif; ?>
+                                        </span>
                                     </div>
-                                </td>
-                            </tr>
-                            
-                            <tr id="vars-row-<?= $row['id'] ?>" class="sub-row" style="display: none;">
-                                <td colspan="17" style="padding: 0;">
-                                    <div style="padding: 1rem 3rem; margin-left: 40px;">
-                                        <h4 style="margin-bottom: 0.5rem; color: #10b981; border-bottom: 1px solid rgba(16, 185, 129, 0.3); padding-bottom: 0.25rem; display: inline-block;">Itemised Variations</h4>
-                                        <?php if (empty($vars)): ?>
-                                            <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0;">No variations logged yet.</p>
+                                    
+                                    <div style="margin-top: 6px;">
+                                        <?php if ($row['comp_status'] === 'completed'): ?>
+                                            <span class="badge badge-green" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">✔ Completed</span>
+                                        <?php elseif ($row['comp_status'] === 'overdue'): ?>
+                                            <span class="badge badge-red" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">🔴 Overdue (<?= abs($k['days_left']) ?>d)</span>
                                         <?php else: ?>
-                                            <table style="width: auto; background: transparent; font-size: 0.8rem; border-collapse: collapse; margin-top: 0.5rem;">
-                                                <tbody>
-                                                    <?php foreach ($vars as $v): ?>
-                                                        <tr>
-                                                            <td style="padding: 0.25rem 1rem 0.25rem 0; font-weight: 600;"><?= htmlspecialchars($v['variation_ref']) ?></td>
-                                                            <td style="padding: 0.25rem 1rem; color: var(--text-secondary); max-width: 300px; white-space: normal;"><?= htmlspecialchars($v['description']) ?></td>
-                                                            <td style="padding: 0.25rem 1rem; text-align: right; font-weight: bold; font-variant-numeric: tabular-nums;">€<?= number_format($v['amount'], 2) ?></td>
-                                                            <td style="padding: 0.25rem 0 0.25rem 1rem;">
-                                                                <span class="badge <?= $v['status'] === 'Approved' ? 'badge-green' : ($v['status'] === 'Pending' ? 'badge-yellow' : 'badge-red') ?>" style="font-size: 0.65rem;"><?= $v['status'] ?></span>
-                                                            </td>
-                                                        </tr>
-                                                    <?php endforeach; ?>
-                                                </tbody>
-                                            </table>
+                                            <span class="badge badge-yellow" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">⏳ <?= $k['days_left'] ?> Days Left</span>
                                         <?php endif; ?>
                                     </div>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+                                </div>
+                            </td>
+
+                            <td style="border-left: 1px solid var(--border-glass);">
+                                <div class="cell-stack currency">
+                                    <div class="val-txt"><span class="micro-lbl">Base Order:</span> <span><?= number_format($k['base_value'], 2) ?></span></div>
+                                    <div class="val-txt">
+                                        <span class="micro-lbl" style="cursor: pointer; color: #0ea5e9; border-bottom: 1px dashed #0ea5e9;" onclick="toggleVars(<?= $row['id'] ?>)" title="Click to view variations breakdown">Appr. Vars ▾:</span> 
+                                        <span style="color: #0ea5e9;">+<?= number_format($k['app_vars'], 2) ?></span>
+                                    </div>
+                                    <div class="val-txt" style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px; margin-top: 2px;">
+                                        <span class="micro-lbl" style="color: #10B981;">Total Net:</span> 
+                                        <span style="color: #10B981; font-weight: 800;">€<?= number_format($k['total_value'], 2) ?></span>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <td style="border-left: 1px solid var(--border-glass);">
+                                <div class="cell-stack currency">
+                                    <div class="val-txt"><span class="micro-lbl">Claimed:</span> <span><?= number_format($k['tot_claimed'], 2) ?></span></div>
+                                    <div class="val-txt"><span class="micro-lbl">Approved:</span> <span style="color: #10B981;"><?= number_format($k['tot_approved'], 2) ?></span></div>
+                                    <div class="val-txt"><span class="micro-lbl">Deductions:</span> <span style="color: #ef4444;">-<?= number_format($k['tot_deductions'], 2) ?></span></div>
+                                    
+                                    <div style="margin-top: 4px; background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
+                                        <div style="width: <?= $k['pct_claimed'] ?>%; height: 100%; background: var(--primary-color);"></div>
+                                    </div>
+                                    <div style="font-size: 0.65rem; text-align: right; color: var(--text-muted);"><?= $k['pct_claimed'] ?>% Invoiced (Latest: <?= htmlspecialchars($k['latest_ipc']) ?>)</div>
+                                </div>
+                            </td>
+
+                            <td style="border-left: 1px solid var(--border-glass); text-align: center; vertical-align: middle;">
+                                <div class="action-dropdown">
+                                    <button class="btn btn-sm btn-primary" style="margin: 0; padding: 0.5rem 1rem; width: 100%;">Manage ▾</button>
+                                    <div class="action-dropdown-content">
+                                        <a href="capital_projects.php?project_id=<?= $row['id'] ?>">📝 Edit Details</a>
+                                        <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=var">➕ Add Variation</a>
+                                        <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=ded">📉 Add Deduction</a>
+                                        <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=eot">⏳ Add EoT</a>
+                                        <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=ipc">🧾 Add IPC Claim</a>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                        <tr id="vars-row-<?= $row['id'] ?>" class="sub-row" style="display: none;">
+                            <td colspan="5">
+                                <div style="padding: 1rem 1.5rem; border-left: 4px solid #0ea5e9;">
+                                    <h5 style="margin: 0 0 0.5rem 0; color: #0ea5e9;">Itemised Variations</h5>
+                                    <?php if (empty($vars)): ?>
+                                        <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0;">No variations logged yet.</p>
+                                    <?php else: ?>
+                                        <table style="width: 100%; background: transparent; font-size: 0.8rem; border-collapse: collapse;">
+                                            <tbody>
+                                                <?php foreach ($vars as $v): ?>
+                                                    <tr>
+                                                        <td style="padding: 4px 0; width: 15%; font-weight: 600;"><?= htmlspecialchars($v['variation_ref']) ?></td>
+                                                        <td style="padding: 4px 0; width: 50%; color: var(--text-secondary);"><?= htmlspecialchars($v['description']) ?></td>
+                                                        <td style="padding: 4px 0; width: 15%; text-align: right; font-weight: bold;" class="currency">€<?= number_format($v['amount'], 2) ?></td>
+                                                        <td style="padding: 4px 0; width: 20%; text-align: right;">
+                                                            <span class="badge <?= $v['status'] === 'Approved' ? 'badge-green' : ($v['status'] === 'Pending' ? 'badge-yellow' : 'badge-red') ?>"><?= $v['status'] ?></span>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
         <script>
         function toggleVars(id) {
             const row = document.getElementById('vars-row-' + id);
@@ -456,14 +568,19 @@ require_once 'header.php';
                 <div class="stat-label">Retention Currently Held</div>
             </div>
             
-            <div class="stat-card" style="border-left: 4px solid #8b5cf6;">
-                <div class="stat-number" style="font-size: 1.5rem; color: #8b5cf6; display: flex; align-items: baseline; gap: 4px;">
-                    <?= $kpis['days_left'] < 0 ? abs($kpis['days_left']) : $kpis['days_left'] ?> 
-                    <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">Days <?= $kpis['days_left'] < 0 ? 'Overdue' : 'Left' ?></span>
+            <div class="stat-card" style="border-left: 4px solid <?= $kpis['days_left'] === 'Completed' ? '#10B981' : '#8b5cf6' ?>;">
+                <div class="stat-number" style="font-size: 1.5rem; color: <?= $kpis['days_left'] === 'Completed' ? '#10B981' : '#8b5cf6' ?>; display: flex; align-items: baseline; gap: 4px;">
+                    <?= $kpis['days_left'] === 'Completed' ? '✔ Done' : ($kpis['days_left'] < 0 ? abs($kpis['days_left']) : $kpis['days_left']) ?> 
+                    <?php if($kpis['days_left'] !== 'Completed'): ?>
+                        <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">Days <?= $kpis['days_left'] < 0 ? 'Overdue' : 'Left' ?></span>
+                    <?php endif; ?>
                 </div>
                 <div class="stat-label">
                     Target: <?= !empty($kpis['revised_completion']) ? date('d M Y', strtotime($kpis['revised_completion'])) : '-' ?> 
                     <?php if($kpis['approved_eot_days'] > 0): ?> <span style="color:#f59e0b;">(+<?= $kpis['approved_eot_days'] ?>d)</span><?php endif; ?>
+                    <?php if(!empty($fin['actual_completion_date'])): ?>
+                        <br><strong style="color: #10B981;">Actual: <?= date('d M Y', strtotime($fin['actual_completion_date'])) ?></strong>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -483,7 +600,12 @@ require_once 'header.php';
                         
                         <div class="form-group"><label>Award Date</label><input type="date" name="award_date" value="<?= $fin['award_date'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                         <div class="form-group"><label>Commencement Date</label><input type="date" name="commencement_date" value="<?= $fin['commencement_date'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
-                        <div class="form-group"><label>Completion Target</label><input type="date" name="completion_target" value="<?= $fin['completion_target'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                        <div class="form-group"><label>Target Completion</label><input type="date" name="completion_target" value="<?= $fin['completion_target'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                        
+                        <div class="form-group" style="background: rgba(16, 185, 129, 0.1); padding: 0.5rem; border-radius: 4px; border-left: 3px solid #10b981;">
+                            <label style="color: #10b981;">Actual Completion (Stops Clock)</label>
+                            <input type="date" name="actual_completion_date" value="<?= $fin['actual_completion_date'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?> style="border-color: #10b981; background: #1e1e2d; color: #fff;">
+                        </div>
                     </div>
 
                     <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem;">
