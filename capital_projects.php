@@ -279,8 +279,8 @@ require_once 'header.php';
 .matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
 .matrix-table tbody tr.main-row td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); font-weight: 700; }
 .matrix-table tbody tr.main-row:hover td { background: rgba(255,255,255,0.03); }
-.matrix-table tbody tr.main-row:hover td:first-child { background: #2a2a3b; }
-.matrix-table tbody tr.sub-row td { background: rgba(16, 185, 129, 0.05); border-bottom: 2px solid var(--border-glass); white-space: normal; }
+.matrix-table tbody tr.main-row:hover td:first-child { background: #2a2a3b; z-index: 60; }
+.matrix-table tbody tr.main-row:hover td:last-child { background: #2a2a3b; z-index: 60; }
 
 /* Detail View Accordions & Modals */
 .custom-accordion { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
@@ -300,7 +300,7 @@ require_once 'header.php';
 
 /* Action Dropdown Menu */
 .action-dropdown { position: relative; display: inline-block; }
-.action-dropdown-content { display: none; position: absolute; right: 0; background-color: #1e1e2d; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 50; border: 1px solid var(--border-glass); border-radius: 6px; overflow: hidden; }
+.action-dropdown-content { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background-color: #1e1e2d; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 999; border: 1px solid var(--border-glass); border-radius: 6px; overflow: hidden; }
 .action-dropdown-content a { color: var(--text-primary); padding: 10px 12px; text-decoration: none; display: block; font-size: 0.8rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.02); transition: 0.2s; }
 .action-dropdown-content a:last-child { border-bottom: none; }
 .action-dropdown-content a:hover { background-color: rgba(255,255,255,0.05); color: var(--primary-color); }
