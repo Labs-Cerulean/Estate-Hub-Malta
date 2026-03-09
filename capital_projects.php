@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
                 retention_percentage=VALUES(retention_percentage), retention_release_date=VALUES(retention_release_date), retention_released=VALUES(retention_released),
                 ret_split_1_pct=VALUES(ret_split_1_pct), ret_split_2_pct=VALUES(ret_split_2_pct), retention_release_date_2=VALUES(retention_release_date_2), retention_released_2=VALUES(retention_released_2)
             ");
-           $stmt->execute([
+            $stmt->execute([
                 $projectId, 
                 $_POST['actual_client'] ?? null, 
                 $_POST['ct_reference'], 
@@ -195,58 +195,62 @@ function calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots) {
 }
 
 // ------------------------------------------
-// CASHFLOW FORECAST GENERATOR (WITH RETENTION)
+// MULTI-COMPANY CASHFLOW FORECAST GENERATOR
 // ------------------------------------------
-function generateCashflowData($projects) {
-    $monthlyActuals = [];
-    $monthlyForecasts = [];
+function generateCashflowData($projects, $groupByCompany = false) {
     $currentMonthStr = date('Y-m');
+    $allMonthsSet = [];
+    $groups = [];
 
     foreach ($projects as $p) {
+        $groupKey = $groupByCompany ? ($p['client_name'] ?: 'Unknown Company') : 'Total';
+        if (!isset($groups[$groupKey])) {
+            $groups[$groupKey] = ['monthlyActuals' => [], 'monthlyForecasts' => []];
+        }
+
         $fin = $p['fin'] ?? [];
         $kpis = $p['kpis'];
         $claims = $p['claims'] ?? [];
-
         $retPct = (float)($fin['retention_percentage'] ?? 5) / 100;
         $lastIpcMonth = null;
 
-        // 1. ACTUALS: Net IPC amounts (Approved minus Retention)
+        // 1. ACTUALS: Net IPC amounts
         foreach ($claims as $c) {
             if ($c['status'] == 'Approved' || $c['status'] == 'Paid') {
                 $m = !empty($c['submission_date']) ? substr($c['submission_date'], 0, 7) : date('Y-m');
-                if (!isset($monthlyActuals[$m])) $monthlyActuals[$m] = 0;
-                
+                if (!isset($groups[$groupKey]['monthlyActuals'][$m])) $groups[$groupKey]['monthlyActuals'][$m] = 0;
                 $app = (float)$c['amount_approved'];
                 $net = $app - ($app * $retPct);
-                $monthlyActuals[$m] += $net;
-                
+                $groups[$groupKey]['monthlyActuals'][$m] += $net;
+                $allMonthsSet[$m] = true;
                 if (!$lastIpcMonth || $m > $lastIpcMonth) $lastIpcMonth = $m;
             }
         }
-        
-        // 2. ACTUALS: Retention Releases already paid out
+
+        // 2. ACTUALS: Retention Releases
         if (!empty($fin['retention_released']) && $fin['retention_released'] > 0) {
             $m = !empty($fin['retention_release_date']) ? substr($fin['retention_release_date'], 0, 7) : $currentMonthStr;
-            if (!isset($monthlyActuals[$m])) $monthlyActuals[$m] = 0;
-            $monthlyActuals[$m] += (float)$fin['retention_released'];
+            if (!isset($groups[$groupKey]['monthlyActuals'][$m])) $groups[$groupKey]['monthlyActuals'][$m] = 0;
+            $groups[$groupKey]['monthlyActuals'][$m] += (float)$fin['retention_released'];
+            $allMonthsSet[$m] = true;
         }
         if (!empty($fin['retention_released_2']) && $fin['retention_released_2'] > 0) {
             $m = !empty($fin['retention_release_date_2']) ? substr($fin['retention_release_date_2'], 0, 7) : $currentMonthStr;
-            if (!isset($monthlyActuals[$m])) $monthlyActuals[$m] = 0;
-            $monthlyActuals[$m] += (float)$fin['retention_released_2'];
+            if (!isset($groups[$groupKey]['monthlyActuals'][$m])) $groups[$groupKey]['monthlyActuals'][$m] = 0;
+            $groups[$groupKey]['monthlyActuals'][$m] += (float)$fin['retention_released_2'];
+            $allMonthsSet[$m] = true;
         }
 
-        // 3. FORECAST: Spread Remaining Contract Value (Net of Retention)
+        // 3. FORECAST: Spread Remaining Contract Value
         $remainingGross = max(0, $kpis['total_value'] - $kpis['tot_approved']);
         $remainingNet = $remainingGross - ($remainingGross * $retPct);
-        
+
         if ($remainingNet > 0 && $p['comp_status'] !== 'completed') {
             $endMonth = !empty($kpis['revised_completion']) ? substr($kpis['revised_completion'], 0, 7) : date('Y-m', strtotime('+3 months'));
             $startForecastMonth = $lastIpcMonth ? date('Y-m', strtotime($lastIpcMonth . '-01 +1 month')) : $currentMonthStr;
-            
-            // If already past target, extend forecast smoothly
+
             if ($startForecastMonth > $endMonth) {
-                $endMonth = date('Y-m', strtotime($startForecastMonth . '-01 +3 months')); 
+                $endMonth = date('Y-m', strtotime($startForecastMonth . '-01 +3 months'));
             }
 
             $startTs = strtotime($startForecastMonth . '-01');
@@ -259,83 +263,141 @@ function generateCashflowData($projects) {
             $tempTs = $startTs;
             for ($i=0; $i<$months; $i++) {
                 $m = date('Y-m', $tempTs);
-                if (!isset($monthlyForecasts[$m])) $monthlyForecasts[$m] = 0;
-                $monthlyForecasts[$m] += $monthlyVal;
+                if (!isset($groups[$groupKey]['monthlyForecasts'][$m])) $groups[$groupKey]['monthlyForecasts'][$m] = 0;
+                $groups[$groupKey]['monthlyForecasts'][$m] += $monthlyVal;
+                $allMonthsSet[$m] = true;
                 $tempTs = strtotime('+1 month', $tempTs);
             }
         }
-        
+
         // 4. FORECAST: Unreleased Retention Spikes
         $totalRetAmount = $kpis['total_value'] * $retPct;
         $split1Pct = (float)($fin['ret_split_1_pct'] ?? 100) / 100;
         $split2Pct = (float)($fin['ret_split_2_pct'] ?? 0) / 100;
-        
+
         $expectedRet1 = $totalRetAmount * $split1Pct;
         $expectedRet2 = $totalRetAmount * $split2Pct;
-        
+
         $remRet1 = max(0, $expectedRet1 - (float)($fin['retention_released'] ?? 0));
         $remRet2 = max(0, $expectedRet2 - (float)($fin['retention_released_2'] ?? 0));
-        
+
         $compTarget = !empty($kpis['revised_completion']) ? $kpis['revised_completion'] : date('Y-m-d');
         $defRet1Month = !empty($fin['retention_release_date']) ? substr($fin['retention_release_date'], 0, 7) : substr($compTarget, 0, 7);
         $defRet2Month = !empty($fin['retention_release_date_2']) ? substr($fin['retention_release_date_2'], 0, 7) : date('Y-m', strtotime($compTarget . ' + 1 year'));
-        
-        // Push forecast to at least current month so it isn't drawn backwards in time
+
         if ($defRet1Month < $currentMonthStr) $defRet1Month = $currentMonthStr;
         if ($defRet2Month < $currentMonthStr) $defRet2Month = $currentMonthStr;
 
         if ($remRet1 > 0) {
-            if (!isset($monthlyForecasts[$defRet1Month])) $monthlyForecasts[$defRet1Month] = 0;
-            $monthlyForecasts[$defRet1Month] += $remRet1;
+            if (!isset($groups[$groupKey]['monthlyForecasts'][$defRet1Month])) $groups[$groupKey]['monthlyForecasts'][$defRet1Month] = 0;
+            $groups[$groupKey]['monthlyForecasts'][$defRet1Month] += $remRet1;
+            $allMonthsSet[$defRet1Month] = true;
         }
         if ($remRet2 > 0) {
-            if (!isset($monthlyForecasts[$defRet2Month])) $monthlyForecasts[$defRet2Month] = 0;
-            $monthlyForecasts[$defRet2Month] += $remRet2;
+            if (!isset($groups[$groupKey]['monthlyForecasts'][$defRet2Month])) $groups[$groupKey]['monthlyForecasts'][$defRet2Month] = 0;
+            $groups[$groupKey]['monthlyForecasts'][$defRet2Month] += $remRet2;
+            $allMonthsSet[$defRet2Month] = true;
         }
     }
 
-    $allMonths = array_unique(array_merge(array_keys($monthlyActuals), array_keys($monthlyForecasts)));
-    if (empty($allMonths)) return ['labels'=>[], 'actual'=>[], 'forecast'=>[]];
-    
+    if (empty($allMonthsSet)) return ['labels'=>[], 'datasets'=>[]];
+
+    $allMonths = array_keys($allMonthsSet);
     sort($allMonths);
-    // Fill gaps between min and max month
+
+    // Fill empty months
     $startM = min($allMonths); $endM = max($allMonths);
     $filledMonths = []; $curr = strtotime($startM . '-01'); $last = strtotime($endM . '-01');
     while ($curr <= $last) { $filledMonths[] = date('Y-m', $curr); $curr = strtotime('+1 month', $curr); }
 
-    $labels = []; $finalActual = []; $finalForecast = [];
-    $currentCumAct = 0; $lastActualIndex = -1;
-
-    foreach ($filledMonths as $i => $m) {
+    $labels = [];
+    foreach ($filledMonths as $m) {
         $labels[] = date('M Y', strtotime($m . '-01'));
-        $act = $monthlyActuals[$m] ?? 0;
-        $currentCumAct += $act;
-        
-        if ($m <= $currentMonthStr) {
-            $finalActual[] = $currentCumAct;
-            $lastActualIndex = $i;
-            $finalForecast[] = null;
+    }
+
+    $datasets = [];
+    // Color palette for multiple companies
+    $colors = ['#10B981', '#0ea5e9', '#f59e0b', '#ec4899', '#8b5cf6', '#f43f5e', '#14b8a6', '#eab308', '#6366f1'];
+    $cIndex = 0;
+
+    foreach ($groups as $groupKey => $gData) {
+        $finalActual = []; $finalForecast = [];
+        $currentCumAct = 0; $lastActualIndex = -1;
+
+        foreach ($filledMonths as $i => $m) {
+            $act = $gData['monthlyActuals'][$m] ?? 0;
+            $currentCumAct += $act;
+
+            if ($m <= $currentMonthStr) {
+                $finalActual[] = $currentCumAct;
+                $lastActualIndex = $i;
+                $finalForecast[] = null;
+            } else {
+                $finalActual[] = null;
+                $finalForecast[] = null;
+            }
+        }
+
+        $runningForecast = $lastActualIndex >= 0 ? $finalActual[$lastActualIndex] : 0;
+        if ($lastActualIndex >= 0) $finalForecast[$lastActualIndex] = $runningForecast;
+
+        foreach ($filledMonths as $i => $m) {
+            if ($m > $currentMonthStr) {
+                $for = $gData['monthlyForecasts'][$m] ?? 0;
+                $runningForecast += $for;
+                $finalForecast[$i] = $runningForecast;
+            }
+        }
+
+        if ($groupByCompany) {
+            $color = $colors[$cIndex % count($colors)];
+            // Convert hex to rgb for a subtle background fill
+            list($r, $g, $b) = sscanf($color, "#%02x%02x%02x");
+            
+            $datasets[] = [
+                'label' => $groupKey . ' (Actual)',
+                'data' => $finalActual,
+                'borderColor' => $color,
+                'backgroundColor' => "rgba($r, $g, $b, 0.1)",
+                'fill' => true,
+                'tension' => 0.3,
+                'spanGaps' => true
+            ];
+            $datasets[] = [
+                'label' => $groupKey . ' (Forecast)',
+                'data' => $finalForecast,
+                'borderColor' => $color,
+                'borderDash' => [5, 5],
+                'fill' => false,
+                'tension' => 0.3,
+                'spanGaps' => true
+            ];
+            $cIndex++;
         } else {
-            $finalActual[] = null;
-            $finalForecast[] = null;
+            // Single project legacy mode
+            $datasets[] = [
+                'label' => 'Actual Claimed/Approved',
+                'data' => $finalActual,
+                'borderColor' => '#10B981',
+                'backgroundColor' => 'rgba(16, 185, 129, 0.1)',
+                'fill' => true,
+                'tension' => 0.3,
+                'spanGaps' => true
+            ];
+            $datasets[] = [
+                'label' => 'Forecast Path to Completion',
+                'data' => $finalForecast,
+                'borderColor' => '#8B5CF6',
+                'borderDash' => [5, 5],
+                'fill' => false,
+                'tension' => 0.3,
+                'spanGaps' => true
+            ];
         }
     }
 
-    // Attach forecast to the end of the actuals line
-    $runningForecast = $lastActualIndex >= 0 ? $finalActual[$lastActualIndex] : 0;
-    if ($lastActualIndex >= 0) $finalForecast[$lastActualIndex] = $runningForecast;
-
-    foreach ($filledMonths as $i => $m) {
-        if ($m > $currentMonthStr) {
-            $for = $monthlyForecasts[$m] ?? 0;
-            $runningForecast += $for;
-            $finalForecast[$i] = $runningForecast;
-        }
-    }
-
-    return ['labels' => $labels, 'actual' => $finalActual, 'forecast' => $finalForecast];
+    return ['labels' => $labels, 'datasets' => $datasets];
 }
-
 
 // ------------------------------------------
 // VIEW MODE: SINGLE PROJECT DETAIL
@@ -357,7 +419,7 @@ if ($projectId) {
         'fin' => $fin, 'kpis' => $kpis, 'claims' => $claims, 
         'comp_status' => $kpis['days_left'] === 'Completed' ? 'completed' : 'ongoing'
     ]];
-    $chartData = generateCashflowData($singleProjData);
+    $chartData = generateCashflowData($singleProjData, false);
     
     $pageTitle = 'Capital Financials - ' . $project['name'];
 } 
@@ -412,12 +474,14 @@ else {
         $yearlyStats[$year]['count']++; $yearlyStats[$year]['base'] += $k['base_value']; $yearlyStats[$year]['vars'] += $k['app_vars'];
         $yearlyStats[$year]['total'] += $k['total_value']; $yearlyStats[$year]['claimed'] += $k['tot_claimed']; $yearlyStats[$year]['approved'] += $k['tot_approved'];
 
-        $p['year'] = $year; $p['comp_status'] = $compStatus; $p['fin'] = $f; $p['vars'] = $v; $p['deds'] = $d; $p['claims'] = $c; $p['kpis'] = $k;
+        $p['year'] = $year; $p['comp_status'] = $compStatus; $p['client_name'] = $p['client_name'] ?? 'Unknown Company'; $p['fin'] = $f; $p['vars'] = $v; $p['deds'] = $d; $p['claims'] = $c; $p['kpis'] = $k;
         $matrixData[] = $p;
     }
     
     rsort($availableYears); krsort($yearlyStats);
-    $globalChartData = generateCashflowData($matrixData);
+    
+    // Generate Cashflow grouped by Company
+    $globalChartData = generateCashflowData($matrixData, true);
     
     $pageTitle = 'Tender & Capital Summary';
 }
@@ -506,8 +570,8 @@ require_once 'header.php';
     <?php if (!$projectId): ?>
         
         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem;">
-            <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Holistic Cashflow Forecast (Net of Retention)</h3>
-            <div style="height: 250px; width: 100%;">
+            <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Holistic Cashflow Forecast (Filtered Developers/Companies)</h3>
+            <div style="height: 350px; width: 100%;">
                 <canvas id="globalCashflowChart"></canvas>
             </div>
         </div>
@@ -787,19 +851,48 @@ require_once 'header.php';
             });
         }
 
-        // Initialize Global Chart
+        // Initialize Global Chart (Multi-Company)
         const gCtx = document.getElementById('globalCashflowChart');
         if (gCtx) {
             new Chart(gCtx, {
                 type: 'line',
                 data: {
                     labels: <?= json_encode($globalChartData['labels'] ?? []) ?>,
-                    datasets: [
-                        { label: 'Cumulative Cashflow (Net of Retention)', data: <?= json_encode($globalChartData['actual'] ?? []) ?>, borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3, spanGaps: true },
-                        { label: 'Forecast (Inc. Retention Release Spikes)', data: <?= json_encode($globalChartData['forecast'] ?? []) ?>, borderColor: '#8B5CF6', borderDash: [5, 5], fill: false, tension: 0.3, spanGaps: true }
-                    ]
+                    datasets: <?= json_encode($globalChartData['datasets'] ?? []) ?>
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: {color: '#fff'} } }, scales: { x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, y: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} } } }
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: { 
+                        legend: { position: 'right', labels: {color: '#fff', boxWidth: 12} },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) { label += ': '; }
+                                    if (context.parsed.y !== null) {
+                                        label += new Intl.NumberFormat('en-MT', { style: 'currency', currency: 'EUR' }).format(context.parsed.y);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    }, 
+                    scales: { 
+                        x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, 
+                        y: { 
+                            ticks: {
+                                color: '#9ca3af',
+                                callback: function(value) { return '€' + (value/1000).toFixed(0) + 'k'; }
+                            }, 
+                            grid: {color: 'rgba(255,255,255,0.05)'} 
+                        } 
+                    } 
+                }
             });
         }
         </script>
@@ -814,7 +907,7 @@ require_once 'header.php';
         <?php if ($activeTab === 'cashflow'): ?>
             <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
                 <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem; margin-bottom: 1rem;">📈 Cashflow Curve (Net of Retention)</h3>
-                <div style="height: 300px; width: 100%;">
+                <div style="height: 350px; width: 100%;">
                     <canvas id="singleCashflowChart"></canvas>
                 </div>
             </div>
@@ -844,12 +937,24 @@ require_once 'header.php';
                     type: 'line',
                     data: {
                         labels: <?= json_encode($chartData['labels'] ?? []) ?>,
-                        datasets: [
-                            { label: 'Cumulative Net Cashflow (Actuals)', data: <?= json_encode($chartData['actual'] ?? []) ?>, borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3, spanGaps: true },
-                            { label: 'Forecast Path to Completion (Inc. Retention)', data: <?= json_encode($chartData['forecast'] ?? []) ?>, borderColor: '#8B5CF6', borderDash: [5, 5], fill: false, tension: 0.3, spanGaps: true }
-                        ]
+                        datasets: <?= json_encode($chartData['datasets'] ?? []) ?>
                     },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: {color: '#fff'} } }, scales: { x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, y: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} } } }
+                    options: { 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { legend: { position: 'top', labels: {color: '#fff'} } }, 
+                        scales: { 
+                            x: { ticks: {color: '#9ca3af'}, grid: {color: 'rgba(255,255,255,0.05)'} }, 
+                            y: { 
+                                ticks: {
+                                    color: '#9ca3af',
+                                    callback: function(value) { return '€' + (value/1000).toFixed(0) + 'k'; }
+                                }, 
+                                grid: {color: 'rgba(255,255,255,0.05)'} 
+                            } 
+                        } 
+                    }
                 });
             }
             </script>
