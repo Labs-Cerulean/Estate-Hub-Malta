@@ -312,10 +312,10 @@ require_once 'header.php';
 .badge-gray { background: rgba(107, 114, 128, 0.1); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
 
 /* Stacked Table Layout for Global View */
-.stacked-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--bg-card); border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-glass); }
+.stacked-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); }
 .stacked-table th { background: #1e1e2d; padding: 1rem; color: var(--text-muted); font-weight: 600; text-align: left; text-transform: uppercase; font-size: 0.75rem; border-bottom: 2px solid var(--border-glass); }
-.stacked-table td { padding: 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: top; color: var(--text-secondary); }
-.stacked-table tr:hover td { background: rgba(255,255,255,0.02); }
+.stacked-table td { padding: 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: top; color: var(--text-secondary); position: relative; }
+.stacked-table tr:hover td { background: rgba(255,255,255,0.05); z-index: 50; }
 
 /* Stacked Cell Internal Styling */
 .cell-stack { display: flex; flex-direction: column; gap: 6px; }
