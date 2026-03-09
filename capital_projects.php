@@ -392,7 +392,7 @@ require_once 'header.php';
 
         <div class="filters-section" style="margin-bottom: 1.5rem; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass);">
             <form method="GET" class="filters-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
-               <div class="form-group" style="margin: 0;">
+                <div class="form-group" style="margin: 0;">
                     <label style="font-size: 0.75rem; color: var(--text-muted);">Client / Developer</label>
                     <select name="filter_client" style="width: 100%; padding: 0.5rem; border-radius: 4px; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass);">
                         <option value="all">All Clients</option>
@@ -890,8 +890,30 @@ require_once 'header.php';
                     <input type="hidden" name="action" id="claimAction" value="add_claim">
                     <input type="hidden" name="id" id="claimId" value="">
                     <div class="form-group"><label>IPC Reference</label><input type="text" name="ipc_reference" id="claimRef" required></div>
-                    <div class="form-group"><label>Amount Claimed (€) Excl VAT</label><input type="number" step="0.01" name="amount_claimed" id="claimAmt" required></div>
-                    <div class="form-group"><label>Amount Approved (€) Excl VAT</label><input type="number" step="0.01" name="amount_approved" id="claimApp" value="0.00"></div>
+                    
+                    <div class="form-group" style="background: rgba(14, 165, 233, 0.05); padding: 12px; border-radius: 6px; margin-bottom: 15px; border: 1px dashed rgba(14, 165, 233, 0.4);">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #0ea5e9; font-weight: bold; margin: 0; font-size: 0.85rem;">
+                            <input type="checkbox" id="isCumulativeMode" onchange="toggleCumulativeMode()" style="margin: 0; cursor: pointer; width: auto;"> 
+                            Calculate from Cumulative Certificate?
+                        </label>
+                        <div id="cumulativeFields" style="display: none; margin-top: 10px; border-top: 1px dashed rgba(14, 165, 233, 0.2); padding-top: 10px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div>
+                                    <label style="font-size: 0.75rem; color: var(--text-muted);">Cumulative Claimed (€)</label>
+                                    <input type="number" step="0.01" id="cumClaimAmt" oninput="calcCumulative()" placeholder="0.00" style="background: #1e1e2d; margin-bottom: 2px;">
+                                    <div style="font-size: 0.65rem; color: var(--text-muted);">Prev Total: €<span id="prevClaimedHelper">0.00</span></div>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; color: var(--text-muted);">Cumulative Approved (€)</label>
+                                    <input type="number" step="0.01" id="cumAppAmt" oninput="calcCumulative()" placeholder="0.00" style="background: #1e1e2d; margin-bottom: 2px;">
+                                    <div style="font-size: 0.65rem; color: var(--text-muted);">Prev Total: €<span id="prevApprovedHelper">0.00</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group"><label>This IPC Amount Claimed (€) Excl VAT</label><input type="number" step="0.01" name="amount_claimed" id="claimAmt" required></div>
+                    <div class="form-group"><label>This IPC Amount Approved (€) Excl VAT</label><input type="number" step="0.01" name="amount_approved" id="claimApp" value="0.00"></div>
                     <div class="form-group"><label>Submission Date</label><input type="date" name="submission_date" id="claimDate"></div>
                     <div class="form-group"><label>Status</label><select name="status" id="claimStatus"><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Paid">Paid</option></select></div>
                     <button type="submit" class="btn btn-primary" style="width: 100%;">Save Claim</button>
@@ -900,6 +922,47 @@ require_once 'header.php';
         </div>
 
         <script>
+        // JavaScript for Cumulative IPC Helper
+        const currentTotalClaimed = <?= isset($kpis) ? (float)$kpis['tot_claimed'] : 0 ?>;
+        const currentTotalApproved = <?= isset($kpis) ? (float)$kpis['tot_approved'] : 0 ?>;
+
+        function toggleCumulativeMode() {
+            const mode = document.getElementById('isCumulativeMode').checked;
+            document.getElementById('cumulativeFields').style.display = mode ? 'block' : 'none';
+            
+            // Calculate true previous amounts (ignoring the current claim if editing)
+            let prevClaimed = currentTotalClaimed;
+            let prevApp = currentTotalApproved;
+            
+            if (document.getElementById('claimAction').value === 'edit_claim') {
+                prevClaimed -= parseFloat(document.getElementById('claimAmt').dataset.original || 0);
+                prevApp -= parseFloat(document.getElementById('claimApp').dataset.original || 0);
+            }
+            
+            document.getElementById('prevClaimedHelper').innerText = prevClaimed.toFixed(2);
+            document.getElementById('prevApprovedHelper').innerText = prevApp.toFixed(2);
+        }
+
+        function calcCumulative() {
+            let prevClaimed = currentTotalClaimed;
+            let prevApp = currentTotalApproved;
+
+            if (document.getElementById('claimAction').value === 'edit_claim') {
+                prevClaimed -= parseFloat(document.getElementById('claimAmt').dataset.original || 0);
+                prevApp -= parseFloat(document.getElementById('claimApp').dataset.original || 0);
+            }
+
+            const cumClaimed = parseFloat(document.getElementById('cumClaimAmt').value || 0);
+            const cumApp = parseFloat(document.getElementById('cumAppAmt').value || 0);
+
+            const newClaimed = isNaN(cumClaimed) ? 0 : Math.max(0, cumClaimed - prevClaimed);
+            const newApp = isNaN(cumApp) ? 0 : Math.max(0, cumApp - prevApp);
+
+            if (document.getElementById('cumClaimAmt').value !== '') document.getElementById('claimAmt').value = newClaimed.toFixed(2);
+            if (document.getElementById('cumAppAmt').value !== '') document.getElementById('claimApp').value = newApp.toFixed(2);
+        }
+
+        // Standard Modal Handlers
         function openVarModal(mode, data = null) {
             document.getElementById('varModalTitle').textContent = mode === 'edit' ? 'Edit Variation' : 'Add Variation';
             document.getElementById('varAction').value = mode === 'edit' ? 'edit_variation' : 'add_variation';
@@ -945,6 +1008,17 @@ require_once 'header.php';
             document.getElementById('claimApp').value = data ? data.amount_approved : '0.00';
             document.getElementById('claimDate').value = data ? data.submission_date : '';
             document.getElementById('claimStatus').value = data ? data.status : 'Pending';
+            
+            // Store original values for cumulative math during edits
+            document.getElementById('claimAmt').dataset.original = data ? data.amount_claimed : '0';
+            document.getElementById('claimApp').dataset.original = data ? data.amount_approved : '0';
+            
+            // Reset Cumulative View
+            document.getElementById('isCumulativeMode').checked = false;
+            toggleCumulativeMode();
+            document.getElementById('cumClaimAmt').value = '';
+            document.getElementById('cumAppAmt').value = '';
+
             document.getElementById('claimModal').style.display = 'block';
         }
 
