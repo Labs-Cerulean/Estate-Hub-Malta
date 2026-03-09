@@ -10,7 +10,7 @@ $pageTitle = $pageTitle ?? 'Estate Hub';
 $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 
 // Define visibility for Dropdowns based on user capabilities
-$showProjects = hasPermission('view_projects') || hasPermission('view_mobilisation') || hasPermission('view_services') || isAdmin();
+$showProjects = hasPermission('view_projects') || hasPermission('view_mobilisation') || hasPermission('edit_services') || isAdmin();
 $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation') || hasPermission('view_drawings') || isAdmin();
 $showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || isAdmin();
 $showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || isAdmin();
