@@ -392,13 +392,13 @@ require_once 'header.php';
 
         <div class="filters-section" style="margin-bottom: 1.5rem; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass);">
             <form method="GET" class="filters-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
-                <div class="form-group" style="margin: 0;">
+               <div class="form-group" style="margin: 0;">
                     <label style="font-size: 0.75rem; color: var(--text-muted);">Client / Developer</label>
                     <select name="filter_client" style="width: 100%; padding: 0.5rem; border-radius: 4px; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass);">
                         <option value="all">All Clients</option>
                         <?php foreach ($availableClients as $cid => $cname): ?>
                             <option value="<?= $cid ?>" <?= $filterClient == $cid ? 'selected' : '' ?>><?= htmlspecialchars($cname) ?></option>
-                        <?php endendforeach; ?>
+                        <?php endforeach; ?>
                     </select>
                 </div>
                 <div class="form-group" style="margin: 0;">
