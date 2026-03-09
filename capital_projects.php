@@ -10,6 +10,7 @@ if (!hasPermission('view_capital_projects') && !isAdmin()) {
 
 $message = ''; $error = '';
 $projectId = $_GET['project_id'] ?? null;
+// Ensure accountants and authorized users can edit
 $canEdit = hasPermission('view_capital_projects') || hasPermission('edit_project_details') || isAdmin();
 
 // ==========================================
@@ -22,17 +23,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
         if ($action === 'update_financials') {
             $stmt = $pdo->prepare("
                 INSERT INTO project_capital_financials 
-                (project_id, actual_client, ct_reference, award_date, commencement_date, completion_target, order_value, retention_percentage, retention_release_date, retention_released) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (project_id, actual_client, ct_reference, award_date, commencement_date, completion_target, order_value, 
+                 retention_percentage, retention_release_date, retention_released, ret_split_1_pct, ret_split_2_pct, retention_release_date_2, retention_released_2) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                 actual_client=VALUES(actual_client), ct_reference=VALUES(ct_reference), award_date=VALUES(award_date), commencement_date=VALUES(commencement_date), 
-                completion_target=VALUES(completion_target), order_value=VALUES(order_value), retention_percentage=VALUES(retention_percentage), 
-                retention_release_date=VALUES(retention_release_date), retention_released=VALUES(retention_released)
+                completion_target=VALUES(completion_target), order_value=VALUES(order_value), 
+                retention_percentage=VALUES(retention_percentage), retention_release_date=VALUES(retention_release_date), retention_released=VALUES(retention_released),
+                ret_split_1_pct=VALUES(ret_split_1_pct), ret_split_2_pct=VALUES(ret_split_2_pct), retention_release_date_2=VALUES(retention_release_date_2), retention_released_2=VALUES(retention_released_2)
             ");
             $stmt->execute([
                 $projectId, $_POST['actual_client'] ?? null, $_POST['ct_reference'], $_POST['award_date'] ?: null, $_POST['commencement_date'] ?: null, 
-                $_POST['completion_target'] ?: null, $_POST['order_value'] ?: 0, $_POST['retention_percentage'] ?: 5, 
-                $_POST['retention_release_date'] ?: null, $_POST['retention_released'] ?: 0
+                $_POST['completion_target'] ?: null, $_POST['order_value'] ?: 0, 
+                $_POST['retention_percentage'] ?: 5, $_POST['retention_release_date'] ?: null, $_POST['retention_released'] ?: 0,
+                $_POST['ret_split_1_pct'] ?: 100, $_POST['ret_split_2_pct'] ?: 0, $_POST['retention_release_date_2'] ?: null, $_POST['retention_released_2'] ?: 0
             ]);
             $message = "Financial base details updated!";
         }
@@ -51,6 +55,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
         elseif ($action === 'delete_variation') {
             $pdo->prepare("DELETE FROM project_capital_variations WHERE id=? AND project_id=?")->execute([$_POST['id'], $projectId]);
             $message = "Variation deleted.";
+        }
+
+        // Extension of Time (EoT)
+        elseif ($action === 'add_eot') {
+            $stmt = $pdo->prepare("INSERT INTO project_capital_eot (project_id, eot_ref, description, days_extended, status, submitted_date) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$projectId, $_POST['eot_ref'], $_POST['description'], $_POST['days_extended'], $_POST['status'], $_POST['submitted_date'] ?: null]);
+            $message = "Extension of Time logged!";
+        }
+        elseif ($action === 'edit_eot') {
+            $stmt = $pdo->prepare("UPDATE project_capital_eot SET eot_ref=?, description=?, days_extended=?, status=?, submitted_date=? WHERE id=? AND project_id=?");
+            $stmt->execute([$_POST['eot_ref'], $_POST['description'], $_POST['days_extended'], $_POST['status'], $_POST['submitted_date'] ?: null, $_POST['id'], $projectId]);
+            $message = "Extension of Time updated!";
+        }
+        elseif ($action === 'delete_eot') {
+            $pdo->prepare("DELETE FROM project_capital_eot WHERE id=? AND project_id=?")->execute([$_POST['id'], $projectId]);
+            $message = "Extension of Time deleted.";
         }
 
         // Deductions
@@ -93,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
 // ==========================================
 // DATA FETCHING & CALCULATIONS
 // ==========================================
-function calculateCapitalKPIs($fin, $variations, $claims, $deductions) {
+function calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots) {
     $baseValue = (float)($fin['order_value'] ?? 0);
     $appVars = 0; $penVars = 0;
     
@@ -119,16 +139,39 @@ function calculateCapitalKPIs($fin, $variations, $claims, $deductions) {
         }
     }
     
+    // Retention Math (Calculated on Approved Value)
     $retPct = (float)($fin['retention_percentage'] ?? 5) / 100;
     $retAmount = $totApproved * $retPct;
-    
+    $retReleased = (float)($fin['retention_released'] ?? 0) + (float)($fin['retention_released_2'] ?? 0);
+    $retCurrentlyHeld = max(0, $retAmount - $retReleased);
+
+    // Extension of Time Math
+    $approvedEotDays = 0;
+    foreach ($eots as $e) {
+        if ($e['status'] === 'Approved') $approvedEotDays += (int)$e['days_extended'];
+    }
+
     // Time calculations
     $daysLeft = 0; $timeElapsed = 0;
-    if (!empty($fin['commencement_date']) && !empty($fin['completion_target'])) {
+    $completionTarget = $fin['completion_target'] ?? null;
+    $revisedCompletion = $completionTarget;
+    
+    // Recalculate Completion Date if EoT is approved
+    if ($completionTarget && $approvedEotDays > 0) {
+        $revisedCompletion = date('Y-m-d', strtotime($completionTarget . " + $approvedEotDays days"));
+    }
+
+    if (!empty($fin['commencement_date']) && !empty($revisedCompletion)) {
         $start = new DateTime($fin['commencement_date']);
-        $end = new DateTime($fin['completion_target']);
+        $end = new DateTime($revisedCompletion);
         $now = new DateTime();
-        if ($now < $end) $daysLeft = $now->diff($end)->days;
+        
+        if ($now < $end) {
+            $daysLeft = $now->diff($end)->days;
+        } elseif ($now > $end) {
+            // Negative days left indicates Overdue
+            $daysLeft = -$now->diff($end)->days;
+        }
         
         $totalDays = $start->diff($end)->days;
         $daysPassed = $start->diff($now)->days;
@@ -144,7 +187,9 @@ function calculateCapitalKPIs($fin, $variations, $claims, $deductions) {
         'tot_claimed' => $totClaimed, 'tot_approved' => $totApproved, 'latest_ipc' => $latestIpc,
         'pct_claimed' => $totalContractVal > 0 ? round(($totClaimed / $totalContractVal) * 100, 1) : 0,
         'pct_approved' => $totClaimed > 0 ? round(($totApproved / $totClaimed) * 100, 1) : 0,
-        'retention_amount' => $retAmount, 'days_left' => $daysLeft, 'time_elapsed' => $timeElapsed
+        'retention_amount' => $retAmount, 'retention_held' => $retCurrentlyHeld,
+        'days_left' => $daysLeft, 'time_elapsed' => $timeElapsed, 
+        'approved_eot_days' => $approvedEotDays, 'revised_completion' => $revisedCompletion
     ];
 }
 
@@ -163,6 +208,10 @@ if ($projectId) {
     $varStmt->execute([$projectId]);
     $variations = $varStmt->fetchAll(PDO::FETCH_ASSOC);
 
+    $eotStmt = $pdo->prepare("SELECT * FROM project_capital_eot WHERE project_id = ? ORDER BY submitted_date DESC");
+    $eotStmt->execute([$projectId]);
+    $eots = $eotStmt->fetchAll(PDO::FETCH_ASSOC);
+
     $dedStmt = $pdo->prepare("SELECT * FROM project_capital_deductions WHERE project_id = ? ORDER BY date_logged DESC");
     $dedStmt->execute([$projectId]);
     $deductions = $dedStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -171,7 +220,7 @@ if ($projectId) {
     $claimStmt->execute([$projectId]);
     $claims = $claimStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $kpis = calculateCapitalKPIs($fin, $variations, $claims, $deductions);
+    $kpis = calculateCapitalKPIs($fin, $variations, $claims, $deductions, $eots);
     $pageTitle = 'Capital Financials - ' . $project['name'];
 } 
 // ------------------------------------------
@@ -183,11 +232,13 @@ else {
     
     $allFin = $pdo->query("SELECT * FROM project_capital_financials")->fetchAll(PDO::FETCH_ASSOC);
     $allVars = $pdo->query("SELECT * FROM project_capital_variations")->fetchAll(PDO::FETCH_ASSOC);
+    $allEots = $pdo->query("SELECT * FROM project_capital_eot")->fetchAll(PDO::FETCH_ASSOC);
     $allDeds = $pdo->query("SELECT * FROM project_capital_deductions")->fetchAll(PDO::FETCH_ASSOC);
     $allClaims = $pdo->query("SELECT * FROM project_capital_claims")->fetchAll(PDO::FETCH_ASSOC);
 
     $finMap = []; foreach($allFin as $f) $finMap[$f['project_id']] = $f;
     $varMap = []; foreach($allVars as $v) $varMap[$v['project_id']][] = $v;
+    $eotMap = []; foreach($allEots as $e) $eotMap[$e['project_id']][] = $e;
     $dedMap = []; foreach($allDeds as $d) $dedMap[$d['project_id']][] = $d;
     $claimMap = []; foreach($allClaims as $c) $claimMap[$c['project_id']][] = $c;
 
@@ -195,9 +246,11 @@ else {
     foreach ($allProjects as $p) {
         $f = $finMap[$p['id']] ?? [];
         $v = $varMap[$p['id']] ?? [];
+        $e = $eotMap[$p['id']] ?? [];
         $d = $dedMap[$p['id']] ?? [];
         $c = $claimMap[$p['id']] ?? [];
-        $k = calculateCapitalKPIs($f, $v, $c, $d);
+        
+        $k = calculateCapitalKPIs($f, $v, $c, $d, $e);
         $p['fin'] = $f; 
         $p['vars'] = $v;
         $p['kpis'] = $k;
@@ -227,8 +280,6 @@ require_once 'header.php';
 .matrix-table tbody tr.main-row td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); font-weight: 700; }
 .matrix-table tbody tr.main-row:hover td { background: rgba(255,255,255,0.03); }
 .matrix-table tbody tr.main-row:hover td:first-child { background: #2a2a3b; }
-
-/* Sub-row styling */
 .matrix-table tbody tr.sub-row td { background: rgba(16, 185, 129, 0.05); border-bottom: 2px solid var(--border-glass); white-space: normal; }
 
 /* Detail View Accordions & Modals */
@@ -244,9 +295,16 @@ require_once 'header.php';
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
 
-/* Quick expand button */
 .btn-expand { background: none; border: 1px solid var(--border-glass); color: var(--text-primary); border-radius: 4px; cursor: pointer; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; margin-right: 0.5rem; font-weight: bold; transition: all 0.2s; }
 .btn-expand:hover { background: rgba(255,255,255,0.1); }
+
+/* Action Dropdown Menu */
+.action-dropdown { position: relative; display: inline-block; }
+.action-dropdown-content { display: none; position: absolute; right: 0; background-color: #1e1e2d; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 50; border: 1px solid var(--border-glass); border-radius: 6px; overflow: hidden; }
+.action-dropdown-content a { color: var(--text-primary); padding: 10px 12px; text-decoration: none; display: block; font-size: 0.8rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.02); transition: 0.2s; }
+.action-dropdown-content a:last-child { border-bottom: none; }
+.action-dropdown-content a:hover { background-color: rgba(255,255,255,0.05); color: var(--primary-color); }
+.action-dropdown:hover .action-dropdown-content { display: block; }
 </style>
 
 <div class="main-container" style="max-width: <?= $projectId ? '1200px' : '100%' ?>; padding: 1.5rem;">
@@ -278,7 +336,7 @@ require_once 'header.php';
                         <th>Actual Client / Authority</th>
                         <th>Ref (CT No)</th>
                         <th>Award Date</th>
-                        <th>Target</th>
+                        <th>Target Date</th>
                         <th style="text-align: center;">Days Left</th>
                         <th class="currency" style="border-left: 2px solid var(--border-glass);">Order Val (€)</th>
                         <th class="currency">Appr. Vars (€)</th>
@@ -308,8 +366,17 @@ require_once 'header.php';
                                 <td><?= htmlspecialchars($f['actual_client'] ?? '-') ?></td>
                                 <td><?= htmlspecialchars($f['ct_reference'] ?? '-') ?></td>
                                 <td><?= !empty($f['award_date']) ? date('d M y', strtotime($f['award_date'])) : '-' ?></td>
-                                <td><?= !empty($f['completion_target']) ? date('d M y', strtotime($f['completion_target'])) : '-' ?></td>
-                                <td style="text-align: center; font-weight: 600; color: <?= $k['days_left'] < 30 ? '#ef4444' : 'inherit' ?>;"><?= $k['days_left'] ?></td>
+                                
+                                <td>
+                                    <?= !empty($f['completion_target']) ? date('d M y', strtotime($f['completion_target'])) : '-' ?>
+                                    <?php if ($k['approved_eot_days'] > 0): ?>
+                                        <br><span class="badge badge-yellow" style="font-size: 0.65rem; margin-top: 2px;">Rev: <?= date('d M y', strtotime($k['revised_completion'])) ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                
+                                <td style="text-align: center; font-weight: 600; color: <?= $k['days_left'] < 0 ? '#ef4444' : ($k['days_left'] < 30 ? '#f59e0b' : 'inherit') ?>;">
+                                    <?= $k['days_left'] < 0 ? 'Overdue (' . abs($k['days_left']) . ')' : $k['days_left'] ?>
+                                </td>
                                 
                                 <td class="currency" style="border-left: 2px solid var(--border-glass);"><?= number_format($k['base_value'], 2) ?></td>
                                 <td class="currency"><?= number_format($k['app_vars'], 2) ?></td>
@@ -322,8 +389,17 @@ require_once 'header.php';
                                 <td style="text-align: center;"><span class="badge badge-gray"><?= htmlspecialchars($k['latest_ipc']) ?></span></td>
                                 <td style="text-align: center; font-weight: 600;"><?= $k['pct_claimed'] ?>%</td>
                                 
-                                <td style="text-align: center; border-left: 2px solid var(--border-glass);">
-                                    <a href="capital_projects.php?project_id=<?= $row['id'] ?>" class="btn btn-sm btn-primary" style="margin: 0; padding: 0.3rem 0.75rem;">Manage</a>
+                                <td style="text-align: center; border-left: 2px solid var(--border-glass); overflow: visible;">
+                                    <div class="action-dropdown">
+                                        <button class="btn btn-sm btn-primary" style="margin: 0; padding: 0.3rem 0.75rem;">Manage ▾</button>
+                                        <div class="action-dropdown-content">
+                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>">📝 Edit Details</a>
+                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=var">➕ Add Variation</a>
+                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=ded">📉 Add Deduction</a>
+                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=eot">⏳ Add EoT</a>
+                                            <a href="capital_projects.php?project_id=<?= $row['id'] ?>&open=ipc">🧾 Add IPC Claim</a>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                             
@@ -373,34 +449,117 @@ require_once 'header.php';
         <div class="stats-grid" style="margin-bottom: 2rem;">
             <div class="stat-card"><div class="stat-number" style="font-size: 1.5rem;">€<?= number_format($kpis['total_value'], 2) ?></div><div class="stat-label">Total Contract Value</div></div>
             <div class="stat-card"><div class="stat-number" style="font-size: 1.5rem; color: #ef4444;">€<?= number_format($kpis['tot_deductions'], 2) ?></div><div class="stat-label">Itemised Deductions/Fines</div></div>
-            <div class="stat-card"><div class="stat-number" style="font-size: 1.5rem; color: #f59e0b;">€<?= number_format($kpis['pen_vars'], 2) ?></div><div class="stat-label">Pending Variations</div></div>
             <div class="stat-card"><div class="stat-number" style="font-size: 1.5rem; color: #10B981;">€<?= number_format($kpis['tot_claimed'], 2) ?></div><div class="stat-label">Total Claimed (<?= $kpis['pct_claimed'] ?>%)</div></div>
-            <div class="stat-card"><div class="stat-number" style="font-size: 1.5rem; color: #3b82f6;">€<?= number_format($kpis['retention_amount'], 2) ?></div><div class="stat-label">Retention Withheld</div></div>
+            
+            <div class="stat-card" style="border-left: 4px solid #3b82f6;">
+                <div class="stat-number" style="font-size: 1.5rem; color: #3b82f6;">€<?= number_format($kpis['retention_held'], 2) ?></div>
+                <div class="stat-label">Retention Currently Held</div>
+            </div>
+            
+            <div class="stat-card" style="border-left: 4px solid #8b5cf6;">
+                <div class="stat-number" style="font-size: 1.5rem; color: #8b5cf6; display: flex; align-items: baseline; gap: 4px;">
+                    <?= $kpis['days_left'] < 0 ? abs($kpis['days_left']) : $kpis['days_left'] ?> 
+                    <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">Days <?= $kpis['days_left'] < 0 ? 'Overdue' : 'Left' ?></span>
+                </div>
+                <div class="stat-label">
+                    Target: <?= !empty($kpis['revised_completion']) ? date('d M Y', strtotime($kpis['revised_completion'])) : '-' ?> 
+                    <?php if($kpis['approved_eot_days'] > 0): ?> <span style="color:#f59e0b;">(+<?= $kpis['approved_eot_days'] ?>d)</span><?php endif; ?>
+                </div>
+            </div>
         </div>
 
         <details class="custom-accordion" open>
-            <summary>📄 Base Contract & Timeframes (Excl. VAT)</summary>
+            <summary>📄 Base Contract & Retention Structure (Excl. VAT)</summary>
             <div class="accordion-content">
                 <form method="POST">
                     <input type="hidden" name="action" value="update_financials">
-                    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+                    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
                         <div class="form-group" style="grid-column: span 2;">
                             <label>Actual Client / Authority</label>
                             <input type="text" name="actual_client" value="<?= htmlspecialchars($fin['actual_client'] ?? '') ?>" placeholder="e.g. Infrastructure Malta" <?= $canEdit ? '' : 'disabled' ?>>
                         </div>
                         <div class="form-group"><label>CT Reference</label><input type="text" name="ct_reference" value="<?= htmlspecialchars($fin['ct_reference'] ?? '') ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                         <div class="form-group"><label>Base Order Value (€)</label><input type="number" step="0.01" name="order_value" value="<?= $fin['order_value'] ?? '0.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
-                        <div class="form-group"><label>Retention Percentage (%)</label><input type="number" step="0.01" name="retention_percentage" value="<?= $fin['retention_percentage'] ?? '5.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                         
                         <div class="form-group"><label>Award Date</label><input type="date" name="award_date" value="<?= $fin['award_date'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                         <div class="form-group"><label>Commencement Date</label><input type="date" name="commencement_date" value="<?= $fin['commencement_date'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                         <div class="form-group"><label>Completion Target</label><input type="date" name="completion_target" value="<?= $fin['completion_target'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
-                        
-                        <div class="form-group"><label>Retention Release Date</label><input type="date" name="retention_release_date" value="<?= $fin['retention_release_date'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
-                        <div class="form-group"><label>Retention Released (€)</label><input type="number" step="0.01" name="retention_released" value="<?= $fin['retention_released'] ?? '0.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
                     </div>
-                    <?php if ($canEdit): ?><button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Base Financials</button><?php endif; ?>
+
+                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem;">
+                        <h4 style="margin-top: 0; color: var(--primary-color); border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">Retention Release Structure</h4>
+                        
+                        <div class="form-group" style="max-width: 300px; margin-bottom: 1.5rem;">
+                            <label>Global Retention Percentage (%)</label>
+                            <input type="number" step="0.01" name="retention_percentage" value="<?= $fin['retention_percentage'] ?? '5.00' ?>" <?= $canEdit ? '' : 'disabled' ?>>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                            <div style="background: rgba(14, 165, 233, 0.05); padding: 1rem; border-radius: 6px; border-left: 3px solid #0ea5e9;">
+                                <h5 style="margin-top: 0; color: #0ea5e9;">Release 1</h5>
+                                <div class="form-group"><label>Split % (e.g. 50%)</label><input type="number" step="0.01" name="ret_split_1_pct" value="<?= $fin['ret_split_1_pct'] ?? '100.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                <div class="form-group"><label>Release Date</label><input type="date" name="retention_release_date" value="<?= $fin['retention_release_date'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                <div class="form-group"><label>Amount Released (€)</label><input type="number" step="0.01" name="retention_released" value="<?= $fin['retention_released'] ?? '0.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                            </div>
+                            
+                            <div style="background: rgba(168, 85, 247, 0.05); padding: 1rem; border-radius: 6px; border-left: 3px solid #a855f7;">
+                                <h5 style="margin-top: 0; color: #a855f7;">Release 2</h5>
+                                <div class="form-group"><label>Split % (e.g. 50%)</label><input type="number" step="0.01" name="ret_split_2_pct" value="<?= $fin['ret_split_2_pct'] ?? '0.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                <div class="form-group"><label>Release Date</label><input type="date" name="retention_release_date_2" value="<?= $fin['retention_release_date_2'] ?? '' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                <div class="form-group"><label>Amount Released (€)</label><input type="number" step="0.01" name="retention_released_2" value="<?= $fin['retention_released_2'] ?? '0.00' ?>" <?= $canEdit ? '' : 'disabled' ?>></div>
+                            </div>
+                        </div>
+                    </div>
+                    <?php if ($canEdit): ?><button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Base Financials & Retentions</button><?php endif; ?>
                 </form>
+            </div>
+        </details>
+
+        <details class="custom-accordion" open>
+            <summary>⏳ Extensions of Time (EoT) Log</summary>
+            <div class="accordion-content">
+                <?php if ($canEdit): ?>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="openEotModal('add')" style="margin-bottom: 1rem;">+ Add Extension of Time</button>
+                <?php endif; ?>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>EoT Ref</th>
+                                <th>Reason / Description</th>
+                                <th>Submission Date</th>
+                                <th style="text-align: center;">Days Extended</th>
+                                <th style="text-align: center;">Status</th>
+                                <?php if ($canEdit): ?><th style="text-align: right;">Actions</th><?php endif; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($eots)): ?><tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No Extensions of Time logged.</td></tr><?php else: ?>
+                                <?php foreach ($eots as $e): ?>
+                                    <tr>
+                                        <td style="font-weight: 600; color: #8b5cf6;"><?= htmlspecialchars($e['eot_ref']) ?></td>
+                                        <td><?= htmlspecialchars($e['description']) ?></td>
+                                        <td><?= !empty($e['submitted_date']) ? date('d M Y', strtotime($e['submitted_date'])) : '-' ?></td>
+                                        <td style="text-align: center; font-weight: bold;">+<?= (int)$e['days_extended'] ?> Days</td>
+                                        <td style="text-align: center;">
+                                            <span class="badge <?= $e['status'] === 'Approved' ? 'badge-green' : ($e['status'] === 'Pending' ? 'badge-yellow' : 'badge-red') ?>"><?= $e['status'] ?></span>
+                                        </td>
+                                        <?php if ($canEdit): ?>
+                                        <td style="text-align: right;">
+                                            <button type="button" class="btn btn-sm btn-secondary" style="margin: 0;" onclick='openEotModal("edit", <?= json_encode($e, JSON_HEX_APOS) ?>)'>Edit</button>
+                                            <form method="POST" style="display:inline; margin:0;" onsubmit="return confirm('Delete this Extension of Time?');">
+                                                <input type="hidden" name="action" value="delete_eot">
+                                                <input type="hidden" name="id" value="<?= $e['id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-danger" style="margin: 0;">Del</button>
+                                            </form>
+                                        </td>
+                                        <?php endif; ?>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </details>
 
@@ -567,6 +726,23 @@ require_once 'header.php';
             </div>
         </div>
 
+        <div id="eotModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal" onclick="closeModal('eotModal')">&times;</span>
+                <h2 id="eotModalTitle" style="margin-bottom: 1rem; color: #8b5cf6;">Add Extension of Time</h2>
+                <form method="POST">
+                    <input type="hidden" name="action" id="eotAction" value="add_eot">
+                    <input type="hidden" name="id" id="eotId" value="">
+                    <div class="form-group"><label>EoT Ref</label><input type="text" name="eot_ref" id="eotRef" required></div>
+                    <div class="form-group"><label>Reason for Extension</label><textarea name="description" id="eotDesc" rows="2"></textarea></div>
+                    <div class="form-group"><label>Days Extended (Number)</label><input type="number" name="days_extended" id="eotDays" required></div>
+                    <div class="form-group"><label>Date Logged / Submitted</label><input type="date" name="submitted_date" id="eotDate"></div>
+                    <div class="form-group"><label>Status</label><select name="status" id="eotStatus"><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Rejected">Rejected</option></select></div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; background: #8b5cf6; border-color: #8b5cf6;">Save Extension of Time</button>
+                </form>
+            </div>
+        </div>
+
         <div id="dedModal" class="modal">
             <div class="modal-content">
                 <span class="close-modal" onclick="closeModal('dedModal')">&times;</span>
@@ -613,6 +789,18 @@ require_once 'header.php';
             document.getElementById('varStatus').value = data ? data.status : 'Pending';
             document.getElementById('varModal').style.display = 'block';
         }
+        
+        function openEotModal(mode, data = null) {
+            document.getElementById('eotModalTitle').textContent = mode === 'edit' ? 'Edit Extension of Time' : 'Add Extension of Time';
+            document.getElementById('eotAction').value = mode === 'edit' ? 'edit_eot' : 'add_eot';
+            document.getElementById('eotId').value = data ? data.id : '';
+            document.getElementById('eotRef').value = data ? data.eot_ref : '';
+            document.getElementById('eotDesc').value = data ? data.description : '';
+            document.getElementById('eotDays').value = data ? data.days_extended : '';
+            document.getElementById('eotDate').value = data ? data.submitted_date : '';
+            document.getElementById('eotStatus').value = data ? data.status : 'Pending';
+            document.getElementById('eotModal').style.display = 'block';
+        }
 
         function openDedModal(mode, data = null) {
             document.getElementById('dedModalTitle').textContent = mode === 'edit' ? 'Edit Deduction' : 'Add Deduction';
@@ -642,6 +830,16 @@ require_once 'header.php';
         window.onclick = function(event) {
             if (event.target.classList.contains('modal')) event.target.style.display = "none";
         }
+        
+        // Auto-open modals if requested via URL parameters
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const openModal = urlParams.get('open');
+            if (openModal === 'var') openVarModal('add');
+            if (openModal === 'ded') openDedModal('add');
+            if (openModal === 'eot') openEotModal('add');
+            if (openModal === 'ipc') openClaimModal('add');
+        });
         </script>
         <?php endif; ?>
 
