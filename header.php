@@ -124,6 +124,11 @@ if (isLoggedIn() && isset($pdo)) {
                             <?php if (hasPermission('manage_users') || isAdmin()): ?>
                                 <a href="users-management.php" class="<?= $currentPage === 'users-management' ? 'active' : '' ?>">System Users</a>
                             <?php endif; ?>
+                            <?php if (isAdmin()): ?>
+                                <a href="backup_db.php" target="_blank" style="color: #10B981; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 10px;">
+                                    💾 Download Database Backup
+                                </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <?php endif; ?>
