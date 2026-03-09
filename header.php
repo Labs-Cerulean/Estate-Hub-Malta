@@ -61,7 +61,7 @@ if (isLoggedIn() && isset($pdo)) {
                             <?php if (hasPermission('view_mobilisation') || isAdmin()): ?>
                                 <a href="mobilization.php" class="<?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilisation Dashboard</a>
                             <?php endif; ?>
-                            <?php if (hasPermission('view_services') || isAdmin()): ?>
+                            <?php if (hasPermission('edit_services') || isAdmin()): ?>
                                 <a href="engineering.php" class="<?= $currentPage === 'engineering' ? 'active' : '' ?>">Engineering Dashboard</a>
                             <?php endif; ?>
                         </div>
