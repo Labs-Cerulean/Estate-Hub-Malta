@@ -330,7 +330,7 @@ require_once 'header.php';
 
 /* Action Dropdown Menu Fix */
 .action-dropdown { position: relative; display: inline-block; width: 100%; }
-.action-dropdown-content { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background-color: #1e1e2d; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 999; border: 1px solid var(--border-glass); border-radius: 6px; overflow: hidden; }
+.action-dropdown-content { display: none; position: absolute; right: 0; top: 100%; background-color: #1e1e2d; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 999; border: 1px solid var(--border-glass); border-radius: 6px; overflow: hidden; }
 .action-dropdown-content a { color: var(--text-primary); padding: 10px 12px; text-decoration: none; display: block; font-size: 0.8rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.02); transition: 0.2s; }
 .action-dropdown-content a:hover { background-color: rgba(255,255,255,0.05); color: var(--primary-color); }
 .action-dropdown:hover .action-dropdown-content { display: block; }
