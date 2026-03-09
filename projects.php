@@ -659,7 +659,7 @@ require_once 'header.php';
         </form>
     </div>
 </div>
-
+<?php endif; ?>
 <script>
 function openAssignModal(data) {
     document.getElementById('modalProjectId').value = data.id;
@@ -722,6 +722,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-<?php endif; ?>
+
 
 <?php require_once 'footer.php'; ?>
