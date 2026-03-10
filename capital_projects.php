@@ -1306,10 +1306,26 @@ require_once 'header.php';
                             </div>
                         </div>
 
-                        <div class="form-group"><label>This IPC Amount Claimed (€) Excl VAT</label><input type="number" step="0.01" name="amount_claimed" id="claimAmt" required></div>
-                        <div class="form-group"><label>This IPC Amount Approved (€) Excl VAT</label><input type="number" step="0.01" name="amount_approved" id="claimApp" value="0.00"></div>
+                        <div class="form-group">
+                            <label>This IPC Amount Claimed (€) Excl VAT</label>
+                            <input type="number" step="0.01" name="amount_claimed" id="claimAmt" required oninput="syncApprovedAmount()">
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; justify-content: space-between; align-items: center;">
+                                This IPC Amount Approved (€) Excl VAT
+                                <span style="color: #0ea5e9; cursor: pointer; font-size: 0.75rem; font-weight: bold; border: 1px solid rgba(14,165,233,0.3); padding: 2px 6px; border-radius: 4px; background: rgba(14,165,233,0.1);" onclick="forceSyncApproved()">🔄 Match Claimed</span>
+                            </label>
+                            <input type="number" step="0.01" name="amount_approved" id="claimApp" value="0.00">
+                        </div>
                         <div class="form-group"><label>Submission Date</label><input type="date" name="submission_date" id="claimDate"></div>
-                        <div class="form-group"><label>Status</label><select name="status" id="claimStatus"><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Paid">Paid</option></select></div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select name="status" id="claimStatus" onchange="syncApprovedAmount()">
+                                <option value="Pending">Pending</option>
+                                <option value="Approved">Approved</option>
+                                <option value="Paid">Paid</option>
+                            </select>
+                        </div>
                         <button type="submit" class="btn btn-primary" style="width: 100%;">Save Claim</button>
                     </form>
                 </div>
@@ -1318,6 +1334,25 @@ require_once 'header.php';
             <script>
             const currentTotalClaimed = <?= isset($kpis) ? (float)$kpis['tot_claimed'] : 0 ?>;
             const currentTotalApproved = <?= isset($kpis) ? (float)$kpis['tot_approved'] : 0 ?>;
+
+            // --- NEW: Smart Auto-Sync Logic ---
+            function syncApprovedAmount() {
+                const status = document.getElementById('claimStatus').value;
+                const claimed = parseFloat(document.getElementById('claimAmt').value) || 0;
+                const approvedInput = document.getElementById('claimApp');
+                const currentApproved = parseFloat(approvedInput.value) || 0;
+
+                // Auto-fill if status is approved/paid AND the approved box is currently 0
+                if ((status === 'Approved' || status === 'Paid') && currentApproved === 0 && claimed > 0) {
+                    approvedInput.value = claimed.toFixed(2);
+                }
+            }
+
+            function forceSyncApproved() {
+                const claimed = parseFloat(document.getElementById('claimAmt').value) || 0;
+                document.getElementById('claimApp').value = claimed.toFixed(2);
+            }
+            // -----------------------------------
 
             function toggleCumulativeMode() {
                 const mode = document.getElementById('isCumulativeMode').checked;
@@ -1343,6 +1378,9 @@ require_once 'header.php';
                 const newApp = isNaN(cumApp) ? 0 : Math.max(0, cumApp - prevApp);
                 if (document.getElementById('cumClaimAmt').value !== '') document.getElementById('claimAmt').value = newClaimed.toFixed(2);
                 if (document.getElementById('cumAppAmt').value !== '') document.getElementById('claimApp').value = newApp.toFixed(2);
+                
+                // Trigger the auto-sync just in case they are typing in cumulative while status is already approved
+                syncApprovedAmount();
             }
 
             function openVarModal(mode, data = null) {
@@ -1390,7 +1428,6 @@ require_once 'header.php';
                 if (openModal === 'ded') openDedModal('add');
                 if (openModal === 'eot') openEotModal('add');
                 if (openModal === 'ipc') {
-                    // Slight delay to ensure accordions open first
                     setTimeout(() => openClaimModal('add'), 200);
                 }
             });
