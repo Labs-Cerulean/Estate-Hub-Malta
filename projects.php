@@ -50,16 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_project'])) {
         $name = trim($_POST['name']);
         $type = $_POST['type'];
         $clientid = !empty($_POST['clientid']) ? $_POST['clientid'] : null;
-        $rooms = !empty($_POST['rooms']) ? $_POST['rooms'] : null;
-        $gross_area = !empty($_POST['gross_area']) ? $_POST['gross_area'] : null;
         $city = trim($_POST['city']);
 
         if (empty($name) || empty($type)) {
             $error = "Name and Type are required.";
         } else {
             try {
-                $stmt = $pdo->prepare("INSERT INTO projects (name, type, clientid, rooms, gross_area, city) VALUES (?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$name, $type, $clientid, $rooms, $gross_area, $city]);
+                $stmt = $pdo->prepare("INSERT INTO projects (name, type, clientid, city) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$name, $type, $clientid, $city]);
                 
                 $newProjectId = $pdo->lastInsertId();
                 
@@ -86,13 +84,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_project'])) {
         $name = trim($_POST['name']);
         $type = $_POST['type'];
         $clientid = !empty($_POST['clientid']) ? $_POST['clientid'] : null;
-        $rooms = !empty($_POST['rooms']) ? $_POST['rooms'] : null;
-        $gross_area = !empty($_POST['gross_area']) ? $_POST['gross_area'] : null;
         $city = trim($_POST['city']);
 
         try {
-            $stmt = $pdo->prepare("UPDATE projects SET name=?, type=?, clientid=?, rooms=?, gross_area=?, city=? WHERE id=?");
-            $stmt->execute([$name, $type, $clientid, $rooms, $gross_area, $city, $pid]);
+            $stmt = $pdo->prepare("UPDATE projects SET name=?, type=?, clientid=?, city=? WHERE id=?");
+            $stmt->execute([$name, $type, $clientid, $city, $pid]);
             $success = "Project details updated successfully.";
         } catch (PDOException $e) {
             $error = "Error updating project: " . $e->getMessage();
@@ -116,7 +112,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_team'])) {
             
             // Insert new selections
             if (!empty($assignedUsers)) {
-                // Ensure we insert into the correct user_project_access table matching the DB schema
                 $stmt = $pdo->prepare("INSERT INTO user_project_access (project_id, user_id, access_level) VALUES (?, ?, 'viewer')");
                 foreach ($assignedUsers as $uid) {
                     $stmt->execute([$projectId, $uid]);
@@ -188,13 +183,19 @@ if ($clientFilter) {
 
 $whereSql = implode(' AND ', $where);
 
-// Fetch Main Projects List (Now matching user_project_access table)
+// Fetch Main Projects List (Including the completion phase percentages)
 $query = "
     SELECT p.*, c.name AS client_name,
-    (SELECT COUNT(*) FROM user_project_access pu WHERE pu.project_id = p.id) as user_count
+    (SELECT COUNT(*) FROM user_project_access pu WHERE pu.project_id = p.id) as user_count,
+    (SELECT AVG(pct_complete) FROM project_blocks pb WHERE pu.project_id = p.id AND phase='demolition') as pct_demolition,
+    (SELECT AVG(pct_complete) FROM project_blocks pb WHERE pu.project_id = p.id AND phase='excavation') as pct_excavation,
+    (SELECT AVG(pct_complete) FROM project_blocks pb WHERE pu.project_id = p.id AND phase='construction') as pct_construction,
+    (SELECT AVG(pct_complete) FROM project_blocks pb WHERE pu.project_id = p.id AND phase='finishes') as pct_finishes
     FROM projects p
     LEFT JOIN clients c ON p.clientid = c.id
+    LEFT JOIN project_blocks pu ON p.id = pu.project_id 
     WHERE $whereSql
+    GROUP BY p.id
     ORDER BY p.name ASC
 ";
 $stmt = $pdo->prepare($query);
@@ -240,6 +241,13 @@ require_once 'header.php';
 .micro-lbl { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; width: 60px; display: inline-block; }
 .val-txt { font-size: 0.85rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px; }
 .val-sub { color: var(--text-muted); font-weight: normal; flex: 1; }
+
+/* Progress Bars */
+.phase-bar-wrapper { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.phase-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); width: 65px; font-weight: bold; }
+.progress-bg { flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--primary-color); }
+.pct-label { font-size: 0.65rem; font-weight: bold; color: #fff; width: 30px; text-align: right; }
 
 /* Live Inputs */
 .live-input-bare { background: transparent; border: 1px dashed transparent; color: #fff; font-family: inherit; font-size: inherit; font-weight: inherit; padding: 2px 4px; border-radius: 4px; transition: 0.2s; outline: none; cursor: pointer; }
@@ -324,7 +332,7 @@ input[type="date"].live-input-bare::-webkit-calendar-picker-indicator { cursor: 
     <table class="stacked-table">
         <thead>
             <tr>
-                <th style="width: 30%;">Project Info</th>
+                <th style="width: 30%;">Project Info & Progress</th>
                 <th style="width: 25%;">Timelines</th>
                 <th style="width: 20%;">Current Status</th>
                 <th style="width: 25%; text-align: center;">Team & Actions</th>
@@ -342,6 +350,12 @@ input[type="date"].live-input-bare::-webkit-calendar-picker-indicator { cursor: 
                     if ($p['project_status'] == 'Completed') { $sClass = 'badge-blue'; $sHex = '#3b82f6'; }
                     if ($p['project_status'] == 'Cancelled') { $sClass = 'badge-red'; $sHex = '#ef4444'; }
                     
+                    // Format Completion Percentages safely
+                    $pctDem = (int)round($p['pct_demolition'] ?? 0);
+                    $pctExc = (int)round($p['pct_excavation'] ?? 0);
+                    $pctCon = (int)round($p['pct_construction'] ?? 0);
+                    $pctFin = (int)round($p['pct_finishes'] ?? 0);
+
                     // Package project data safely for JS
                     $assignedArray = $projectUsersMap[$p['id']] ?? [];
                     $pJson = json_encode([
@@ -350,8 +364,6 @@ input[type="date"].live-input-bare::-webkit-calendar-picker-indicator { cursor: 
                         "type" => $p['type'],
                         "clientid" => $p['clientid'],
                         "city" => $p['city'],
-                        "rooms" => $p['rooms'],
-                        "gross_area" => $p['gross_area'],
                         "assignedUsers" => $assignedArray
                     ], JSON_HEX_APOS); 
                 ?>
@@ -365,10 +377,29 @@ input[type="date"].live-input-bare::-webkit-calendar-picker-indicator { cursor: 
                             <div class="val-txt"><span class="micro-lbl">Type:</span> <span class="val-sub"><?= htmlspecialchars($p['type']) ?></span></div>
                             <div class="val-txt"><span class="micro-lbl">Client:</span> <span class="val-sub"><?= htmlspecialchars($p['client_name'] ?? 'Internal') ?></span></div>
                             <div class="val-txt"><span class="micro-lbl">City:</span> <span class="val-sub" style="color: #0ea5e9;">📍 <?= htmlspecialchars($p['city'] ?? 'N/A') ?></span></div>
-                            <div class="val-txt"><span class="micro-lbl">Units:</span> <span class="val-sub">
-                                <?= $p['rooms'] ? htmlspecialchars($p['rooms']) . ' Rooms' : '-' ?> 
-                                <?= $p['gross_area'] ? '| ' . htmlspecialchars($p['gross_area']) . ' sqm' : '' ?>
-                            </span></div>
+                            
+                            <div style="margin-top: 10px; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div class="phase-bar-wrapper">
+                                    <span class="phase-label">Demolition</span>
+                                    <div class="progress-bg"><div class="progress-fill" style="width: <?= $pctDem ?>%; background: <?= $pctDem==100 ? '#22c55e' : '#0ea5e9' ?>"></div></div>
+                                    <span class="pct-label"><?= $pctDem ?>%</span>
+                                </div>
+                                <div class="phase-bar-wrapper">
+                                    <span class="phase-label">Excavation</span>
+                                    <div class="progress-bg"><div class="progress-fill" style="width: <?= $pctExc ?>%; background: <?= $pctExc==100 ? '#22c55e' : '#f59e0b' ?>"></div></div>
+                                    <span class="pct-label"><?= $pctExc ?>%</span>
+                                </div>
+                                <div class="phase-bar-wrapper">
+                                    <span class="phase-label">Build</span>
+                                    <div class="progress-bg"><div class="progress-fill" style="width: <?= $pctCon ?>%; background: <?= $pctCon==100 ? '#22c55e' : '#ec4899' ?>"></div></div>
+                                    <span class="pct-label"><?= $pctCon ?>%</span>
+                                </div>
+                                <div class="phase-bar-wrapper">
+                                    <span class="phase-label">Finishes</span>
+                                    <div class="progress-bg"><div class="progress-fill" style="width: <?= $pctFin ?>%; background: <?= $pctFin==100 ? '#22c55e' : '#8b5cf6' ?>"></div></div>
+                                    <span class="pct-label"><?= $pctFin ?>%</span>
+                                </div>
+                            </div>
                         </div>
                     </td>
 
@@ -519,16 +550,6 @@ input[type="date"].live-input-bare::-webkit-calendar-picker-indicator { cursor: 
                 <label>City / Location</label>
                 <input type="text" name="city" id="editCity">
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label>Number of Rooms</label>
-                    <input type="number" name="rooms" id="editRooms">
-                </div>
-                <div class="form-group">
-                    <label>Gross Area (sqm)</label>
-                    <input type="number" step="0.01" name="gross_area" id="editGrossArea">
-                </div>
-            </div>
             <button type="submit" name="update_project" class="btn btn-primary" style="width: 100%;">Save Changes</button>
         </form>
     </div>
@@ -562,16 +583,6 @@ input[type="date"].live-input-bare::-webkit-calendar-picker-indicator { cursor: 
             <div class="form-group">
                 <label>City / Location</label>
                 <input type="text" name="city">
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label>Number of Rooms</label>
-                    <input type="number" name="rooms">
-                </div>
-                <div class="form-group">
-                    <label>Gross Area (sqm)</label>
-                    <input type="number" step="0.01" name="gross_area">
-                </div>
             </div>
             <button type="submit" name="create_project" class="btn btn-primary" style="width: 100%;">Create Project</button>
         </form>
@@ -670,8 +681,6 @@ function openEditModalFromHub() {
     document.getElementById('editType').value = currentHubProject.type;
     document.getElementById('editClient').value = currentHubProject.clientid || '';
     document.getElementById('editCity').value = currentHubProject.city || '';
-    document.getElementById('editRooms').value = currentHubProject.rooms || '';
-    document.getElementById('editGrossArea').value = currentHubProject.gross_area || '';
     
     document.getElementById('editModal').style.display = 'block';
 }
