@@ -206,7 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             
-            // Save Interior Floor Finishes
+            // Save Interior Floor Finishes (FIXED TRUNCATION ERROR HERE)
             if (isset($_POST['floor_finishes']) && is_array($_POST['floor_finishes'])) {
                 $stmtFloorFin = $pdo->prepare("INSERT INTO block_levels_statuses (project_id, block_id, level_id, finish_type_id, status, updated_by)
                                                VALUES (?, ?, ?, ?, ?, ?)
@@ -214,7 +214,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($_POST['floor_finishes'] as $bId => $levelsArray) {
                     foreach ($levelsArray as $lvlId => $types) {
                         foreach ($types as $tId => $status) {
-                            $stmtFloorFin->execute([$projectId, $bId, $lvlId, $tId, $status, getCurrentUserId()]);
+                            
+                            // DATABASE PROTECTION FIX: The DB Enum only accepts NA. It does not accept 'Not Required'.
+                            $dbStatus = ($status === 'Not Required') ? 'NA' : $status;
+                            
+                            $stmtFloorFin->execute([$projectId, $bId, $lvlId, $tId, $dbStatus, getCurrentUserId()]);
                         }
                     }
                 }
@@ -642,6 +646,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                                                 <td style="font-weight: bold; color: #fff;"><?= htmlspecialchars($lvl['level_name']) ?></td>
                                                 <?php foreach($finishTypes as $ft): 
                                                     $currStatus = $floorStatuses[$lvl['id']][$ft['id']] ?? 'Not Required';
+                                                    if ($currStatus === 'NA') $currStatus = 'Not Required'; // Mapped back for UI
                                                 ?>
                                                     <td>
                                                         <select name="floor_finishes[<?= $bId ?>][<?= $lvl['id'] ?>][<?= $ft['id'] ?>]" class="status-select floor-fin-status" style="font-size: 0.75rem;" <?= $disabledAttr ?>>
@@ -649,7 +654,6 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                                                             <option value="Pending" <?= $currStatus == 'Pending' ? 'selected' : '' ?>>Pending</option>
                                                             <option value="In Progress" <?= $currStatus == 'In Progress' ? 'selected' : '' ?>>In Progress</option>
                                                             <option value="Complete" <?= $currStatus == 'Complete' ? 'selected' : '' ?>>Complete</option>
-                                                            <option value="NA" <?= $currStatus == 'NA' ? 'selected' : '' ?>>NA</option>
                                                         </select>
                                                     </td>
                                                 <?php endforeach; ?>
