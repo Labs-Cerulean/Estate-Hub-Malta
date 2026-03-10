@@ -206,7 +206,7 @@ $clientsStmt = $pdo->query("SELECT id, name FROM clients ORDER BY name");
 $clients = $clientsStmt->fetchAll();
 
 // Fetch all active users for the Team Assignment Modal
-$usersStmt = $pdo->query("SELECT id, username, first_name, last_name, role FROM users WHERE status = 'active' ORDER BY first_name ASC");
+$usersStmt = $pdo->query("SELECT id, username, first_name, last_name, role FROM users WHERE is_active = 'Yes' ORDER BY first_name ASC");
 $allUsers = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Map exactly who is assigned to which project for quick JS loading
