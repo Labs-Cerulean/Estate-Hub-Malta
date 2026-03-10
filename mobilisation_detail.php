@@ -39,6 +39,72 @@ function getFinishLevelColor($level) {
     return '#9ca3af'; // Shell or default Gray
 }
 
+// ---------------------------------------------------------
+// REUSABLE UI RENDERERS (Placed safely outside loops)
+// ---------------------------------------------------------
+function rSel($n, $opts, $v, $dis, $cls='') {
+    $h = "<select name=\"$n\" $dis class=\"$cls\" style=\"padding:0.4rem; font-size:0.8rem; width:100%; border:1px solid var(--border-glass); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary);\">";
+    foreach ($opts as $ov => $ol) {
+        if (is_numeric($ov)) $ov = $ol;
+        $s = ((string)$v === (string)$ov) ? 'selected' : '';
+        $h .= "<option value=\"$ov\" $s>$ol</option>";
+    }
+    return $h . "</select>";
+}
+
+function renderScopeMatrix($blockData, $groupSet, $disabledAttr, $isGarage) {
+    $html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">';
+    $typeMatch = $isGarage ? 'Garage Complex' : 'Residential Block';
+    
+    foreach ($groupSet as $gName => $group) {
+        // Only render this group if it matches the current block's type
+        if (!in_array($typeMatch, $group['types'])) continue;
+        
+        $html .= '<div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border-left: 3px solid '.$group['color'].';">';
+        $html .= '<h5 style="margin: 0 0 12px 0; color: '.$group['color'].'; font-size: 0.95rem; font-weight: 600;">'.$group['icon'].' '.$gName.'</h5>';
+        $html .= '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">';
+        
+        foreach ($group['fields'] as $dbKey => $label) {
+            $val = $blockData[$dbKey] ?? 'Not Required';
+            $opts = ($dbKey === 'fin_intercoms') ? ['Not Required','Not started','Ongoing CP','First Call','Second Call','Complete'] : ['Not Required','Required','In Progress','Complete'];
+            
+            $html .= '<div><label style="display:block; font-size:0.65rem; color:#94a3b8; margin-bottom:4px; font-weight:700; text-transform:uppercase;">'.$label.'</label>';
+            $html .= '<select name="blocks['.$blockData['id'].']['.$dbKey.']" class="status-select fin-status" style="font-size:0.8rem;" '.$disabledAttr.'>';
+            
+            foreach ($opts as $opt) {
+                $sel = ($val === $opt) ? 'selected' : '';
+                $color = '';
+                if ($opt === 'Complete') $color = 'color: #22c55e;';
+                elseif (in_array($opt, ['In Progress','Ongoing CP','First Call','Second Call'])) $color = 'color: #f59e0b;';
+                elseif ($opt === 'Not Required') $color = 'color: #9ca3af;';
+                else $color = 'color: #ef4444;';
+                $html .= '<option value="'.$opt.'" '.$sel.' style="'.$color.'">'.$opt.'</option>';
+            }
+            $html .= '</select></div>';
+        }
+        $html .= '</div></div>';
+    }
+    $html .= '</div>';
+    return $html;
+}
+
+// Scope Group Definitions
+$sectionA_groups = [
+    'Engineering Works' => ['icon' => '⚙️', 'color' => '#0ea5e9', 'types' => ['Residential Block', 'Garage Complex'], 'fields' => ['fin_electrical'=>'Electrical Work', 'fin_plumbing'=>'Plumbing Work', 'fin_pumps'=>'Pumps: Lifts & Reservoirs', 'fin_lifts'=>'Lifts', 'fin_substation'=>'Substation', 'fin_septic'=>'Septic Tanks', 'fin_sewer'=>'Main Sewer Conn.']],
+    'Fire and ELV' => ['icon' => '🔥', 'color' => '#ef4444', 'types' => ['Residential Block', 'Garage Complex'], 'fields' => ['fin_fire_detection'=>'Fire Detection', 'fin_fire_fighting'=>'Fire Fighting', 'fin_fire_doors'=>'Metal Fire Doors', 'fin_intercoms'=>'Intercoms']],
+    'Landscaping' => ['icon' => '🌳', 'color' => '#22c55e', 'types' => ['Residential Block'], 'fields' => ['fin_garden'=>'Garden Landscaping', 'fin_pool'=>'Common Pool']],
+    'Rendering' => ['icon' => '🧱', 'color' => '#f97316', 'types' => ['Residential Block'], 'fields' => ['fin_rend_facade'=>'Rendering Façade', 'fin_rend_appogg'=>'Rendering Appogg', 'fin_rend_back'=>'Rendering Back Façade', 'fin_rend_cp'=>'Rendering Common Parts', 'fin_cladding'=>'Other Cladding']],
+    'Flooring & Waterproofing' => ['icon' => '🛡️', 'color' => '#a855f7', 'types' => ['Residential Block'], 'fields' => ['fin_marble_cp'=>'Marble in Common Parts', 'fin_marble_sills'=>'Marble Sills', 'fin_wp_roof'=>'Waterproofing Roof', 'fin_wp_shafts'=>'Waterproofing Shafts', 'fin_wp_ext'=>'Waterproofing Other Ext.']],
+    'Gypsum Works' => ['icon' => '🖌️', 'color' => '#14b8a6', 'types' => ['Residential Block'], 'fields' => ['fin_gypsum_cp'=>'Gypsum in Common Parts', 'fin_gypsum_facade'=>'Gypsum in Facades']],
+    'Apertures & Railings' => ['icon' => '🚪', 'color' => '#eab308', 'types' => ['Residential Block'], 'fields' => ['fin_cp_doors_win'=>'C.P. Doors & Windows', 'fin_int_railings'=>'All Internal Railings', 'fin_partitions'=>'Terrace/Shaft Partitions']],
+    'Garage Common Parts' => ['icon' => '🚗', 'color' => '#64748b', 'types' => ['Garage Complex'], 'fields' => ['fin_gar_rend_cp'=>'Rendering Garage C.P.', 'fin_gar_rend'=>'Rendering Garages', 'fin_gar_main_door'=>'Garage Main Door/Gate', 'fin_gar_vent'=>'Garage Vent Grilles']]
+];
+
+$sectionB_groups = [
+    'Semi-Finished Additions' => ['icon' => '🏠', 'color' => '#6366f1', 'types' => ['Residential Block'], 'fields' => ['fin_water_tanks'=>'Water Tanks', 'fin_wp_balconies'=>'Waterproofing Balconies', 'fin_tile_balconies'=>'Tiling of Balconies', 'fin_apt_fire_doors'=>'Fire Rated Apt Doors', 'fin_apt_doors_win'=>'Apt Doors & Windows', 'fin_ext_railings'=>'All External Railings']],
+    'Garage Semi-Finished Additions' => ['icon' => '🚘', 'color' => '#475569', 'types' => ['Garage Complex'], 'fields' => ['fin_gar_ind_doors'=>'Individual Garage Doors', 'fin_gar_win'=>'Garage Windows']]
+];
+
 // ==========================================
 // HANDLE POST REQUESTS
 // ==========================================
@@ -68,7 +134,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (($_POST['action'] ?? null) === 'update_mobilisation' && $canUpdateStatus) {
         try {
             $updates = []; $values = [];
-            // Strictly bound to actual DB columns
             $allowedFields = [
                 'acquisition_complete', 'acquisition_date', 'archaeologist_assigned', 'change_of_applicant', 
                 'geological_test', 'condition_report_contacts', 'condition_reports', 'method_statements', 
@@ -97,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
-                // Strictly mapped to DB columns (Fixed Post-Compliance reverting)
+                // Strictly mapped to DB columns
                 $allowedFinishesFields = [
                     'finish_level', 'progress', 'finishes_overall_status', 
                     'compliance_submitted', 'compliance_certified', 'condominium_formed', 'cp_meters_installed',
@@ -240,16 +305,6 @@ foreach (['method_statements', 'insurance_status', 'pavement_guarantee', 'wellbe
 }
 $canFinal = $allSeqComplete;
 $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
-
-function rSel($n, $opts, $v, $dis, $cls='') {
-    $h = "<select name=\"$n\" $dis class=\"$cls\" style=\"padding:0.4rem; font-size:0.8rem; width:100%; border:1px solid var(--border-glass); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary);\">";
-    foreach ($opts as $ov => $ol) {
-        if (is_numeric($ov)) $ov = $ol;
-        $s = ((string)$v === (string)$ov) ? 'selected' : '';
-        $h .= "<option value=\"$ov\" $s>$ol</option>";
-    }
-    return $h . "</select>";
-}
 
 $pageTitle = 'Execution - ' . $project['name'];
 require_once 'header.php';
@@ -445,37 +500,26 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
     <?php else: ?>
         <form method="POST">
             <input type="hidden" name="action" value="update_blocks">
-            
             <h2 style="border-bottom: 2px solid var(--border-glass); padding-bottom: 10px; margin-bottom: 1.5rem;">🏢 Master Block Execution Engine</h2>
             
             <?php 
-            // Core Finishes Definitions
-            $cp_blocks = [
-                'Engineering Works' => ['icon' => '⚙️', 'color' => '#0ea5e9', 'fields' => [ 'fin_electrical'=>'Electrical Work', 'fin_plumbing'=>'Plumbing Work', 'fin_pumps'=>'Pumps: Lifts & Reservoirs', 'fin_lifts'=>'Lifts', 'fin_substation'=>'Substation', 'fin_septic'=>'Septic Tanks', 'fin_sewer'=>'Main Sewer Conn.' ]],
-                'Fire and ELV' => ['icon' => '🔥', 'color' => '#ef4444', 'fields' => [ 'fin_fire_detection'=>'Fire Detection', 'fin_fire_fighting'=>'Fire Fighting', 'fin_fire_doors'=>'Metal Fire Doors', 'fin_intercoms'=>'Intercoms' ]],
-                'Landscaping' => ['icon' => '🌳', 'color' => '#22c55e', 'fields' => [ 'fin_garden'=>'Garden Landscaping', 'fin_pool'=>'Common Pool' ]],
-                'Rendering' => ['icon' => '🧱', 'color' => '#f97316', 'fields' => [ 'fin_rend_facade'=>'Rendering Façade', 'fin_rend_appogg'=>'Rendering Appogg', 'fin_rend_back'=>'Rendering Back Façade', 'fin_rend_cp'=>'Rendering Common Parts', 'fin_cladding'=>'Other Cladding' ]],
-                'Flooring & Waterproofing' => ['icon' => '🛡️', 'color' => '#a855f7', 'fields' => [ 'fin_marble_cp'=>'Marble in Common Parts', 'fin_marble_sills'=>'Marble Sills', 'fin_wp_roof'=>'Waterproofing Roof', 'fin_wp_shafts'=>'Waterproofing Shafts', 'fin_wp_ext'=>'Waterproofing Other Ext.' ]],
-                'Gypsum Works' => ['icon' => '🖌️', 'color' => '#14b8a6', 'fields' => [ 'fin_gypsum_cp'=>'Gypsum in Common Parts', 'fin_gypsum_facade'=>'Gypsum in Facades' ]],
-                'Apertures & Railings' => ['icon' => '🚪', 'color' => '#eab308', 'fields' => [ 'fin_cp_doors_win'=>'C.P. Doors & Windows', 'fin_int_railings'=>'All Internal Railings', 'fin_partitions'=>'Terrace/Shaft Partitions' ]]
-            ];
-            $semi_blocks = [
-                'Semi-Finished Additions' => ['icon' => '🏠', 'color' => '#6366f1', 'fields' => [ 'fin_water_tanks'=>'Water Tanks', 'fin_wp_balconies'=>'Waterproofing Balconies', 'fin_tile_balconies'=>'Tiling of Balconies', 'fin_apt_fire_doors'=>'Fire Rated Apt Doors', 'fin_apt_doors_win'=>'Apt Doors & Windows', 'fin_ext_railings'=>'All External Railings' ]]
-            ];
-            $cp_garages = [
-                'Garage Common Parts' => ['icon' => '🚗', 'color' => '#64748b', 'fields' => [ 'fin_gar_rend_cp'=>'Rendering Garage C.P.', 'fin_gar_rend'=>'Rendering Garages', 'fin_gar_main_door'=>'Garage Main Door/Gate', 'fin_gar_vent'=>'Garage Vent Grilles' ]]
-            ];
-            $semi_garages = [
-                'Garage Semi-Finished Additions' => ['icon' => '🚘', 'color' => '#475569', 'fields' => [ 'fin_gar_ind_doors'=>'Individual Garage Doors', 'fin_gar_win'=>'Garage Windows' ]]
-            ];
-
             foreach ($projectBlocks as $block): 
                 $bId = $block['id'];
+                
+                // Inherit or fetch block specific finish level
                 $bFinishLvl = !empty($block['finish_level']) ? $block['finish_level'] : ($project['finishlevel'] ?? 'Shell');
+                if ($bFinishLvl === 'Semi-Finished') { $bFinishLvl = 'Semi Finished'; } // normalize
+                
                 $finLevelColor = getFinishLevelColor($bFinishLvl);
                 
+                // Determine if it is a Garage vs Residential for scope exclusion logic
                 $rawType = $block['block_type'] ?? 'Residential Block'; 
                 $isGarage = (stripos($rawType, 'garage') !== false || stripos($rawType, 'basement') !== false || stripos($rawType, 'parking') !== false);
+                
+                // PHP Level Display Logic based on selected Finish Level state
+                $showA = in_array($bFinishLvl, ['Common Parts Only', 'Semi Finished', 'Finished']) ? 'block' : 'none';
+                $showB = in_array($bFinishLvl, ['Semi Finished', 'Finished']) ? 'block' : 'none';
+                $showC = ($bFinishLvl === 'Finished' && !$isGarage) ? 'block' : 'none'; // Garages don't get Section C
             ?>
                 <details class="block-accordion" id="block-content-<?= $bId ?>">
                     <summary>
@@ -483,7 +527,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                             <h3 style="margin:0; color: <?= $finLevelColor ?>; font-size: 1.15rem;">
                                 <?= htmlspecialchars($block['block_name']) ?>
                             </h3>
-                            <span class="badge" style="font-size: 0.65rem; background: <?= $finLevelColor ?>15; color: <?= $finLevelColor ?>; border: 1px solid <?= $finLevelColor ?>50;">
+                            <span class="badge badge-dynamic" style="font-size: 0.65rem; background: <?= $finLevelColor ?>15; color: <?= $finLevelColor ?>; border: 1px solid <?= $finLevelColor ?>50;">
                                 <?= htmlspecialchars($bFinishLvl) ?>
                             </span>
                             <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">
@@ -504,7 +548,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                         <div style="display: flex; flex-wrap: wrap; gap: 1rem; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 1.5rem;">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase;">Finish Level Goal:</label>
-                                <select name="blocks[<?= $bId ?>][finish_level]" class="block-finish-level" data-block-id="<?= $bId ?>" style="background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass); padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer;">
+                                <select name="blocks[<?= $bId ?>][finish_level]" class="block-finish-level" data-block-id="<?= $bId ?>" data-is-garage="<?= $isGarage ? 'true' : 'false' ?>" style="background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass); padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer;">
                                     <option value="Shell" <?= $bFinishLvl === 'Shell' ? 'selected' : '' ?>>Shell (No Finishes)</option>
                                     <option value="Common Parts Only" <?= $bFinishLvl === 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
                                     <option value="Semi Finished" <?= $bFinishLvl === 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option>
@@ -512,15 +556,6 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                                 </select>
                             </div>
                             <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 5px;"></div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase;">Overall Block Stage:</label>
-                                <select name="blocks[<?= $bId ?>][finishes_overall_status]" class="status-select" style="width: 150px;" <?= $disabledAttr ?>>
-                                    <option value="Pending" <?= ($block['finishes_overall_status'] ?? 'Pending') == 'Pending' ? 'selected' : '' ?>>Pending</option>
-                                    <option value="In Progress" <?= ($block['finishes_overall_status'] ?? '') == 'In Progress' ? 'selected' : '' ?>>In Progress</option>
-                                    <option value="Complete" <?= ($block['finishes_overall_status'] ?? '') == 'Complete' ? 'selected' : '' ?>>Complete</option>
-                                    <option value="NA" <?= ($block['finishes_overall_status'] ?? '') == 'NA' ? 'selected' : '' ?>>NA</option>
-                                </select>
-                            </div>
                             <input type="hidden" name="blocks[<?= $bId ?>][progress]" class="progress-input" value="<?= $block['progress'] ?>">
                         </div>
 
@@ -553,50 +588,19 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                             <?php endif; ?>
                         </div>
 
-                        <?php
-                        function renderScopeMatrix($blockData, $groupSet, $disabledAttr) {
-                            $html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">';
-                            foreach ($groupSet as $gName => $group) {
-                                $html .= '<div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border-left: 3px solid '.$group['color'].';">';
-                                $html .= '<h5 style="margin: 0 0 12px 0; color: '.$group['color'].'; font-size: 0.95rem; font-weight: 600;">'.$group['icon'].' '.$gName.'</h5>';
-                                $html .= '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">';
-                                foreach ($group['fields'] as $dbKey => $label) {
-                                    $val = $blockData[$dbKey] ?? 'Not Required';
-                                    $opts = ($dbKey === 'fin_intercoms') ? ['Not Required','Not started','Ongoing CP','First Call','Second Call','Complete'] : ['Not Required','Required','In Progress','Complete'];
-                                    
-                                    $html .= '<div><label style="display:block; font-size:0.65rem; color:#94a3b8; margin-bottom:4px; font-weight:700; text-transform:uppercase;">'.$label.'</label>';
-                                    $html .= '<select name="blocks['.$blockData['id'].']['.$dbKey.']" class="status-select fin-status" style="font-size:0.8rem;" '.$disabledAttr.'>';
-                                    foreach ($opts as $opt) {
-                                        $sel = ($val === $opt) ? 'selected' : '';
-                                        $color = '';
-                                        if ($opt === 'Complete') $color = 'color: #22c55e;';
-                                        elseif (in_array($opt, ['In Progress','Ongoing CP','First Call','Second Call'])) $color = 'color: #f59e0b;';
-                                        elseif ($opt === 'Not Required') $color = 'color: #9ca3af;';
-                                        else $color = 'color: #ef4444;';
-                                        $html .= '<option value="'.$opt.'" '.$sel.' style="'.$color.'">'.$opt.'</option>';
-                                    }
-                                    $html .= '</select></div>';
-                                }
-                                $html .= '</div></div>';
-                            }
-                            $html .= '</div>';
-                            return $html;
-                        }
-                        ?>
-
-                        <div id="cp-section-<?= $bId ?>" class="scope-section">
+                        <div id="cp-section-<?= $bId ?>" class="scope-section" style="display: <?= $showA ?>;">
                             <h5 style="margin: 0 0 10px 0; color: #0ea5e9;">A. Common Parts Scope</h5>
-                            <?= renderScopeMatrix($block, $isGarage ? $cp_garages : $cp_blocks, $disabledAttr) ?>
+                            <?= renderScopeMatrix($block, $sectionA_groups, $disabledAttr, $isGarage) ?>
                         </div>
 
-                        <div id="semi-section-<?= $bId ?>" class="scope-section">
-                            <h5 style="margin: 0 0 10px 0; color: #f59e0b;">B. Semi-Finished Additions</h5>
-                            <?= renderScopeMatrix($block, $isGarage ? $semi_garages : $semi_blocks, $disabledAttr) ?>
+                        <div id="semi-section-<?= $bId ?>" class="scope-section" style="display: <?= $showB ?>;">
+                            <h5 style="margin: 0 0 10px 0; color: #f59e0b;">B. Semi-Finished Scope</h5>
+                            <?= renderScopeMatrix($block, $sectionB_groups, $disabledAttr, $isGarage) ?>
                         </div>
 
-                        <div id="finished-section-<?= $bId ?>" class="scope-section">
+                        <div id="finished-section-<?= $bId ?>" class="scope-section" style="display: <?= $showC ?>;">
                             <h5 style="margin: 0 0 10px 0; color: #22c55e;">C. Interior Turnkey Finishes (By Floor)</h5>
-                            <div style="overflow-x: auto;">
+                            <div style="overflow-x: auto; margin-bottom: 1.5rem;">
                                 <table class="finishes-table" style="min-width: 1000px;">
                                     <thead>
                                         <tr>
@@ -630,7 +634,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                             </div>
                         </div>
 
-                        <h4 style="margin-top: 2rem; color: #10b981; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">3. Post-Construction & Handover</h4>
+                        <h4 style="margin-top: 2rem; color: #10b981; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">3. Post-Construction Milestones</h4>
                         <div class="grid-container" style="background: rgba(16, 185, 129, 0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);">
                             <?php $optYNN = ['No','Yes','NA']; ?>
                             <div class="form-group"><label>Compliance Submitted</label><?= rSel("blocks[{$bId}][compliance_submitted]", $optYNN, $block['compliance_submitted'] ?? 'No', $disabledAttr) ?></div>
@@ -703,7 +707,7 @@ function recalculateProgress(blockId) {
 }
 
 // --- Finish Level Toggle Logic ---
-function updateBlockVisibility(blockId, level, runRecalc = true) {
+function updateBlockVisibility(blockId, level, isGarage, runRecalc = true) {
     const cp = document.getElementById('cp-section-' + blockId);
     const semi = document.getElementById('semi-section-' + blockId);
     const fin = document.getElementById('finished-section-' + blockId);
@@ -723,7 +727,7 @@ function updateBlockVisibility(blockId, level, runRecalc = true) {
     } else if (level === 'Finished') {
         if(cp) cp.style.display = 'block';
         if(semi) semi.style.display = 'block';
-        if(fin) fin.style.display = 'block';
+        if(fin) fin.style.display = (isGarage === 'true') ? 'none' : 'block';
     }
     
     if (runRecalc) recalculateProgress(blockId);
@@ -807,12 +811,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Init block visibility based on currently saved dropdowns
     document.querySelectorAll('.block-finish-level').forEach(select => {
         const blockId = select.dataset.blockId;
-        updateBlockVisibility(blockId, select.value, false);
+        const isGarage = select.dataset.isGarage;
         
         select.addEventListener('change', function() {
-            updateBlockVisibility(blockId, this.value, true);
+            updateBlockVisibility(blockId, this.value, isGarage, true);
+            
             // Change badge color instantly
-            const summaryBadge = document.getElementById('block-content-' + blockId).querySelector('.badge');
+            const summaryBadge = document.getElementById('block-content-' + blockId).querySelector('.badge-dynamic');
             if (summaryBadge) {
                 summaryBadge.innerText = this.value;
                 let color = '#9ca3af';
