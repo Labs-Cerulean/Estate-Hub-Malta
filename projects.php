@@ -111,12 +111,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_team'])) {
         try {
             $pdo->beginTransaction();
             // Clear existing team
-            $stmt = $pdo->prepare("DELETE FROM project_users WHERE project_id = ?");
+            $stmt = $pdo->prepare("DELETE FROM user_project_access WHERE project_id = ?");
             $stmt->execute([$projectId]);
             
             // Insert new selections
             if (!empty($assignedUsers)) {
-                $stmt = $pdo->prepare("INSERT INTO project_users (project_id, user_id) VALUES (?, ?)");
+                // Ensure we insert into the correct user_project_access table matching the DB schema
+                $stmt = $pdo->prepare("INSERT INTO user_project_access (project_id, user_id, access_level) VALUES (?, ?, 'viewer')");
                 foreach ($assignedUsers as $uid) {
                     $stmt->execute([$projectId, $uid]);
                 }
@@ -160,7 +161,7 @@ $params = [];
 
 if (!isAdmin() && !hasPermission('view_all_projects')) {
     // Only show projects assigned to the user
-    $where[] = "p.id IN (SELECT project_id FROM project_users WHERE user_id = ?)";
+    $where[] = "p.id IN (SELECT project_id FROM user_project_access WHERE user_id = ?)";
     $params[] = getCurrentUserId();
 }
 
@@ -187,10 +188,10 @@ if ($clientFilter) {
 
 $whereSql = implode(' AND ', $where);
 
-// Fetch Main Projects List
+// Fetch Main Projects List (Now matching user_project_access table)
 $query = "
     SELECT p.*, c.name AS client_name,
-    (SELECT COUNT(*) FROM project_users pu WHERE pu.project_id = p.id) as user_count
+    (SELECT COUNT(*) FROM user_project_access pu WHERE pu.project_id = p.id) as user_count
     FROM projects p
     LEFT JOIN clients c ON p.clientid = c.id
     WHERE $whereSql
@@ -209,7 +210,7 @@ $usersStmt = $pdo->query("SELECT id, username, first_name, last_name, role FROM 
 $allUsers = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Map exactly who is assigned to which project for quick JS loading
-$puStmt = $pdo->query("SELECT project_id, user_id FROM project_users");
+$puStmt = $pdo->query("SELECT project_id, user_id FROM user_project_access");
 $projectUsersMap = [];
 while ($row = $puStmt->fetch(PDO::FETCH_ASSOC)) {
     $projectUsersMap[$row['project_id']][] = $row['user_id'];
