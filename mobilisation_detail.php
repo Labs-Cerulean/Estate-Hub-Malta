@@ -139,8 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'geological_test', 'condition_report_contacts', 'condition_reports', 'method_statements', 
                 'insurance_status', 'pavement_guarantee', 'wellbeing_guarantee', 'umbrella_guarantee', 
                 'responsibility_form', 'mob_demolition', 'mob_excavation', 'mob_construction', 
-                'demo_status', 'excavation_status', 'temporary_water', 'temporary_electricity', 
-                'hoarding', 'site_toilet'
+                'demo_status', 'excavation_status', 'temporary_water', 'temporary_electricity'
             ];
             foreach ($allowedFields as $field) {
                 if (isset($_POST[$field])) { 
@@ -324,7 +323,32 @@ require_once 'header.php';
 .finishes-table th, .finishes-table td { border: 1px solid var(--border-glass); padding: 8px; text-align: left; }
 .finishes-table th { background: rgba(0,0,0,0.2); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; }
 
-/* Accordion Details */
+/* MASTER ACCORDIONS (Highly Visible) */
+details.custom-accordion { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+details.custom-accordion > summary { 
+    padding: 1.5rem; 
+    font-size: 1.3rem; 
+    font-weight: 800; 
+    color: #fff; 
+    cursor: pointer; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    list-style: none; 
+    user-select: none; 
+    transition: background 0.2s; 
+    border-radius: 8px; 
+    background: rgba(14, 165, 233, 0.1); 
+    border-left: 5px solid #0ea5e9; 
+}
+details.custom-accordion > summary:hover { background: rgba(14, 165, 233, 0.15); }
+details.custom-accordion > summary::-webkit-details-marker { display: none; }
+details.custom-accordion > summary::after { content: '▼'; font-size: 1.2rem; color: #0ea5e9; transition: transform 0.3s ease; }
+details.custom-accordion[open] > summary::after { transform: rotate(180deg); }
+details.custom-accordion[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid var(--border-glass); background: rgba(14, 165, 233, 0.15); }
+.accordion-content { padding: 1.5rem; }
+
+/* BLOCK ACCORDIONS (Standard) */
 details.block-accordion { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
 details.block-accordion > summary { padding: 1.25rem 1.5rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none; user-select: none; transition: background 0.2s; border-radius: 8px; }
 details.block-accordion > summary:hover { background: rgba(255,255,255,0.02); }
@@ -433,7 +457,11 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
     </div>
 
     <details class="custom-accordion">
-        <summary>📋 Pre-Construction & BCA Clearances</summary>
+        <summary>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 1.5rem;">📋</span> Pre-Construction & BCA Clearances
+            </div>
+        </summary>
         <div class="accordion-content">
             <form method="POST" class="form-grid">
                 <input type="hidden" name="action" value="update_mobilisation">
@@ -485,8 +513,6 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                     <div class="grid-container">
                         <div class="form-group"><label>Temporary Water</label><?= rSel('temporary_water', ['Not Started', 'In Process', 'Connected'], $mob['temporary_water']??'Not Started', (!$canClearance ? 'disabled' : $disabledAttr)) ?></div>
                         <div class="form-group"><label>Temporary Electricity</label><?= rSel('temporary_electricity', ['Not Started', 'In Process', 'Connected'], $mob['temporary_electricity']??'Not Started', (!$canClearance ? 'disabled' : $disabledAttr)) ?></div>
-                        <div class="form-group"><label>Hoarding</label><?= rSel('hoarding', ['No', 'Yes'], $mob['hoarding']??'No', (!$canClearance ? 'disabled' : $disabledAttr)) ?></div>
-                        <div class="form-group"><label>Site Toilet</label><?= rSel('site_toilet', ['No', 'Yes'], $mob['site_toilet']??'No', (!$canClearance ? 'disabled' : $disabledAttr)) ?></div>
                     </div>
                 </fieldset>
                 
@@ -500,7 +526,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
     <?php else: ?>
         <form method="POST">
             <input type="hidden" name="action" value="update_blocks">
-            <h2 style="border-bottom: 2px solid var(--border-glass); padding-bottom: 10px; margin-bottom: 1.5rem;">🏢 Master Block Execution Engine</h2>
+            <h2 style="border-bottom: 2px solid var(--border-glass); padding-bottom: 10px; margin-bottom: 1.5rem; margin-top: 2.5rem;">🏢 Master Block Execution Engine</h2>
             
             <?php 
             foreach ($projectBlocks as $block): 
@@ -661,10 +687,54 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
         </form>
     <?php endif; ?>
 
+    <details class="custom-accordion">
+        <summary>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 1.5rem;">⚡</span> Services Engineer Utilities
+            </div>
+        </summary>
+        <div class="accordion-content">
+            <form method="POST" action="">
+                <input type="hidden" name="action" value="update_services">
+                <div class="grid-container">
+                    <?php 
+                    $srvMap = [
+                        'existing_meters' => 'Existing Meter/s for Removal', 'enemalta_deviation' => 'Enemalta Lines for Deviation',
+                        'go_deviation' => 'GO Lines for Deviation', 'melita_deviation' => 'Melita Lines for Deviation',
+                        'lc_lamps' => 'LC Lamps', 'temp_elec_meter' => 'Temp Elec Meter Installation', 'temp_wsc_meter' => 'Temp WSC Meter Installation'
+                    ];
+                    foreach ($srvMap as $key => $label):
+                        $reqVal = $services["{$key}_required"] ?? 'Not Required';
+                        $compVal = $services["{$key}_complete"] ?? 'Not Complete';
+                        $compDis = ($reqVal === 'Not Required') ? 'disabled' : $servicesDisabledAttr;
+                    ?>
+                    <div class="form-group" style="padding: 1rem; border: 1px solid var(--border-glass); border-radius: 8px;">
+                        <label style="font-weight: 600; margin-bottom: 0.5rem; display: block;"><?= $label ?></label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <?= rSel("{$key}_required", ['Not Required','Required'], $reqVal, $servicesDisabledAttr, 'req-toggle') ?>
+                            <?= rSel("{$key}_complete", ['Not Complete','Complete'], $compVal, $compDis, 'comp-status') ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php if ($canEditServices): ?><div class="form-actions" style="margin-top: 1.5rem;"><button type="submit" class="btn btn-primary">Save Services Updates</button></div><?php endif; ?>
+            </form>
+        </div>
+    </details>
+
 </div>
 
 <script>
 const canEditStatus = <?= $canUpdateStatus ? 'true' : 'false' ?>;
+
+// Toggle for Services section
+document.querySelectorAll('select.req-toggle').forEach(function(select) {
+    select.addEventListener('change', function() {
+        const compSelect = this.parentElement.querySelector('select.comp-status');
+        if (this.value === 'Required') { compSelect.disabled = false; } 
+        else { compSelect.disabled = true; compSelect.value = 'Not Complete'; }
+    });
+});
 
 // --- Progress Auto-Calculation Engine ---
 function recalculateProgress(blockId) {
