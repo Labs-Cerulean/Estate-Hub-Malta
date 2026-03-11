@@ -33,81 +33,258 @@ switch ($userRole) {
     case 'subcontractor':
         $visibleStages = array_merge($visibleStages, ['Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over']); break;
     case 'ohsa_rep':
-        $visibleStages = array_merge($visibleStages, ['Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over']); break;
-    default:
-        $visibleStages = array_merge($visibleStages, ['Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over']); break;
+        $visibleStages = array_merge($visibleStages, ['Demolition', 'Excavation', 'Construction', 'Finishes']); break;
+    case 'architect':
+    case 'structural_engineer':
+    case 'services_engineer':
+        $visibleStages = array_merge($visibleStages, ['Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance']); break;
+    case 'site_technical_officer':
+        $visibleStages = array_merge($visibleStages, ['Mobilisation', 'Demolition', 'Excavation', 'Construction']); break;
+    case 'accountant':
+    case 'project_manager':
+    case 'pmo_staff':
+    case 'admin':
+    case 'director':
+    case 'system_manager':
+        $visibleStages = ['Feasibility', 'Tracking', 'Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over']; break;
 }
 
-// Legend Items builder
-$legendItems = $visibleStages;
-if (in_array($userRole, ['admin', 'director'])) array_unshift($legendItems, 'Withdrawn', 'On-Hold');
-
 $stageEnum = ['Feasibility'=>1, 'Tracking'=>2, 'Permit'=>3, 'Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
-$stageColors = ['Withdrawn'=>'#4b5563', 'On-Hold'=>'#f59e0b', 'Feasibility'=>'#94a3b8', 'Tracking'=>'#0ea5e9', 'Permit'=>'#3b82f6', 'Mobilisation'=>'#6366f1', 'Demolition'=>'#ef4444', 'Excavation'=>'#f97316', 'Construction'=>'#eab308', 'Finishes'=>'#84cc16', 'Compliance'=>'#14b8a6', 'Condominium'=>'#a855f7', 'Handed Over'=>'#22c55e'];
+$stageColors = ['Feasibility'=>'#64748b', 'Tracking'=>'#f59e0b', 'Permit'=>'#8b5cf6', 'Mobilisation'=>'#3b82f6', 'Demolition'=>'#ef4444', 'Excavation'=>'#f97316', 'Construction'=>'#eab308', 'Finishes'=>'#22c55e', 'Compliance'=>'#14b8a6', 'Condominium'=>'#06b6d4', 'Handed Over'=>'#10b981'];
+$legendItems = ['Feasibility', 'Tracking', 'Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
-// Current View State (Map vs Table)
+// Process Filters
+$filterType = $_GET['filter_type'] ?? 'all';
+$filterCity = $_GET['filter_city'] ?? 'all';
+$filterClient = $_GET['filter_client'] ?? 'all';
+$filterIsland = $_GET['filter_island'] ?? 'all';
+$filterStatus = $_GET['filter_status'] ?? 'all';
+$filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; // Active, On-Hold, Completed, Withdrawn, All
 $currentView = $_GET['view'] ?? 'table';
+$sortBy = $_GET['sort'] ?? 'name';
+$sortOrder = $_GET['order'] ?? 'ASC';
 
-if ($dashboardType !== 'None') {
-    $filterType = $_GET['filter_type'] ?? 'all';
-    $filterStatus = $_GET['filter_status'] ?? 'all'; 
-    $filterCity = $_GET['filter_city'] ?? 'all';
-    $filterClient = $_GET['filter_client'] ?? 'all';
-    $filterIsland = $_GET['filter_island'] ?? 'all';
-    $filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; 
-    
-    $sortBy = $_GET['sort'] ?? 'stage';
-    $sortOrder = $_GET['order'] ?? 'DESC';
+// Build Query
+$whereClauses = ["1=1"];
+$params = [];
 
-    $allowedSorts = ['name', 'client', 'city', 'type', 'finish_level', 'stage'];
-    if (!in_array($sortBy, $allowedSorts)) $sortBy = 'stage';
-    if (!in_array($sortOrder, ['ASC', 'DESC'])) $sortOrder = 'DESC';
+if (!isAdmin() && !hasPermission('view_all_projects')) {
+    $clientId = getCurrentUserClientId();
+    if ($clientId) {
+        $whereClauses[] = "(p.clientid = ? AND p.id NOT IN (SELECT project_id FROM user_project_exclusions WHERE user_id = ?))";
+        $params[] = $clientId; $params[] = $userId;
+    } else {
+        $whereClauses[] = "p.id IN (SELECT project_id FROM user_project_access WHERE user_id = ?)";
+        $params[] = $userId;
+    }
+}
 
-    try {
-        $projects = getAccessibleProjects($pdo, $userId);
+if ($filterDbStatus !== 'All') {
+    if ($filterDbStatus === 'Active') {
+        $whereClauses[] = "(p.project_status IS NULL OR p.project_status = 'Active')";
+    } else {
+        $whereClauses[] = "p.project_status = ?";
+        $params[] = $filterDbStatus;
+    }
+}
+
+$whereSql = implode(' AND ', $whereClauses);
+
+$query = "
+    SELECT p.*, c.name as client_name,
+    m.demo_status, m.excavation_status, m.responsibility_form
+    FROM projects p
+    LEFT JOIN clients c ON p.clientid = c.id
+    LEFT JOIN project_mobilisation m ON p.id = m.project_id
+    WHERE $whereSql
+";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$rawProjects = $stmt->fetchAll();
+
+// Fetch Block Percentages for Stage Calculation
+$projectIds = array_column($rawProjects, 'id');
+$blockData = [];
+if (!empty($projectIds)) {
+    $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
+    $blocksStmt = $pdo->prepare("SELECT project_id, block_name, progress, construction_complete FROM project_blocks WHERE project_id IN ($placeholders)");
+    $blocksStmt->execute($projectIds);
+    $blocks = $blocksStmt->fetchAll();
+    foreach ($blocks as $b) {
+        $blockData[$b['project_id']][] = $b;
+    }
+}
+
+$paByProject = [];
+if (!empty($projectIds)) {
+    $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id IN (" . implode(',', array_fill(0, count($projectIds), '?')) . ")");
+    $paStmt->execute($projectIds);
+    foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $paByProject[$row['project_id']][] = $row;
+    }
+}
+
+$citiesStmt = $pdo->query("SELECT DISTINCT city FROM projects WHERE city IS NOT NULL AND city != '' ORDER BY city");
+$cities = $citiesStmt->fetchAll(PDO::FETCH_COLUMN);
+
+$clientsStmt = $pdo->query("SELECT id, name FROM clients ORDER BY name");
+$clients = $clientsStmt->fetchAll();
+
+function formatPANumber($paStr) {
+    $paStr = preg_replace('/[^0-9]/', '', $paStr);
+    if (strlen($paStr) > 2) return "PA " . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
+    return "PA " . $paStr;
+}
+
+function buildPaUrl($paStr) {
+    $paStr = preg_replace('/[^0-9]/', '', $paStr);
+    if (strlen($paStr) > 2) return "https://www.pa.org.mt/en/pacasedetails?CaseType=PA/" . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
+    return "";
+}
+
+function getSortUrl($column) {
+    global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView;
+    $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
+    return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&sort=$column&order=$newOrder";
+}
+function getSortIndicator($column) {
+    global $sortBy, $sortOrder;
+    if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
+    return '';
+}
+
+$pageTitle = 'Dashboard';
+require_once 'header.php';
+?>
+
+<style>
+.dashboard-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.metric-card { background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-glass); text-align: center; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; justify-content: center; }
+.metric-value { font-size: 2.5rem; font-weight: 800; color: var(--primary-color); line-height: 1; font-variant-numeric: tabular-nums; }
+.metric-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.5rem; font-weight: 600; }
+
+.filters-grid { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+.filter-group { flex: 1; min-width: 150px; }
+.filter-group label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem; font-weight: 600; }
+.filter-group select { width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); font-size: 0.9rem; }
+.filter-buttons { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; }
+.reset-btn { padding: 0.6rem 1rem; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; border-radius: 6px; transition: background 0.2s; } .reset-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+
+.view-toggle { display: flex; background: var(--bg-secondary); border-radius: 8px; padding: 4px; border: 1px solid var(--border-glass); }
+.view-toggle-btn { flex: 1; padding: 8px 16px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: all 0.2s; font-size: 0.9rem; }
+.view-toggle-btn.active { background: var(--primary-color); color: #fff; box-shadow: 0 2px 8px rgba(14, 165, 233, 0.4); }
+
+/* Legend */
+.legend-container { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 1rem; justify-content: center; background: var(--bg-card); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass); }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
+.stage-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
+
+/* Table Improvements */
+.dashboard-wrapper { overflow-x: auto; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border-glass); max-height: calc(100vh - 350px); overflow-y: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
+thead { position: sticky; top: 0; z-index: 10; background: var(--bg-primary); }
+th { padding: 1rem; text-align: left; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
+td { padding: 1rem; border-bottom: 1px solid var(--border-glass); color: var(--text-secondary); vertical-align: middle; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+tr:last-child td { border-bottom: none; }
+.nowrap-cell { white-space: nowrap; } .min-w-150 { min-width: 150px; }
+.cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; } .cell-list-item:last-child { margin-bottom: 0; }
+.action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
+.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; }
+
+/* Map View Styling */
+/* Map Layout with Sidebar */
+.map-layout { display: flex; height: calc(100vh - 200px); min-height: 500px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); overflow: hidden; background: #1a1a24; }
+.map-sidebar { width: 300px; background: var(--bg-card); display: flex; flex-direction: column; border-right: 1px solid var(--border-glass); z-index: 10; }
+.map-sidebar-list { flex: 1; overflow-y: auto; }
+.map-list-item { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; transition: 0.2s; }
+.map-list-item:hover { background: rgba(14, 165, 233, 0.1); }
+.map-list-item.active { background: rgba(14, 165, 233, 0.15); border-left: 3px solid var(--primary-color); padding-left: 12px; }
+.map-item-title { font-weight: bold; color: var(--primary-color); font-size: 0.9rem; margin-bottom: 2px; }
+.map-item-meta { font-size: 0.75rem; color: var(--text-secondary); display: flex; justify-content: space-between; }
+.map-container { flex: 1; position: relative; height: 100%; border: none; border-radius: 0; }
+#projectMap { height: 100%; width: 100%; z-index: 1; }
+.leaflet-popup-content-wrapper { background: var(--bg-card); color: var(--text-primary); border-radius: 8px; border: 1px solid var(--border-glass); box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+.leaflet-popup-tip { background: var(--bg-card); border: 1px solid var(--border-glass); }
+.popup-title { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 0.25rem; }
+.popup-meta { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
+.popup-btn { display: block; box-sizing: border-box; background: var(--primary-color); color: #ffffff !important; padding: 0.6rem 1rem; margin-top: 0.75rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--primary-color); transition: 0.2s; }
+.popup-btn:hover { background: #0284c7; }
+.custom-pin { border-radius: 50%; border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.5); background: #fff; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+.custom-pin-inner { width: 100%; height: 100%; border-radius: 50%; }
+
+.map-legend { position: absolute; bottom: 30px; left: 20px; z-index: 1000; background: rgba(30, 30, 45, 0.9); backdrop-filter: blur(10px); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); box-shadow: 0 4px 15px rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; max-width: 200px; }
+.legend-title { font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; }
+.legend-color { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+
+.empty-state { text-align: center; padding: 4rem 2rem; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px dashed var(--border-glass); color: var(--text-muted); }
+
+/* --- Checkbox Styling for Island Filter --- */
+.checkbox-group { display: flex; gap: 15px; align-items: center; height: 42px; }
+.checkbox-item { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.checkbox-item input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 1px solid var(--border-glass); border-radius: 4px; background: var(--bg-primary); cursor: pointer; position: relative; transition: 0.2s; }
+.checkbox-item input[type="checkbox"]:checked { background: var(--primary-color); border-color: var(--primary-color); }
+.checkbox-item input[type="checkbox"]:checked::after { content: "✔"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 10px; }
+.checkbox-item label { font-size: 0.9rem; color: var(--text-primary); cursor: pointer; user-select: none; margin: 0; padding: 0; }
+
+/* Advanced KPIs Table */
+.kpi-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 10px; }
+.kpi-table th, .kpi-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.kpi-table th:first-child, .kpi-table td:first-child { text-align: left; }
+.kpi-table th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; }
+.kpi-table td { color: #fff; font-weight: 500; }
+.kpi-table tr:hover td { background: rgba(255,255,255,0.02); }
+.total-col { color: var(--primary-color) !important; font-weight: 800 !important; }
+
+/* Edit Project iframe Modal */
+#editProjectModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
+.modal-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 1000px; height: 90%; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+.modal-header { padding: 1rem 1.5rem; background: var(--bg-primary); border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; }
+.modal-header h2 { margin: 0; font-size: 1.2rem; color: var(--primary-color); }
+.modal-close { font-size: 1.5rem; cursor: pointer; color: var(--text-muted); line-height: 1; transition: color 0.2s; }
+.modal-close:hover { color: #ef4444; }
+#editProjectIframe { flex: 1; width: 100%; border: none; background: var(--bg-card); }
+
+</style>
+
+<div class="main-container" style="max-width: 1600px;">
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem;">
+        <div>
+            <h1 class="page-title" style="margin-bottom: 0.25rem;">EstateHub OS </h1>
+            <p style="color: var(--text-secondary); margin: 0; font-size: 0.9rem;">Welcome, <strong style="color: var(--primary-color);"><?= htmlspecialchars($userName) ?></strong>. Role: <?= ucwords(str_replace('_', ' ', $userRole)) ?></p>
+        </div>
         
-        $cities = array_unique(array_filter(array_column($projects, 'city'))); sort($cities);
-        $clientIds = array_unique(array_column($projects, 'clientid'));
-        $clients = [];
-        if (!empty($clientIds)) {
-            $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
-            $clientStmt = $pdo->prepare("SELECT id, name FROM clients WHERE id IN ($placeholders) ORDER BY name");
-            $clientStmt->execute(array_values($clientIds));
-            $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
-        }
+        <div style="display: flex; align-items: center; gap: 1.5rem;">
+            <div class="view-toggle">
+                <div class="view-toggle-btn <?= $currentView === 'table' ? 'active' : '' ?>" onclick="switchView('table')">📋 List View</div>
+                <div class="view-toggle-btn <?= $currentView === 'map' ? 'active' : '' ?>" onclick="switchView('map')">🗺️ Map View</div>
+            </div>
+            <a href="logout.php" class="btn btn-secondary">🚪 Logout</a>
+        </div>
+    </div>
 
-        $projectIds = array_column($projects, 'id');
-        $paByProject = [];
-        if (!empty($projectIds)) {
-            $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-            $paStmt = $pdo->prepare("SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.name AS architect_name, se.name AS structural_engineer_name FROM project_pa_numbers pan LEFT JOIN professionals arch ON arch.id = pan.architect_id LEFT JOIN professionals se ON se.id = pan.structural_engineer_id WHERE pan.project_id IN ($placeholders)");
-            $paStmt->execute($projectIds);
-            foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $pa) $paByProject[$pa['project_id']][] = $pa;
-        }
+    <?php if ($dashboardType === 'None'): ?>
+        <div class="empty-state">
+            <h2 style="color: var(--primary-color);">Welcome to EstateHub</h2>
+            <p>Your account is active, but you do not have a primary dashboard assigned.<br>Please use the navigation menu on the left to access your modules.</p>
+        </div>
+    <?php else: ?>
+        
+        <?php
+        // Filter out projects not in visible stages
+        $projects = [];
+        $companyKpis = [];
 
-        $preExecCount = 0; $execCount = 0; $finalCount = 0; $companyKpis = []; 
+        foreach ($rawProjects as $p) {
+            $p['stage'] = deriveProjectStage($pdo, $p['id']);
+            $stageNum = $stageEnum[$p['stage']] ?? 1;
 
-        foreach ($projects as $key => $project) {
-            $pStatus = $project['project_status'] ?? 'Active';
-            if (!in_array($userRole, ['admin', 'director']) && $pStatus !== 'Active') { unset($projects[$key]); continue; }
-            if ($filterDbStatus !== 'All' && $pStatus !== $filterDbStatus) { unset($projects[$key]); continue; }
+            if (empty($visibleStages) || in_array($p['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
+                $projects[] = $p;
 
-            if ($pStatus === 'Withdrawn' || $pStatus === 'On-Hold') {
-                $stage = $pStatus; $stageNum = ($pStatus === 'Withdrawn') ? -1 : 0; 
-            } else {
-                $stage = deriveProjectStage($pdo, $project['id']);
-                $stageNum = $stageEnum[$stage] ?? 1;
-                if (!$canViewTracking && in_array($stage, ['Feasibility', 'Tracking'])) { unset($projects[$key]); continue; }
-                if (!in_array($stage, $visibleStages)) { unset($projects[$key]); continue; }
-            }
-
-            $projects[$key]['stage'] = $stage;
-            $projects[$key]['stage_num'] = $stageNum;
-
-            if ($pStatus === 'Active') {
-                if ($stageNum >= 9) $finalCount++; elseif ($stageNum >= 5) $execCount++; else $preExecCount++;
                 if ($dashboardType === 'Company Dashboard') {
-                    $cName = $project['client_name'] ?? 'Unassigned';
+                    $cName = $p['client_name'] ?? 'In-House (Internal)';
                     if (!isset($companyKpis[$cName])) $companyKpis[$cName] = ['total'=>0, 'pre'=>0, 'exec'=>0, 'final'=>0];
                     $companyKpis[$cName]['total']++;
                     if ($stageNum >= 9) $companyKpis[$cName]['final']++; elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++; else $companyKpis[$cName]['pre']++;
@@ -133,145 +310,79 @@ if ($dashboardType !== 'None') {
         if ($filterIsland !== 'all') $projects = array_filter($projects, fn($p) => $p['island'] === $filterIsland);
         if ($filterStatus !== 'all') $projects = array_filter($projects, fn($p) => $p['stage'] === $filterStatus);
 
-        usort($projects, function($a, $b) use ($sortBy, $sortOrder) {
-            if ($sortBy === 'stage') $comp = $a['stage_num'] <=> $b['stage_num'];
-            else {
-                $vA = $sortBy === 'client' ? ($a['client_name'] ?? '') : ($sortBy === 'finish_level' ? ($a['finishlevel'] ?? 'ZZZ') : $a[$sortBy]);
-                $vB = $sortBy === 'client' ? ($b['client_name'] ?? '') : ($sortBy === 'finish_level' ? ($b['finishlevel'] ?? 'ZZZ') : $b[$sortBy]);
-                $comp = strcasecmp($vA, $vB);
+        // Sorting Engine
+        usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
+            $valA = ''; $valB = '';
+            if ($sortBy === 'name') { $valA = strtolower($a['name']); $valB = strtolower($b['name']); }
+            elseif ($sortBy === 'client') { $valA = strtolower($a['client_name'] ?? 'z'); $valB = strtolower($b['client_name'] ?? 'z'); }
+            elseif ($sortBy === 'city') { $valA = strtolower($a['city']); $valB = strtolower($b['city']); }
+            elseif ($sortBy === 'type') { $valA = strtolower($a['type']); $valB = strtolower($b['type']); }
+            elseif ($sortBy === 'finish_level') { $valA = strtolower($a['finishlevel'] ?? ''); $valB = strtolower($b['finishlevel'] ?? ''); }
+            elseif ($sortBy === 'stage') { 
+                $valA = $stageEnum[$a['stage']] ?? 0; $valB = $stageEnum[$b['stage']] ?? 0; 
+                return $sortOrder === 'ASC' ? $valA <=> $valB : $valB <=> $valA;
             }
-            return $sortOrder === 'ASC' ? $comp : -$comp;
+            if ($valA == $valB) return 0;
+            $cmp = ($valA < $valB) ? -1 : 1;
+            return $sortOrder === 'ASC' ? $cmp : -$cmp;
         });
-        
-        $projects = array_values($projects); // Re-index for JSON
+        ?>
 
-    } catch (Exception $e) { $projects = []; $paByProject = []; $projectCount = 0; }
-}
-
-function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterStatus, $filterCity, $filterClient, $filterIsland, $filterDbStatus, $currentView;
-    $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
-    $params = ['sort' => $column, 'order' => $newOrder, 'filter_type' => $filterType, 'filter_status' => $filterStatus, 'filter_city' => $filterCity, 'filter_client' => $filterClient, 'filter_db_status' => $filterDbStatus, 'view' => $currentView];
-    if ($filterIsland !== 'all') $params['filter_island'] = $filterIsland;
-    return 'dashboard.php?' . http_build_query($params);
-}
-function getSortIndicator($column) { global $sortBy, $sortOrder; if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼'; return ''; }
-function buildPaUrl(?string $paNumber): ?string { if (empty($paNumber)) return null; if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null; return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
-
-$pageTitle = $dashboardType;
-require_once 'header.php';
-?>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-
-<style>
-/* Dashboard General CSS */
-.stage-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.3); flex-shrink: 0; }
-.legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
-.legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
-
-/* View Toggle Switch */
-.view-toggle { display: inline-flex; background: var(--bg-secondary); border: 1px solid var(--border-glass); border-radius: 8px; padding: 0.25rem; }
-.view-toggle-btn { background: transparent; color: var(--text-secondary); border: none; padding: 0.5rem 1rem; font-weight: 600; font-size: 0.9rem; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
-.view-toggle-btn.active { background: var(--primary-color); color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-
-/* Table View Styling */
-.dashboard-wrapper { position: relative; width: 100%; max-height: calc(100vh - 200px); overflow-x: auto; overflow-y: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
-.dashboard-wrapper table { width: max-content; min-width: 100%; table-layout: auto; border-collapse: separate; border-spacing: 0; }
-.dashboard-wrapper th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem 0.75rem; vertical-align: middle; border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-.dashboard-wrapper td { padding: 1rem 0.75rem; vertical-align: top; word-break: normal; border-bottom: 1px solid var(--border-glass); }
-.dashboard-wrapper thead th:last-child { position: sticky; right: 0; z-index: 20; border-left: 2px solid var(--border-glass); }
-.dashboard-wrapper tbody td:last-child { position: sticky; right: 0; background: #1e1e2d; z-index: 5; border-left: 2px solid var(--border-glass); }
-.dashboard-wrapper tbody tr:hover td { background: rgba(255,255,255,0.03); }
-.dashboard-wrapper tbody tr:hover td:last-child { background: #2a2a3b; }
-.nowrap-cell { white-space: nowrap; } .min-w-150 { min-width: 150px; }
-.cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; } .cell-list-item:last-child { margin-bottom: 0; }
-.action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
-.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; }
-
-/* Map View Styling */
-.map-container { position: relative; height: calc(100vh - 200px); min-height: 500px; width: 100%; background: #1a1a24; border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); overflow: hidden; }
-#projectMap { height: 100%; width: 100%; z-index: 1; }
-.leaflet-popup-content-wrapper { background: var(--bg-card); color: var(--text-primary); border-radius: 8px; border: 1px solid var(--border-glass); box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-.leaflet-popup-tip { background: var(--bg-card); border: 1px solid var(--border-glass); }
-.popup-title { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 0.25rem; }
-.popup-meta { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
-.popup-btn { display: block; box-sizing: border-box; background: var(--primary-color); color: #ffffff !important; padding: 0.6rem 1rem; margin-top: 0.75rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; width: 100%; transition: all 0.2s ease; border: 1px solid var(--primary-color); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-.popup-btn:hover { background: transparent; color: var(--primary-color) !important; box-shadow: 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px); }
-.custom-pin { display: flex; align-items: center; justify-content: center; }
-.custom-pin-inner { width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.6); }
-.map-legend { position: absolute; bottom: 30px; left: 15px; z-index: 999; background: rgba(30, 30, 45, 0.9); backdrop-filter: blur(5px); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.5); max-height: 300px; overflow-y: auto; min-width: 200px; }
-.legend-title { font-weight: bold; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.25rem; }
-.legend-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); }
-.legend-color { width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
-
-/* Edit Project Modal Overlay */
-#editProjectModal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.75); backdrop-filter: blur(5px); }
-.modal-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 95%; max-width: 1100px; height: 90vh; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.6); overflow: hidden; }
-.modal-header { padding: 1rem 1.5rem; background: #1e1e2d; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; }
-.modal-header h2 { margin: 0; color: var(--primary-color); font-size: 1.25rem; }
-.modal-close { color: var(--text-muted); font-size: 1.75rem; font-weight: bold; cursor: pointer; line-height: 1; transition: color 0.2s; }
-.modal-close:hover { color: #ef4444; }
-#editProjectIframe { flex-grow: 1; width: 100%; height: 100%; border: none; background: transparent; }
-</style>
-
-<div class="main-container">
-    <h1 class="page-title"><?= htmlspecialchars($dashboardType) ?></h1>
-
-    <?php if ($dashboardType === 'None'): ?>
-        <div class="empty-state card"><h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2><p>Please use the navigation menu above to access your specific modules.</p></div>
-    <?php else: ?>
-        
-        <div class="stats-grid">
+        <div class="dashboard-metrics">
             <?php if ($dashboardType === 'Admin Dashboard'): ?>
-                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Permit'] ?>;"><?= $preExecCount ?></div><div class="stat-label">Pre-Execution</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">In Execution</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Finalizing</div></div>
-                <div class="stat-card"><div class="stat-number"><?= $userCount ?></div><div class="stat-label">Total Users</div></div>
+                <div class="metric-card"><div class="metric-value"><?= count($rawProjects) ?></div><div class="metric-label">Total Database Projects</div></div>
+                <div class="metric-card"><div class="metric-value"><?= $userCount ?></div><div class="metric-label">Active Users</div></div>
             <?php elseif ($dashboardType === 'Company Dashboard'): ?>
-                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">Sites In Execution</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Sites Finalizing</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: var(--primary-color);"><?= count($companyKpis) ?></div><div class="stat-label">Companies Supervised</div></div>
+                <div class="metric-card" style="grid-column: span 2; display: block; text-align: left; padding: 1.5rem;">
+                    <div style="font-size: 1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 10px;">Developer Portfolio Breakdown</div>
+                    <div style="overflow-x: auto;">
+                        <table class="kpi-table">
+                            <thead><tr><th>Developer</th><th>Pre-Execution</th><th>Execution</th><th>Finalization</th><th class="total-col">Total</th></tr></thead>
+                            <tbody>
+                                <?php foreach ($companyKpis as $cName => $k): ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars($cName) ?></td>
+                                        <td style="color: #94a3b8;"><?= $k['pre'] ?></td>
+                                        <td style="color: #f59e0b;"><?= $k['exec'] ?></td>
+                                        <td style="color: #22c55e;"><?= $k['final'] ?></td>
+                                        <td class="total-col"><?= $k['total'] ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             <?php else: ?>
-                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Permit'] ?>;"><?= $preExecCount ?></div><div class="stat-label">Pre-Execution</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">In Execution</div></div>
-                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Finalizing</div></div>
+                <div class="metric-card"><div class="metric-value"><?= count($projects) ?></div><div class="metric-label">Projects In View</div></div>
             <?php endif; ?>
         </div>
 
-        <div class="projects-section">
-            <div class="projects-header" style="display: flex; justify-content: space-between; align-items: center;">
-                <h2 class="section-title" style="margin: 0;">Projects Portfolio</h2>
-                
-                <div style="display: flex; gap: 1rem; align-items: center;">
-                    <div class="view-toggle">
-                        <button type="button" class="view-toggle-btn <?= $currentView === 'table' ? 'active' : '' ?>" onclick="switchView('table')">📊 Table</button>
-                        <button type="button" class="view-toggle-btn <?= $currentView === 'map' ? 'active' : '' ?>" onclick="switchView('map')">🗺️ Map</button>
-                    </div>
-                    <?php if (hasPermission('add_project')): ?>
-                        <a href="create-project.php" class="btn">Add Project</a>
-                    <?php endif; ?>
+        <div class="section-card">
+            
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h2 class="section-header" style="margin-bottom: 0;"><?= $dashboardType ?></h2>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">Viewing projects mapped to your system role.</p>
                 </div>
-            </div>
-
-            <div class="filters-section">
-                <form method="GET" id="dashboardFilters">
+                
+                <form method="GET" id="dashboardFilters" style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass);">
                     <input type="hidden" name="view" id="viewStateInput" value="<?= htmlspecialchars($currentView) ?>">
                     <div class="filters-grid">
-                        <?php if (in_array($userRole, ['admin', 'director'])): ?>
-                        <div class="filter-group" style="background: rgba(239, 68, 68, 0.05); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2);">
-                            <label style="color: #ef4444;">Operational Status (Admin)</label>
+                        <div class="filter-group">
+                            <label>Locality</label>
+                            <select name="filter_city">
+                                <option value="all">All Localities</option>
+                                <?php foreach ($cities as $city): ?><option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>><?= htmlspecialchars($city) ?></option><?php endforeach; ?>
+                            </select>
+                        </div>
+                        <?php if (hasPermission('view_all_projects') || isAdmin()): ?>
+                        <div class="filter-group">
+                            <label>DB Status</label>
                             <select name="filter_db_status">
-                                <option value="Active" <?= $filterDbStatus === 'Active' ? 'selected' : '' ?>>🟢 Active Projects</option>
-                                <option value="On-Hold" <?= $filterDbStatus === 'On-Hold' ? 'selected' : '' ?>>🟡 On-Hold Projects</option>
-                                <option value="Withdrawn" <?= $filterDbStatus === 'Withdrawn' ? 'selected' : '' ?>>⚫ Withdrawn Projects</option>
+                                <option value="Active" <?= $filterDbStatus === 'Active' ? 'selected' : '' ?>>Active Only</option>
+                                <option value="On-Hold" <?= $filterDbStatus === 'On-Hold' ? 'selected' : '' ?>>On-Hold</option>
+                                <option value="Completed" <?= $filterDbStatus === 'Completed' ? 'selected' : '' ?>>Completed</option>
+                                <option value="Withdrawn" <?= $filterDbStatus === 'Withdrawn' ? 'selected' : '' ?>>Withdrawn</option>
                                 <option value="All" <?= $filterDbStatus === 'All' ? 'selected' : '' ?>>All Projects</option>
                             </select>
                         </div>
@@ -426,11 +537,23 @@ require_once 'header.php';
             </div>
 
             <div id="mapView" style="display: <?= $currentView === 'map' ? 'block' : 'none' ?>;">
-                <div class="map-container">
-                    <div id="projectMap"></div>
-                    <div class="map-legend" id="mapLegend" style="display: none;">
-                        <div class="legend-title">Developers / Clients</div>
-                        <div id="legendContent"></div>
+                <div class="map-layout">
+                    <div class="map-sidebar">
+                        <div style="padding: 1rem; border-bottom: 1px solid var(--border-glass);">
+                            <h3 style="margin: 0; color: #fff; font-size: 1rem;">Map Locations</h3>
+                            <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: var(--text-muted);"><span id="mapProjCount">0</span> projects shown</p>
+                            <input type="text" id="mapSearchInput" placeholder="Search map list..." style="width: 100%; margin-top: 10px; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-glass); background: #1e1e2d; color: #fff; font-size: 0.8rem; box-sizing: border-box;">
+                        </div>
+                        <div class="map-sidebar-list" id="mapSidebarList">
+                            </div>
+                    </div>
+                    
+                    <div class="map-container">
+                        <div id="projectMap"></div>
+                        <div class="map-legend" id="mapLegend" style="display: none;">
+                            <div class="legend-title">Developers / Clients</div>
+                            <div id="legendContent"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -446,7 +569,7 @@ require_once 'header.php';
     <div class="modal-wrapper">
         <div class="modal-header">
             <h2 id="modalProjectTitle">Edit Project</h2>
-            <span class="modal-close" onclick="closeEditModal()">&times;</span>
+            <span class="modal-close" onclick="closeEditModal()">×</span>
         </div>
         <iframe id="editProjectIframe" src=""></iframe>
     </div>
@@ -543,8 +666,8 @@ function getClientColor(cName) { let n = cName ? cName.trim() : 'In-House (Inter
 function initMap() {
     window.map = L.map('projectMap').setView([35.91, 14.4], 11);
     
-    const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap', subdomains: 'abcd', maxZoom: 19 });
-    const satMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri', maxZoom: 19 });
+    const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap', subdomains: 'abcd', maxZoom: 19 });
+    const satMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles © Esri', maxZoom: 19 });
     
     satMap.addTo(window.map); // Satellite default
     L.control.layers({ "Satellite View": satMap, "Dark Street View": darkMap }, null, { position: 'topright' }).addTo(window.map);
@@ -605,7 +728,60 @@ function initMap() {
 
         marker.bindPopup(popupContent);
         markersGroup.addLayer(marker);
+        
+        // Save marker reference to the project object for sidebar linking
+        p.leafletMarker = marker;
     });
+    
+    // --- Populate Sidebar List ---
+    const sidebarList = document.getElementById('mapSidebarList');
+    document.getElementById('mapProjCount').innerText = projectsData.length;
+    
+    function renderSidebar(data) {
+        sidebarList.innerHTML = '';
+        data.forEach(p => {
+            const clientName = p.client_name || 'In-House (Internal)';
+            const color = getClientColor(clientName);
+            
+            const div = document.createElement('div');
+            div.className = 'map-list-item';
+            div.innerHTML = `
+                <div class="map-item-title">${p.name}</div>
+                <div class="map-item-meta">
+                    <span>📍 ${p.city}</span>
+                    <span style="color: ${color}; font-weight: bold;">${clientName.substring(0,12)}</span>
+                </div>
+            `;
+            
+            div.onclick = () => {
+                // Remove active class from all
+                document.querySelectorAll('.map-list-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+                
+                // Zoom map and open popup
+                window.map.flyTo(p.leafletMarker.getLatLng(), 16, { duration: 1.5 });
+                markersGroup.zoomToShowLayer(p.leafletMarker, () => {
+                    p.leafletMarker.openPopup();
+                });
+            };
+            
+            sidebarList.appendChild(div);
+        });
+    }
+    
+    renderSidebar(projectsData);
+    
+    // --- Sidebar Search Filter ---
+    document.getElementById('mapSearchInput').addEventListener('input', function(e) {
+        const term = e.target.value.toLowerCase();
+        const filtered = projectsData.filter(p => 
+            p.name.toLowerCase().includes(term) || 
+            (p.city && p.city.toLowerCase().includes(term)) || 
+            (p.client_name && p.client_name.toLowerCase().includes(term))
+        );
+        renderSidebar(filtered);
+    });
+    
 
     window.map.addLayer(markersGroup);
 
