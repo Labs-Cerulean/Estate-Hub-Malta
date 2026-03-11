@@ -64,83 +64,116 @@ $currentView = $_GET['view'] ?? 'table';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
-// Build Query
-$whereClauses = ["1=1"];
-$params = [];
+// Allow sorting via array mapping
+$allowedSorts = ['name', 'client', 'city', 'type', 'finish_level', 'stage'];
+if (!in_array($sortBy, $allowedSorts)) $sortBy = 'stage';
+if (!in_array($sortOrder, ['ASC', 'DESC'])) $sortOrder = 'DESC';
 
-if (!isAdmin() && !hasPermission('view_all_projects')) {
-    $clientId = getCurrentUserClientId();
-    if ($clientId) {
-        $whereClauses[] = "(p.clientid = ? AND p.id NOT IN (SELECT project_id FROM user_project_exclusions WHERE user_id = ?))";
-        $params[] = $clientId; $params[] = $userId;
-    } else {
-        $whereClauses[] = "p.id IN (SELECT project_id FROM user_project_access WHERE user_id = ?)";
-        $params[] = $userId;
+try {
+    $projects = getAccessibleProjects($pdo, $userId);
+    
+    $cities = array_unique(array_filter(array_column($projects, 'city'))); sort($cities);
+    $clientIds = array_unique(array_column($projects, 'clientid'));
+    $clients = [];
+    if (!empty($clientIds)) {
+        $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
+        $clientStmt = $pdo->prepare("SELECT id, name FROM clients WHERE id IN ($placeholders) ORDER BY name");
+        $clientStmt->execute(array_values($clientIds));
+        $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    $projectIds = array_column($projects, 'id');
+    $paByProject = [];
+    if (!empty($projectIds)) {
+        $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
+        $paStmt = $pdo->prepare("SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.name AS architect_name, se.name AS structural_engineer_name FROM project_pa_numbers pan LEFT JOIN professionals arch ON arch.id = pan.architect_id LEFT JOIN professionals se ON se.id = pan.structural_engineer_id WHERE pan.project_id IN ($placeholders)");
+        $paStmt->execute($projectIds);
+        foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $pa) $paByProject[$pa['project_id']][] = $pa;
+    }
+} catch (PDOException $e) {
+    die("Database error: " . htmlspecialchars($e->getMessage()));
+}
+
+// Client filtering and tracking
+$preExecCount = 0; $execCount = 0; $finalCount = 0;
+$companyKpis = [];
+
+$filteredProjects = [];
+foreach ($projects as $project) {
+    $project['stage'] = deriveProjectStage($pdo, $project['id']);
+    $stageNum = $stageEnum[$project['stage']] ?? 1;
+
+    // Apply DB Status filter FIRST
+    if ($filterDbStatus !== 'All') {
+        $pStatus = $project['project_status'] ?? 'Active';
+        if ($pStatus === '') $pStatus = 'Active'; // Normalize empty to active
+        if ($pStatus !== $filterDbStatus) continue;
+    }
+
+    if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
+        
+        // Filter out based on GET params
+        if ($filterType !== 'all' && $project['type'] !== $filterType) continue;
+        if ($filterCity !== 'all' && $project['city'] !== $filterCity) continue;
+        if ($filterIsland !== 'all' && $project['island'] !== $filterIsland) continue;
+        if ($filterStatus !== 'all' && $project['stage'] !== $filterStatus) continue;
+        
+        if ($filterClient !== 'all') {
+            if ($filterClient === 'group_excel') {
+                if (stripos($project['client_name'] ?? '', 'Excel') === false) continue;
+            } elseif ($filterClient === 'group_blue_clay') {
+                if (stripos($project['client_name'] ?? '', 'Blue Clay') === false && stripos($project['client_name'] ?? '', 'Blueclay') === false) continue;
+            } elseif ($project['clientid'] != $filterClient) {
+                continue;
+            }
+        }
+
+        $filteredProjects[] = $project;
+        if ($stageNum >= 9) $finalCount++; elseif ($stageNum >= 5) $execCount++; else $preExecCount++;
+        if ($dashboardType === 'Company Dashboard') {
+            $cName = $project['client_name'] ?? 'Unassigned';
+            if (!isset($companyKpis[$cName])) $companyKpis[$cName] = ['total'=>0, 'pre'=>0, 'exec'=>0, 'final'=>0];
+            $companyKpis[$cName]['total']++;
+            if ($stageNum >= 9) $companyKpis[$cName]['final']++; elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++; else $companyKpis[$cName]['pre']++;
+        }
     }
 }
 
-if ($filterDbStatus !== 'All') {
-    if ($filterDbStatus === 'Active') {
-        $whereClauses[] = "(p.project_status IS NULL OR p.project_status = 'Active')";
-    } else {
-        $whereClauses[] = "p.project_status = ?";
-        $params[] = $filterDbStatus;
+$projects = $filteredProjects;
+$projectCount = count($projects);
+$userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users WHERE is_active='Yes'")->fetchColumn() : 0;
+
+usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
+    $valA = ''; $valB = '';
+    if ($sortBy === 'name') { $valA = strtolower($a['name']); $valB = strtolower($b['name']); }
+    elseif ($sortBy === 'client') { $valA = strtolower($a['client_name'] ?? 'z'); $valB = strtolower($b['client_name'] ?? 'z'); }
+    elseif ($sortBy === 'city') { $valA = strtolower($a['city']); $valB = strtolower($b['city']); }
+    elseif ($sortBy === 'type') { $valA = strtolower($a['type']); $valB = strtolower($b['type']); }
+    elseif ($sortBy === 'finish_level') { $valA = strtolower($a['finishlevel'] ?? ''); $valB = strtolower($b['finishlevel'] ?? ''); }
+    elseif ($sortBy === 'stage') { 
+        $valA = $stageEnum[$a['stage']] ?? 0; $valB = $stageEnum[$b['stage']] ?? 0; 
+        return $sortOrder === 'ASC' ? $valA <=> $valB : $valB <=> $valA;
+    }
+    if ($valA == $valB) return 0;
+    $cmp = ($valA < $valB) ? -1 : 1;
+    return $sortOrder === 'ASC' ? $cmp : -$cmp;
+});
+
+function getSortUrl($column) { global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView; $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC'; return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&sort=$column&order=$newOrder"; }
+function getSortIndicator($column) { global $sortBy, $sortOrder; if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼'; return ''; }
+if (!function_exists('buildPaUrl')) {
+    function buildPaUrl(?string $paNumber): ?string { if (empty($paNumber)) return null; if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null; return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
+}
+
+if (!function_exists('formatPANumber')) {
+    function formatPANumber(?string $paNumber): ?string {
+        if (empty($paNumber)) return null;
+        if (preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) {
+            return "{$m[1]} {$m[2]}/{$m[3]}";
+        }
+        return $paNumber;
     }
 }
-
-$whereSql = implode(' AND ', $whereClauses);
-
-$query = "
-    SELECT p.*, c.name as client_name,
-    m.demo_status, m.excavation_status, m.responsibility_form
-    FROM projects p
-    LEFT JOIN clients c ON p.clientid = c.id
-    LEFT JOIN project_mobilisation m ON p.id = m.project_id
-    WHERE $whereSql
-";
-$stmt = $pdo->prepare($query);
-$stmt->execute($params);
-$rawProjects = $stmt->fetchAll();
-
-// Fetch Block Percentages for Stage Calculation
-$projectIds = array_column($rawProjects, 'id');
-$blockData = [];
-if (!empty($projectIds)) {
-    $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-    $blocksStmt = $pdo->prepare("SELECT project_id, block_name, progress, construction_complete FROM project_blocks WHERE project_id IN ($placeholders)");
-    $blocksStmt->execute($projectIds);
-    $blocks = $blocksStmt->fetchAll();
-    foreach ($blocks as $b) {
-        $blockData[$b['project_id']][] = $b;
-    }
-}
-
-$paByProject = [];
-if (!empty($projectIds)) {
-    $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id IN (" . implode(',', array_fill(0, count($projectIds), '?')) . ")");
-    $paStmt->execute($projectIds);
-    foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $paByProject[$row['project_id']][] = $row;
-    }
-}
-
-$citiesStmt = $pdo->query("SELECT DISTINCT city FROM projects WHERE city IS NOT NULL AND city != '' ORDER BY city");
-$cities = $citiesStmt->fetchAll(PDO::FETCH_COLUMN);
-
-$clientsStmt = $pdo->query("SELECT id, name FROM clients ORDER BY name");
-$clients = $clientsStmt->fetchAll();
-
-function getSortUrl($column) {
-    global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView;
-    $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
-    return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&sort=$column&order=$newOrder";
-}
-function getSortIndicator($column) {
-    global $sortBy, $sortOrder;
-    if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
-    return '';
-}
-function buildPaUrl(?string $paNumber): ?string { if (empty($paNumber)) return null; if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null; return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
 
 $pageTitle = $dashboardType;
 require_once 'header.php';
@@ -156,39 +189,28 @@ require_once 'header.php';
 /* Dashboard General CSS */
 .stage-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.3); flex-shrink: 0; }
 .legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
-.legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
+.legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
 
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
-.stat-card { background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-glass); text-align: center; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; justify-content: center; transition: transform 0.2s; }
-.stat-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.2); }
-.stat-number { font-size: 3rem; font-weight: 800; color: var(--primary-color); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
-.stat-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.75rem; font-weight: 600; }
+/* View Toggle Switch */
+.view-toggle { display: inline-flex; background: var(--bg-secondary); border: 1px solid var(--border-glass); border-radius: 8px; padding: 0.25rem; }
+.view-toggle-btn { background: transparent; color: var(--text-secondary); border: none; padding: 0.5rem 1rem; font-weight: 600; font-size: 0.9rem; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
+.view-toggle-btn.active { background: var(--primary-color); color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
 
-.filters-section { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1.5rem; }
-.filters-grid { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
-.filter-group { flex: 1; min-width: 150px; }
-.filter-group label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem; font-weight: 600; }
-.filter-group select { width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); font-size: 0.9rem; }
-.filter-buttons { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; }
-.reset-btn { padding: 0.6rem 1rem; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; border-radius: 6px; transition: background 0.2s; } .reset-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
-
-.view-toggle { display: flex; background: var(--bg-secondary); border-radius: 8px; padding: 4px; border: 1px solid var(--border-glass); }
-.view-toggle-btn { flex: 1; padding: 8px 16px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: all 0.2s; font-size: 0.9rem; border: none; outline: none; }
-.view-toggle-btn.active { background: var(--primary-color); color: #fff; box-shadow: 0 2px 8px rgba(14, 165, 233, 0.4); }
-
-/* Table Improvements */
-.dashboard-wrapper { overflow-x: auto; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border-glass); max-height: calc(100vh - 350px); overflow-y: auto; }
-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
-thead { position: sticky; top: 0; z-index: 10; background: var(--bg-primary); }
-th { padding: 1rem; text-align: left; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-td { padding: 1rem; border-bottom: 1px solid var(--border-glass); color: var(--text-secondary); vertical-align: middle; }
-tr:hover td { background: rgba(255,255,255,0.02); }
-tr:last-child td { border-bottom: none; }
+/* Table View Styling */
+.dashboard-wrapper { position: relative; width: 100%; max-height: calc(100vh - 200px); overflow-x: auto; overflow-y: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
+.dashboard-wrapper table { width: max-content; min-width: 100%; table-layout: auto; border-collapse: separate; border-spacing: 0; }
+.dashboard-wrapper th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem 0.75rem; vertical-align: middle; border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
+.dashboard-wrapper td { padding: 1rem 0.75rem; vertical-align: top; word-break: normal; border-bottom: 1px solid var(--border-glass); }
+.dashboard-wrapper thead th:last-child { position: sticky; right: 0; z-index: 20; border-left: 2px solid var(--border-glass); }
+.dashboard-wrapper tbody td:last-child { position: sticky; right: 0; background: #1e1e2d; z-index: 5; border-left: 2px solid var(--border-glass); }
+.dashboard-wrapper tbody tr:hover td { background: rgba(255,255,255,0.03); }
+.dashboard-wrapper tbody tr:hover td:last-child { background: #2a2a3b; }
 .nowrap-cell { white-space: nowrap; } .min-w-150 { min-width: 150px; }
 .cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; } .cell-list-item:last-child { margin-bottom: 0; }
 .action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
-.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; cursor: pointer; }
+.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; }
 
+/* Map View Styling */
 /* Map Layout with Sidebar */
 .map-layout { display: flex; height: calc(100vh - 200px); min-height: 500px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); overflow: hidden; background: #1a1a24; }
 .map-sidebar { width: 300px; background: var(--bg-card); display: flex; flex-direction: column; border-right: 1px solid var(--border-glass); z-index: 10; }
@@ -221,25 +243,6 @@ tr:last-child td { border-bottom: none; }
 .legend-item-map { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 6px; }
 .legend-color { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 
-.empty-state { text-align: center; padding: 4rem 2rem; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px dashed var(--border-glass); color: var(--text-muted); }
-
-/* --- Checkbox Styling for Island Filter --- */
-.checkbox-group { display: flex; gap: 15px; align-items: center; height: 42px; }
-.checkbox-item { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.checkbox-item input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 1px solid var(--border-glass); border-radius: 4px; background: var(--bg-primary); cursor: pointer; position: relative; transition: 0.2s; }
-.checkbox-item input[type="checkbox"]:checked { background: var(--primary-color); border-color: var(--primary-color); }
-.checkbox-item input[type="checkbox"]:checked::after { content: "✔"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 10px; }
-.checkbox-item label { font-size: 0.9rem; color: var(--text-primary); cursor: pointer; user-select: none; margin: 0; padding: 0; }
-
-/* Advanced KPIs Table */
-.kpi-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 10px; }
-.kpi-table th, .kpi-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.kpi-table th:first-child, .kpi-table td:first-child { text-align: left; }
-.kpi-table th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; }
-.kpi-table td { color: #fff; font-weight: 500; }
-.kpi-table tr:hover td { background: rgba(255,255,255,0.02); }
-.total-col { color: var(--primary-color) !important; font-weight: 800 !important; }
-
 /* Generic Iframe Modal (Widened for Execution Hub) */
 #genericIframeModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .modal-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 95%; max-width: 1400px; height: 95%; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
@@ -248,74 +251,19 @@ tr:last-child td { border-bottom: none; }
 .modal-close { font-size: 1.5rem; cursor: pointer; color: var(--text-muted); line-height: 1; transition: color 0.2s; }
 .modal-close:hover { color: #ef4444; }
 #genericIframe { flex: 1; width: 100%; border: none; background: var(--bg-card); }
+
 </style>
 
 <div class="main-container">
     <h1 class="page-title"><?= htmlspecialchars($dashboardType) ?></h1>
 
     <?php if ($dashboardType === 'None'): ?>
-        <div class="empty-state card"><h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2><p>Please use the navigation menu above to access your specific modules.</p></div>
+        <div class="empty-state card">
+            <h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2>
+            <p>Please use the navigation menu above to access your specific modules.</p>
+        </div>
     <?php else: ?>
         
-        <?php
-        // Filter out projects not in visible stages
-        $projects = [];
-        $preExecCount = 0; $execCount = 0; $finalCount = 0;
-        $companyKpis = [];
-
-        foreach ($rawProjects as $project) {
-            $project['stage'] = deriveProjectStage($pdo, $project['id']);
-            $stageNum = $stageEnum[$project['stage']] ?? 1;
-
-            if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
-                $projects[] = $project;
-                
-                if ($stageNum >= 9) $finalCount++; elseif ($stageNum >= 5) $execCount++; else $preExecCount++;
-                if ($dashboardType === 'Company Dashboard') {
-                    $cName = $project['client_name'] ?? 'Unassigned';
-                    if (!isset($companyKpis[$cName])) $companyKpis[$cName] = ['total'=>0, 'pre'=>0, 'exec'=>0, 'final'=>0];
-                    $companyKpis[$cName]['total']++;
-                    if ($stageNum >= 9) $companyKpis[$cName]['final']++; elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++; else $companyKpis[$cName]['pre']++;
-                }
-            }
-        }
-        
-        $projects = array_values($projects); 
-        $projectCount = count($projects);
-        $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
-
-        if ($filterType !== 'all') $projects = array_filter($projects, fn($p) => $p['type'] === $filterType);
-        if ($filterCity !== 'all') $projects = array_filter($projects, fn($p) => $p['city'] === $filterCity);
-        if ($filterClient !== 'all') {
-            if ($filterClient === 'group_excel') {
-                $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
-            } elseif ($filterClient === 'group_blue_clay') {
-                $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
-            } else {
-                $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
-            }
-        }
-        if ($filterIsland !== 'all') $projects = array_filter($projects, fn($p) => $p['island'] === $filterIsland);
-        if ($filterStatus !== 'all') $projects = array_filter($projects, fn($p) => $p['stage'] === $filterStatus);
-
-        // Sorting Engine
-        usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
-            $valA = ''; $valB = '';
-            if ($sortBy === 'name') { $valA = strtolower($a['name']); $valB = strtolower($b['name']); }
-            elseif ($sortBy === 'client') { $valA = strtolower($a['client_name'] ?? 'z'); $valB = strtolower($b['client_name'] ?? 'z'); }
-            elseif ($sortBy === 'city') { $valA = strtolower($a['city']); $valB = strtolower($b['city']); }
-            elseif ($sortBy === 'type') { $valA = strtolower($a['type']); $valB = strtolower($b['type']); }
-            elseif ($sortBy === 'finish_level') { $valA = strtolower($a['finishlevel'] ?? ''); $valB = strtolower($b['finishlevel'] ?? ''); }
-            elseif ($sortBy === 'stage') { 
-                $valA = $stageEnum[$a['stage']] ?? 0; $valB = $stageEnum[$b['stage']] ?? 0; 
-                return $sortOrder === 'ASC' ? $valA <=> $valB : $valB <=> $valA;
-            }
-            if ($valA == $valB) return 0;
-            $cmp = ($valA < $valB) ? -1 : 1;
-            return $sortOrder === 'ASC' ? $cmp : -$cmp;
-        });
-        ?>
-
         <div class="stats-grid">
             <?php if ($dashboardType === 'Admin Dashboard'): ?>
                 <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
@@ -366,6 +314,7 @@ tr:last-child td { border-bottom: none; }
                             </select>
                         </div>
                         <?php endif; ?>
+                        
                         <div class="filter-group">
                             <label>Stage Filter</label>
                             <select name="filter_status">
@@ -388,15 +337,22 @@ tr:last-child td { border-bottom: none; }
                                 <option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>Capital Project</option>
                             </select>
                         </div>
+                        <div class="filter-group">
+                            <label>Locality</label>
+                            <select name="filter_city">
+                                <option value="all">All Localities</option>
+                                <?php foreach ($cities as $city): ?>
+                                    <option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>><?= htmlspecialchars($city) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         <div class="filter-group"><label>Client</label>
                             <select name="filter_client">
                                 <option value="all">All Clients</option>
-                                
                                 <optgroup label="Umbrella Groups">
                                     <option value="group_excel" <?= $filterClient === 'group_excel' ? 'selected' : '' ?>>🏢 Excel Group (All)</option>
                                     <option value="group_blue_clay" <?= $filterClient === 'group_blue_clay' ? 'selected' : '' ?>>🏢 Blue Clay Collection (All)</option>
                                 </optgroup>
-                                
                                 <optgroup label="Individual Clients">
                                     <?php foreach ($clients as $client): ?>
                                         <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option>
@@ -412,15 +368,22 @@ tr:last-child td { border-bottom: none; }
                             </div>
                         </div>
                     </div>
-                    <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>"><input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
-                    <div class="filter-buttons"><button type="submit" class="btn">Apply Filters</button><a href="dashboard.php" class="reset-btn">Reset</a></div>
+                    <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
+                    <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
+                    <div class="filter-buttons">
+                        <button type="submit" class="btn">Apply Filters</button>
+                        <a href="dashboard.php" class="reset-btn">Reset</a>
+                    </div>
                 </form>
             </div>
 
             <div class="legend-container">
                 <?php foreach ($legendItems as $name): ?>
                     <?php $num = $stageEnum[$name] ?? '-'; ?>
-                    <div class="legend-item" title="<?= $num !== '-' ? "Stage $num" : $name ?>"><span class="stage-dot" style="background-color: <?= $stageColors[$name] ?>;"></span><?= $name ?></div>
+                    <div class="legend-item" title="<?= $num !== '-' ? "Stage $num" : $name ?>">
+                        <span class="stage-dot" style="background-color: <?= $stageColors[$name] ?>;"></span>
+                        <?= $name ?>
+                    </div>
                 <?php endforeach; ?>
             </div>
 
@@ -438,7 +401,11 @@ tr:last-child td { border-bottom: none; }
                                 <th class="nowrap-cell"><a href="<?= getSortUrl('type') ?>" class="sortable-header" style="color: inherit;">Type<?= getSortIndicator('type') ?></a></th>
                                 <th class="nowrap-cell"><a href="<?= getSortUrl('city') ?>" class="sortable-header" style="color: inherit;">City<?= getSortIndicator('city') ?></a></th>
                                 <th class="nowrap-cell"><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header" style="color: inherit;">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
-                                <?php if (!$isSalesDb): ?><th class="nowrap-cell">PA Number</th><th class="min-w-150">Architect</th><th class="min-w-150">Structural Engineer</th><?php endif; ?>
+                                <?php if (!$isSalesDb): ?>
+                                    <th class="nowrap-cell">PA Number</th>
+                                    <th class="min-w-150">Architect</th>
+                                    <th class="min-w-150">Structural Engineer</th>
+                                <?php endif; ?>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -446,7 +413,7 @@ tr:last-child td { border-bottom: none; }
                             <?php foreach ($projects as $project): ?>
                                 <tr style="<?= in_array($project['project_status'] ?? '', ['Withdrawn', 'On-Hold']) ? 'opacity: 0.6;' : '' ?>">
                                     <td style="text-align: center;"><span class="stage-dot" style="background-color: <?= $stageColors[$project['stage']] ?>;" title="<?= $project['stage'] ?>"></span></td>
-                                   <td style="font-weight: 600;">
+                                    <td style="font-weight: 600;">
                                         <a href="project-status.php?id=<?= $project['id'] ?>" style="color: var(--text-primary); text-decoration: none; display: flex; align-items: center; transition: color 0.2s;" onmouseover="this.style.color='var(--primary-color)'" onmouseout="this.style.color='var(--text-primary)'" title="View Project Snapshot">
                                             <?= htmlspecialchars($project['name']) ?>
                                             <?php if (!empty($project['summer_break_flag']) && $project['summer_break_flag'] == 1): ?>
@@ -506,7 +473,7 @@ tr:last-child td { border-bottom: none; }
                                             <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?><a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white; border: none;">Capital</a><?php endif; ?>
                                             
                                             <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
-                                                <button type="button" onclick="openEditModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary">Edit</button>
+                                                <button type="button" onclick="openEditModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary" style="cursor: pointer;">Edit</button>
                                             <?php endif; ?>
                                         </div>
                                     </td>
@@ -595,6 +562,7 @@ window.addEventListener('message', function(event) {
         closeGenericModal();
     }
 });
+
 
 // --- Island Filter Logic ---
 document.addEventListener('DOMContentLoaded', function() {
@@ -710,7 +678,7 @@ function initMap() {
             </div>
         `;
 
-        marker.bindPopup(popupContent);
+        marker.bindPopup(finalPopupContent);
         markersGroup.addLayer(marker);
         
         p.leafletMarker = marker;
@@ -739,7 +707,6 @@ function initMap() {
                 div.onclick = () => {
                     document.querySelectorAll('.map-list-item').forEach(el => el.classList.remove('active'));
                     div.classList.add('active');
-                    
                     if(window.map && p.leafletMarker) {
                         window.map.flyTo(p.leafletMarker.getLatLng(), 16, { duration: 1.5 });
                         markersGroup.zoomToShowLayer(p.leafletMarker, () => {
