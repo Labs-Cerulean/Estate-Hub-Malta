@@ -126,7 +126,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
             if ($type === 'Certification' && isset($_POST['cert_boq_id'])) {
                 $amountExc = 0;
                 $updateBoq = $pdo->prepare("UPDATE subcontractor_boq SET pct_complete = ? WHERE id = ?");
-                $updateLevel = $pdo->prepare("UPDATE block_levels SET construction_status = 'Complete' WHERE id = ?");
+                
+                // NEW: Update both status AND percentage in the block levels table
+                $updateLevel = $pdo->prepare("UPDATE block_levels SET construction_status = ?, construction_pct = ? WHERE id = ?");
                 
                 for ($i = 0; $i < count($_POST['cert_boq_id']); $i++) {
                     $bId = $_POST['cert_boq_id'][$i];
@@ -134,13 +136,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                     $valAdded = (float)$_POST['cert_val_added'][$i];
                     $lvlId = !empty($_POST['cert_level_id'][$i]) ? $_POST['cert_level_id'][$i] : null;
                     
-                    if ($valAdded > 0 || $newPct > 0) {
+                    if ($valAdded > 0 || $newPct > 0 || $newPct === 0.0) {
                         $amountExc += $valAdded;
                         $updateBoq->execute([$newPct, $bId]);
                         
-                        // Magic Sync: Update Master Project tracker if 100% complete
-                        if ($newPct >= 100 && $lvlId) {
-                            $updateLevel->execute([$lvlId]);
+                        // Magic Sync: Update Master Project tracker with exact % and status
+                        if ($lvlId) {
+                            $cStatus = 'Pending';
+                            if ($newPct >= 100) $cStatus = 'Complete';
+                            elseif ($newPct > 0) $cStatus = 'In Progress';
+                            
+                            $updateLevel->execute([$cStatus, $newPct, $lvlId]);
                         }
                     }
                 }
