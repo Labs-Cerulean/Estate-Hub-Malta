@@ -78,6 +78,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             echo json_encode(['success' => true]);
             exit;
         }
+
+        // 6. Update Project Location (Lat, Lon, Street)
+        if ($action === 'update_location') {
+            $pid = (int)$_POST['project_id'];
+            $lat = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
+            $lon = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
+            $street = trim($_POST['street_name']);
+            $stmt = $pdo->prepare("UPDATE projects SET latitude = ?, longitude = ?, street_name = ? WHERE id = ?");
+            $stmt->execute([$lat, $lon, $street, $pid]);
+            echo json_encode(['success' => true]);
+            exit;
+        }
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
         exit;
@@ -177,81 +189,9 @@ $pageTitle = 'Live Engineering & Utilities';
 require_once 'header.php';
 ?>
 
-<?php
-// Query active projects for meters expiring within 30 days (or already expired)
-$expiringMetersStmt = $pdo->query("
-    SELECT a.id as meter_id, a.project_id, a.meter_type, a.exp_date, p.name as project_name 
-    FROM project_arms_meters a
-    JOIN projects p ON a.project_id = p.id
-    WHERE a.exp_date IS NOT NULL 
-      AND a.exp_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-      AND (a.status IS NULL OR a.status NOT IN ('Removed', 'Closed'))
-      AND p.project_status = 'Active'
-    ORDER BY a.exp_date ASC
-");
-$expiringMeters = $expiringMetersStmt->fetchAll(PDO::FETCH_ASSOC);
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-// IMPORTANT: We only want to show the alarm for projects this user has access to!
-$visibleExpiringMeters = [];
-foreach ($expiringMeters as $meter) {
-    // If user is admin or they have access to this project, show the alarm
-    if ($isAdmin || in_array($meter['project_id'], $projectIds) || hasPermission('view_all_projects')) {
-        $visibleExpiringMeters[] = $meter;
-    }
-}
-
-if (!empty($visibleExpiringMeters)): 
-?>
-<div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.3); border-left: 4px solid #ef4444; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
-    <h3 style="margin-top: 0; color: #ef4444; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-        ⚠️ Action Required: ARMS Meters Expiring Soon
-    </h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
-        <?php foreach($visibleExpiringMeters as $meter): 
-            $now = new DateTime();
-            $exp = new DateTime($meter['exp_date']);
-            
-            // Reset time to midnight so day calculations are perfectly accurate
-            $now->setTime(0,0,0);
-            $exp->setTime(0,0,0);
-            
-            $days = (int)$now->diff($exp)->format('%r%a');
-            $isExpired = $days < 0;
-        ?>
-            <a href="#project-<?= $meter['project_id'] ?>" onclick="highlightProject('project-<?= $meter['project_id'] ?>')" style="display: block; text-decoration: none; background: #1e1e2d; padding: 1rem; border-radius: 6px; border: 1px solid var(--border-glass); transition: 0.2s;">
-                <div style="font-weight: 800; color: var(--primary-color); margin-bottom: 4px;"><?= htmlspecialchars($meter['project_name']) ?></div>
-                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 8px;">Type: <?= htmlspecialchars($meter['meter_type'] ?: 'Unknown') ?></div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <?php if($isExpired): ?>
-                        <span class="badge badge-red">Expired <?= abs($days) ?>d ago</span>
-                    <?php elseif($days === 0): ?>
-                        <span class="badge badge-red">Expires TODAY</span>
-                    <?php else: ?>
-                        <span class="badge badge-yellow">Expires in <?= $days ?>d</span>
-                    <?php endif; ?>
-                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;"><?= date('d M Y', strtotime($meter['exp_date'])) ?></span>
-                </div>
-            </a>
-        <?php endforeach; ?>
-    </div>
-</div>
-
-<script>
-// This adds smooth scrolling and flashes the row red so her eyes go right to it
-document.documentElement.style.scrollBehavior = "smooth";
-function highlightProject(targetId) {
-    setTimeout(() => {
-        const target = document.getElementById(targetId);
-        if (target) {
-            const originalBg = target.style.backgroundColor;
-            target.style.transition = 'background-color 0.4s ease';
-            target.style.backgroundColor = 'rgba(239, 68, 68, 0.3)';
-            setTimeout(() => { target.style.backgroundColor = originalBg; }, 1500);
-        }
-    }, 500); // Wait for the scroll to finish before flashing
-}
-</script>
-<?php endif; ?>
 <style>
     /* Main Layout Table */
     .dashboard-wrapper td { vertical-align: top; padding: 1.25rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
@@ -270,52 +210,33 @@ function highlightProject(targetId) {
     .temp-btn:hover { background: rgba(255,255,255,0.15); }
     .temp-indicator { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.5); flex-shrink: 0; }
 
-    /* ==========================================
-       THE NEW FLEXBOX ARMS CARDS
-       ========================================== */
+    /* ARMS Cards */
     .arms-wrapper { display: flex; flex-direction: column; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
-    
-    .meter-card { 
-        display: flex; gap: 12px; background: rgba(0,0,0,0.2); 
-        border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; 
-        padding: 12px; align-items: stretch; min-width: 900px; 
-    }
-    
+    .meter-card { display: flex; gap: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; align-items: stretch; min-width: 900px; }
     .meter-col { display: flex; flex-direction: column; gap: 10px; flex: 1; }
     .meter-col.col-notes { flex: 1.5; }
     .meter-col.col-action { flex: 0 0 30px; justify-content: center; align-items: center; }
-    
     .field-wrapper { display: flex; flex-direction: column; gap: 3px; }
-    
-    .micro-label { 
-        font-size: 0.65rem; text-transform: uppercase; color: #94a3b8; 
-        font-weight: 700; letter-spacing: 0.5px; margin-left: 2px;
-    }
+    .micro-label { font-size: 0.65rem; text-transform: uppercase; color: #94a3b8; font-weight: 700; letter-spacing: 0.5px; margin-left: 2px; }
 
     /* Slick Inputs */
-    .live-input, .live-select { 
-        width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); 
-        color: #f8fafc; font-size: 0.85rem; padding: 7px 8px; border-radius: 4px; 
-        transition: all 0.2s; box-sizing: border-box; font-family: inherit; 
-    }
+    .live-input, .live-select { width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; font-size: 0.85rem; padding: 7px 8px; border-radius: 4px; transition: all 0.2s; box-sizing: border-box; font-family: inherit; }
     .live-input:hover, .live-select:hover { border-color: rgba(255,255,255,0.3); }
-    .live-input:focus, .live-select:focus { 
-        border-color: #0ea5e9; outline: none; box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.25); 
-    }
+    .live-input:focus, .live-select:focus { border-color: #0ea5e9; outline: none; box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.25); }
     .live-select option { background: #1e1e2d; color: #fff; }
-    
-    /* Make the textarea exactly the height of the two stacked fields */
     textarea.live-input { height: 95px; resize: none; line-height: 1.4; }
 
-    /* Compact Delete Button */
+    /* Buttons */
     .delete-btn { background: #ef4444; border: none; color: white; cursor: pointer; font-size: 1.1rem; width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: 0.2s; padding: 0; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
     .delete-btn:hover { background: #dc2626; transform: scale(1.1); }
-
     .add-record-btn { background: rgba(14, 165, 233, 0.1); border: 1px dashed #0ea5e9; color: #0ea5e9; font-size: 0.8rem; font-weight: bold; padding: 8px; border-radius: 6px; cursor: pointer; width: 100%; transition: 0.2s; min-width: 900px; }
     .add-record-btn:hover { background: #0ea5e9; color: #fff; }
 
     #toast { visibility: hidden; min-width: 250px; background-color: var(--success); color: #fff; text-align: center; border-radius: 8px; padding: 12px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; font-weight: bold; transform: translateX(-50%); box-shadow: 0 4px 15px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
     #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+    
+    /* Map Picker UI */
+    #map-picker { height: 250px; width: 100%; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 1rem; cursor: crosshair; }
 </style>
 
 <div class="main-container" style="max-width: 100%; padding-bottom: 100px;">
@@ -385,11 +306,34 @@ function highlightProject(targetId) {
                     $mob = $mobData[$pId] ?? [];
                     $srv = $srvData[$pId] ?? [];
                     $meters = $armsData[$pId] ?? [];
+                    $hasCoords = !empty($project['latitude']) && !empty($project['longitude']);
                 ?>
                 <tr id="project-<?= $pId ?>">
                     <td>
-                        <div style="font-weight: 800; color: var(--text-primary); margin-bottom: 4px; font-size: 1.05rem;"><?= htmlspecialchars($project['name']) ?></div>
-                        <div style="font-size: 0.8rem; color: #0ea5e9; margin-bottom: 12px; font-weight: 600;">📍 <?= htmlspecialchars($project['city']) ?></div>
+                        <div style="font-weight: 800; color: var(--text-primary); margin-bottom: 4px; font-size: 1.05rem;">
+                            <?= htmlspecialchars($project['name']) ?>
+                        </div>
+                        
+                        <div style="font-size: 0.8rem; color: #0ea5e9; margin-bottom: 4px; font-weight: 600;">
+                            📍 <?= htmlspecialchars($project['city']) ?>
+                            <?php if($hasCoords): ?>
+                                <a href="https://www.google.com/maps/search/?api=1&query=<?= $project['latitude'] ?>,<?= $project['longitude'] ?>" target="_blank" style="margin-left: 5px; color: #3B82F6; text-decoration: none;" title="View exact location on Map">🗺️ Map</a>
+                            <?php endif; ?>
+                        </div>
+
+                        <div id="street-display-<?= $pId ?>" style="font-size: 0.75rem; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                            <?php if ($hasCoords): ?>
+                                <?php if (!empty($project['street_name'])): ?>
+                                    <span style="color: var(--text-secondary);">🛣️ <?= htmlspecialchars($project['street_name']) ?></span>
+                                    <button onclick="openLocationModal(<?= $pId ?>, '<?= $project['latitude'] ?>', '<?= $project['longitude'] ?>', '<?= htmlspecialchars($project['street_name'], ENT_QUOTES) ?>')" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0; font-size:0.8rem;" title="Edit Location">✏️</button>
+                                <?php else: ?>
+                                    <button onclick="autoFetchStreet(<?= $pId ?>, '<?= $project['latitude'] ?>', '<?= $project['longitude'] ?>')" class="btn btn-sm" style="background: rgba(16, 185, 129, 0.1); border: 1px dashed #10B981; color: #10B981; padding: 2px 6px; font-size: 0.7rem; transition: 0.2s;">✨ Auto-detect Street</button>
+                                    <button onclick="openLocationModal(<?= $pId ?>, '<?= $project['latitude'] ?>', '<?= $project['longitude'] ?>', '')" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0; font-size:0.8rem;" title="Edit Location">✏️</button>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <button onclick="openLocationModal(<?= $pId ?>, '', '', '')" style="background: rgba(14, 165, 233, 0.1); border: 1px dashed #0ea5e9; color: #0ea5e9; border-radius: 4px; padding: 2px 6px; font-size: 0.7rem; cursor: pointer; transition: 0.2s;">📍 + Add Exact Location</button>
+                            <?php endif; ?>
+                        </div>
                         
                         <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; display: inline-block; border: 1px solid rgba(255,255,255,0.05); width: 100%; box-sizing: border-box;">
                             <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 0.5px; font-weight: bold;">Required Matrix</div>
@@ -492,7 +436,7 @@ function highlightProject(targetId) {
                                 </div>
 
                                 <div class="meter-col col-action">
-                                    <button onclick="deleteMeter(<?= $mId ?>)" class="delete-btn" title="Delete this record">&times;</button>
+                                    <button onclick="deleteMeter(<?= $mId ?>)" class="delete-btn" title="Delete this record">×</button>
                                 </div>
                                 
                             </div>
@@ -508,10 +452,152 @@ function highlightProject(targetId) {
     </div>
 </div>
 
+<div id="locationModal" class="modal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px);">
+    <div style="background: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative;">
+        <span onclick="document.getElementById('locationModal').style.display='none'" style="position: absolute; right: 15px; top: 10px; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">×</span>
+        <h3 style="margin-top: 0; color: var(--primary-color);">Pinpoint Location</h3>
+        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem;">Click on the map to set the exact coordinates. The system will automatically detect the street name.</p>
+        
+        <input type="hidden" id="lm_pid">
+        
+        <div id="map-picker"></div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem;">
+            <div class="form-group" style="margin: 0;">
+                <label style="font-size: 0.75rem;">Latitude</label>
+                <input type="text" id="lm_lat" class="live-input" placeholder="e.g. 35.912245">
+            </div>
+            <div class="form-group" style="margin: 0;">
+                <label style="font-size: 0.75rem;">Longitude</label>
+                <input type="text" id="lm_lon" class="live-input" placeholder="e.g. 14.504212">
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label style="font-size: 0.75rem;">Detected Street Name</label>
+            <input type="text" id="lm_street" class="live-input" placeholder="Auto-detected street will appear here...">
+        </div>
+
+        <button onclick="saveLocation()" class="btn btn-primary" style="width: 100%;">Save Location Data</button>
+    </div>
+</div>
+
 <div id="toast">✅ Saved Successfully</div>
 
 <script>
-// --- 1. Cycle Services Matrix Dots ---
+// --- Reverse Geocoding Core Function ---
+// Uses OpenStreetMap Nominatim (Free, No API Key Required)
+async function getStreetFromCoords(lat, lon) {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`);
+        const data = await res.json();
+        if (data && data.address) {
+            // Prioritize road names, fallback to broader location descriptions
+            return data.address.road || data.address.pedestrian || data.address.path || data.name || data.address.suburb || data.address.village || '';
+        }
+    } catch (e) {
+        console.error("Geocoding failed", e);
+    }
+    return '';
+}
+
+// --- Quick Action: Auto Fetch for Existing Coords ---
+async function autoFetchStreet(pid, lat, lon) {
+    if (!lat || !lon) return alert("Missing coordinates.");
+    const btn = document.querySelector(`#street-display-${pid} button`);
+    if(btn) { btn.innerText = "⏳ Detecting..."; btn.disabled = true; }
+    
+    const street = await getStreetFromCoords(lat, lon);
+    if (street) {
+        saveLocation(pid, lat, lon, street);
+    } else {
+        alert("Could not detect street name automatically from these coordinates. Please try manual entry via the map.");
+        if(btn) { btn.innerText = "✨ Auto-detect Street"; btn.disabled = false; }
+    }
+}
+
+// --- Map Picker & Modal Logic ---
+let map = null;
+let marker = null;
+
+function openLocationModal(pid, lat, lon, street) {
+    document.getElementById('lm_pid').value = pid;
+    document.getElementById('lm_lat').value = lat || '';
+    document.getElementById('lm_lon').value = lon || '';
+    document.getElementById('lm_street').value = street || '';
+    document.getElementById('locationModal').style.display = 'block';
+
+    // Initialize Map on first open
+    if (!map) {
+        map = L.map('map-picker').setView([35.91, 14.45], 11); // Center of Malta
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Click Event: Place pin, set coords, reverse geocode!
+        map.on('click', async function(e) {
+            const clickedLat = e.latlng.lat.toFixed(6);
+            const clickedLon = e.latlng.lng.toFixed(6);
+            
+            document.getElementById('lm_lat').value = clickedLat;
+            document.getElementById('lm_lon').value = clickedLon;
+            
+            if(marker) map.removeLayer(marker);
+            marker = L.marker([clickedLat, clickedLon]).addTo(map);
+
+            document.getElementById('lm_street').value = "Detecting...";
+            document.getElementById('lm_street').style.opacity = '0.5';
+            
+            const road = await getStreetFromCoords(clickedLat, clickedLon);
+            
+            document.getElementById('lm_street').value = road;
+            document.getElementById('lm_street').style.opacity = '1';
+        });
+    }
+
+    // Delay map invalidation to ensure it renders inside the modal correctly
+    setTimeout(() => {
+        map.invalidateSize();
+        if (lat && lon) {
+            const pos = [parseFloat(lat), parseFloat(lon)];
+            map.setView(pos, 16);
+            if(marker) map.removeLayer(marker);
+            marker = L.marker(pos).addTo(map);
+        } else {
+            map.setView([35.91, 14.45], 11);
+            if(marker) map.removeLayer(marker);
+        }
+    }, 200);
+}
+
+// --- Save Location AJAX ---
+async function saveLocation(pidOverride = null, latOverride = null, lonOverride = null, streetOverride = null) {
+    const pid = pidOverride || document.getElementById('lm_pid').value;
+    const lat = latOverride !== null ? latOverride : document.getElementById('lm_lat').value;
+    const lon = lonOverride !== null ? lonOverride : document.getElementById('lm_lon').value;
+    const street = streetOverride !== null ? streetOverride : document.getElementById('lm_street').value;
+    
+    const formData = new URLSearchParams();
+    formData.append('ajax_action', 'update_location');
+    formData.append('project_id', pid);
+    formData.append('latitude', lat);
+    formData.append('longitude', lon);
+    formData.append('street_name', street);
+
+    try {
+        const response = await fetch('engineering.php', { method: 'POST', body: formData.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+        const data = await response.json();
+        if (data.success) { 
+            showToast('✅ Location Saved');
+            document.getElementById('locationModal').style.display = 'none';
+            window.location.reload(); 
+        } else { 
+            alert('Error saving location.'); 
+        }
+    } catch (e) { alert('Connection error.'); }
+}
+
+// --- Existing JS ---
 async function cycleService(el) {
     const pid = el.dataset.pid;
     const srv = el.dataset.srv;
@@ -544,7 +630,6 @@ async function cycleService(el) {
     }
 }
 
-// --- 2. Cycle Temp Water/Electricity Icons ---
 async function cycleTemp(field, projectId, el) {
     const currentState = el.dataset.state;
     const indicator = el.querySelector('.temp-indicator');
@@ -562,7 +647,6 @@ async function cycleTemp(field, projectId, el) {
     updateRecord('update_temp', field, projectId, newState, null);
 }
 
-// --- 3. Live ARMS Card Logic ---
 async function updateRecord(action, field, projectId, value, meterId) {
     const formData = new URLSearchParams();
     formData.append('ajax_action', action);
