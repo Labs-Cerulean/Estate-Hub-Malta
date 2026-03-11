@@ -38,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         
         $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
         $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
+        $streetName = trim($_POST['street_name'] ?? '');
 
         if (empty($clientId)) throw new Exception("A Developer/Client must be selected.");
         if (empty($name)) throw new Exception("Project Name is required.");
@@ -51,11 +52,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
             UPDATE projects 
             SET clientid = ?, name = ?, city = ?, island = ?, type = ?, 
                 finishlevel = ?, is_tracking = ?, summer_break_flag = ?, 
-                project_status = ?, latitude = ?, longitude = ? 
+                project_status = ?, latitude = ?, longitude = ?, street_name = ? 
             WHERE id = ?
         ");
         
-        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, $projectId]);
+        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, $streetName, $projectId]);
 
         if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
             $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?")->execute([$projectId]);
@@ -150,6 +151,9 @@ $pageTitle = 'Edit Project - ' . $project['name'];
 require_once 'header.php';
 ?>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <?php if ($isModal): ?>
 <style>
     header, nav, footer, .sidebar { display: none !important; }
@@ -216,14 +220,7 @@ require_once 'header.php';
                             <option value="<?= htmlspecialchars($project['city']) ?>" selected><?= htmlspecialchars($project['city']) ?></option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>Exact Latitude (Optional)</label>
-                        <input type="text" name="latitude" value="<?= htmlspecialchars($project['latitude'] ?? '') ?>" placeholder="e.g., 35.912245">
-                    </div>
-                    <div class="form-group">
-                        <label>Exact Longitude (Optional)</label>
-                        <input type="text" name="longitude" value="<?= htmlspecialchars($project['longitude'] ?? '') ?>" placeholder="e.g., 14.504212">
-                    </div>
+                    
                     <div class="form-group">
                         <label>Project Type <span style="color: #ef4444;">*</span></label>
                         <select name="type" id="project-type" onchange="toggleFinishLevel()" required>
@@ -256,6 +253,28 @@ require_once 'header.php';
                 </div>
             </div>
 
+            <div style="margin-bottom: 2rem;">
+                <h3 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Location & Map Pin</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Click on the map to change the exact location. The street name will be auto-detected.</p>
+                
+                <div id="map-picker" style="height: 300px; width: 100%; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 1rem; cursor: crosshair; z-index: 1;"></div>
+                
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr 2fr; gap: 1.5rem;">
+                    <div class="form-group" style="margin:0;">
+                        <label>Latitude</label>
+                        <input type="text" name="latitude" id="lat_input" value="<?= htmlspecialchars($project['latitude'] ?? '') ?>" readonly style="background: rgba(255,255,255,0.05); color: var(--text-muted);">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>Longitude</label>
+                        <input type="text" name="longitude" id="lon_input" value="<?= htmlspecialchars($project['longitude'] ?? '') ?>" readonly style="background: rgba(255,255,255,0.05); color: var(--text-muted);">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>Street Name</label>
+                        <input type="text" name="street_name" id="street_input" value="<?= htmlspecialchars($project['street_name'] ?? '') ?>" placeholder="Auto-detected or enter manually...">
+                    </div>
+                </div>
+            </div>
+
             <div style="margin-bottom: 3rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
                     <h3>PA Numbers & Permits</h3>
@@ -282,6 +301,66 @@ require_once 'header.php';
 
 <script src="localities.js"></script>
 <script>
+// --- Map & Location Picker Logic ---
+let map = null;
+let marker = null;
+
+function initMap() {
+    map = L.map('map-picker').setView([35.91, 14.45], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    <?php if (!empty($project['latitude']) && !empty($project['longitude'])): ?>
+        const existingLat = <?= $project['latitude'] ?>;
+        const existingLon = <?= $project['longitude'] ?>;
+        marker = L.marker([existingLat, existingLon]).addTo(map);
+        map.setView([existingLat, existingLon], 16);
+    <?php endif; ?>
+
+    map.on('click', async function(e) {
+        const lat = e.latlng.lat.toFixed(6);
+        const lon = e.latlng.lng.toFixed(6);
+        
+        document.getElementById('lat_input').value = lat;
+        document.getElementById('lon_input').value = lon;
+        
+        if (marker) map.removeLayer(marker);
+        marker = L.marker([lat, lon]).addTo(map);
+
+        document.getElementById('street_input').value = "Detecting...";
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`);
+            const data = await res.json();
+            if (data && data.address) {
+                const road = data.address.road || data.address.pedestrian || data.address.path || data.name || data.address.suburb || data.address.village || '';
+                document.getElementById('street_input').value = road;
+            } else {
+                document.getElementById('street_input').value = '';
+            }
+        } catch (err) {
+            document.getElementById('street_input').value = '';
+        }
+    });
+
+    // Fix for map loading properly inside a modal (needs resize event trigger)
+    setTimeout(() => { map.invalidateSize(); }, 500);
+}
+
+// Auto-zoom map when city changes
+document.getElementById('city-select').addEventListener('change', async function() {
+    const city = this.value;
+    if (!city || !map) return;
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&city=${encodeURIComponent(city)}&country=Malta`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+            map.flyTo([data[0].lat, data[0].lon], 15);
+        }
+    } catch (e) { console.error("Could not fly to city"); }
+});
+
+// --- Form Element Logic ---
 let paEntryCount = 0;
 const architects = <?= json_encode($architects) ?>;
 const engineers = <?= json_encode($engineers) ?>;
@@ -391,6 +470,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (existingBlocks && existingBlocks.length > 0) { existingBlocks.forEach(b => addBlockEntry(b)); } 
     
     updateCities();
+    initMap(); // Start map
 });
 </script>
 
