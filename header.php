@@ -12,7 +12,7 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 // Define visibility for Dropdowns based on user capabilities
 $showProjects = hasPermission('view_projects') || hasPermission('view_mobilisation') || hasPermission('edit_services') || isAdmin();
 $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation') || hasPermission('view_drawings') || isAdmin();
-$showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || isAdmin();
+$showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || hasPermission('view_nav_subcontractors') || isAdmin();
 $showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || isAdmin();
 
 // Fetch Pending Actions Count
@@ -89,7 +89,7 @@ if (isLoggedIn() && isset($pdo)) {
 
                     <?php if ($showCommercial): ?>
                     <div class="nav-dropdown">
-                        <span class="nav-link <?= in_array($currentPage, ['works_sales', 'property_sales', 'capital_projects']) ? 'active' : '' ?>">
+                        <span class="nav-link <?= in_array($currentPage, ['works_sales', 'property_sales', 'capital_projects', 'subcontractor_accounts']) ? 'active' : '' ?>">
                             Commercial ▾
                         </span>
                         <div class="dropdown-content">
@@ -101,6 +101,9 @@ if (isLoggedIn() && isset($pdo)) {
                             <?php endif; ?>
                             <?php if (hasPermission('view_capital_projects') || isAdmin()): ?>
                                 <a href="capital_projects.php" class="<?= $currentPage === 'capital_projects' ? 'active' : '' ?>">Capital Projects</a>
+                            <?php endif; ?>
+                            <?php if (hasPermission('view_nav_subcontractors') || isAdmin()): ?>
+                                <a href="subcontractor_accounts.php" class="<?= $currentPage === 'subcontractor_accounts' ? 'active' : '' ?>">Subcontractor Accounts</a>
                             <?php endif; ?>
                         </div>
                     </div>
