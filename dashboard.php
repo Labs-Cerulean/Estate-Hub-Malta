@@ -64,116 +64,83 @@ $currentView = $_GET['view'] ?? 'table';
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
-try {
-    $projects = getAccessibleProjects($pdo, $userId);
+// Build Query
+$whereClauses = ["1=1"];
+$params = [];
 
-    $cities = array_unique(array_filter(array_column($projects, 'city'))); sort($cities);
-    $clientIds = array_unique(array_column($projects, 'clientid'));
-    $clients = [];
-    if (!empty($clientIds)) {
-        $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
-        $clientStmt = $pdo->prepare("SELECT id, name FROM clients WHERE id IN ($placeholders) ORDER BY name");
-        $clientStmt->execute(array_values($clientIds));
-        $clients = $clientStmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    $projectIds = array_column($projects, 'id');
-    $paByProject = [];
-    if (!empty($projectIds)) {
-        $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-        $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id IN ($placeholders)");
-        $paStmt->execute($projectIds);
-        foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $paByProject[$row['project_id']][] = $row;
-        }
-    }
-} catch (PDOException $e) {
-    die("Database error: " . htmlspecialchars($e->getMessage()));
-}
-
-// Client filtering and tracking
-$preExecCount = 0; $execCount = 0; $finalCount = 0;
-$companyKpis = [];
-
-$filteredProjects = [];
-foreach ($projects as $project) {
-    $project['stage'] = deriveProjectStage($pdo, $project['id']);
-    $stageNum = $stageEnum[$project['stage']] ?? 1;
-
-    // Apply DB Status filter FIRST
-    if ($filterDbStatus !== 'All') {
-        $pStatus = $project['project_status'] ?? 'Active';
-        if ($pStatus === '') $pStatus = 'Active'; // Normalize empty to active
-        if ($pStatus !== $filterDbStatus) continue;
-    }
-
-    if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
-        
-        // Filter out based on GET params
-        if ($filterType !== 'all' && $project['type'] !== $filterType) continue;
-        if ($filterCity !== 'all' && $project['city'] !== $filterCity) continue;
-        if ($filterIsland !== 'all' && $project['island'] !== $filterIsland) continue;
-        if ($filterStatus !== 'all' && $project['stage'] !== $filterStatus) continue;
-        
-        if ($filterClient !== 'all') {
-            if ($filterClient === 'group_excel') {
-                if (stripos($project['client_name'] ?? '', 'Excel') === false) continue;
-            } elseif ($filterClient === 'group_blue_clay') {
-                if (stripos($project['client_name'] ?? '', 'Blue Clay') === false && stripos($project['client_name'] ?? '', 'Blueclay') === false) continue;
-            } elseif ($project['clientid'] != $filterClient) {
-                continue;
-            }
-        }
-
-        $filteredProjects[] = $project;
-        if ($stageNum >= 9) $finalCount++; elseif ($stageNum >= 5) $execCount++; else $preExecCount++;
-        if ($dashboardType === 'Company Dashboard') {
-            $cName = $project['client_name'] ?? 'Unassigned';
-            if (!isset($companyKpis[$cName])) $companyKpis[$cName] = ['total'=>0, 'pre'=>0, 'exec'=>0, 'final'=>0];
-            $companyKpis[$cName]['total']++;
-            if ($stageNum >= 9) $companyKpis[$cName]['final']++; elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++; else $companyKpis[$cName]['pre']++;
-        }
+if (!isAdmin() && !hasPermission('view_all_projects')) {
+    $clientId = getCurrentUserClientId();
+    if ($clientId) {
+        $whereClauses[] = "(p.clientid = ? AND p.id NOT IN (SELECT project_id FROM user_project_exclusions WHERE user_id = ?))";
+        $params[] = $clientId; $params[] = $userId;
+    } else {
+        $whereClauses[] = "p.id IN (SELECT project_id FROM user_project_access WHERE user_id = ?)";
+        $params[] = $userId;
     }
 }
 
-$projects = $filteredProjects;
-$projectCount = count($projects);
-$userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
-
-usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
-    $valA = ''; $valB = '';
-    if ($sortBy === 'name') { $valA = strtolower($a['name']); $valB = strtolower($b['name']); }
-    elseif ($sortBy === 'client') { $valA = strtolower($a['client_name'] ?? 'z'); $valB = strtolower($b['client_name'] ?? 'z'); }
-    elseif ($sortBy === 'city') { $valA = strtolower($a['city']); $valB = strtolower($b['city']); }
-    elseif ($sortBy === 'type') { $valA = strtolower($a['type']); $valB = strtolower($b['type']); }
-    elseif ($sortBy === 'finish_level') { $valA = strtolower($a['finishlevel'] ?? ''); $valB = strtolower($b['finishlevel'] ?? ''); }
-    elseif ($sortBy === 'stage') { 
-        $valA = $stageEnum[$a['stage']] ?? 0; $valB = $stageEnum[$b['stage']] ?? 0; 
-        return $sortOrder === 'ASC' ? $valA <=> $valB : $valB <=> $valA;
-    }
-    if ($valA == $valB) return 0;
-    $cmp = ($valA < $valB) ? -1 : 1;
-    return $sortOrder === 'ASC' ? $cmp : -$cmp;
-});
-
-function getSortUrl($column) { global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView; $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC'; return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&sort=$column&order=$newOrder"; }
-function getSortIndicator($column) { global $sortBy, $sortOrder; if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼'; return ''; }
-
-if (!function_exists('formatPANumber')) {
-    function formatPANumber($paStr) {
-        $paStr = preg_replace('/[^0-9]/', '', $paStr);
-        if (strlen($paStr) > 2) return "PA " . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
-        return "PA " . $paStr;
+if ($filterDbStatus !== 'All') {
+    if ($filterDbStatus === 'Active') {
+        $whereClauses[] = "(p.project_status IS NULL OR p.project_status = 'Active')";
+    } else {
+        $whereClauses[] = "p.project_status = ?";
+        $params[] = $filterDbStatus;
     }
 }
 
-if (!function_exists('buildPaUrl')) {
-    function buildPaUrl($paStr) {
-        $paStr = preg_replace('/[^0-9]/', '', $paStr);
-        if (strlen($paStr) > 2) return "https://www.pa.org.mt/en/pacasedetails?CaseType=PA/" . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
-        return "";
+$whereSql = implode(' AND ', $whereClauses);
+
+$query = "
+    SELECT p.*, c.name as client_name,
+    m.demo_status, m.excavation_status, m.responsibility_form
+    FROM projects p
+    LEFT JOIN clients c ON p.clientid = c.id
+    LEFT JOIN project_mobilisation m ON p.id = m.project_id
+    WHERE $whereSql
+";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$rawProjects = $stmt->fetchAll();
+
+// Fetch Block Percentages for Stage Calculation
+$projectIds = array_column($rawProjects, 'id');
+$blockData = [];
+if (!empty($projectIds)) {
+    $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
+    $blocksStmt = $pdo->prepare("SELECT project_id, block_name, progress, construction_complete FROM project_blocks WHERE project_id IN ($placeholders)");
+    $blocksStmt->execute($projectIds);
+    $blocks = $blocksStmt->fetchAll();
+    foreach ($blocks as $b) {
+        $blockData[$b['project_id']][] = $b;
     }
 }
+
+$paByProject = [];
+if (!empty($projectIds)) {
+    $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id IN (" . implode(',', array_fill(0, count($projectIds), '?')) . ")");
+    $paStmt->execute($projectIds);
+    foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $paByProject[$row['project_id']][] = $row;
+    }
+}
+
+$citiesStmt = $pdo->query("SELECT DISTINCT city FROM projects WHERE city IS NOT NULL AND city != '' ORDER BY city");
+$cities = $citiesStmt->fetchAll(PDO::FETCH_COLUMN);
+
+$clientsStmt = $pdo->query("SELECT id, name FROM clients ORDER BY name");
+$clients = $clientsStmt->fetchAll();
+
+function getSortUrl($column) {
+    global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView;
+    $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
+    return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&sort=$column&order=$newOrder";
+}
+function getSortIndicator($column) {
+    global $sortBy, $sortOrder;
+    if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
+    return '';
+}
+function buildPaUrl(?string $paNumber): ?string { if (empty($paNumber)) return null; if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null; return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
 
 $pageTitle = $dashboardType;
 require_once 'header.php';
@@ -290,6 +257,65 @@ tr:last-child td { border-bottom: none; }
         <div class="empty-state card"><h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2><p>Please use the navigation menu above to access your specific modules.</p></div>
     <?php else: ?>
         
+        <?php
+        // Filter out projects not in visible stages
+        $projects = [];
+        $preExecCount = 0; $execCount = 0; $finalCount = 0;
+        $companyKpis = [];
+
+        foreach ($rawProjects as $project) {
+            $project['stage'] = deriveProjectStage($pdo, $project['id']);
+            $stageNum = $stageEnum[$project['stage']] ?? 1;
+
+            if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
+                $projects[] = $project;
+                
+                if ($stageNum >= 9) $finalCount++; elseif ($stageNum >= 5) $execCount++; else $preExecCount++;
+                if ($dashboardType === 'Company Dashboard') {
+                    $cName = $project['client_name'] ?? 'Unassigned';
+                    if (!isset($companyKpis[$cName])) $companyKpis[$cName] = ['total'=>0, 'pre'=>0, 'exec'=>0, 'final'=>0];
+                    $companyKpis[$cName]['total']++;
+                    if ($stageNum >= 9) $companyKpis[$cName]['final']++; elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++; else $companyKpis[$cName]['pre']++;
+                }
+            }
+        }
+        
+        $projects = array_values($projects); 
+        $projectCount = count($projects);
+        $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn() : 0;
+
+        if ($filterType !== 'all') $projects = array_filter($projects, fn($p) => $p['type'] === $filterType);
+        if ($filterCity !== 'all') $projects = array_filter($projects, fn($p) => $p['city'] === $filterCity);
+        if ($filterClient !== 'all') {
+            if ($filterClient === 'group_excel') {
+                $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
+            } elseif ($filterClient === 'group_blue_clay') {
+                $projects = array_filter($projects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
+            } else {
+                $projects = array_filter($projects, fn($p) => $p['clientid'] == $filterClient);
+            }
+        }
+        if ($filterIsland !== 'all') $projects = array_filter($projects, fn($p) => $p['island'] === $filterIsland);
+        if ($filterStatus !== 'all') $projects = array_filter($projects, fn($p) => $p['stage'] === $filterStatus);
+
+        // Sorting Engine
+        usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
+            $valA = ''; $valB = '';
+            if ($sortBy === 'name') { $valA = strtolower($a['name']); $valB = strtolower($b['name']); }
+            elseif ($sortBy === 'client') { $valA = strtolower($a['client_name'] ?? 'z'); $valB = strtolower($b['client_name'] ?? 'z'); }
+            elseif ($sortBy === 'city') { $valA = strtolower($a['city']); $valB = strtolower($b['city']); }
+            elseif ($sortBy === 'type') { $valA = strtolower($a['type']); $valB = strtolower($b['type']); }
+            elseif ($sortBy === 'finish_level') { $valA = strtolower($a['finishlevel'] ?? ''); $valB = strtolower($b['finishlevel'] ?? ''); }
+            elseif ($sortBy === 'stage') { 
+                $valA = $stageEnum[$a['stage']] ?? 0; $valB = $stageEnum[$b['stage']] ?? 0; 
+                return $sortOrder === 'ASC' ? $valA <=> $valB : $valB <=> $valA;
+            }
+            if ($valA == $valB) return 0;
+            $cmp = ($valA < $valB) ? -1 : 1;
+            return $sortOrder === 'ASC' ? $cmp : -$cmp;
+        });
+        ?>
+
         <div class="stats-grid">
             <?php if ($dashboardType === 'Admin Dashboard'): ?>
                 <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
@@ -474,9 +500,8 @@ tr:last-child td { border-bottom: none; }
                                     <td>
                                         <div class="action-buttons-wrapper">
                                             <?php if (hasPermission('view_mobilisation') || $isAdmin): ?>
-                                                <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-primary"><?= canUpdateStatus($pdo, $project['id']) ? 'Execution' : 'View Hub' ?></button>
+                                                <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-primary" style="cursor: pointer;"><?= canUpdateStatus($pdo, $project['id']) ? 'Execution' : 'View Hub' ?></button>
                                             <?php endif; ?>
-                                            
                                             <?php if (hasPermission('view_property_sales') || $isAdmin): ?><a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white; border: none;">Sales</a><?php endif; ?>
                                             <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?><a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white; border: none;">Capital</a><?php endif; ?>
                                             
@@ -525,7 +550,7 @@ tr:last-child td { border-bottom: none; }
     <div class="modal-wrapper">
         <div class="modal-header">
             <h2 id="genericModalTitle">Dashboard Viewer</h2>
-            <span class="modal-close" onclick="closeGenericModal()">×</span>
+            <span class="modal-close" onclick="closeGenericModal()">&times;</span>
         </div>
         <iframe id="genericIframe" src=""></iframe>
     </div>
@@ -570,7 +595,6 @@ window.addEventListener('message', function(event) {
         closeGenericModal();
     }
 });
-
 
 // --- Island Filter Logic ---
 document.addEventListener('DOMContentLoaded', function() {
