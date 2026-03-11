@@ -310,7 +310,20 @@ $canFinal = $allSeqComplete;
 $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 
 $pageTitle = 'Execution - ' . $project['name'];
-require_once 'header.php';
+$isModal = isset($_GET['modal']) && $_GET['modal'] == '1';
+
+if ($isModal) {
+    echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'.$pageTitle.'</title>';
+    echo '<link rel="stylesheet" href="assets/css/style.css">'; // Assumes this is where your CSS is
+    echo '<style>
+        body { background: var(--bg-card) !important; margin: 0; padding: 1.5rem; } 
+        .main-container { padding: 0 !important; max-width: 100%; } 
+        .btn-secondary { display: none !important; } /* Hide back button */
+    </style>';
+    echo '</head><body>';
+} else {
+    require_once 'header.php';
+}
 ?>
 
 <style>
@@ -914,4 +927,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
-<?php require_once 'footer.php'; ?>
+<?php if (!$isModal) { require_once 'footer.php'; } else { echo '</body></html>'; } ?>
