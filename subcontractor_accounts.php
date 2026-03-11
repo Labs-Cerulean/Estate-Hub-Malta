@@ -70,26 +70,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                 $work_id = $_POST['work_id'];
                 $stmt = $pdo->prepare("UPDATE subcontractor_works SET project_id=?, is_measured=?, work_reference=?, po_reference=?, vat_rate=?, responsible=?, total_exc_vat=?, total_inc_vat=?, notes=? WHERE id=? AND subcontractor_id=? AND client_id=?");
                 $stmt->execute([ $project_id, $is_measured, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), $vat_rate, trim($_POST['responsible']), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes']), $work_id, $post_sub_id, $selected_client_id ]);
-                
-                // Clear old BoQ if editing a measured work
-                $pdo->prepare("DELETE FROM subcontractor_boq WHERE work_id = ?")->execute([$work_id]); 
                 $message = "Work Order updated successfully!";
             }
 
-            // Save BoQ Items if Measured
+            // Save BoQ Items (Using UPDATE to preserve pct_complete)
             if ($is_measured && isset($_POST['boq_desc'])) {
-                $boqStmt = $pdo->prepare("INSERT INTO subcontractor_boq (work_id, block_level_id, description, qty, rate, total_exc) VALUES (?, ?, ?, ?, ?, ?)");
+                $submittedBoqIds = [];
                 for ($i = 0; $i < count($_POST['boq_desc']); $i++) {
+                    $bId = !empty($_POST['boq_item_id'][$i]) ? $_POST['boq_item_id'][$i] : null;
                     $desc = trim($_POST['boq_desc'][$i]);
                     $lvlId = !empty($_POST['boq_level_id'][$i]) ? $_POST['boq_level_id'][$i] : null;
                     $qty = (float)$_POST['boq_qty'][$i];
                     $rate = (float)$_POST['boq_rate'][$i];
                     $total = $qty * $rate;
+                    
                     if ($desc !== '' && $total > 0) {
-                        $boqStmt->execute([$work_id, $lvlId, $desc, $qty, $rate, $total]);
+                        if ($bId) {
+                            $pdo->prepare("UPDATE subcontractor_boq SET block_level_id=?, description=?, qty=?, rate=?, total_exc=? WHERE id=? AND work_id=?")->execute([$lvlId, $desc, $qty, $rate, $total, $bId, $work_id]);
+                            $submittedBoqIds[] = $bId;
+                        } else {
+                            $pdo->prepare("INSERT INTO subcontractor_boq (work_id, block_level_id, description, qty, rate, total_exc) VALUES (?, ?, ?, ?, ?, ?)")->execute([$work_id, $lvlId, $desc, $qty, $rate, $total]);
+                            $submittedBoqIds[] = $pdo->lastInsertId();
+                        }
                     }
                 }
+                // Clean up removed items
+                if (!empty($submittedBoqIds)) {
+                    $placeholders = implode(',', array_fill(0, count($submittedBoqIds), '?'));
+                    $params = $submittedBoqIds;
+                    $params[] = $work_id;
+                    $pdo->prepare("DELETE FROM subcontractor_boq WHERE id NOT IN ($placeholders) AND work_id=?")->execute($params);
+                } else {
+                    $pdo->prepare("DELETE FROM subcontractor_boq WHERE work_id=?")->execute([$work_id]);
+                }
+            } elseif (!$is_measured) {
+                $pdo->prepare("DELETE FROM subcontractor_boq WHERE work_id=?")->execute([$work_id]);
             }
+            
             $pdo->commit();
         } 
         elseif ($action === 'delete_work') {
@@ -524,6 +541,12 @@ require_once 'header.php';
                                 $badgeClass = 'badge-pay';
                                 if ($t['transaction_type'] === 'Certification') $badgeClass = 'badge-cert';
                                 if ($t['transaction_type'] === 'Invoice') $badgeClass = 'badge-inv';
+                                
+                                // Fetch Work Data for the Edit Button to maintain IsMeasured state
+                                $t_work = null;
+                                foreach($works as $w) { if ($w['id'] == $t['work_id']) { $t_work = $w; break; } }
+                                $t_is_measured = $t_work ? ($t_work['is_measured'] ? 'true' : 'false') : 'false';
+                                $t_vat_rate = $t_work ? $t_work['vat_rate'] : 18.00;
                             ?>
                             <tr>
                                 <td><?= date('d M Y', strtotime($t['transaction_date'])) ?></td>
@@ -534,7 +557,7 @@ require_once 'header.php';
                                 <td><span style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($t['notes']) ?></span></td>
                                 <?php if($canManage): ?>
                                 <td style="text-align: right;">
-                                    <button onclick='openTxModal(<?= json_encode($t, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary">Edit</button>
+                                    <button onclick='openTxModal(<?= json_encode($t, JSON_HEX_APOS) ?>, <?= $t['work_id'] ?: 'null' ?>, "<?= $t['transaction_type'] ?>", <?= $t_is_measured ?>, <?= $t_vat_rate ?>)' class="btn btn-sm btn-secondary">Edit</button>
                                     <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this record?');">
                                         <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
                                         <input type="hidden" name="action" value="delete_transaction"><input type="hidden" name="transaction_id" value="<?= $t['id'] ?>">
@@ -739,7 +762,11 @@ require_once 'header.php';
                     let html = '';
                     boq.forEach(b => {
                         html += `<tr>
-                            <td><input type="hidden" name="boq_level_id[]" value="${b.block_level_id || ''}"><input type="text" name="boq_desc[]" value="${b.description}" class="boq-input" ${b.block_level_id ? 'readonly' : ''}></td>
+                            <td>
+                                <input type="hidden" name="boq_item_id[]" value="${b.id}">
+                                <input type="hidden" name="boq_level_id[]" value="${b.block_level_id || ''}">
+                                <input type="text" name="boq_desc[]" value="${b.description}" class="boq-input" ${b.block_level_id ? 'readonly' : ''}>
+                            </td>
                             <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" value="${b.qty}" oninput="calcBoq()"></td>
                             <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" value="${b.rate}" oninput="calcBoq()"></td>
                             <td class="b-total">€${b.total_exc}</td>
@@ -757,7 +784,11 @@ require_once 'header.php';
                     let html = '';
                     levels.forEach(l => {
                         html += `<tr>
-                            <td><input type="hidden" name="boq_level_id[]" value="${l.id}"><input type="text" name="boq_desc[]" value="${l.block_name} - ${l.level_name}" class="boq-input" readonly></td>
+                            <td>
+                                <input type="hidden" name="boq_item_id[]" value="">
+                                <input type="hidden" name="boq_level_id[]" value="${l.id}">
+                                <input type="text" name="boq_desc[]" value="${l.block_name} - ${l.level_name}" class="boq-input" readonly>
+                            </td>
                             <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" oninput="calcBoq()"></td>
                             <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" oninput="calcBoq()"></td>
                             <td class="b-total">€0.00</td>
@@ -776,7 +807,11 @@ require_once 'header.php';
         function addCustomBoqRow() {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><input type="hidden" name="boq_level_id[]" value=""><input type="text" name="boq_desc[]" placeholder="e.g. Foundation Extra" class="boq-input"></td>
+                <td>
+                    <input type="hidden" name="boq_item_id[]" value="">
+                    <input type="hidden" name="boq_level_id[]" value="">
+                    <input type="text" name="boq_desc[]" placeholder="e.g. Foundation Extra" class="boq-input">
+                </td>
                 <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" oninput="calcBoq()"></td>
                 <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" oninput="calcBoq()"></td>
                 <td class="b-total">€0.00</td>
@@ -803,7 +838,7 @@ require_once 'header.php';
         let currentModalIsMeasured = false;
 
         async function openTxModal(data, work_id, type, isMeasured, vatRate) {
-            currentModalIsMeasured = isMeasured === true || isMeasured === 1;
+            currentModalIsMeasured = isMeasured === true || isMeasured === 'true' || isMeasured === 1;
             
             document.getElementById('t_work_id').value = work_id || '';
             document.getElementById('t_type').value = type || 'Certification';
@@ -909,7 +944,7 @@ require_once 'header.php';
                 document.getElementById('w_is_measured').value = data.is_measured;
                 document.getElementById('w_notes').value = data.notes;
                 
-                // PASS THE ID HERE so it knows to fetch existing data
+                // Fetch existing lines
                 checkMeasuredSetup(data.id); 
             } else {
                 document.getElementById('wModalTitle').textContent = 'Create Work Order';
