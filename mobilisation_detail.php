@@ -312,17 +312,21 @@ $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 $pageTitle = 'Execution - ' . $project['name'];
 $isModal = isset($_GET['modal']) && $_GET['modal'] == '1';
 
-if ($isModal) {
-    echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'.$pageTitle.'</title>';
-    echo '<link rel="stylesheet" href="assets/css/style.css">'; // Assumes this is where your CSS is
+$pageTitle = 'Execution - ' . $project['name'];
+require_once 'header.php';
+
+// If loaded inside the Dashboard iframe modal, hide the global navigation UI
+if (isset($_GET['modal']) && $_GET['modal'] == '1') {
     echo '<style>
-        body { background: var(--bg-card) !important; margin: 0; padding: 1.5rem; } 
-        .main-container { padding: 0 !important; max-width: 100%; } 
-        .btn-secondary { display: none !important; } /* Hide back button */
+        /* Hide global navigation elements */
+        .sidebar, .top-header, .navbar, nav, header { display: none !important; }
+        
+        /* Reset margins so the modal takes up the full width */
+        .main-content, .content-wrapper, body { margin-left: 0 !important; margin-top: 0 !important; padding-top: 0 !important; }
+        
+        /* Hide the back button since they are already in the dashboard */
+        .btn-secondary { display: none !important; }
     </style>';
-    echo '</head><body>';
-} else {
-    require_once 'header.php';
 }
 ?>
 
@@ -927,4 +931,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
-<?php if (!$isModal) { require_once 'footer.php'; } else { echo '</body></html>'; } ?>
+<?php require_once 'footer.php'; ?>
