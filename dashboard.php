@@ -189,28 +189,39 @@ require_once 'header.php';
 /* Dashboard General CSS */
 .stage-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.3); flex-shrink: 0; }
 .legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
-.legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
+.legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
 
-/* View Toggle Switch */
-.view-toggle { display: inline-flex; background: var(--bg-secondary); border: 1px solid var(--border-glass); border-radius: 8px; padding: 0.25rem; }
-.view-toggle-btn { background: transparent; color: var(--text-secondary); border: none; padding: 0.5rem 1rem; font-weight: 600; font-size: 0.9rem; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
-.view-toggle-btn.active { background: var(--primary-color); color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+.stat-card { background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-glass); text-align: center; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; justify-content: center; transition: transform 0.2s; }
+.stat-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.2); }
+.stat-number { font-size: 3rem; font-weight: 800; color: var(--primary-color); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+.stat-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.75rem; font-weight: 600; }
 
-/* Table View Styling */
-.dashboard-wrapper { position: relative; width: 100%; max-height: calc(100vh - 200px); overflow-x: auto; overflow-y: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
-.dashboard-wrapper table { width: max-content; min-width: 100%; table-layout: auto; border-collapse: separate; border-spacing: 0; }
-.dashboard-wrapper th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem 0.75rem; vertical-align: middle; border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-.dashboard-wrapper td { padding: 1rem 0.75rem; vertical-align: top; word-break: normal; border-bottom: 1px solid var(--border-glass); }
-.dashboard-wrapper thead th:last-child { position: sticky; right: 0; z-index: 20; border-left: 2px solid var(--border-glass); }
-.dashboard-wrapper tbody td:last-child { position: sticky; right: 0; background: #1e1e2d; z-index: 5; border-left: 2px solid var(--border-glass); }
-.dashboard-wrapper tbody tr:hover td { background: rgba(255,255,255,0.03); }
-.dashboard-wrapper tbody tr:hover td:last-child { background: #2a2a3b; }
+.filters-section { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1.5rem; }
+.filters-grid { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+.filter-group { flex: 1; min-width: 150px; }
+.filter-group label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem; font-weight: 600; }
+.filter-group select { width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); font-size: 0.9rem; }
+.filter-buttons { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; }
+.reset-btn { padding: 0.6rem 1rem; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; border-radius: 6px; transition: background 0.2s; } .reset-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+
+.view-toggle { display: flex; background: var(--bg-secondary); border-radius: 8px; padding: 4px; border: 1px solid var(--border-glass); }
+.view-toggle-btn { flex: 1; padding: 8px 16px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: all 0.2s; font-size: 0.9rem; border: none; outline: none; }
+.view-toggle-btn.active { background: var(--primary-color); color: #fff; box-shadow: 0 2px 8px rgba(14, 165, 233, 0.4); }
+
+/* Table Improvements */
+.dashboard-wrapper { overflow-x: auto; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border-glass); max-height: calc(100vh - 350px); overflow-y: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
+thead { position: sticky; top: 0; z-index: 10; background: var(--bg-primary); }
+th { padding: 1rem; text-align: left; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
+td { padding: 1rem; border-bottom: 1px solid var(--border-glass); color: var(--text-secondary); vertical-align: middle; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+tr:last-child td { border-bottom: none; }
 .nowrap-cell { white-space: nowrap; } .min-w-150 { min-width: 150px; }
 .cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; } .cell-list-item:last-child { margin-bottom: 0; }
 .action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
-.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; }
+.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; cursor: pointer; }
 
-/* Map View Styling */
 /* Map Layout with Sidebar */
 .map-layout { display: flex; height: calc(100vh - 200px); min-height: 500px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); overflow: hidden; background: #1a1a24; }
 .map-sidebar { width: 300px; background: var(--bg-card); display: flex; flex-direction: column; border-right: 1px solid var(--border-glass); z-index: 10; }
@@ -243,6 +254,25 @@ require_once 'header.php';
 .legend-item-map { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 6px; }
 .legend-color { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 
+.empty-state { text-align: center; padding: 4rem 2rem; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px dashed var(--border-glass); color: var(--text-muted); }
+
+/* --- Checkbox Styling for Island Filter --- */
+.checkbox-group { display: flex; gap: 15px; align-items: center; height: 42px; }
+.checkbox-item { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.checkbox-item input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 1px solid var(--border-glass); border-radius: 4px; background: var(--bg-primary); cursor: pointer; position: relative; transition: 0.2s; }
+.checkbox-item input[type="checkbox"]:checked { background: var(--primary-color); border-color: var(--primary-color); }
+.checkbox-item input[type="checkbox"]:checked::after { content: "✔"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 10px; }
+.checkbox-item label { font-size: 0.9rem; color: var(--text-primary); cursor: pointer; user-select: none; margin: 0; padding: 0; }
+
+/* Advanced KPIs Table */
+.kpi-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 10px; }
+.kpi-table th, .kpi-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.kpi-table th:first-child, .kpi-table td:first-child { text-align: left; }
+.kpi-table th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; }
+.kpi-table td { color: #fff; font-weight: 500; }
+.kpi-table tr:hover td { background: rgba(255,255,255,0.02); }
+.total-col { color: var(--primary-color) !important; font-weight: 800 !important; }
+
 /* Generic Iframe Modal (Widened for Execution Hub) */
 #genericIframeModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .modal-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 95%; max-width: 1400px; height: 95%; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
@@ -251,17 +281,13 @@ require_once 'header.php';
 .modal-close { font-size: 1.5rem; cursor: pointer; color: var(--text-muted); line-height: 1; transition: color 0.2s; }
 .modal-close:hover { color: #ef4444; }
 #genericIframe { flex: 1; width: 100%; border: none; background: var(--bg-card); }
-
 </style>
 
 <div class="main-container">
     <h1 class="page-title"><?= htmlspecialchars($dashboardType) ?></h1>
 
     <?php if ($dashboardType === 'None'): ?>
-        <div class="empty-state card">
-            <h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2>
-            <p>Please use the navigation menu above to access your specific modules.</p>
-        </div>
+        <div class="empty-state card"><h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2><p>Please use the navigation menu above to access your specific modules.</p></div>
     <?php else: ?>
         
         <div class="stats-grid">
@@ -517,7 +543,7 @@ require_once 'header.php';
     <div class="modal-wrapper">
         <div class="modal-header">
             <h2 id="genericModalTitle">Dashboard Viewer</h2>
-            <span class="modal-close" onclick="closeGenericModal()">&times;</span>
+            <span class="modal-close" onclick="closeGenericModal()">×</span>
         </div>
         <iframe id="genericIframe" src=""></iframe>
     </div>
@@ -562,7 +588,6 @@ window.addEventListener('message', function(event) {
         closeGenericModal();
     }
 });
-
 
 // --- Island Filter Logic ---
 document.addEventListener('DOMContentLoaded', function() {
@@ -678,7 +703,7 @@ function initMap() {
             </div>
         `;
 
-        marker.bindPopup(finalPopupContent);
+        marker.bindPopup(popupContent);
         markersGroup.addLayer(marker);
         
         p.leafletMarker = marker;
