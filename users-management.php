@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'manage_professionals' => isset($_POST['manage_professionals']) ? 1 : 0,
         'manage_users' => isset($_POST['manage_users']) ? 1 : 0,
         'manage_subcontractors' => isset($_POST['manage_subcontractors']) ? 1 : 0,
+        // Subcontractor Accounts (Action)
         'view_subcontractor_accounts' => isset($_POST['view_subcontractor_accounts']) ? 1 : 0,
         'manage_subcontractor_accounts' => isset($_POST['manage_subcontractor_accounts']) ? 1 : 0,
         // Navigation Visibility Flags
@@ -34,6 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'view_drawings' => isset($_POST['view_drawings']) ? 1 : 0,
         'view_property_sales' => isset($_POST['view_property_sales']) ? 1 : 0,
         'view_capital_projects' => isset($_POST['view_capital_projects']) ? 1 : 0,
+        // Subcontractor Accounts (Menu)
+        'view_nav_subcontractors' => isset($_POST['view_nav_subcontractors']) ? 1 : 0,
     ];
 
     if ($action === 'create_user') {
@@ -58,8 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     INSERT INTO user_capabilities (
                         user_id, view_tracking, add_project, edit_project_details, update_project_status, 
                         edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
-                        view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, 'view_subcontractor_accounts', 'manage_subcontractor_accounts'
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        view_subcontractor_accounts, manage_subcontractor_accounts,
+                        view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $params = array_values($caps);
                 array_unshift($params, $newId);
@@ -92,15 +96,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INSERT INTO user_capabilities (
                     user_id, view_tracking, add_project, edit_project_details, update_project_status, 
                     edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
-                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, 'view_subcontractor_accounts', 'manage_subcontractor_accounts'
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    view_subcontractor_accounts, manage_subcontractor_accounts,
+                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                     view_tracking=VALUES(view_tracking), add_project=VALUES(add_project), edit_project_details=VALUES(edit_project_details), 
                     update_project_status=VALUES(update_project_status), edit_services=VALUES(edit_services), assign_actions=VALUES(assign_actions), 
                     manage_clients=VALUES(manage_clients), manage_professionals=VALUES(manage_professionals), manage_users=VALUES(manage_users), 
-                    manage_subcontractors=VALUES(manage_subcontractors), view_mobilisation=VALUES(view_mobilisation), view_projects=VALUES(view_projects), 
+                    manage_subcontractors=VALUES(manage_subcontractors), 
+                    view_subcontractor_accounts=VALUES(view_subcontractor_accounts), manage_subcontractor_accounts=VALUES(manage_subcontractor_accounts),
+                    view_mobilisation=VALUES(view_mobilisation), view_projects=VALUES(view_projects), 
                     view_ohsa=VALUES(view_ohsa), view_works_sales=VALUES(view_works_sales), view_documentation=VALUES(view_documentation), 
-                    view_drawings=VALUES(view_drawings), view_property_sales=VALUES(view_property_sales), view_capital_projects=VALUES(view_capital_projects)
+                    view_drawings=VALUES(view_drawings), view_property_sales=VALUES(view_property_sales), view_capital_projects=VALUES(view_capital_projects),
+                    view_nav_subcontractors=VALUES(view_nav_subcontractors)
             ");
             $params = array_values($caps);
             array_unshift($params, $userId);
@@ -224,14 +232,8 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_professionals" id="edit_cap_manage_professionals" <?= !empty($selectedUser['manage_professionals']) ? 'checked' : '' ?>> Manage Professionals</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_subcontractors" id="edit_cap_manage_subcontractors" <?= !empty($selectedUser['manage_subcontractors']) ? 'checked' : '' ?>> Manage Subcontractors</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_users" id="edit_cap_manage_users" <?= !empty($selectedUser['manage_users']) ? 'checked' : '' ?>> Manage Users</label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" class="cap-check-edit" name="view_subcontractor_accounts" value="1" <?= $u['view_subcontractor_accounts'] ? 'checked' : '' ?>> 
-                                View Subcontractor Accounts
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" class="cap-check-edit" name="manage_subcontractor_accounts" value="1" <?= $u['manage_subcontractor_accounts'] ? 'checked' : '' ?>> 
-                                Manage Subcontractor Accounts
-                            </label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_subcontractor_accounts" id="edit_cap_view_subcontractor_accounts" <?= !empty($selectedUser['view_subcontractor_accounts']) ? 'checked' : '' ?>> View Subcon. Accounts</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_subcontractor_accounts" id="edit_cap_manage_subcontractor_accounts" <?= !empty($selectedUser['manage_subcontractor_accounts']) ? 'checked' : '' ?>> Manage Subcon. Accounts</label>
                         </div>
 
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Menu Navigation Visibility</h4>
@@ -244,6 +246,7 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_works_sales" id="edit_cap_view_works_sales" <?= !empty($selectedUser['view_works_sales']) ? 'checked' : '' ?>> Works Sales</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_property_sales" id="edit_cap_view_property_sales" <?= !empty($selectedUser['view_property_sales']) ? 'checked' : '' ?>> Property Sales</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_capital_projects" id="edit_cap_view_capital_projects" <?= !empty($selectedUser['view_capital_projects']) ? 'checked' : '' ?>> Capital Projects</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_nav_subcontractors" id="edit_cap_view_nav_subcontractors" <?= !empty($selectedUser['view_nav_subcontractors']) ? 'checked' : '' ?>> Subcon. Accounts Menu</label>
                         </div>
                     </div>
 
@@ -392,11 +395,11 @@ window.onclick = function(event) { if (event.target == document.getElementById('
 
 // Capability Defaults Script
 const roleDefaults = {
-    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
+    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors'],
     'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
     'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
     'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts'],
+    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors'],
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings'],
