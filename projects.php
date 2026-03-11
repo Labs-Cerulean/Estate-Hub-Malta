@@ -83,10 +83,10 @@ if (!empty($projectIds)) {
     $mobStmt->execute($projectIds);
     foreach ($mobStmt->fetchAll() as $row) { $mobData[$row['project_id']] = $row; }
     
-    // Fetch Block & Floor Construction Statuses (needed for sorting/filtering aggregation)
+    // Fetch Block & Floor Construction Statuses (NOW INCLUDES construction_pct)
     $blockStmt = $pdo->prepare("
         SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, 
-               bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status 
+               bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status, bl.construction_pct
         FROM project_blocks pb 
         LEFT JOIN block_levels bl ON pb.id = bl.block_id 
         WHERE pb.project_id IN ($placeholders)
@@ -100,7 +100,7 @@ if (!empty($projectIds)) {
         $blockAggData[$row['project_id']][] = $row; 
     }
 
-    // Fetch individual floor finishes statuses (required for the enhanced dropdown)
+    // Fetch individual floor finishes statuses
     $finStmt = $pdo->prepare("
         SELECT bls.project_id, bls.block_id, bls.level_id, bls.finish_type_id, bls.status
         FROM block_levels_statuses bls
@@ -118,14 +118,12 @@ if (!empty($projectIds)) {
 
 // 5. Build Final Matrix Array with derived statuses
 $matrixProjects = [];
-$today = new DateTime();
 
 foreach ($projectsRaw as $p) {
     if (($p['project_status'] ?? 'Active') !== 'Active') continue;
 
     $stage = deriveProjectStage($pdo, $p['id']);
     
-    // Stage Filter is applied here before doing heavy calculations
     if (in_array($stage, $allowedStages)) {
         if ($filterStage !== 'all' && $stage !== $filterStage) continue;
 
@@ -135,11 +133,10 @@ foreach ($projectsRaw as $p) {
         
         $projConstStatuses = [];
         $projFinStatuses = [];
-        $p['detailed_blocks'] = []; // Setup for enhanced dropdown
+        $p['detailed_blocks'] = []; 
 
         if (isset($blockAggData[$p['id']])) {
             $blocksData = [];
-            // Group by block first
             foreach ($blockAggData[$p['id']] as $row) {
                 $blocksData[$row['block_id']]['name'] = $row['block_name'];
                 $blocksData[$row['block_id']]['master_finishes'] = $row['finishes_overall_status'];
@@ -158,7 +155,6 @@ foreach ($projectsRaw as $p) {
                         $blockConstStatuses[] = $lvl['construction_status'];
                         $projConstStatuses[] = $lvl['construction_status'];
 
-                        // CALCULATE INDIVIDUAL FLOOR FINISHES STATUS
                         $floorStatus = 'NA';
                         if (!in_array($p['finishlevel'], ['Shell', null, ''])) {
                             $statuses = $floorFinishesData[$p['id']][$bid][$lvl['level_id']] ?? [];
@@ -174,16 +170,15 @@ foreach ($projectsRaw as $p) {
                         }
                         $blockFinStatuses[] = $floorStatus;
                         
-                        // Data for dropdown UI
                         $levelDetails[] = [
                             'name' => $lvl['level_name'],
                             'const_status' => $lvl['construction_status'] ?? 'Pending',
+                            'const_pct' => $lvl['construction_pct'] ?? 0,
                             'fin_status' => $floorStatus
                         ];
                     }
                 }
 
-                // Aggregate Block Finishes (if not defined by PA, use dynamic calc)
                 $bFinStatus = $b['master_finishes'];
                 if (empty($bFinStatus) || $bFinStatus === 'Pending') {
                     if (in_array($p['finishlevel'], ['Shell', null, ''])) { $bFinStatus = 'NA'; }
@@ -196,7 +191,6 @@ foreach ($projectsRaw as $p) {
                 }
                 $projFinStatuses[] = $bFinStatus;
 
-                // Add to detailed data for dropdown
                 $p['detailed_blocks'][] = [
                     'name' => $b['name'],
                     'master_finishes' => $bFinStatus,
@@ -205,7 +199,6 @@ foreach ($projectsRaw as $p) {
             }
         }
         
-        // AGGREGATE PROJECT HIGH-LEVEL STATUSES (Construction & Finishes)
         $p['const_status'] = 'Pending';
         if (!empty($projConstStatuses)) {
             if (in_array('In Progress', $projConstStatuses)) { $p['const_status'] = 'In Progress'; }
@@ -224,7 +217,6 @@ foreach ($projectsRaw as $p) {
             else { $p['fin_status'] = 'Pending'; }
         }
 
-        // Map PMs and Subs names for sorting/display
         $p['pm_const_name'] = 'Unassigned'; $p['pm_fin_name'] = 'Unassigned';
         foreach ($pms as $pm) {
             if ($pm['id'] == $p['pm_construction_id']) $p['pm_const_name'] = $pm['first_name'] . ' ' . $pm['last_name'];
@@ -242,12 +234,10 @@ foreach ($projectsRaw as $p) {
     }
 }
 
-// 6. APPLY REMAINING FILTERS (Type, Finish, City, Client, PM, Sub)
 if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
 if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
 if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['city'] === $filterCity);
 
-// --- THE FIX: Smart Umbrella Group Client Filter ---
 if ($filterClient !== 'all') {
     if ($filterClient === 'group_excel') {
         $matrixProjects = array_filter($matrixProjects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
@@ -257,13 +247,11 @@ if ($filterClient !== 'all') {
         $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
     }
 }
-// ---------------------------------------------------
 
 if ($filterPm !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
 if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub)); }
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
 
-// 7. APPLY SORTS
 $stageEnumMap = ['Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
 
@@ -284,16 +272,14 @@ usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageEnumMap,
     }
 
     if ($valA == $valB) return 0;
-    
     if (is_numeric($valA) && is_numeric($valB)) { $comp = $valA <=> $valB; } 
     else { $comp = strcasecmp((string)$valA, (string)$valB); }
     
     return $sortOrder === 'ASC' ? $comp : -$comp;
 });
 
-$matrixProjects = array_values($matrixProjects); // Re-index array
+$matrixProjects = array_values($matrixProjects);
 
-// Helper functions for sort headers
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterStage, $filterType, $filterFinish, $filterCity, $filterClient, $filterIsland, $filterPm, $filterSub;
     $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
@@ -336,12 +322,10 @@ require_once 'header.php';
 .matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
 .matrix-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; }
 
-/* Header Sort Links */
 .sort-link { color: inherit; text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .sort-link:hover { color: var(--primary-color); }
 .sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 
-/* Sticky Columns for Main Rows */
 .matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
 .matrix-table tbody tr.main-row td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); }
 .matrix-table thead th:last-child { position: sticky; right: 0; z-index: 20; border-left: 2px solid var(--border-glass); }
@@ -351,7 +335,6 @@ require_once 'header.php';
 .matrix-table tbody tr.main-row:hover td:first-child,
 .matrix-table tbody tr.main-row:hover td:last-child { background: #2a2a3b; }
 
-/* Sub-row Styling (Dropdown) */
 .sub-row td.sub-content { background: rgba(99, 102, 241, 0.05); border-bottom: 2px solid var(--border-glass); padding: 0; }
 .sub-row td.sticky-left { position: sticky; left: 0; background: #1a1a24; z-index: 5; border-right: 2px solid var(--border-glass); border-bottom: 2px solid var(--border-glass); }
 .sub-row td.sticky-right { position: sticky; right: 0; background: #1a1a24; z-index: 5; border-left: 2px solid var(--border-glass); border-bottom: 2px solid var(--border-glass); }
@@ -359,7 +342,6 @@ require_once 'header.php';
 .btn-expand { background: none; border: 1px solid var(--border-glass); color: var(--text-primary); border-radius: 4px; cursor: pointer; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; margin-right: 0.5rem; font-weight: bold; transition: all 0.2s; }
 .btn-expand:hover { background: rgba(255,255,255,0.1); }
 
-/* Modal */
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
@@ -413,12 +395,10 @@ require_once 'header.php';
                     <label>Client</label>
                     <select name="filter_client">
                         <option value="all">All Clients</option>
-                        
                         <optgroup label="Umbrella Groups">
                             <option value="group_excel" <?= $filterClient === 'group_excel' ? 'selected' : '' ?>>🏢 Excel Group (All)</option>
                             <option value="group_blue_clay" <?= $filterClient === 'group_blue_clay' ? 'selected' : '' ?>>🏢 Blue Clay Collection (All)</option>
                         </optgroup>
-                        
                         <optgroup label="Individual Clients">
                             <?php foreach ($clients as $client): ?>
                                 <option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option>
@@ -578,7 +558,12 @@ require_once 'header.php';
                                                         <?php foreach ($b['levels'] as $lvl): ?>
                                                             <tr>
                                                                 <td style="padding: 0.5rem 0; color: var(--text-primary); border-bottom: 1px solid rgba(255,255,255,0.02); font-weight: 500;"><?= htmlspecialchars($lvl['name']) ?></td>
-                                                                <td style="padding: 0.5rem 0.5rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.02);"><?= renderStatusBadge($lvl['const_status'], true) ?></td>
+                                                                <td style="padding: 0.5rem 0.5rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.02);">
+                                                                    <?= renderStatusBadge($lvl['const_status'], true) ?>
+                                                                    <?php if($lvl['const_status'] === 'In Progress' && $lvl['const_pct'] > 0): ?>
+                                                                        <div style="font-size: 0.65rem; color: var(--primary-color); margin-top: 2px; font-weight: bold;"><?= (float)$lvl['const_pct'] ?>%</div>
+                                                                    <?php endif; ?>
+                                                                </td>
                                                                 <td style="padding: 0.5rem 0; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.02);"><?= renderStatusBadge($lvl['fin_status'], true) ?></td>
                                                             </tr>
                                                         <?php endforeach; ?>
@@ -722,6 +707,5 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-
 
 <?php require_once 'footer.php'; ?>
