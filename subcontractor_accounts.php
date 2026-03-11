@@ -71,10 +71,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id) 
 // Fetch global lists for modals
 $allSubcontractors = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name ASC")->fetchAll();
 $clientProjects = [];
+
 if ($selected_client_id) {
-    $cpStmt = $pdo->prepare("SELECT id, name FROM projects WHERE clientid = ? ORDER BY name ASC");
-    $cpStmt->execute([$selected_client_id]);
-    $clientProjects = $cpStmt->fetchAll();
+    // Determine if the selected client is PRA Construction
+    $isPRA = false;
+    foreach ($accessibleClients as $c) {
+        if ($c['id'] == $selected_client_id && stripos($c['name'], 'PRA Construction') !== false) {
+            $isPRA = true; 
+            break;
+        }
+    }
+
+    if ($isPRA) {
+        // SPECIAL RULE: Include PRA's projects AND any client with "Excel" in the name
+        $cpStmt = $pdo->prepare("
+            SELECT p.id, p.name, c.name as client_name 
+            FROM projects p
+            LEFT JOIN clients c ON p.clientid = c.id
+            WHERE p.clientid = ? OR c.name LIKE '%Excel%'
+            ORDER BY c.name ASC, p.name ASC
+        ");
+        $cpStmt->execute([$selected_client_id]);
+        $clientProjects = $cpStmt->fetchAll();
+    } else {
+        // STANDARD RULE: Only projects belonging to the selected client
+        $cpStmt = $pdo->prepare("SELECT id, name FROM projects WHERE clientid = ? ORDER BY name ASC");
+        $cpStmt->execute([$selected_client_id]);
+        $clientProjects = $cpStmt->fetchAll();
+    }
 }
 
 $pageTitle = 'Subcontractor Accounts';
@@ -240,12 +264,13 @@ require_once 'header.php';
 
             // Fetch Works & Calculate iteratively from transactions
             $wStmt = $pdo->prepare("
-                SELECT w.*, p.name as project_name,
+                SELECT w.*, p.name as project_name, c.name as project_client_name,
                 (SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = w.id AND transaction_type = 'Certification') as cert_total,
                 (SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = w.id AND transaction_type = 'Invoice') as inv_total,
                 (SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = w.id AND transaction_type = 'Payment') as pay_total
                 FROM subcontractor_works w 
                 LEFT JOIN projects p ON w.project_id = p.id 
+                LEFT JOIN clients c ON p.clientid = c.id
                 WHERE w.subcontractor_id = ? AND w.client_id = ? 
                 ORDER BY w.id DESC
             ");
@@ -343,7 +368,12 @@ require_once 'header.php';
                             <tr>
                                 <td>
                                     <div style="font-weight: 600; font-size: 0.95rem;"><?= htmlspecialchars($w['work_reference']) ?></div>
-                                    <div style="color: var(--text-muted);"><?= htmlspecialchars($w['project_name'] ?? 'General') ?></div>
+                                    <div style="color: var(--text-muted);">
+                                        <?= htmlspecialchars($w['project_name'] ?? 'General') ?>
+                                        <?php if (!empty($w['project_client_name']) && stripos($w['project_client_name'], 'Excel') !== false): ?>
+                                            <span style="color: #8B5CF6;">(<?= htmlspecialchars($w['project_client_name']) ?>)</span>
+                                        <?php endif; ?>
+                                    </div>
                                     <?php if(!empty($w['po_reference'])): ?>
                                         <div class="badge-po">PO: <?= htmlspecialchars($w['po_reference']) ?></div>
                                     <?php endif; ?>
@@ -456,7 +486,12 @@ require_once 'header.php';
                         <label>Project</label>
                         <select name="project_id" id="w_project_id">
                             <option value="">-- General / No Specific Project --</option>
-                            <?php foreach($clientProjects as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option><?php endforeach; ?>
+                            <?php foreach($clientProjects as $p): ?>
+                                <option value="<?= $p['id'] ?>">
+                                    <?= htmlspecialchars($p['name']) ?>
+                                    <?= isset($p['client_name']) && $p['client_name'] ? ' (' . htmlspecialchars($p['client_name']) . ')' : '' ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
 
