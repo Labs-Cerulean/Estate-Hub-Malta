@@ -126,8 +126,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
             if ($type === 'Certification' && isset($_POST['cert_boq_id'])) {
                 $amountExc = 0;
                 $updateBoq = $pdo->prepare("UPDATE subcontractor_boq SET pct_complete = ? WHERE id = ?");
-                
-                // NEW: Update both status AND percentage in the block levels table
                 $updateLevel = $pdo->prepare("UPDATE block_levels SET construction_status = ?, construction_pct = ? WHERE id = ?");
                 
                 for ($i = 0; $i < count($_POST['cert_boq_id']); $i++) {
@@ -875,7 +873,9 @@ require_once 'header.php';
             const work_id = document.getElementById('t_work_id').value;
 
             if (currentModalIsMeasured && type === 'Certification' && work_id) {
+                // Ensure required field doesn't block submission when hidden
                 document.getElementById('t_amount_group').style.display = 'none';
+                document.getElementById('t_amount').removeAttribute('required'); 
                 document.getElementById('measuredCertGrid').style.display = 'block';
                 
                 const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
@@ -884,27 +884,33 @@ require_once 'header.php';
                 
                 let html = '';
                 boq.forEach(b => {
+                    // Safe numeric parsing so UI never breaks
+                    const prevPct = parseFloat(b.pct_complete) || 0;
+                    const totalExc = parseFloat(b.total_exc) || 0;
+
                     html += `<tr>
                         <td>
                             <input type="hidden" name="cert_boq_id[]" value="${b.id}">
                             <input type="hidden" name="cert_level_id[]" value="${b.block_level_id || ''}">
-                            <input type="hidden" class="c-total" value="${b.total_exc}">
-                            <input type="hidden" class="c-prev" value="${b.pct_complete}">
+                            <input type="hidden" class="c-total" value="${totalExc}">
+                            <input type="hidden" class="c-prev" value="${prevPct}">
                             ${b.description}
                         </td>
-                        <td>€${b.total_exc}</td>
-                        <td>${b.pct_complete}%</td>
-                        <td><input type="number" step="0.01" max="100" name="cert_new_pct[]" class="boq-input c-new" value="${b.pct_complete}" oninput="calcCert()"></td>
+                        <td>€${totalExc.toFixed(2)}</td>
+                        <td style="font-weight: bold; color: var(--text-secondary);">${prevPct.toFixed(1)}%</td>
+                        <td><input type="number" step="0.01" min="${prevPct}" max="100" name="cert_new_pct[]" class="boq-input c-new" value="${prevPct}" oninput="calcCert()"></td>
                         <td>
                             <input type="hidden" name="cert_val_added[]" class="c-added-val" value="0">
-                            <span class="c-val-text">€0.00</span>
+                            <span class="c-val-text" style="color: var(--primary-color); font-weight: bold;">€0.00</span>
                         </td>
                     </tr>`;
                 });
                 document.getElementById('certBody').innerHTML = html;
-                calcCert(); // Initialize 0s
+                calcCert(); // Initialize totals
             } else {
+                // Standard mode
                 document.getElementById('t_amount_group').style.display = 'block';
+                document.getElementById('t_amount').setAttribute('required', 'true');
                 document.getElementById('measuredCertGrid').style.display = 'none';
             }
         }
@@ -915,16 +921,28 @@ require_once 'header.php';
             const rows = document.querySelectorAll('#certBody tr');
             
             rows.forEach(row => {
-                let tot = parseFloat(row.querySelector('.c-total').value);
-                let prev = parseFloat(row.querySelector('.c-prev').value);
-                let current = parseFloat(row.querySelector('.c-new').value) || prev;
-                
+                let tot = parseFloat(row.querySelector('.c-total').value) || 0;
+                let prev = parseFloat(row.querySelector('.c-prev').value) || 0;
+                let newPctInput = row.querySelector('.c-new');
+                let current = parseFloat(newPctInput.value);
+
+                if (isNaN(current)) current = prev;
+
+                // NATIVE JS RESTRAINTS
+                if (current > 100) {
+                    current = 100;
+                    newPctInput.value = 100;
+                } else if (current < prev) {
+                    current = prev;
+                    newPctInput.value = prev;
+                }
+
                 if (current > prev) {
                     let diff = current - prev;
                     let val = tot * (diff / 100);
                     certExc += val;
                     row.querySelector('.c-added-val').value = val.toFixed(2);
-                    row.querySelector('.c-val-text').innerText = '€' + val.toFixed(2);
+                    row.querySelector('.c-val-text').innerText = '+ €' + val.toFixed(2);
                 } else {
                     row.querySelector('.c-added-val').value = 0;
                     row.querySelector('.c-val-text').innerText = '€0.00';
@@ -934,6 +952,9 @@ require_once 'header.php';
             let certInc = certExc + (certExc * (vatRate / 100));
             document.getElementById('certExcTotal').innerText = '€' + certExc.toFixed(2);
             document.getElementById('certIncTotal').innerText = '€' + certInc.toFixed(2);
+
+            // Populate the hidden amount field to guarantee smooth backend saving
+            document.getElementById('t_amount').value = certInc.toFixed(2);
         }
 
         function openWorkModal(data = null) {
