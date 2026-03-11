@@ -130,16 +130,20 @@ $cities = $citiesStmt->fetchAll(PDO::FETCH_COLUMN);
 $clientsStmt = $pdo->query("SELECT id, name FROM clients ORDER BY name");
 $clients = $clientsStmt->fetchAll();
 
-function formatPANumber($paStr) {
-    $paStr = preg_replace('/[^0-9]/', '', $paStr);
-    if (strlen($paStr) > 2) return "PA " . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
-    return "PA " . $paStr;
+if (!function_exists('formatPANumber')) {
+    function formatPANumber($paStr) {
+        $paStr = preg_replace('/[^0-9]/', '', $paStr);
+        if (strlen($paStr) > 2) return "PA " . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
+        return "PA " . $paStr;
+    }
 }
 
-function buildPaUrl($paStr) {
-    $paStr = preg_replace('/[^0-9]/', '', $paStr);
-    if (strlen($paStr) > 2) return "https://www.pa.org.mt/en/pacasedetails?CaseType=PA/" . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
-    return "";
+if (!function_exists('buildPaUrl')) {
+    function buildPaUrl($paStr) {
+        $paStr = preg_replace('/[^0-9]/', '', $paStr);
+        if (strlen($paStr) > 2) return "https://www.pa.org.mt/en/pacasedetails?CaseType=PA/" . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
+        return "";
+    }
 }
 
 function getSortUrl($column) {
