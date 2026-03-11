@@ -158,7 +158,22 @@ usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
 
 function getSortUrl($column) { global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView; $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC'; return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&sort=$column&order=$newOrder"; }
 function getSortIndicator($column) { global $sortBy, $sortOrder; if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼'; return ''; }
-function buildPaUrl(?string $paNumber): ?string { if (empty($paNumber)) return null; if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null; return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
+
+if (!function_exists('formatPANumber')) {
+    function formatPANumber($paStr) {
+        $paStr = preg_replace('/[^0-9]/', '', $paStr);
+        if (strlen($paStr) > 2) return "PA " . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
+        return "PA " . $paStr;
+    }
+}
+
+if (!function_exists('buildPaUrl')) {
+    function buildPaUrl($paStr) {
+        $paStr = preg_replace('/[^0-9]/', '', $paStr);
+        if (strlen($paStr) > 2) return "https://www.pa.org.mt/en/pacasedetails?CaseType=PA/" . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
+        return "";
+    }
+}
 
 $pageTitle = $dashboardType;
 require_once 'header.php';
@@ -205,9 +220,8 @@ tr:last-child td { border-bottom: none; }
 .nowrap-cell { white-space: nowrap; } .min-w-150 { min-width: 150px; }
 .cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; } .cell-list-item:last-child { margin-bottom: 0; }
 .action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
-.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; }
+.action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; cursor: pointer; }
 
-/* Map View Styling */
 /* Map Layout with Sidebar */
 .map-layout { display: flex; height: calc(100vh - 200px); min-height: 500px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); overflow: hidden; background: #1a1a24; }
 .map-sidebar { width: 300px; background: var(--bg-card); display: flex; flex-direction: column; border-right: 1px solid var(--border-glass); z-index: 10; }
@@ -219,18 +233,26 @@ tr:last-child td { border-bottom: none; }
 .map-item-meta { font-size: 0.75rem; color: var(--text-secondary); display: flex; justify-content: space-between; }
 .map-container { flex: 1; position: relative; height: 100%; border: none; border-radius: 0; }
 #projectMap { height: 100%; width: 100%; z-index: 1; }
+
 .leaflet-popup-content-wrapper { background: var(--bg-card); color: var(--text-primary); border-radius: 8px; border: 1px solid var(--border-glass); box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
 .leaflet-popup-tip { background: var(--bg-card); border: 1px solid var(--border-glass); }
 .popup-title { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 0.25rem; }
 .popup-meta { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
-.popup-btn { display: block; box-sizing: border-box; background: var(--primary-color); color: #ffffff !important; padding: 0.6rem 1rem; margin-top: 0.75rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--primary-color); transition: 0.2s; }
-.popup-btn:hover { background: #0284c7; }
 .custom-pin { border-radius: 50%; border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.5); background: #fff; overflow: hidden; display: flex; justify-content: center; align-items: center; }
 .custom-pin-inner { width: 100%; height: 100%; border-radius: 50%; }
 
-.map-legend { position: absolute; bottom: 30px; left: 20px; z-index: 1000; background: rgba(30, 30, 45, 0.9); backdrop-filter: blur(10px); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); box-shadow: 0 4px 15px rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; max-width: 200px; }
+/* Fixed Map Legend */
+.map-legend { 
+    position: absolute; bottom: 30px; left: 20px; z-index: 1000; 
+    background: rgba(30, 30, 45, 0.9); backdrop-filter: blur(10px); 
+    padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; 
+    width: auto; min-width: 200px; max-width: 350px;
+    max-height: 250px; overflow-y: auto; 
+}
 .legend-title { font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; }
-.legend-color { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+.legend-item-map { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 6px; }
+.legend-color { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 
 .empty-state { text-align: center; padding: 4rem 2rem; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px dashed var(--border-glass); color: var(--text-muted); }
 
@@ -251,15 +273,14 @@ tr:last-child td { border-bottom: none; }
 .kpi-table tr:hover td { background: rgba(255,255,255,0.02); }
 .total-col { color: var(--primary-color) !important; font-weight: 800 !important; }
 
-/* Edit Project iframe Modal */
-#editProjectModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
-.modal-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 1000px; height: 90%; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+/* Generic Iframe Modal (Widened for Execution Hub) */
+#genericIframeModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
+.modal-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 95%; max-width: 1400px; height: 95%; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
 .modal-header { padding: 1rem 1.5rem; background: var(--bg-primary); border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; }
 .modal-header h2 { margin: 0; font-size: 1.2rem; color: var(--primary-color); }
 .modal-close { font-size: 1.5rem; cursor: pointer; color: var(--text-muted); line-height: 1; transition: color 0.2s; }
 .modal-close:hover { color: #ef4444; }
-#editProjectIframe { flex: 1; width: 100%; border: none; background: var(--bg-card); }
-
+#genericIframe { flex: 1; width: 100%; border: none; background: var(--bg-card); }
 </style>
 
 <div class="main-container">
@@ -452,12 +473,15 @@ tr:last-child td { border-bottom: none; }
 
                                     <td>
                                         <div class="action-buttons-wrapper">
-                                            <?php if (hasPermission('view_mobilisation') || $isAdmin): ?><a href="mobilisation_detail.php?project_id=<?= $project['id'] ?>" class="btn btn-sm btn-primary"><?= canUpdateStatus($pdo, $project['id']) ? 'Execution' : 'View Hub' ?></a><?php endif; ?>
+                                            <?php if (hasPermission('view_mobilisation') || $isAdmin): ?>
+                                                <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-primary"><?= canUpdateStatus($pdo, $project['id']) ? 'Execution' : 'View Hub' ?></button>
+                                            <?php endif; ?>
+                                            
                                             <?php if (hasPermission('view_property_sales') || $isAdmin): ?><a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white; border: none;">Sales</a><?php endif; ?>
                                             <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?><a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white; border: none;">Capital</a><?php endif; ?>
                                             
                                             <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
-                                                <button type="button" onclick="openEditModal(<?= $project['id'] ?>, '<?= htmlspecialchars($project['name'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-sm btn-secondary">Edit</button>
+                                                <button type="button" onclick="openEditModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary">Edit</button>
                                             <?php endif; ?>
                                         </div>
                                     </td>
@@ -497,27 +521,33 @@ tr:last-child td { border-bottom: none; }
     <?php endif; ?>
 </div>
 
-<div id="editProjectModal">
+<div id="genericIframeModal">
     <div class="modal-wrapper">
         <div class="modal-header">
-            <h2 id="modalProjectTitle">Edit Project</h2>
-            <span class="modal-close" onclick="closeEditModal()">×</span>
+            <h2 id="genericModalTitle">Dashboard Viewer</h2>
+            <span class="modal-close" onclick="closeGenericModal()">×</span>
         </div>
-        <iframe id="editProjectIframe" src=""></iframe>
+        <iframe id="genericIframe" src=""></iframe>
     </div>
 </div>
 
 <script>
-// --- Modal & Scroll Preservation Logic ---
+// --- Iframe Modal Logic ---
 function openEditModal(projectId, projectName) {
-    document.getElementById('modalProjectTitle').innerText = 'Edit Project: ' + projectName;
-    document.getElementById('editProjectIframe').src = 'edit-project.php?id=' + projectId + '&modal=1';
-    document.getElementById('editProjectModal').style.display = 'block';
+    document.getElementById('genericModalTitle').innerText = 'Edit Project: ' + projectName;
+    document.getElementById('genericIframe').src = 'edit-project.php?id=' + projectId + '&modal=1';
+    document.getElementById('genericIframeModal').style.display = 'block';
 }
 
-function closeEditModal() {
-    document.getElementById('editProjectModal').style.display = 'none';
-    document.getElementById('editProjectIframe').src = '';
+function openExecutionModal(projectId, projectName) {
+    document.getElementById('genericModalTitle').innerText = 'Execution Hub: ' + projectName;
+    document.getElementById('genericIframe').src = 'mobilisation_detail.php?project_id=' + projectId + '&modal=1';
+    document.getElementById('genericIframeModal').style.display = 'block';
+}
+
+function closeGenericModal() {
+    document.getElementById('genericIframeModal').style.display = 'none';
+    document.getElementById('genericIframe').src = '';
 }
 
 // When dashboard loads, immediately jump back to exact scroll position if saved
@@ -533,12 +563,11 @@ document.addEventListener("DOMContentLoaded", function() {
 // Listen for messages from the iframe (Success Save or Invalid Project)
 window.addEventListener('message', function(event) {
     if (event.data === 'projectUpdated') {
-        // Save exact table scroll position before reloading
         let wrapper = document.querySelector('.dashboard-wrapper');
         if (wrapper) sessionStorage.setItem('dashboard_scrollpos', wrapper.scrollTop);
         window.location.reload();
     } else if (event.data === 'closeModal') {
-        closeEditModal();
+        closeGenericModal();
     }
 });
 
@@ -609,13 +638,13 @@ function initMap() {
 
     projectsData.forEach(p => {
         let coords;
-        let hasExactLocation = false; // Flag to track if we have real GPS data
+        let hasExactLocation = false;
         
         if (p.latitude && p.longitude && p.latitude !== '' && p.longitude !== '') {
             coords = [parseFloat(p.latitude), parseFloat(p.longitude)];
-            hasExactLocation = true; // We have an exact pin!
+            hasExactLocation = true;
         } else {
-            coords = localityCoords[p.city] || [35.91, 14.4]; // Fallback to town center
+            coords = localityCoords[p.city] || [35.91, 14.4];
         }
 
         const clientName = p.client_name || 'In-House (Internal)';
@@ -625,7 +654,6 @@ function initMap() {
         const customIcon = L.divIcon({ className: 'custom-pin', html: `<div class="custom-pin-inner" style="background-color: ${pinColor};"></div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
         const marker = L.marker(coords, { icon: customIcon });
         
-        // CONDITIONAL GOOGLE MAPS HTML
         let mapLinksHtml = '';
         if (hasExactLocation) {
             const googleMapsUrl = `https://maps.google.com/?q=${coords[0]},${coords[1]}`;
@@ -638,6 +666,8 @@ function initMap() {
             `;
         }
         
+        const safeName = p.name.replace(/'/g, "\\'");
+
         const popupContent = `
             <div style="min-width: 220px;">
                 <div class="popup-title">${p.name}</div>
@@ -651,9 +681,7 @@ function initMap() {
                 ${mapLinksHtml}
                 
                 <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem;">
-                    <a href="project-status.php?id=${p.id}" style="display: block; box-sizing: border-box; background: rgba(255,255,255,0.05); color: var(--text-primary); padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--border-glass);">📊 Status Snapshot</a>
-                    
-                    <a href="mobilisation_detail.php?project_id=${p.id}" style="display: block; box-sizing: border-box; background: var(--primary-color); color: #ffffff; padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--primary-color);">⚙️ Open Dashboard</a>
+                    <button onclick="openExecutionModal(${p.id}, '${safeName}')" style="display: block; box-sizing: border-box; background: var(--primary-color); color: #ffffff; padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; text-align: center; border: 1px solid var(--primary-color); cursor: pointer; width: 100%;">⚙️ Open Execution Hub</button>
                 </div>
             </div>
         `;
@@ -661,11 +689,9 @@ function initMap() {
         marker.bindPopup(popupContent);
         markersGroup.addLayer(marker);
         
-        // Save marker reference to the project object for sidebar linking
         p.leafletMarker = marker;
     });
 
-    // --- Populate Sidebar List ---
     const sidebarList = document.getElementById('mapSidebarList');
     if(sidebarList) {
         document.getElementById('mapProjCount').innerText = projectsData.length;
@@ -687,11 +713,9 @@ function initMap() {
                 `;
                 
                 div.onclick = () => {
-                    // Remove active class from all
                     document.querySelectorAll('.map-list-item').forEach(el => el.classList.remove('active'));
                     div.classList.add('active');
                     
-                    // Zoom map and open popup
                     if(window.map && p.leafletMarker) {
                         window.map.flyTo(p.leafletMarker.getLatLng(), 16, { duration: 1.5 });
                         markersGroup.zoomToShowLayer(p.leafletMarker, () => {
@@ -699,14 +723,12 @@ function initMap() {
                         });
                     }
                 };
-                
                 sidebarList.appendChild(div);
             });
         }
         
         renderSidebar(projectsData);
         
-        // --- Sidebar Search Filter ---
         document.getElementById('mapSearchInput').addEventListener('input', function(e) {
             const term = e.target.value.toLowerCase();
             const filtered = projectsData.filter(p => 
@@ -728,7 +750,7 @@ function initMap() {
     if (visibleClients.size > 0) {
         legendContainer.style.display = 'block';
         Array.from(visibleClients).sort().forEach(client => {
-            legendContent.innerHTML += `<div class="legend-item"><div class="legend-color" style="background-color: ${getClientColor(client)};"></div><span>${client}</span></div>`;
+            legendContent.innerHTML += `<div class="legend-item-map"><div class="legend-color" style="background-color: ${getClientColor(client)};"></div><span>${client}</span></div>`;
         });
     }
 }
