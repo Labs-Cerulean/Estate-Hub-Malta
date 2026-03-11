@@ -58,8 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     INSERT INTO user_capabilities (
                         user_id, view_tracking, add_project, edit_project_details, update_project_status, 
                         edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
-                        view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, 'view_subcontractor_accounts', 'manage_subcontractor_accounts'
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $params = array_values($caps);
                 array_unshift($params, $newId);
@@ -92,8 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INSERT INTO user_capabilities (
                     user_id, view_tracking, add_project, edit_project_details, update_project_status, 
                     edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
-                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, 'view_subcontractor_accounts', 'manage_subcontractor_accounts'
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                     view_tracking=VALUES(view_tracking), add_project=VALUES(add_project), edit_project_details=VALUES(edit_project_details), 
                     update_project_status=VALUES(update_project_status), edit_services=VALUES(edit_services), assign_actions=VALUES(assign_actions), 
@@ -388,7 +388,7 @@ const roleDefaults = {
     'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
     'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
     'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects'],
+    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts'],
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings'],
