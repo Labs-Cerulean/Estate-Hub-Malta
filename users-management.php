@@ -224,6 +224,14 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_professionals" id="edit_cap_manage_professionals" <?= !empty($selectedUser['manage_professionals']) ? 'checked' : '' ?>> Manage Professionals</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_subcontractors" id="edit_cap_manage_subcontractors" <?= !empty($selectedUser['manage_subcontractors']) ? 'checked' : '' ?>> Manage Subcontractors</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_users" id="edit_cap_manage_users" <?= !empty($selectedUser['manage_users']) ? 'checked' : '' ?>> Manage Users</label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" class="cap-check-edit" name="view_subcontractor_accounts" value="1" <?= $u['view_subcontractor_accounts'] ? 'checked' : '' ?>> 
+                                View Subcontractor Accounts
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" class="cap-check-edit" name="manage_subcontractor_accounts" value="1" <?= $u['manage_subcontractor_accounts'] ? 'checked' : '' ?>> 
+                                Manage Subcontractor Accounts
+                            </label>
                         </div>
 
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Menu Navigation Visibility</h4>
