@@ -29,14 +29,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id) 
         if ($action === 'save_work') {
             $post_sub_id = $_POST['subcontractor_id'];
             $project_id = !empty($_POST['project_id']) ? $_POST['project_id'] : null;
+            $vat_rate = isset($_POST['vat_rate']) ? (float)$_POST['vat_rate'] : 18.00;
             
             if (empty($_POST['work_id'])) {
-                $stmt = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, work_reference, po_reference, responsible, total_exc_vat, total_inc_vat, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([ $post_sub_id, $selected_client_id, $project_id, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), trim($_POST['responsible']), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes']) ]);
+                $stmt = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, work_reference, po_reference, vat_rate, responsible, total_exc_vat, total_inc_vat, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([ $post_sub_id, $selected_client_id, $project_id, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), $vat_rate, trim($_POST['responsible']), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes']) ]);
                 $message = "Work Order added successfully!";
             } else {
-                $stmt = $pdo->prepare("UPDATE subcontractor_works SET project_id=?, work_reference=?, po_reference=?, responsible=?, total_exc_vat=?, total_inc_vat=?, notes=? WHERE id=? AND subcontractor_id=? AND client_id=?");
-                $stmt->execute([ $project_id, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), trim($_POST['responsible']), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes']), $_POST['work_id'], $post_sub_id, $selected_client_id ]);
+                $stmt = $pdo->prepare("UPDATE subcontractor_works SET project_id=?, work_reference=?, po_reference=?, vat_rate=?, responsible=?, total_exc_vat=?, total_inc_vat=?, notes=? WHERE id=? AND subcontractor_id=? AND client_id=?");
+                $stmt->execute([ $project_id, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), $vat_rate, trim($_POST['responsible']), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes']), $_POST['work_id'], $post_sub_id, $selected_client_id ]);
                 $message = "Work Order updated successfully!";
             }
         } 
@@ -98,6 +99,12 @@ require_once 'header.php';
 .badge-inv { background: rgba(245, 158, 11, 0.2); color: #F59E0B; }
 .badge-pay { background: rgba(16, 185, 129, 0.2); color: #10B981; }
 .badge-po { display: inline-block; background: rgba(139, 92, 246, 0.15); color: #8B5CF6; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-top: 4px;}
+.data-table th.col-divider, .data-table td.col-divider { border-left: 2px solid rgba(255,255,255,0.05); }
+
+/* Progress Bar Styles */
+.progress-wrapper { width: 100%; background-color: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; height: 6px; margin-top: 6px; }
+.progress-fill { background-color: #3B82F6; height: 100%; transition: width 0.3s ease; }
+.progress-fill.over { background-color: #EF4444; } /* Red if > 100% */
 </style>
 
 <div class="main-container">
@@ -133,7 +140,7 @@ require_once 'header.php';
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <div>
                     <h1 class="page-title" style="margin-bottom: 0;">Master Subcontractor Ledger</h1>
-                    <p style="color: var(--text-secondary); margin-top: 0.25rem;">Overview of total certified works vs total payments for this client.</p>
+                    <p style="color: var(--text-secondary); margin-top: 0.25rem;">Overview of certified works, invoices, and payments for this client.</p>
                 </div>
                 <?php if ($canManage): ?>
                     <div style="display: flex; gap: 0.5rem;">
@@ -144,18 +151,18 @@ require_once 'header.php';
             </div>
 
             <?php
-            // Fetch ONLY subcontractors that have works OR transactions linked to this client
             $ledgerStmt = $pdo->prepare("
                 SELECT 
                     s.id, s.name, s.contact_person,
                     COALESCE((SELECT SUM(amount) FROM subcontractor_transactions t WHERE t.subcontractor_id = s.id AND t.client_id = ? AND t.transaction_type = 'Certification'), 0) as total_certified,
+                    COALESCE((SELECT SUM(amount) FROM subcontractor_transactions t WHERE t.subcontractor_id = s.id AND t.client_id = ? AND t.transaction_type = 'Invoice'), 0) as total_invoiced,
                     COALESCE((SELECT SUM(amount) FROM subcontractor_transactions t WHERE t.subcontractor_id = s.id AND t.transaction_type = 'Payment' AND t.client_id = ?), 0) as total_paid
                 FROM subcontractors s
                 WHERE EXISTS (SELECT 1 FROM subcontractor_works w WHERE w.subcontractor_id = s.id AND w.client_id = ?)
                    OR EXISTS (SELECT 1 FROM subcontractor_transactions t WHERE t.subcontractor_id = s.id AND t.client_id = ?)
                 ORDER BY s.name ASC
             ");
-            $ledgerStmt->execute([$selected_client_id, $selected_client_id, $selected_client_id, $selected_client_id]);
+            $ledgerStmt->execute([$selected_client_id, $selected_client_id, $selected_client_id, $selected_client_id, $selected_client_id]);
             $ledger = $ledgerStmt->fetchAll();
             ?>
 
@@ -164,31 +171,37 @@ require_once 'header.php';
                     <thead>
                         <tr>
                             <th>Subcontractor</th>
-                            <th>Contact</th>
-                            <th style="text-align: right;">Total Certified (inc VAT)</th>
-                            <th style="text-align: right;">Total Paid to Date</th>
-                            <th style="text-align: right;">Outstanding Liability</th>
+                            <th style="text-align: right;">Total Certified</th>
+                            <th style="text-align: right;">Total Invoiced</th>
+                            <th style="text-align: right;">Paid to Date</th>
+                            <th style="text-align: right;" class="col-divider">Due vs Certified (True)</th>
+                            <th style="text-align: right;">Due vs Invoiced (Paper)</th>
                             <th style="text-align: center;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($ledger)): ?>
-                            <tr><td colspan="6" style="text-align: center; padding: 2rem;">No subcontractor accounts found for this client.</td></tr>
+                            <tr><td colspan="7" style="text-align: center; padding: 2rem;">No subcontractor accounts found for this client.</td></tr>
                         <?php else: ?>
                             <?php 
-                            $sys_cert = 0; $sys_paid = 0;
+                            $sys_cert = 0; $sys_inv = 0; $sys_paid = 0;
                             foreach ($ledger as $l): 
                                 $sys_cert += $l['total_certified'];
+                                $sys_inv += $l['total_invoiced'];
                                 $sys_paid += $l['total_paid'];
-                                $owed = $l['total_certified'] - $l['total_paid'];
+                                $due_cert = $l['total_certified'] - $l['total_paid'];
+                                $due_inv = $l['total_invoiced'] - $l['total_paid'];
                             ?>
                             <tr>
                                 <td style="font-weight: bold; color: var(--primary-color);"><?= htmlspecialchars($l['name']) ?></td>
-                                <td><?= htmlspecialchars($l['contact_person'] ?? '-') ?></td>
                                 <td style="text-align: right;">€<?= number_format($l['total_certified'], 2) ?></td>
+                                <td style="text-align: right;">€<?= number_format($l['total_invoiced'], 2) ?></td>
                                 <td style="text-align: right; color: #10B981;">€<?= number_format($l['total_paid'], 2) ?></td>
-                                <td style="text-align: right; font-weight: bold;" class="<?= $owed > 0 ? 'delta-negative' : 'delta-positive' ?>">
-                                    €<?= number_format($owed, 2) ?>
+                                <td style="text-align: right; font-weight: bold;" class="col-divider <?= $due_cert > 0 ? 'delta-negative' : 'delta-positive' ?>">
+                                    €<?= number_format($due_cert, 2) ?>
+                                </td>
+                                <td style="text-align: right; font-weight: bold;" class="<?= $due_inv > 0 ? 'delta-negative' : 'delta-positive' ?>">
+                                    €<?= number_format($due_inv, 2) ?>
                                 </td>
                                 <td style="text-align: center;">
                                     <a href="?client_id=<?= $selected_client_id ?>&sub_id=<?= $l['id'] ?>" class="btn btn-sm btn-secondary">View Account</a>
@@ -200,10 +213,12 @@ require_once 'header.php';
                     <?php if (!empty($ledger)): ?>
                     <tfoot>
                         <tr style="background: rgba(255,255,255,0.05); font-weight: bold;">
-                            <td colspan="2">CLIENT TOTALS</td>
+                            <td>CLIENT TOTALS</td>
                             <td style="text-align: right;">€<?= number_format($sys_cert, 2) ?></td>
+                            <td style="text-align: right;">€<?= number_format($sys_inv, 2) ?></td>
                             <td style="text-align: right; color: #10B981;">€<?= number_format($sys_paid, 2) ?></td>
-                            <td style="text-align: right;" class="<?= ($sys_cert - $sys_paid) > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($sys_cert - $sys_paid, 2) ?></td>
+                            <td style="text-align: right;" class="col-divider <?= ($sys_cert - $sys_paid) > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($sys_cert - $sys_paid, 2) ?></td>
+                            <td style="text-align: right;" class="<?= ($sys_inv - $sys_paid) > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($sys_inv - $sys_paid, 2) ?></td>
                             <td></td>
                         </tr>
                     </tfoot>
@@ -217,6 +232,11 @@ require_once 'header.php';
             $stmt->execute([$sub_id]);
             $sub = $stmt->fetch();
             if (!$sub) die("Subcontractor not found.");
+
+            // Fetch Available Invoices for the "Match Invoice" feature
+            $invStmt = $pdo->prepare("SELECT id, reference, amount FROM subcontractor_transactions WHERE subcontractor_id = ? AND client_id = ? AND transaction_type = 'Invoice' ORDER BY transaction_date DESC");
+            $invStmt->execute([$sub_id, $selected_client_id]);
+            $availableInvoices = $invStmt->fetchAll();
 
             // Fetch Works & Calculate iteratively from transactions
             $wStmt = $pdo->prepare("
@@ -250,7 +270,8 @@ require_once 'header.php';
                 if ($t['transaction_type'] === 'Payment') $tot_paid += $t['amount'];
                 if ($t['transaction_type'] === 'Invoice') $tot_inv += $t['amount'];
             }
-            $delta = $tot_cert - $tot_paid;
+            $due_cert_global = $tot_cert - $tot_paid;
+            $due_inv_global = $tot_inv - $tot_paid;
             ?>
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
@@ -261,7 +282,7 @@ require_once 'header.php';
                 <?php if ($canManage): ?>
                     <div style="display: flex; gap: 0.5rem;">
                         <button onclick="openWorkModal()" class="btn btn-primary">+ Create Work Order</button>
-                        <button onclick="openTxModal()" class="btn btn-secondary">+ Log Global Payment</button>
+                        <button onclick="openTxModal()" class="btn btn-secondary">+ Log Global Activity</button>
                     </div>
                 <?php endif; ?>
             </div>
@@ -272,57 +293,84 @@ require_once 'header.php';
                     <div class="value" style="color: #3B82F6;">€<?= number_format($tot_cert, 2) ?></div>
                 </div>
                 <div class="summary-card">
-                    <h4>Total Invoiced</h4>
-                    <div class="value" style="color: #F59E0B;">€<?= number_format($tot_inv, 2) ?></div>
-                </div>
-                <div class="summary-card">
                     <h4>Total Paid to Date</h4>
                     <div class="value" style="color: #10B981;">€<?= number_format($tot_paid, 2) ?></div>
                 </div>
                 <div class="summary-card">
-                    <h4>Current Liability (Owed)</h4>
-                    <div class="value <?= $delta > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($delta, 2) ?></div>
+                    <h4>True Liability (Due vs Cert)</h4>
+                    <div class="value <?= $due_cert_global > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_cert_global, 2) ?></div>
+                </div>
+                <div class="summary-card">
+                    <h4>Paper Liability (Due vs Inv)</h4>
+                    <div class="value <?= $due_inv_global > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_inv_global, 2) ?></div>
                 </div>
             </div>
 
             <h3 style="margin-top: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Work Orders & Progress</h3>
             <div class="table-container" style="margin-bottom: 3rem;">
-                <table class="data-table">
+                <table class="data-table" style="font-size: 0.85rem;">
                     <thead>
                         <tr>
-                            <th>Work Reference / Project</th>
-                            <th style="text-align: right;">Est. Order Value</th>
-                            <th style="text-align: right;">Certified to Date</th>
-                            <th style="text-align: right;">Invoiced to Date</th>
-                            <th style="text-align: right;">Paid to Date</th>
-                            <?php if($canManage): ?><th style="text-align: right;">Actions</th><?php endif; ?>
+                            <th>Work Ref / Project</th>
+                            <th style="text-align: right;">Est. Value</th>
+                            <th style="text-align: right;">Certified</th>
+                            <th style="text-align: center; width: 100px;">% Progress</th>
+                            <th style="text-align: right;">Invoiced</th>
+                            <th style="text-align: right;">Paid</th>
+                            <th style="text-align: right;" class="col-divider">Pending Inv</th>
+                            <th style="text-align: right;">Due vs Cert</th>
+                            <th style="text-align: right;">Due vs Inv</th>
+                            <?php if($canManage): ?><th style="text-align: center;">Actions</th><?php endif; ?>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($works)): ?>
-                            <tr><td colspan="<?= $canManage ? '6' : '5' ?>" style="text-align: center;">No Work Orders found.</td></tr>
+                            <tr><td colspan="<?= $canManage ? '10' : '9' ?>" style="text-align: center;">No Work Orders found.</td></tr>
                         <?php else: ?>
                             <?php foreach($works as $w): 
                                 $c_tot = $w['cert_total'] ?: 0;
                                 $i_tot = $w['inv_total'] ?: 0;
                                 $p_tot = $w['pay_total'] ?: 0;
+                                
+                                $pend_inv = $c_tot - $i_tot;
+                                $due_c = $c_tot - $p_tot;
+                                $due_i = $i_tot - $p_tot;
+
+                                // Progress Calculation
+                                $prog_pct = $w['total_inc_vat'] > 0 ? ($c_tot / $w['total_inc_vat']) * 100 : 0;
+                                $prog_class = $prog_pct > 100 ? 'over' : '';
                             ?>
                             <tr>
                                 <td>
-                                    <div style="font-weight: 600; font-size: 1.05rem;"><?= htmlspecialchars($w['work_reference']) ?></div>
-                                    <div style="font-size: 0.8rem; color: var(--text-muted);"><?= htmlspecialchars($w['project_name'] ?? 'General') ?> | Resp: <?= htmlspecialchars($w['responsible']) ?></div>
+                                    <div style="font-weight: 600; font-size: 0.95rem;"><?= htmlspecialchars($w['work_reference']) ?></div>
+                                    <div style="color: var(--text-muted);"><?= htmlspecialchars($w['project_name'] ?? 'General') ?></div>
                                     <?php if(!empty($w['po_reference'])): ?>
                                         <div class="badge-po">PO: <?= htmlspecialchars($w['po_reference']) ?></div>
                                     <?php endif; ?>
                                 </td>
                                 <td style="text-align: right; color: var(--text-secondary);">€<?= number_format($w['total_inc_vat'], 2) ?></td>
                                 <td style="text-align: right; font-weight: bold; color: #3B82F6;">€<?= number_format($c_tot, 2) ?></td>
+                                
+                                <td style="text-align: center; vertical-align: middle;">
+                                    <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 2px; color: <?= $prog_pct > 100 ? '#EF4444' : '#3B82F6' ?>;">
+                                        <?= number_format($prog_pct, 1) ?>%
+                                    </div>
+                                    <div class="progress-wrapper">
+                                        <div class="progress-fill <?= $prog_class ?>" style="width: <?= min(100, $prog_pct) ?>%;"></div>
+                                    </div>
+                                </td>
+
                                 <td style="text-align: right; font-weight: bold; color: #F59E0B;">€<?= number_format($i_tot, 2) ?></td>
                                 <td style="text-align: right; font-weight: bold; color: #10B981;">€<?= number_format($p_tot, 2) ?></td>
+                                
+                                <td style="text-align: right;" class="col-divider <?= $pend_inv > 0 ? 'delta-negative' : '' ?>">€<?= number_format($pend_inv, 2) ?></td>
+                                <td style="text-align: right; font-weight: bold;" class="<?= $due_c > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_c, 2) ?></td>
+                                <td style="text-align: right; font-weight: bold;" class="<?= $due_i > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_i, 2) ?></td>
+                                
                                 <?php if($canManage): ?>
-                                <td style="text-align: right;">
-                                    <button onclick="openTxModal(null, <?= $w['id'] ?>, 'Certification')" class="btn btn-sm btn-primary" style="margin-right: 5px;">+ Log Activity</button>
-                                    <button onclick='openWorkModal(<?= json_encode($w, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary">Edit</button>
+                                <td style="text-align: center;">
+                                    <button onclick="openTxModal(null, <?= $w['id'] ?>, 'Certification')" class="btn btn-sm btn-primary" title="Log Activity">+</button>
+                                    <button onclick='openWorkModal(<?= json_encode($w, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" title="Edit">✎</button>
                                 </td>
                                 <?php endif; ?>
                             </tr>
@@ -428,9 +476,22 @@ require_once 'header.php';
                         <input type="text" name="responsible" id="w_resp">
                     </div>
                     
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
-                        <div class="form-group"><label>Estimated Total Exc VAT</label><input type="number" step="0.01" name="total_exc_vat" id="w_exc"></div>
-                        <div class="form-group"><label>Estimated Total Inc VAT</label><input type="number" step="0.01" name="total_inc_vat" id="w_inc"></div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                        <div class="form-group">
+                            <label>Est. Exc VAT *</label>
+                            <input type="number" step="0.01" name="total_exc_vat" id="w_exc" oninput="calculateVat()" required>
+                        </div>
+                        <div class="form-group">
+                            <label>VAT Rate</label>
+                            <select name="vat_rate" id="w_vat_rate" onchange="calculateVat()">
+                                <option value="18.00">18% (Standard)</option>
+                                <option value="0.00">0% (Exempt)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Est. Inc VAT</label>
+                            <input type="number" step="0.01" name="total_inc_vat" id="w_inc" readonly style="background: rgba(255,255,255,0.05); cursor: not-allowed;">
+                        </div>
                     </div>
                     
                     <div class="form-group"><label>Notes / Contract Details</label><textarea name="notes" id="w_notes" rows="3"></textarea></div>
@@ -473,7 +534,7 @@ require_once 'header.php';
                         <div class="form-group"><label>Date *</label><input type="date" name="transaction_date" id="t_date" required value="<?= date('Y-m-d') ?>"></div>
                         <div class="form-group">
                             <label>Activity Type *</label>
-                            <select name="transaction_type" id="t_type" required>
+                            <select name="transaction_type" id="t_type" required onchange="toggleInvoiceMatch()">
                                 <option value="Certification">1. Certification (Increases Owed)</option>
                                 <option value="Invoice">2. Invoice Received (Paper Trail)</option>
                                 <option value="Payment">3. Payment Made (Reduces Owed)</option>
@@ -482,6 +543,21 @@ require_once 'header.php';
                             </select>
                         </div>
                     </div>
+
+                    <?php if ($sub_id && !empty($availableInvoices)): ?>
+                    <div class="form-group" id="t_invoice_match_group" style="display:none; background: rgba(59, 130, 246, 0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(59, 130, 246, 0.3);">
+                        <label style="color: #3B82F6;">⚡ Match to Existing Invoice (Auto-fill)</label>
+                        <select id="t_invoice_match" onchange="applyInvoiceMatch()">
+                            <option value="">-- Select an Invoice to Pay --</option>
+                            <?php foreach($availableInvoices as $inv): ?>
+                                <option value="<?= $inv['amount'] ?>" data-ref="<?= htmlspecialchars($inv['reference']) ?>">
+                                    Inv: <?= htmlspecialchars($inv['reference'] ?: 'No Ref') ?> (€<?= number_format($inv['amount'], 2) ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="form-group"><label>Amount (Inc VAT) *</label><input type="number" step="0.01" name="amount" id="t_amount" required></div>
                     <div class="form-group"><label>Reference (e.g. Cert #2, Inv #100, Chq #555)</label><input type="text" name="reference" id="t_ref"></div>
                     <div class="form-group"><label>Notes</label><textarea name="notes" id="t_notes" rows="2"></textarea></div>
@@ -492,6 +568,13 @@ require_once 'header.php';
         </div>
 
         <script>
+        function calculateVat() {
+            let exc = parseFloat(document.getElementById('w_exc').value) || 0;
+            let rate = parseFloat(document.getElementById('w_vat_rate').value) || 0;
+            let inc = exc + (exc * (rate / 100));
+            document.getElementById('w_inc').value = inc.toFixed(2);
+        }
+
         function openWorkModal(data = null) {
             if (data) {
                 document.getElementById('wModalTitle').textContent = 'Edit Work Order';
@@ -500,6 +583,7 @@ require_once 'header.php';
                 document.getElementById('w_ref').value = data.work_reference;
                 document.getElementById('w_po').value = data.po_reference || '';
                 document.getElementById('w_resp').value = data.responsible;
+                document.getElementById('w_vat_rate').value = data.vat_rate || '18.00';
                 document.getElementById('w_exc').value = data.total_exc_vat;
                 document.getElementById('w_inc').value = data.total_inc_vat;
                 document.getElementById('w_notes').value = data.notes;
@@ -508,6 +592,7 @@ require_once 'header.php';
                 document.getElementById('w_id').value = '';
                 document.getElementById('w_ref').value = '';
                 document.getElementById('w_po').value = '';
+                document.getElementById('w_vat_rate').value = '18.00';
                 document.getElementById('w_exc').value = '';
                 document.getElementById('w_inc').value = '';
             }
@@ -534,7 +619,26 @@ require_once 'header.php';
                 if(work_id && document.getElementById('t_work_id')) document.getElementById('t_work_id').value = work_id;
                 if(type) document.getElementById('t_type').value = type;
             }
+            
+            toggleInvoiceMatch();
             document.getElementById('txModal').style.display = 'block';
+        }
+
+        function toggleInvoiceMatch() {
+            var matchGroup = document.getElementById('t_invoice_match_group');
+            var typeSelect = document.getElementById('t_type');
+            if(matchGroup && typeSelect) {
+                matchGroup.style.display = typeSelect.value === 'Payment' ? 'block' : 'none';
+            }
+        }
+
+        function applyInvoiceMatch() {
+            var sel = document.getElementById('t_invoice_match');
+            if(sel && sel.value) {
+                var opt = sel.options[sel.selectedIndex];
+                document.getElementById('t_amount').value = sel.value;
+                document.getElementById('t_ref').value = opt.getAttribute('data-ref') ? 'Paid ' + opt.getAttribute('data-ref') : 'Payment for Invoice';
+            }
         }
 
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
