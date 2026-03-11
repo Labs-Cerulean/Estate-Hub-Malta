@@ -20,7 +20,8 @@ $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = 
 $mobStmt->execute([$projectId]);
 $mobilisation = $mobStmt->fetch(PDO::FETCH_ASSOC);
 
-$blocksStmt = $pdo->prepare("SELECT b.id AS block_id, b.block_name, b.finishes_overall_status, b.finishes_data, b.compliance_submitted, b.compliance_certified, b.condominium_formed, b.cp_meters_installed, l.level_name, l.construction_status FROM project_blocks b LEFT JOIN block_levels l ON b.id = l.block_id WHERE b.project_id = ? ORDER BY b.id ASC, l.level_number ASC");
+// UPDATED QUERY: Now fetches construction_pct
+$blocksStmt = $pdo->prepare("SELECT b.id AS block_id, b.block_name, b.finishes_overall_status, b.finishes_data, b.compliance_submitted, b.compliance_certified, b.condominium_formed, b.cp_meters_installed, l.level_name, l.construction_status, l.construction_pct FROM project_blocks b LEFT JOIN block_levels l ON b.id = l.block_id WHERE b.project_id = ? ORDER BY b.id ASC, l.level_number ASC");
 $blocksStmt->execute([$projectId]);
 $blockLevels = $blocksStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -134,12 +135,17 @@ elseif (in_array($stage, ['Demolition', 'Excavation', 'Construction'])) {
             foreach ($levels as $lvl) {
                 if (empty($lvl['level_name'])) continue;
                 $status = $lvl['construction_status'] ?? 'Pending';
+                
                 if ($status === 'Complete') { $color = 'green'; $sText = 'Complete'; }
                 elseif ($status === 'In Progress') { $color = 'amber'; $sText = 'Active'; }
                 elseif ($status === 'NA') { $color = 'gray'; $sText = 'N/A'; }
                 else { $color = 'red'; $sText = 'Pending'; }
 
-                $boardContent .= "<div class='action-item'>".getStatusDot($color)." <div class='txt-grp'><span class='action-label'>{$lvl['level_name']}</span><span class='action-value {$color}'>{$sText}</span></div></div>";
+                // The Fix: Displaying exact % next to the level name
+                $pct = (float)($lvl['construction_pct'] ?? 0);
+                $pctDisplay = ($status === 'In Progress' && $pct > 0) ? " <span style='color: var(--primary-color); font-weight: bold; margin-left: 4px;'>({$pct}%)</span>" : "";
+
+                $boardContent .= "<div class='action-item'>".getStatusDot($color)." <div class='txt-grp'><span class='action-label'>{$lvl['level_name']}{$pctDisplay}</span><span class='action-value {$color}'>{$sText}</span></div></div>";
             }
             $boardContent .= "</div>";
         }
