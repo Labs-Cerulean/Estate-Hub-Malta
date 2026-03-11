@@ -130,22 +130,6 @@ $cities = $citiesStmt->fetchAll(PDO::FETCH_COLUMN);
 $clientsStmt = $pdo->query("SELECT id, name FROM clients ORDER BY name");
 $clients = $clientsStmt->fetchAll();
 
-if (!function_exists('formatPANumber')) {
-    function formatPANumber($paStr) {
-        $paStr = preg_replace('/[^0-9]/', '', $paStr);
-        if (strlen($paStr) > 2) return "PA " . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
-        return "PA " . $paStr;
-    }
-}
-
-if (!function_exists('buildPaUrl')) {
-    function buildPaUrl($paStr) {
-        $paStr = preg_replace('/[^0-9]/', '', $paStr);
-        if (strlen($paStr) > 2) return "https://www.pa.org.mt/en/pacasedetails?CaseType=PA/" . substr($paStr, 0, -2) . "/" . substr($paStr, -2);
-        return "";
-    }
-}
-
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView;
     $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
@@ -157,16 +141,29 @@ function getSortIndicator($column) {
     return '';
 }
 
-$pageTitle = 'Dashboard';
+$pageTitle = $dashboardType;
 require_once 'header.php';
 ?>
 
-<style>
-.dashboard-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.metric-card { background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-glass); text-align: center; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; justify-content: center; }
-.metric-value { font-size: 2.5rem; font-weight: 800; color: var(--primary-color); line-height: 1; font-variant-numeric: tabular-nums; }
-.metric-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.5rem; font-weight: 600; }
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
+<style>
+/* Dashboard General CSS */
+.stage-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.3); flex-shrink: 0; }
+.legend-container { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; }
+.legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
+
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+.stat-card { background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-glass); text-align: center; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; justify-content: center; transition: transform 0.2s; }
+.stat-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.2); }
+.stat-number { font-size: 3rem; font-weight: 800; color: var(--primary-color); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+.stat-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.75rem; font-weight: 600; }
+
+.filters-section { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1.5rem; }
 .filters-grid { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
 .filter-group { flex: 1; min-width: 150px; }
 .filter-group label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem; font-weight: 600; }
@@ -175,13 +172,8 @@ require_once 'header.php';
 .reset-btn { padding: 0.6rem 1rem; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; border-radius: 6px; transition: background 0.2s; } .reset-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
 
 .view-toggle { display: flex; background: var(--bg-secondary); border-radius: 8px; padding: 4px; border: 1px solid var(--border-glass); }
-.view-toggle-btn { flex: 1; padding: 8px 16px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: all 0.2s; font-size: 0.9rem; }
+.view-toggle-btn { flex: 1; padding: 8px 16px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: all 0.2s; font-size: 0.9rem; border: none; outline: none; }
 .view-toggle-btn.active { background: var(--primary-color); color: #fff; box-shadow: 0 2px 8px rgba(14, 165, 233, 0.4); }
-
-/* Legend */
-.legend-container { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 1rem; justify-content: center; background: var(--bg-card); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass); }
-.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
-.stage-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
 
 /* Table Improvements */
 .dashboard-wrapper { overflow-x: auto; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border-glass); max-height: calc(100vh - 350px); overflow-y: auto; }
@@ -251,44 +243,29 @@ tr:last-child td { border-bottom: none; }
 
 </style>
 
-<div class="main-container" style="max-width: 1600px;">
-
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem;">
-        <div>
-            <h1 class="page-title" style="margin-bottom: 0.25rem;">EstateHub OS </h1>
-            <p style="color: var(--text-secondary); margin: 0; font-size: 0.9rem;">Welcome, <strong style="color: var(--primary-color);"><?= htmlspecialchars($userName) ?></strong>. Role: <?= ucwords(str_replace('_', ' ', $userRole)) ?></p>
-        </div>
-        
-        <div style="display: flex; align-items: center; gap: 1.5rem;">
-            <div class="view-toggle">
-                <div class="view-toggle-btn <?= $currentView === 'table' ? 'active' : '' ?>" onclick="switchView('table')">📋 List View</div>
-                <div class="view-toggle-btn <?= $currentView === 'map' ? 'active' : '' ?>" onclick="switchView('map')">🗺️ Map View</div>
-            </div>
-            <a href="logout.php" class="btn btn-secondary">🚪 Logout</a>
-        </div>
-    </div>
+<div class="main-container">
+    <h1 class="page-title"><?= htmlspecialchars($dashboardType) ?></h1>
 
     <?php if ($dashboardType === 'None'): ?>
-        <div class="empty-state">
-            <h2 style="color: var(--primary-color);">Welcome to EstateHub</h2>
-            <p>Your account is active, but you do not have a primary dashboard assigned.<br>Please use the navigation menu on the left to access your modules.</p>
-        </div>
+        <div class="empty-state card"><h2 style="margin-bottom: 1rem; color: var(--primary-color);">Welcome to Estate Hub</h2><p>Please use the navigation menu above to access your specific modules.</p></div>
     <?php else: ?>
         
         <?php
         // Filter out projects not in visible stages
         $projects = [];
+        $preExecCount = 0; $execCount = 0; $finalCount = 0;
         $companyKpis = [];
 
-        foreach ($rawProjects as $p) {
-            $p['stage'] = deriveProjectStage($pdo, $p['id']);
-            $stageNum = $stageEnum[$p['stage']] ?? 1;
+        foreach ($rawProjects as $project) {
+            $project['stage'] = deriveProjectStage($pdo, $project['id']);
+            $stageNum = $stageEnum[$project['stage']] ?? 1;
 
-            if (empty($visibleStages) || in_array($p['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
-                $projects[] = $p;
-
+            if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
+                $projects[] = $project;
+                
+                if ($stageNum >= 9) $finalCount++; elseif ($stageNum >= 5) $execCount++; else $preExecCount++;
                 if ($dashboardType === 'Company Dashboard') {
-                    $cName = $p['client_name'] ?? 'In-House (Internal)';
+                    $cName = $project['client_name'] ?? 'Unassigned';
                     if (!isset($companyKpis[$cName])) $companyKpis[$cName] = ['total'=>0, 'pre'=>0, 'exec'=>0, 'final'=>0];
                     $companyKpis[$cName]['total']++;
                     if ($stageNum >= 9) $companyKpis[$cName]['final']++; elseif ($stageNum >= 5) $companyKpis[$cName]['exec']++; else $companyKpis[$cName]['pre']++;
@@ -332,61 +309,52 @@ tr:last-child td { border-bottom: none; }
         });
         ?>
 
-        <div class="dashboard-metrics">
+        <div class="stats-grid">
             <?php if ($dashboardType === 'Admin Dashboard'): ?>
-                <div class="metric-card"><div class="metric-value"><?= count($rawProjects) ?></div><div class="metric-label">Total Database Projects</div></div>
-                <div class="metric-card"><div class="metric-value"><?= $userCount ?></div><div class="metric-label">Active Users</div></div>
+                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Permit'] ?>;"><?= $preExecCount ?></div><div class="stat-label">Pre-Execution</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">In Execution</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Finalizing</div></div>
+                <div class="stat-card"><div class="stat-number"><?= $userCount ?></div><div class="stat-label">Total Users</div></div>
             <?php elseif ($dashboardType === 'Company Dashboard'): ?>
-                <div class="metric-card" style="grid-column: span 2; display: block; text-align: left; padding: 1.5rem;">
-                    <div style="font-size: 1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 10px;">Developer Portfolio Breakdown</div>
-                    <div style="overflow-x: auto;">
-                        <table class="kpi-table">
-                            <thead><tr><th>Developer</th><th>Pre-Execution</th><th>Execution</th><th>Finalization</th><th class="total-col">Total</th></tr></thead>
-                            <tbody>
-                                <?php foreach ($companyKpis as $cName => $k): ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($cName) ?></td>
-                                        <td style="color: #94a3b8;"><?= $k['pre'] ?></td>
-                                        <td style="color: #f59e0b;"><?= $k['exec'] ?></td>
-                                        <td style="color: #22c55e;"><?= $k['final'] ?></td>
-                                        <td class="total-col"><?= $k['total'] ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">Sites In Execution</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Sites Finalizing</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: var(--primary-color);"><?= count($companyKpis) ?></div><div class="stat-label">Companies Supervised</div></div>
             <?php else: ?>
-                <div class="metric-card"><div class="metric-value"><?= count($projects) ?></div><div class="metric-label">Projects In View</div></div>
+                <div class="stat-card"><div class="stat-number"><?= $projectCount ?></div><div class="stat-label">Active Projects</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Permit'] ?>;"><?= $preExecCount ?></div><div class="stat-label">Pre-Execution</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Construction'] ?>;"><?= $execCount ?></div><div class="stat-label">In Execution</div></div>
+                <div class="stat-card"><div class="stat-number" style="color: <?= $stageColors['Handed Over'] ?>;"><?= $finalCount ?></div><div class="stat-label">Finalizing</div></div>
             <?php endif; ?>
         </div>
 
-        <div class="section-card">
-            
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-                <div>
-                    <h2 class="section-header" style="margin-bottom: 0;"><?= $dashboardType ?></h2>
-                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">Viewing projects mapped to your system role.</p>
-                </div>
+        <div class="projects-section">
+            <div class="projects-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 class="section-title" style="margin: 0;">Projects Portfolio</h2>
                 
-                <form method="GET" id="dashboardFilters" style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass);">
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <div class="view-toggle">
+                        <button type="button" class="view-toggle-btn <?= $currentView === 'table' ? 'active' : '' ?>" onclick="switchView('table')">📊 Table</button>
+                        <button type="button" class="view-toggle-btn <?= $currentView === 'map' ? 'active' : '' ?>" onclick="switchView('map')">🗺️ Map</button>
+                    </div>
+                    <?php if (hasPermission('add_project')): ?>
+                        <a href="create-project.php" class="btn">Add Project</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="filters-section">
+                <form method="GET" id="dashboardFilters">
                     <input type="hidden" name="view" id="viewStateInput" value="<?= htmlspecialchars($currentView) ?>">
                     <div class="filters-grid">
-                        <div class="filter-group">
-                            <label>Locality</label>
-                            <select name="filter_city">
-                                <option value="all">All Localities</option>
-                                <?php foreach ($cities as $city): ?><option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>><?= htmlspecialchars($city) ?></option><?php endforeach; ?>
-                            </select>
-                        </div>
-                        <?php if (hasPermission('view_all_projects') || isAdmin()): ?>
-                        <div class="filter-group">
-                            <label>DB Status</label>
+                        <?php if (in_array($userRole, ['admin', 'director'])): ?>
+                        <div class="filter-group" style="background: rgba(239, 68, 68, 0.05); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2);">
+                            <label style="color: #ef4444;">Operational Status (Admin)</label>
                             <select name="filter_db_status">
-                                <option value="Active" <?= $filterDbStatus === 'Active' ? 'selected' : '' ?>>Active Only</option>
-                                <option value="On-Hold" <?= $filterDbStatus === 'On-Hold' ? 'selected' : '' ?>>On-Hold</option>
-                                <option value="Completed" <?= $filterDbStatus === 'Completed' ? 'selected' : '' ?>>Completed</option>
-                                <option value="Withdrawn" <?= $filterDbStatus === 'Withdrawn' ? 'selected' : '' ?>>Withdrawn</option>
+                                <option value="Active" <?= $filterDbStatus === 'Active' ? 'selected' : '' ?>>🟢 Active Projects</option>
+                                <option value="On-Hold" <?= $filterDbStatus === 'On-Hold' ? 'selected' : '' ?>>🟡 On-Hold Projects</option>
+                                <option value="Withdrawn" <?= $filterDbStatus === 'Withdrawn' ? 'selected' : '' ?>>⚫ Withdrawn Projects</option>
                                 <option value="All" <?= $filterDbStatus === 'All' ? 'selected' : '' ?>>All Projects</option>
                             </select>
                         </div>
@@ -736,56 +704,60 @@ function initMap() {
         // Save marker reference to the project object for sidebar linking
         p.leafletMarker = marker;
     });
-    
+
     // --- Populate Sidebar List ---
     const sidebarList = document.getElementById('mapSidebarList');
-    document.getElementById('mapProjCount').innerText = projectsData.length;
-    
-    function renderSidebar(data) {
-        sidebarList.innerHTML = '';
-        data.forEach(p => {
-            const clientName = p.client_name || 'In-House (Internal)';
-            const color = getClientColor(clientName);
-            
-            const div = document.createElement('div');
-            div.className = 'map-list-item';
-            div.innerHTML = `
-                <div class="map-item-title">${p.name}</div>
-                <div class="map-item-meta">
-                    <span>📍 ${p.city}</span>
-                    <span style="color: ${color}; font-weight: bold;">${clientName.substring(0,12)}</span>
-                </div>
-            `;
-            
-            div.onclick = () => {
-                // Remove active class from all
-                document.querySelectorAll('.map-list-item').forEach(el => el.classList.remove('active'));
-                div.classList.add('active');
+    if(sidebarList) {
+        document.getElementById('mapProjCount').innerText = projectsData.length;
+        
+        function renderSidebar(data) {
+            sidebarList.innerHTML = '';
+            data.forEach(p => {
+                const clientName = p.client_name || 'In-House (Internal)';
+                const color = getClientColor(clientName);
                 
-                // Zoom map and open popup
-                window.map.flyTo(p.leafletMarker.getLatLng(), 16, { duration: 1.5 });
-                markersGroup.zoomToShowLayer(p.leafletMarker, () => {
-                    p.leafletMarker.openPopup();
-                });
-            };
-            
-            sidebarList.appendChild(div);
+                const div = document.createElement('div');
+                div.className = 'map-list-item';
+                div.innerHTML = `
+                    <div class="map-item-title">${p.name}</div>
+                    <div class="map-item-meta">
+                        <span>📍 ${p.city}</span>
+                        <span style="color: ${color}; font-weight: bold;">${clientName.substring(0,12)}</span>
+                    </div>
+                `;
+                
+                div.onclick = () => {
+                    // Remove active class from all
+                    document.querySelectorAll('.map-list-item').forEach(el => el.classList.remove('active'));
+                    div.classList.add('active');
+                    
+                    // Zoom map and open popup
+                    if(window.map && p.leafletMarker) {
+                        window.map.flyTo(p.leafletMarker.getLatLng(), 16, { duration: 1.5 });
+                        markersGroup.zoomToShowLayer(p.leafletMarker, () => {
+                            p.leafletMarker.openPopup();
+                        });
+                    }
+                };
+                
+                sidebarList.appendChild(div);
+            });
+        }
+        
+        renderSidebar(projectsData);
+        
+        // --- Sidebar Search Filter ---
+        document.getElementById('mapSearchInput').addEventListener('input', function(e) {
+            const term = e.target.value.toLowerCase();
+            const filtered = projectsData.filter(p => 
+                p.name.toLowerCase().includes(term) || 
+                (p.city && p.city.toLowerCase().includes(term)) || 
+                (p.client_name && p.client_name.toLowerCase().includes(term))
+            );
+            renderSidebar(filtered);
+            document.getElementById('mapProjCount').innerText = filtered.length;
         });
     }
-    
-    renderSidebar(projectsData);
-    
-    // --- Sidebar Search Filter ---
-    document.getElementById('mapSearchInput').addEventListener('input', function(e) {
-        const term = e.target.value.toLowerCase();
-        const filtered = projectsData.filter(p => 
-            p.name.toLowerCase().includes(term) || 
-            (p.city && p.city.toLowerCase().includes(term)) || 
-            (p.client_name && p.client_name.toLowerCase().includes(term))
-        );
-        renderSidebar(filtered);
-    });
-    
 
     window.map.addLayer(markersGroup);
 
