@@ -16,7 +16,6 @@ if (isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
     $action = $_POST['ajax_action'];
     
-    // Fetch levels for a project to build the BoQ
     if ($action === 'get_project_levels') {
         $pid = (int)$_POST['project_id'];
         $stmt = $pdo->prepare("SELECT bl.id, bl.level_name, pb.block_name FROM block_levels bl JOIN project_blocks pb ON bl.block_id = pb.id WHERE pb.project_id = ? ORDER BY pb.id ASC, bl.level_number ASC");
@@ -25,7 +24,6 @@ if (isset($_POST['ajax_action'])) {
         exit;
     }
     
-    // Fetch an existing BoQ for Certification
     if ($action === 'get_boq_progress') {
         $wid = (int)$_POST['work_id'];
         $stmt = $pdo->prepare("SELECT * FROM subcontractor_boq WHERE work_id = ? ORDER BY id ASC");
@@ -38,7 +36,6 @@ if (isset($_POST['ajax_action'])) {
 
 $message = ''; $error = '';
 
-// Get Accessible Clients for the User
 if (isAdmin()) {
     $accessibleClients = $pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll();
 } else {
@@ -73,7 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                 $message = "Work Order updated successfully!";
             }
 
-            // Save BoQ Items (Using UPDATE to preserve pct_complete)
             if ($is_measured && isset($_POST['boq_desc'])) {
                 $submittedBoqIds = [];
                 for ($i = 0; $i < count($_POST['boq_desc']); $i++) {
@@ -94,7 +90,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                         }
                     }
                 }
-                // Clean up removed items
                 if (!empty($submittedBoqIds)) {
                     $placeholders = implode(',', array_fill(0, count($submittedBoqIds), '?'));
                     $params = $submittedBoqIds;
@@ -121,43 +116,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
             $pdo->beginTransaction();
 
             $amount = $_POST['amount'] ?: 0;
+            $boqDataJson = null;
 
-            // Check if this is a Measured Certification (BoQ Update)
+            // Certification Sync Logic (With Rollback Storage)
             if ($type === 'Certification' && isset($_POST['cert_boq_id'])) {
                 $amountExc = 0;
+                $boqDataArr = [];
                 $updateBoq = $pdo->prepare("UPDATE subcontractor_boq SET pct_complete = ? WHERE id = ?");
                 $updateLevel = $pdo->prepare("UPDATE block_levels SET construction_status = ?, construction_pct = ? WHERE id = ?");
                 
                 for ($i = 0; $i < count($_POST['cert_boq_id']); $i++) {
                     $bId = $_POST['cert_boq_id'][$i];
                     $newPct = isset($_POST['cert_new_pct'][$i]) ? (float)$_POST['cert_new_pct'][$i] : 0.0;
+                    $prevPct = isset($_POST['cert_prev_pct'][$i]) ? (float)$_POST['cert_prev_pct'][$i] : 0.0;
                     $valAdded = isset($_POST['cert_val_added'][$i]) ? (float)$_POST['cert_val_added'][$i] : 0.0;
                     $lvlId = !empty($_POST['cert_level_id'][$i]) ? $_POST['cert_level_id'][$i] : null;
                     
-                    // Always record the new database values unconditionally
-                    $amountExc += $valAdded;
-                    $updateBoq->execute([$newPct, $bId]);
-                    
-                    // Magic Sync: Update Master Project tracker with exact % and status
-                    if ($lvlId) {
-                        $cStatus = 'Pending';
-                        if ($newPct >= 100) $cStatus = 'Complete';
-                        elseif ($newPct > 0) $cStatus = 'In Progress';
+                    if ($newPct != $prevPct || $valAdded > 0) {
+                        $amountExc += $valAdded;
+                        $updateBoq->execute([$newPct, $bId]);
                         
-                        $updateLevel->execute([$cStatus, $newPct, $lvlId]);
+                        // Store rollback info
+                        $boqDataArr[] = ['boq_id' => $bId, 'old_pct' => $prevPct, 'new_pct' => $newPct, 'level_id' => $lvlId];
+                        
+                        if ($lvlId) {
+                            $cStatus = 'Pending';
+                            if ($newPct >= 100) $cStatus = 'Complete';
+                            elseif ($newPct > 0) $cStatus = 'In Progress';
+                            $updateLevel->execute([$cStatus, $newPct, $lvlId]);
+                        }
                     }
                 }
                 
-                // Calculate Final Inc VAT amount automatically
+                if (!empty($boqDataArr)) {
+                    $boqDataJson = json_encode($boqDataArr);
+                }
                 $vatRate = (float)$_POST['work_vat_rate'];
                 $amount = $amountExc + ($amountExc * ($vatRate / 100));
             }
 
             if (empty($_POST['transaction_id'])) {
-                $stmt = $pdo->prepare("INSERT INTO subcontractor_transactions (subcontractor_id, client_id, work_id, transaction_date, transaction_type, amount, reference, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([ $post_sub_id, $selected_client_id, $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), getCurrentUserId() ]);
+                $stmt = $pdo->prepare("INSERT INTO subcontractor_transactions (subcontractor_id, client_id, work_id, transaction_date, transaction_type, amount, reference, notes, boq_data, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([ $post_sub_id, $selected_client_id, $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), $boqDataJson, getCurrentUserId() ]);
                 $message = "Activity logged successfully!";
             } else {
+                // If Editing an existing record, we do NOT overwrite boq_data. We just update the text fields.
                 $stmt = $pdo->prepare("UPDATE subcontractor_transactions SET work_id=?, transaction_date=?, transaction_type=?, amount=?, reference=?, notes=? WHERE id=? AND subcontractor_id=? AND client_id=?");
                 $stmt->execute([ $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), $_POST['transaction_id'], $post_sub_id, $selected_client_id ]);
                 $message = "Activity updated successfully!";
@@ -166,8 +169,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
             $pdo->commit();
         }
         elseif ($action === 'delete_transaction') {
+            $pdo->beginTransaction();
+            
+            // 1. Check if we need to Rollback BOQ/Levels
+            $stmt = $pdo->prepare("SELECT * FROM subcontractor_transactions WHERE id=? AND client_id=?");
+            $stmt->execute([$_POST['transaction_id'], $selected_client_id]);
+            $txn = $stmt->fetch();
+
+            if ($txn && $txn['transaction_type'] === 'Certification' && !empty($txn['boq_data'])) {
+                $boqItems = json_decode($txn['boq_data'], true);
+                if (is_array($boqItems)) {
+                    $revertBoq = $pdo->prepare("UPDATE subcontractor_boq SET pct_complete = ? WHERE id = ?");
+                    $revertLevel = $pdo->prepare("UPDATE block_levels SET construction_status = ?, construction_pct = ? WHERE id = ?");
+                    
+                    foreach ($boqItems as $item) {
+                        $revertBoq->execute([$item['old_pct'], $item['boq_id']]);
+                        
+                        if (!empty($item['level_id'])) {
+                            $cStatus = 'Pending';
+                            if ($item['old_pct'] >= 100) $cStatus = 'Complete';
+                            elseif ($item['old_pct'] > 0) $cStatus = 'In Progress';
+                            
+                            $revertLevel->execute([$cStatus, $item['old_pct'], $item['level_id']]);
+                        }
+                    }
+                }
+            }
+            
+            // 2. Delete the record
             $pdo->prepare("DELETE FROM subcontractor_transactions WHERE id=? AND client_id=?")->execute([$_POST['transaction_id'], $selected_client_id]);
-            $message = "Activity record deleted.";
+            $message = "Activity deleted. Any related project progress was rolled back.";
+            $pdo->commit();
         }
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -175,33 +207,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
     }
 }
 
-// Fetch global lists for modals
+// Fetch global lists
 $allSubcontractors = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name ASC")->fetchAll();
 $clientProjects = [];
 
 if ($selected_client_id) {
-    // Determine if the selected client is PRA Construction
     $isPRA = false;
     foreach ($accessibleClients as $c) {
         if ($c['id'] == $selected_client_id && stripos($c['name'], 'PRA Construction') !== false) {
-            $isPRA = true; 
-            break;
+            $isPRA = true; break;
         }
     }
-
     if ($isPRA) {
-        // SPECIAL RULE: Include PRA's projects AND any client with "Excel" in the name
-        $cpStmt = $pdo->prepare("
-            SELECT p.id, p.name, c.name as client_name 
-            FROM projects p
-            LEFT JOIN clients c ON p.clientid = c.id
-            WHERE p.clientid = ? OR c.name LIKE '%Excel%'
-            ORDER BY c.name ASC, p.name ASC
-        ");
+        $cpStmt = $pdo->prepare("SELECT p.id, p.name, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id WHERE p.clientid = ? OR c.name LIKE '%Excel%' ORDER BY c.name ASC, p.name ASC");
         $cpStmt->execute([$selected_client_id]);
         $clientProjects = $cpStmt->fetchAll();
     } else {
-        // STANDARD RULE: Only projects belonging to the selected client
         $cpStmt = $pdo->prepare("SELECT id, name FROM projects WHERE clientid = ? ORDER BY name ASC");
         $cpStmt->execute([$selected_client_id]);
         $clientProjects = $cpStmt->fetchAll();
@@ -561,7 +582,7 @@ require_once 'header.php';
                                 <?php if($canManage): ?>
                                 <td style="text-align: right;">
                                     <button onclick='openTxModal(<?= json_encode($t, JSON_HEX_APOS) ?>, <?= $t['work_id'] ?: 'null' ?>, "<?= $t['transaction_type'] ?>", <?= $t_is_measured ?>, <?= $t_vat_rate ?>)' class="btn btn-sm btn-secondary">Edit</button>
-                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this record?');">
+                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure? If this is a Certification, the floors will be rolled back to their previous completion %.');">
                                         <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
                                         <input type="hidden" name="action" value="delete_transaction"><input type="hidden" name="transaction_id" value="<?= $t['id'] ?>">
                                         <button type="submit" class="btn btn-sm btn-danger">X</button>
@@ -714,7 +735,10 @@ require_once 'header.php';
                     </div>
                     <?php endif; ?>
 
-                    <div class="form-group" id="t_amount_group"><label>Amount (Inc VAT) *</label><input type="number" step="0.01" name="amount" id="t_amount"></div>
+                    <div class="form-group" id="t_amount_group">
+                        <label>Amount (Inc VAT) *</label>
+                        <input type="number" step="0.01" name="amount" id="t_amount">
+                    </div>
 
                     <div id="measuredCertGrid" style="display:none; background: rgba(59,130,246,0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(59,130,246,0.3); margin-bottom: 15px;">
                         <h4 style="margin: 0 0 10px 0; color: #3B82F6;">📈 Progress Certification</h4>
@@ -839,9 +863,11 @@ require_once 'header.php';
 
         // --- CERTIFICATION PROGRESS LOGIC ---
         let currentModalIsMeasured = false;
+        let isEditMode = false;
 
         async function openTxModal(data, work_id, type, isMeasured, vatRate) {
             currentModalIsMeasured = isMeasured === true || isMeasured === 'true' || isMeasured === 1;
+            isEditMode = (data !== null);
             
             document.getElementById('t_work_id').value = work_id || '';
             document.getElementById('t_type').value = type || 'Certification';
@@ -871,52 +897,73 @@ require_once 'header.php';
             const type = document.getElementById('t_type').value;
             const work_id = document.getElementById('t_work_id').value;
 
-            if (currentModalIsMeasured && type === 'Certification' && work_id) {
-                // Ensure required field doesn't block submission when hidden
-                document.getElementById('t_amount_group').style.display = 'none';
-                document.getElementById('t_amount').removeAttribute('required'); 
-                document.getElementById('measuredCertGrid').style.display = 'block';
-                
-                const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
-                const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
-                const boq = await res.json();
-                
-                let html = '';
-                boq.forEach(b => {
-                    // Safe numeric parsing
-                    const prevPct = parseFloat(b.pct_complete) || 0;
-                    const totalExc = parseFloat(b.total_exc) || 0;
+            // Remove any existing warning messages first
+            const existingWarn = document.getElementById('edit_cert_warning');
+            if (existingWarn) existingWarn.remove();
 
-                    // Note: onblur is where we forcefully snap the number to constraints.
-                    // oninput just safely updates the visual € amounts while the user is typing.
-                    html += `<tr>
-                        <td>
-                            <input type="hidden" name="cert_boq_id[]" value="${b.id}">
-                            <input type="hidden" name="cert_level_id[]" value="${b.block_level_id || ''}">
-                            <input type="hidden" class="c-total" value="${totalExc}">
-                            <input type="hidden" class="c-prev" value="${prevPct}">
-                            ${b.description}
-                        </td>
-                        <td>€${totalExc.toFixed(2)}</td>
-                        <td style="font-weight: bold; color: var(--text-secondary);">${prevPct.toFixed(1)}%</td>
-                        <td><input type="number" step="0.01" name="cert_new_pct[]" class="boq-input c-new" value="${prevPct}" oninput="calcCert()" onblur="enforceCertRules(this, ${prevPct})"></td>
-                        <td>
-                            <input type="hidden" name="cert_val_added[]" class="c-added-val" value="0">
-                            <span class="c-val-text" style="color: var(--primary-color); font-weight: bold;">€0.00</span>
-                        </td>
-                    </tr>`;
-                });
-                document.getElementById('certBody').innerHTML = html;
-                calcCert(); // Initialize totals
+            if (currentModalIsMeasured && type === 'Certification' && work_id) {
+                
+                if (isEditMode) {
+                    // EDIT MODE: Hide grid, show static amount, show warning
+                    document.getElementById('t_amount_group').style.display = 'block';
+                    document.getElementById('t_amount').setAttribute('readonly', 'true');
+                    document.getElementById('measuredCertGrid').style.display = 'none';
+                    
+                    let warn = document.createElement('div');
+                    warn.id = 'edit_cert_warning';
+                    warn.style.cssText = 'color: #f59e0b; font-size: 0.8rem; margin-top: 5px; padding: 10px; background: rgba(245,158,11,0.1); border-radius:6px; border: 1px solid rgba(245,158,11,0.3);';
+                    warn.innerText = '⚠️ Quantities cannot be modified during an edit to preserve historical integrity. To alter the certified %, please delete this log (which will instantly restore the previous %) and create a new log.';
+                    document.getElementById('t_amount_group').appendChild(warn);
+
+                } else {
+                    // NEW MODE: Show Grid, hide static amount box
+                    document.getElementById('t_amount_group').style.display = 'none';
+                    document.getElementById('t_amount').removeAttribute('required'); 
+                    document.getElementById('t_amount').removeAttribute('readonly'); 
+                    document.getElementById('measuredCertGrid').style.display = 'block';
+                    
+                    const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
+                    const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
+                    const boq = await res.json();
+                    
+                    let html = '';
+                    boq.forEach(b => {
+                        // Parse numbers safely from database
+                        const prevPct = parseFloat(b.pct_complete) || 0;
+                        const totalExc = parseFloat(b.total_exc) || 0;
+
+                        html += `<tr>
+                            <td>
+                                <input type="hidden" name="cert_boq_id[]" value="${b.id}">
+                                <input type="hidden" name="cert_level_id[]" value="${b.block_level_id || ''}">
+                                <input type="hidden" name="cert_prev_pct[]" class="c-prev" value="${prevPct}">
+                                <input type="hidden" class="c-total" value="${totalExc}">
+                                ${b.description}
+                            </td>
+                            <td>€${totalExc.toFixed(2)}</td>
+                            <td style="font-weight: bold; color: var(--text-secondary);">${prevPct.toFixed(1)}%</td>
+                            <td>
+                                <input type="number" step="0.01" name="cert_new_pct[]" class="boq-input c-new" value="${prevPct}" oninput="calcCert()" onblur="enforceCertRules(this, ${prevPct})">
+                            </td>
+                            <td>
+                                <input type="hidden" name="cert_val_added[]" class="c-added-val" value="0">
+                                <span class="c-val-text" style="color: var(--primary-color); font-weight: bold;">€0.00</span>
+                            </td>
+                        </tr>`;
+                    });
+                    document.getElementById('certBody').innerHTML = html;
+                    calcCert(); // Initialize totals
+                }
             } else {
-                // Standard mode
+                // Standard un-measured mode (or Invoices/Payments)
                 document.getElementById('t_amount_group').style.display = 'block';
                 document.getElementById('t_amount').setAttribute('required', 'true');
+                document.getElementById('t_amount').removeAttribute('readonly');
                 document.getElementById('measuredCertGrid').style.display = 'none';
             }
         }
 
-        // Calculates the € value dynamically while typing
+        // Calculates visually while user types freely
         function calcCert() {
             let certExc = 0;
             const vatRate = parseFloat(document.getElementById('t_vat_rate').value) || 0;
@@ -930,7 +977,7 @@ require_once 'header.php';
                 let current = parseFloat(newPctInput.value);
                 if (isNaN(current)) current = 0;
 
-                // Don't snap the input box itself yet, just calculate based on constraints
+                // Don't snap the input box itself yet, just calculate effective constraints
                 let effectivePct = current;
                 if (effectivePct > 100) effectivePct = 100;
                 if (effectivePct < prev) effectivePct = prev;
@@ -950,16 +997,16 @@ require_once 'header.php';
             document.getElementById('certExcTotal').innerText = '€' + certExc.toFixed(2);
             document.getElementById('certIncTotal').innerText = '€' + certInc.toFixed(2);
             
-            // Populate the hidden standard amount field to guarantee smooth backend saving
+            // Sync to the hidden standard amount field
             document.getElementById('t_amount').value = certInc.toFixed(2);
         }
 
-        // When the user clicks away from the input, enforce the rules visually
+        // Only enforce limits when user clicks away
         function enforceCertRules(el, prev) {
             let val = parseFloat(el.value);
             if (isNaN(val) || val < prev) el.value = prev;
             if (val > 100) el.value = 100;
-            calcCert(); // Recalculate one final time to sync
+            calcCert(); // Recalculate one final time
         }
 
         function openWorkModal(data = null) {
@@ -976,7 +1023,6 @@ require_once 'header.php';
                 document.getElementById('w_is_measured').value = data.is_measured;
                 document.getElementById('w_notes').value = data.notes;
                 
-                // Fetch existing lines
                 checkMeasuredSetup(data.id); 
             } else {
                 document.getElementById('wModalTitle').textContent = 'Create Work Order';
