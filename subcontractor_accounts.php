@@ -130,22 +130,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                 
                 for ($i = 0; $i < count($_POST['cert_boq_id']); $i++) {
                     $bId = $_POST['cert_boq_id'][$i];
-                    $newPct = (float)$_POST['cert_new_pct'][$i];
-                    $valAdded = (float)$_POST['cert_val_added'][$i];
+                    $newPct = isset($_POST['cert_new_pct'][$i]) ? (float)$_POST['cert_new_pct'][$i] : 0.0;
+                    $valAdded = isset($_POST['cert_val_added'][$i]) ? (float)$_POST['cert_val_added'][$i] : 0.0;
                     $lvlId = !empty($_POST['cert_level_id'][$i]) ? $_POST['cert_level_id'][$i] : null;
                     
-                    if ($valAdded > 0 || $newPct > 0 || $newPct === 0.0) {
-                        $amountExc += $valAdded;
-                        $updateBoq->execute([$newPct, $bId]);
+                    // Always record the new database values unconditionally
+                    $amountExc += $valAdded;
+                    $updateBoq->execute([$newPct, $bId]);
+                    
+                    // Magic Sync: Update Master Project tracker with exact % and status
+                    if ($lvlId) {
+                        $cStatus = 'Pending';
+                        if ($newPct >= 100) $cStatus = 'Complete';
+                        elseif ($newPct > 0) $cStatus = 'In Progress';
                         
-                        // Magic Sync: Update Master Project tracker with exact % and status
-                        if ($lvlId) {
-                            $cStatus = 'Pending';
-                            if ($newPct >= 100) $cStatus = 'Complete';
-                            elseif ($newPct > 0) $cStatus = 'In Progress';
-                            
-                            $updateLevel->execute([$cStatus, $newPct, $lvlId]);
-                        }
+                        $updateLevel->execute([$cStatus, $newPct, $lvlId]);
                     }
                 }
                 
@@ -884,10 +883,12 @@ require_once 'header.php';
                 
                 let html = '';
                 boq.forEach(b => {
-                    // Safe numeric parsing so UI never breaks
+                    // Safe numeric parsing
                     const prevPct = parseFloat(b.pct_complete) || 0;
                     const totalExc = parseFloat(b.total_exc) || 0;
 
+                    // Note: onblur is where we forcefully snap the number to constraints.
+                    // oninput just safely updates the visual € amounts while the user is typing.
                     html += `<tr>
                         <td>
                             <input type="hidden" name="cert_boq_id[]" value="${b.id}">
@@ -898,7 +899,7 @@ require_once 'header.php';
                         </td>
                         <td>€${totalExc.toFixed(2)}</td>
                         <td style="font-weight: bold; color: var(--text-secondary);">${prevPct.toFixed(1)}%</td>
-                        <td><input type="number" step="0.01" min="${prevPct}" max="100" name="cert_new_pct[]" class="boq-input c-new" value="${prevPct}" oninput="calcCert()"></td>
+                        <td><input type="number" step="0.01" name="cert_new_pct[]" class="boq-input c-new" value="${prevPct}" oninput="calcCert()" onblur="enforceCertRules(this, ${prevPct})"></td>
                         <td>
                             <input type="hidden" name="cert_val_added[]" class="c-added-val" value="0">
                             <span class="c-val-text" style="color: var(--primary-color); font-weight: bold;">€0.00</span>
@@ -915,6 +916,7 @@ require_once 'header.php';
             }
         }
 
+        // Calculates the € value dynamically while typing
         function calcCert() {
             let certExc = 0;
             const vatRate = parseFloat(document.getElementById('t_vat_rate').value) || 0;
@@ -924,37 +926,40 @@ require_once 'header.php';
                 let tot = parseFloat(row.querySelector('.c-total').value) || 0;
                 let prev = parseFloat(row.querySelector('.c-prev').value) || 0;
                 let newPctInput = row.querySelector('.c-new');
+                
                 let current = parseFloat(newPctInput.value);
+                if (isNaN(current)) current = 0;
 
-                if (isNaN(current)) current = prev;
+                // Don't snap the input box itself yet, just calculate based on constraints
+                let effectivePct = current;
+                if (effectivePct > 100) effectivePct = 100;
+                if (effectivePct < prev) effectivePct = prev;
 
-                // NATIVE JS RESTRAINTS
-                if (current > 100) {
-                    current = 100;
-                    newPctInput.value = 100;
-                } else if (current < prev) {
-                    current = prev;
-                    newPctInput.value = prev;
+                let diff = effectivePct - prev;
+                let val = 0;
+                if (diff > 0) {
+                    val = tot * (diff / 100);
                 }
-
-                if (current > prev) {
-                    let diff = current - prev;
-                    let val = tot * (diff / 100);
-                    certExc += val;
-                    row.querySelector('.c-added-val').value = val.toFixed(2);
-                    row.querySelector('.c-val-text').innerText = '+ €' + val.toFixed(2);
-                } else {
-                    row.querySelector('.c-added-val').value = 0;
-                    row.querySelector('.c-val-text').innerText = '€0.00';
-                }
+                
+                certExc += val;
+                row.querySelector('.c-added-val').value = val.toFixed(2);
+                row.querySelector('.c-val-text').innerText = '+ €' + val.toFixed(2);
             });
 
             let certInc = certExc + (certExc * (vatRate / 100));
             document.getElementById('certExcTotal').innerText = '€' + certExc.toFixed(2);
             document.getElementById('certIncTotal').innerText = '€' + certInc.toFixed(2);
-
-            // Populate the hidden amount field to guarantee smooth backend saving
+            
+            // Populate the hidden standard amount field to guarantee smooth backend saving
             document.getElementById('t_amount').value = certInc.toFixed(2);
+        }
+
+        // When the user clicks away from the input, enforce the rules visually
+        function enforceCertRules(el, prev) {
+            let val = parseFloat(el.value);
+            if (isNaN(val) || val < prev) el.value = prev;
+            if (val > 100) el.value = 100;
+            calcCert(); // Recalculate one final time to sync
         }
 
         function openWorkModal(data = null) {
