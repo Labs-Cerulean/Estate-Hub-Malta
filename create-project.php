@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         
         $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
         $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
+        $streetName = trim($_POST['street_name'] ?? '');
 
         // Integrity Checks
         if (empty($clientId)) throw new Exception("A Developer/Client must be selected.");
@@ -37,12 +38,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $pdo->beginTransaction();
 
         $stmt = $pdo->prepare("
-            INSERT INTO projects (clientid, name, city, island, type, finishlevel, is_tracking, summer_break_flag, project_status, latitude, longitude, created_by) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projects (clientid, name, city, island, type, finishlevel, is_tracking, summer_break_flag, project_status, latitude, longitude, street_name, created_by) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $clientId, $name, $city, $island, $type, $finishLevel, 
-            $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, getCurrentUserId()
+            $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, $streetName, getCurrentUserId()
         ]);
         
         $projectId = $pdo->lastInsertId();
@@ -108,6 +109,9 @@ $pageTitle = 'Create Project';
 require_once 'header.php';
 ?>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <div class="main-container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <h1 class="page-title" style="margin: 0;">Create New Project</h1>
@@ -154,14 +158,7 @@ require_once 'header.php';
                             <option value="">-- Select Island First --</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>Exact Latitude (Optional)</label>
-                        <input type="text" name="latitude" placeholder="e.g., 35.912245">
-                    </div>
-                    <div class="form-group">
-                        <label>Exact Longitude (Optional)</label>
-                        <input type="text" name="longitude" placeholder="e.g., 14.504212">
-                    </div>
+                    
                     <div class="form-group">
                         <label>Project Type <span style="color: #ef4444;">*</span></label>
                         <select name="type" id="project-type" onchange="toggleFinishLevel()" required>
@@ -193,6 +190,28 @@ require_once 'header.php';
                 </div>
             </div>
 
+            <div style="margin-bottom: 2rem;">
+                <h3 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Location & Map Pin</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Select a City above, then click on the map to pinpoint the exact location. The street name will be auto-detected.</p>
+                
+                <div id="map-picker" style="height: 300px; width: 100%; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 1rem; cursor: crosshair; z-index: 1;"></div>
+                
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr 2fr; gap: 1.5rem;">
+                    <div class="form-group" style="margin:0;">
+                        <label>Latitude</label>
+                        <input type="text" name="latitude" id="lat_input" readonly style="background: rgba(255,255,255,0.05); color: var(--text-muted);">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>Longitude</label>
+                        <input type="text" name="longitude" id="lon_input" readonly style="background: rgba(255,255,255,0.05); color: var(--text-muted);">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>Street Name</label>
+                        <input type="text" name="street_name" id="street_input" placeholder="Click map to auto-detect...">
+                    </div>
+                </div>
+            </div>
+
             <div style="margin-bottom: 3rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
                     <h3>PA Numbers & Permits</h3>
@@ -219,6 +238,56 @@ require_once 'header.php';
 
 <script src="localities.js"></script>
 <script>
+// --- Map & Location Picker Logic ---
+let map = null;
+let marker = null;
+
+function initMap() {
+    map = L.map('map-picker').setView([35.91, 14.45], 11); // Center on Malta
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    map.on('click', async function(e) {
+        const lat = e.latlng.lat.toFixed(6);
+        const lon = e.latlng.lng.toFixed(6);
+        
+        document.getElementById('lat_input').value = lat;
+        document.getElementById('lon_input').value = lon;
+        
+        if (marker) map.removeLayer(marker);
+        marker = L.marker([lat, lon]).addTo(map);
+
+        document.getElementById('street_input').value = "Detecting...";
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`);
+            const data = await res.json();
+            if (data && data.address) {
+                const road = data.address.road || data.address.pedestrian || data.address.path || data.name || data.address.suburb || data.address.village || '';
+                document.getElementById('street_input').value = road;
+            } else {
+                document.getElementById('street_input').value = '';
+            }
+        } catch (err) {
+            document.getElementById('street_input').value = '';
+        }
+    });
+}
+
+// Auto-zoom map when city changes
+document.getElementById('city-select').addEventListener('change', async function() {
+    const city = this.value;
+    if (!city || !map) return;
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&city=${encodeURIComponent(city)}&country=Malta`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+            map.flyTo([data[0].lat, data[0].lon], 15);
+        }
+    } catch (e) { console.error("Could not fly to city"); }
+});
+
+// --- Form Element Logic ---
 let paEntryCount = 0;
 const architects = <?= json_encode($architects) ?>;
 const engineers = <?= json_encode($engineers) ?>;
@@ -306,7 +375,7 @@ function updateCities() {
 function toggleFinishLevel() { document.getElementById('finish-level-group').style.display = document.getElementById('project-type').value === 'in-house' ? 'block' : 'none'; }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Generate initial empty rows for UX
+    initMap();
     addPAEntry();
     addBlockEntry();
 });
