@@ -23,6 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'manage_professionals' => isset($_POST['manage_professionals']) ? 1 : 0,
         'manage_users' => isset($_POST['manage_users']) ? 1 : 0,
         'manage_subcontractors' => isset($_POST['manage_subcontractors']) ? 1 : 0,
+        'view_subcontractor_accounts' => isset($_POST['view_subcontractor_accounts']) ? 1 : 0,
+        'manage_subcontractor_accounts' => isset($_POST['manage_subcontractor_accounts']) ? 1 : 0,
         // Navigation Visibility Flags
         'view_mobilisation' => isset($_POST['view_mobilisation']) ? 1 : 0,
         'view_projects' => isset($_POST['view_projects']) ? 1 : 0,
