@@ -720,7 +720,7 @@ require_once 'header.php';
             document.getElementById('w_inc').value = (exc + (exc * (rate / 100))).toFixed(2);
         }
 
-        async function checkMeasuredSetup() {
+        async function checkMeasuredSetup(work_id = null) {
             const isMeasured = document.getElementById('w_is_measured').value === '1';
             const pid = document.getElementById('w_project_id').value;
             
@@ -729,7 +729,27 @@ require_once 'header.php';
             
             if (isMeasured) {
                 document.getElementById('w_exc').readOnly = true; // Lock manual entry
-                if (pid) {
+                
+                if (work_id) {
+                    // EDIT MODE: Fetch the saved BoQ items
+                    const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
+                    const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
+                    const boq = await res.json();
+                    
+                    let html = '';
+                    boq.forEach(b => {
+                        html += `<tr>
+                            <td><input type="hidden" name="boq_level_id[]" value="${b.block_level_id || ''}"><input type="text" name="boq_desc[]" value="${b.description}" class="boq-input" ${b.block_level_id ? 'readonly' : ''}></td>
+                            <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" value="${b.qty}" oninput="calcBoq()"></td>
+                            <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" value="${b.rate}" oninput="calcBoq()"></td>
+                            <td class="b-total">€${b.total_exc}</td>
+                        </tr>`;
+                    });
+                    document.getElementById('boqBody').innerHTML = html;
+                    calcBoq(); // Recalculate totals immediately
+                } 
+                else if (pid) {
+                    // NEW MODE (or Project changed): Fetch fresh, empty project levels
                     const formData = new URLSearchParams({ ajax_action: 'get_project_levels', project_id: pid });
                     const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
                     const levels = await res.json();
@@ -744,6 +764,7 @@ require_once 'header.php';
                         </tr>`;
                     });
                     document.getElementById('boqBody').innerHTML = html;
+                    calcBoq(); // Reset totals to 0
                 } else {
                     document.getElementById('boqBody').innerHTML = '<tr><td colspan="4">Please select a project first.</td></tr>';
                 }
@@ -887,7 +908,9 @@ require_once 'header.php';
                 document.getElementById('w_inc').value = data.total_inc_vat;
                 document.getElementById('w_is_measured').value = data.is_measured;
                 document.getElementById('w_notes').value = data.notes;
-                checkMeasuredSetup(); // Trigger UI shift
+                
+                // PASS THE ID HERE so it knows to fetch existing data
+                checkMeasuredSetup(data.id); 
             } else {
                 document.getElementById('wModalTitle').textContent = 'Create Work Order';
                 document.getElementById('w_id').value = '';
@@ -897,7 +920,8 @@ require_once 'header.php';
                 document.getElementById('w_exc').value = '';
                 document.getElementById('w_inc').value = '';
                 document.getElementById('w_is_measured').value = '0';
-                checkMeasuredSetup(); // Trigger UI shift
+                
+                checkMeasuredSetup(); 
             }
             document.getElementById('workModal').style.display = 'block';
         }
