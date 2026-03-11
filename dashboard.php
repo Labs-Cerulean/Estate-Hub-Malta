@@ -140,6 +140,11 @@ function getSortIndicator($column) {
     if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
     return '';
 }
+function buildPaUrl(?string $paNumber): ?string {
+    if (empty($paNumber)) return null;
+    if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null;
+    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}";
+}
 
 $pageTitle = $dashboardType;
 require_once 'header.php';
