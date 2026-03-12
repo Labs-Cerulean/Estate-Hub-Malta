@@ -81,10 +81,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
         $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
 
+        // Vault Permissions
+        $doc_bca = isset($_POST['doc_bca']) ? 1 : 0;
+        $doc_ohsa = isset($_POST['doc_ohsa']) ? 1 : 0;
+        $doc_drawings = isset($_POST['doc_drawings']) ? 1 : 0;
+        $doc_commercial = isset($_POST['doc_commercial']) ? 1 : 0;
+        $doc_sales = isset($_POST['doc_sales']) ? 1 : 0;
+
         try {
             $pdo->beginTransaction();
-            $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=? WHERE id=?");
-            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $userId]);
+            $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_commercial=?, doc_sales=? WHERE id=?");
+            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_commercial, $doc_sales, $userId]);
             
             // Password update if provided
             if (!empty($_POST['new_password'])) {
@@ -237,7 +244,7 @@ require_once 'header.php';
                         </div>
 
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Menu Navigation Visibility</h4>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 1.5rem;">
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_projects" id="edit_cap_view_projects" <?= !empty($selectedUser['view_projects']) ? 'checked' : '' ?>> Projects</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_mobilisation" id="edit_cap_view_mobilisation" <?= !empty($selectedUser['view_mobilisation']) ? 'checked' : '' ?>> Mobilisation</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_ohsa" id="edit_cap_view_ohsa" <?= !empty($selectedUser['view_ohsa']) ? 'checked' : '' ?>> OHSA</label>
@@ -247,6 +254,15 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_property_sales" id="edit_cap_view_property_sales" <?= !empty($selectedUser['view_property_sales']) ? 'checked' : '' ?>> Property Sales</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_capital_projects" id="edit_cap_view_capital_projects" <?= !empty($selectedUser['view_capital_projects']) ? 'checked' : '' ?>> Capital Projects</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_nav_subcontractors" id="edit_cap_view_nav_subcontractors" <?= !empty($selectedUser['view_nav_subcontractors']) ? 'checked' : '' ?>> Subcon. Accounts Menu</label>
+                        </div>
+
+                        <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Document Vault Access</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_bca" id="edit_cap_doc_bca" <?= !empty($selectedUser['doc_bca']) ? 'checked' : '' ?>> BCA Docs</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_ohsa" id="edit_cap_doc_ohsa" <?= !empty($selectedUser['doc_ohsa']) ? 'checked' : '' ?>> OHSA Docs</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_drawings" id="edit_cap_doc_drawings" <?= !empty($selectedUser['doc_drawings']) ? 'checked' : '' ?>> Drawings</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_commercial" id="edit_cap_doc_commercial" <?= !empty($selectedUser['doc_commercial']) ? 'checked' : '' ?>> Commercial</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_sales" id="edit_cap_doc_sales" <?= !empty($selectedUser['doc_sales']) ? 'checked' : '' ?>> Sales</label>
                         </div>
                     </div>
 
@@ -393,23 +409,23 @@ function openCreateModal() { document.getElementById('createModal').style.displa
 function closeCreateModal() { document.getElementById('createModal').style.display = 'none'; }
 window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
 
-// Capability Defaults Script
+// Capability Defaults Script - NOW INCLUDING DOCUMENT VAULT PERMISSIONS
 const roleDefaults = {
-    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors'],
-    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
-    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors'],
-    'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
-    'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
-    'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings'],
-    'site_technical_officer': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'doc_bca', 'doc_ohsa', 'doc_drawings', 'doc_commercial', 'doc_sales'],
+    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'doc_bca', 'doc_ohsa', 'doc_drawings', 'doc_commercial', 'doc_sales'],
+    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'doc_bca', 'doc_ohsa', 'doc_drawings'],
+    'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'doc_bca', 'doc_ohsa', 'doc_drawings'],
+    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors', 'doc_commercial'],
+    'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation', 'doc_drawings', 'doc_bca'],
+    'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation', 'doc_drawings', 'doc_bca'],
+    'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'doc_drawings'],
+    'site_technical_officer': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'doc_bca', 'doc_ohsa', 'doc_drawings'],
     'quality_controller': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation'],
-    'pmo_staff': ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation'],
-    'ohsa_rep': ['assign_actions', 'view_projects', 'view_ohsa'],
-    'subcontractor': ['assign_actions', 'view_projects', 'view_drawings'],
-    'sales_manager': ['view_works_sales', 'view_property_sales'],
-    'sales_agent': ['view_property_sales'],
+    'pmo_staff': ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation', 'doc_bca'],
+    'ohsa_rep': ['assign_actions', 'view_projects', 'view_ohsa', 'doc_ohsa'],
+    'subcontractor': ['assign_actions', 'view_projects', 'view_drawings', 'doc_drawings'],
+    'sales_manager': ['view_works_sales', 'view_property_sales', 'doc_sales'],
+    'sales_agent': ['view_property_sales', 'doc_sales'],
     'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects']
 };
 
