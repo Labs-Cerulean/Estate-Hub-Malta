@@ -73,17 +73,25 @@ $projectIds = array_column($projectsRaw, 'id');
 
 $ohsaSetups = [];
 $ohsaEquipment = [];
+$paNumbers = [];
 
 if (!empty($projectIds)) {
     $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
     
+    // Fetch OHSA Setup
     $statusStmt = $pdo->prepare("SELECT * FROM project_ohsa_setup WHERE project_id IN ($placeholders)");
     $statusStmt->execute($projectIds);
     foreach ($statusStmt->fetchAll() as $row) { $ohsaSetups[$row['project_id']] = $row; }
     
+    // Fetch Equipment
     $eqStmt = $pdo->prepare("SELECT * FROM project_ohsa_equipment WHERE project_id IN ($placeholders) ORDER BY id ASC");
     $eqStmt->execute($projectIds);
     foreach ($eqStmt->fetchAll() as $row) { $ohsaEquipment[$row['project_id']][] = $row; }
+
+    // Fetch PA Numbers (for the details modal)
+    $paStmt = $pdo->prepare("SELECT project_id, pa_number FROM project_pa_numbers WHERE project_id IN ($placeholders)");
+    $paStmt->execute($projectIds);
+    foreach ($paStmt->fetchAll() as $row) { $paNumbers[$row['project_id']][] = $row['pa_number']; }
 }
 
 // 3. Filter for active execution stages
@@ -104,6 +112,7 @@ foreach ($projectsRaw as $p) {
         $p['safety_comments'] = $ohsaSetups[$p['id']]['safety_comments'] ?? '';
         
         $p['equipment'] = $ohsaEquipment[$p['id']] ?? [];
+        $p['pa_numbers'] = $paNumbers[$p['id']] ?? [];
         
         // Calculate Equipment Warnings
         $expiredCount = 0;
@@ -324,6 +333,10 @@ require_once 'header.php';
                 <strong id="pdModalLocation" style="color: var(--text-primary); text-align: right;"></strong>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
+                <span style="color: var(--text-muted);">PA Number(s):</span>
+                <strong id="pdModalPANumbers" style="color: var(--primary-color); text-align: right;"></strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
                 <span style="color: var(--text-muted);">Type:</span>
                 <strong id="pdModalType" style="color: var(--text-primary);"></strong>
             </div>
@@ -477,6 +490,14 @@ function openProjectDetailsModal(project) {
     if (project.island) locationParts.push(project.island);
     
     document.getElementById('pdModalLocation').textContent = locationParts.length > 0 ? locationParts.join(', ') : 'N/A';
+    
+    // Add PA Numbers
+    let paText = 'N/A';
+    if (project.pa_numbers && project.pa_numbers.length > 0) {
+        paText = project.pa_numbers.join(', ');
+    }
+    document.getElementById('pdModalPANumbers').textContent = paText;
+
     document.getElementById('pdModalType').textContent = project.type || 'N/A';
     document.getElementById('pdModalStatus').textContent = project.project_status || 'Active';
     document.getElementById('pdModalFinish').textContent = project.finishlevel || 'N/A';
