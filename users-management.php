@@ -78,17 +78,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
         $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
 
-        // 4-Tier Document Vault Permissions
+        // 4-Tier Document Vault Permissions (Now including Engineering)
         $doc_bca = isset($_POST['doc_bca']) ? (int)$_POST['doc_bca'] : 0;
         $doc_ohsa = isset($_POST['doc_ohsa']) ? (int)$_POST['doc_ohsa'] : 0;
         $doc_drawings = isset($_POST['doc_drawings']) ? (int)$_POST['doc_drawings'] : 0;
+        $doc_engineering = isset($_POST['doc_engineering']) ? (int)$_POST['doc_engineering'] : 0;
         $doc_commercial = isset($_POST['doc_commercial']) ? (int)$_POST['doc_commercial'] : 0;
         $doc_sales = isset($_POST['doc_sales']) ? (int)$_POST['doc_sales'] : 0;
 
         try {
             $pdo->beginTransaction();
-            $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_commercial=?, doc_sales=? WHERE id=?");
-            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_commercial, $doc_sales, $userId]);
+            $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_engineering=?, doc_commercial=?, doc_sales=? WHERE id=?");
+            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_engineering, $doc_commercial, $doc_sales, $userId]);
             
             if (!empty($_POST['new_password'])) {
                 $pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
@@ -262,6 +263,16 @@ require_once 'header.php';
                                     <option value="2" <?= $selectedUser['doc_bca'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
                                     <option value="3" <?= $selectedUser['doc_bca'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
                                     <option value="4" <?= $selectedUser['doc_bca'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.8rem; margin-bottom: 2px;">Engineering (ARMS, PA)</label>
+                                <select name="doc_engineering" id="edit_cap_doc_engineering" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px;">
+                                    <option value="0" <?= $selectedUser['doc_engineering'] == 0 ? 'selected' : '' ?>>0. No Access</option>
+                                    <option value="1" <?= $selectedUser['doc_engineering'] == 1 ? 'selected' : '' ?>>1. View Online Only</option>
+                                    <option value="2" <?= $selectedUser['doc_engineering'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
+                                    <option value="3" <?= $selectedUser['doc_engineering'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
+                                    <option value="4" <?= $selectedUser['doc_engineering'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
                                 </select>
                             </div>
                             <div class="form-group" style="margin: 0;">
@@ -449,7 +460,6 @@ function openCreateModal() { document.getElementById('createModal').style.displa
 function closeCreateModal() { document.getElementById('createModal').style.display = 'none'; }
 window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
 
-// UI Action Checkbox Defaults
 const roleDefaults = {
     'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors'],
     'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
@@ -458,7 +468,7 @@ const roleDefaults = {
     'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors'],
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
-    'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings'],
+    'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'site_technical_officer': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
     'quality_controller': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation'],
     'pmo_staff': ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation'],
@@ -469,23 +479,22 @@ const roleDefaults = {
     'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects']
 };
 
-// Document Vault Tier Defaults
 const docDefaults = {
-    'admin': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_commercial: 4, doc_sales: 4 },
-    'director': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_commercial: 4, doc_sales: 4 },
-    'system_manager': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_commercial: 0, doc_sales: 0 },
-    'project_manager': { doc_bca: 3, doc_ohsa: 3, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
-    'accountant': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 4, doc_sales: 0 },
-    'architect': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
-    'structural_engineer': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
-    'services_engineer': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
-    'site_technical_officer': { doc_bca: 2, doc_ohsa: 3, doc_drawings: 2, doc_commercial: 0, doc_sales: 0 },
-    'quality_controller': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_commercial: 0, doc_sales: 0 },
-    'pmo_staff': { doc_bca: 3, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 0, doc_sales: 0 },
-    'ohsa_rep': { doc_bca: 0, doc_ohsa: 3, doc_drawings: 0, doc_commercial: 0, doc_sales: 0 },
-    'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_commercial: 0, doc_sales: 0 },
-    'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 0, doc_sales: 4 },
-    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 0, doc_sales: 2 }
+    'admin': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 4, doc_sales: 4 },
+    'director': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 4, doc_sales: 4 },
+    'system_manager': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 0, doc_sales: 0 },
+    'project_manager': { doc_bca: 3, doc_ohsa: 3, doc_drawings: 3, doc_engineering: 3, doc_commercial: 0, doc_sales: 0 },
+    'accountant': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 4, doc_sales: 0 },
+    'architect': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 2, doc_commercial: 0, doc_sales: 0 },
+    'structural_engineer': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
+    'services_engineer': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 3, doc_commercial: 0, doc_sales: 0 },
+    'site_technical_officer': { doc_bca: 2, doc_ohsa: 3, doc_drawings: 2, doc_engineering: 2, doc_commercial: 0, doc_sales: 0 },
+    'quality_controller': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
+    'pmo_staff': { doc_bca: 3, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
+    'ohsa_rep': { doc_bca: 0, doc_ohsa: 3, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
+    'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
+    'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 4 },
+    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2 }
 };
 
 function toggleAccessSections(type) {
@@ -511,12 +520,10 @@ function applyRoleDefaults(type) {
     if (!roleSelect) return;
     const role = roleSelect.value;
     
-    // Apply Action Checkboxes
     const defaults = roleDefaults[role] || [];
     document.querySelectorAll('.cap-check-' + type).forEach(box => box.checked = false);
     defaults.forEach(cap => { const box = document.getElementById(type + '_cap_' + cap); if (box) box.checked = true; });
 
-    // Apply Document Vault Tiers
     document.querySelectorAll('.doc-select-' + type).forEach(sel => sel.value = '0');
     if (docDefaults[role]) {
         Object.keys(docDefaults[role]).forEach(key => {
