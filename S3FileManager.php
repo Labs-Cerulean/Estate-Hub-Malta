@@ -11,10 +11,10 @@ class S3FileManager {
 
     public function __construct() {
         // Fallback to constants if env vars aren't set directly
-        $accountId = getenv('R2_ACCOUNT_ID') ?: e9933d76f02eff964eac2f57d559757b;
-        $accessKey = getenv('R2_ACCESS_KEY') ?: d2f870c6c4f6d44baca3724225fcd86d;
-        $secretKey = getenv('R2_SECRET_KEY') ?: dfb3914f821ece155958041f8e0592de575dbe53fe29f7e1fef15901a6d11bdb;
-        $this->bucket = getenv('R2_BUCKET_NAME') ?: estate-hub-vault;
+        $accountId = getenv('R2_ACCOUNT_ID') ?: 'e9933d76f02eff964eac2f57d559757b';
+        $accessKey = getenv('R2_ACCESS_KEY') ?: 'd2f870c6c4f6d44baca3724225fcd86d';
+        $secretKey = getenv('R2_SECRET_KEY') ?: 'dfb3914f821ece155958041f8e0592de575dbe53fe29f7e1fef15901a6d11bdb';
+        $this->bucket = getenv('R2_BUCKET_NAME') ?: 'estate-hub-vault';
 
         $credentials = new Aws\Credentials\Credentials($accessKey, $secretKey);
 
