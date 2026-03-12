@@ -1,8 +1,7 @@
 <?php
 // Catch Server-level POST overflows gracefully before anything else loads
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && $_SERVER['CONTENT_LENGTH'] > 0) {
-    $error = "The uploaded file is too large and exceeded the server limits. Please upload a file smaller than 500MB.";
-    $_POST['action'] = 'overflow_error'; // Prevent downstream logic from running
+    $_POST['action'] = 'overflow_error'; 
 }
 
 require_once 'init.php';
@@ -11,10 +10,13 @@ require_once 'S3FileManager.php';
 
 $userId = getCurrentUserId();
 $isAdmin = isAdmin();
-
 $s3 = new S3FileManager();
+
 $message = ''; 
-$error = $error ?? ''; // Retain overflow error if caught above
+$error = '';
+if (isset($_POST['action']) && $_POST['action'] === 'overflow_error') {
+    $error = "The uploaded file exceeded the server limits. Please upload a file smaller than 500MB.";
+}
 
 // ==========================================
 // 1. DETERMINE USER CATEGORY PERMISSIONS
@@ -34,64 +36,77 @@ if ($isAdmin || (int)$uPerm['doc_sales'] > 0) $docPerms['Sales'] = $isAdmin ? 4 
 
 $accessibleCategories = array_keys($docPerms);
 
-// Handle Actions (Upload / Edit / Delete)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== 'overflow_error') {
-    $action = $_POST['action'] ?? '';
+// ==========================================
+// 2. DIRECT-TO-CLOUD AJAX HANDLERS
+// ==========================================
+if (isset($_POST['ajax_action'])) {
+    header('Content-Type: application/json');
+    try {
+        // Generate the secure Cloudflare upload URL
+        if ($_POST['ajax_action'] === 'get_upload_url') {
+            $cat = $_POST['category'];
+            if (!isset($docPerms[$cat]) || $docPerms[$cat] < 3) {
+                echo json_encode(['success' => false, 'error' => 'Permission denied']); exit;
+            }
+            $urlData = $s3->getPresignedUploadUrl($_POST['filename'], $_POST['mime_type'], strtolower($cat));
+            if ($urlData) {
+                echo json_encode(['success' => true, 'url' => $urlData['url'], 'key' => $urlData['key']]);
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Failed to generate secure upload link.']);
+            }
+            exit;
+        }
 
-    if ($action === 'upload_document') {
-        try {
+        // Save the record to the database AFTER successful browser upload
+        if ($_POST['ajax_action'] === 'save_document_record') {
             $projectId = (int)$_POST['project_id'];
             $category = $_POST['category'];
             
             if (!isset($docPerms[$category]) || $docPerms[$category] < 3) {
-                throw new Exception("You do not have permission to upload documents to the '$category' category.");
+                echo json_encode(['success' => false, 'error' => 'Permission denied']); exit;
             }
 
             $subCategory = trim($_POST['sub_category'] ?? '');
             $title = trim($_POST['title']);
             $expiryDate = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
-            
-            if (isset($_FILES['document_file']) && $_FILES['document_file']['error'] === UPLOAD_ERR_OK) {
-                $tmpPath = $_FILES['document_file']['tmp_name'];
-                $originalName = $_FILES['document_file']['name'];
-                $mimeType = $_FILES['document_file']['type'];
-                $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+            $fileKey = $_POST['file_key'];
+            $ext = strtolower(pathinfo($_POST['filename'], PATHINFO_EXTENSION));
 
-                $fileKey = $s3->uploadFile($tmpPath, $originalName, $mimeType, strtolower($category));
-                
-                if ($fileKey) {
-                    $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, expiry_date, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$projectId, $category, $subCategory, $title, $fileKey, $ext, $expiryDate, $userId]);
-                    $message = "Document uploaded successfully!";
-                } else {
-                    $error = "Failed to upload file to Cloud Storage.";
-                }
-            } else {
-                $error = "No file selected, or the file exceeded limits.";
-            }
-        } catch (Exception $e) { $error = $e->getMessage(); }
-    } 
-    elseif ($action === 'edit_document') {
+            $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, expiry_date, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$projectId, $category, $subCategory, $title, $fileKey, $ext, $expiryDate, $userId]);
+            
+            echo json_encode(['success' => true]);
+            exit;
+        }
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit;
+    }
+}
+
+// ==========================================
+// 3. STANDARD FORM ACTIONS (Edit / Delete)
+// ==========================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action']) && $_POST['action'] !== 'overflow_error') {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'edit_document') {
         try {
             $docId = (int)$_POST['document_id'];
             $title = trim($_POST['title']);
             $subCategory = trim($_POST['sub_category']);
             $expiryDate = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
-            
             $dismissAlarm = isset($_POST['alarm_dismissed']) ? 1 : 0;
             $dismissReason = trim($_POST['alarm_dismissed_reason'] ?? '');
 
-            // Verify Permissions
             $chk = $pdo->prepare("SELECT category FROM project_documents WHERE id = ?");
             $chk->execute([$docId]);
             $dCat = $chk->fetchColumn();
             
-            if (!isset($docPerms[$dCat]) || $docPerms[$dCat] < 3) {
-                throw new Exception("You do not have permission to edit documents in this category.");
-            }
+            if (!isset($docPerms[$dCat]) || $docPerms[$dCat] < 3) throw new Exception("Permission denied.");
 
             if ($dismissAlarm) {
-                if (empty($dismissReason)) throw new Exception("You must provide a reason to dismiss the expiry alarm.");
+                if (empty($dismissReason)) throw new Exception("You must provide a reason to dismiss the alarm.");
                 $stmt = $pdo->prepare("UPDATE project_documents SET title=?, sub_category=?, expiry_date=?, alarm_dismissed=1, alarm_dismissed_reason=?, alarm_dismissed_by=?, alarm_dismissed_at=NOW() WHERE id=?");
                 $stmt->execute([$title, $subCategory, $expiryDate, $dismissReason, $userId, $docId]);
             } else {
@@ -99,7 +114,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== 'overflow_error') {
                 $stmt->execute([$title, $subCategory, $expiryDate, $docId]);
             }
             $message = "Document updated successfully.";
-            
         } catch (Exception $e) { $error = $e->getMessage(); }
     }
     elseif ($action === 'delete_document') {
@@ -110,10 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== 'overflow_error') {
             $doc = $stmt->fetch();
             
             if ($doc) {
-                if (!isset($docPerms[$doc['category']]) || $docPerms[$doc['category']] < 4) {
-                    throw new Exception("You do not have permission to delete documents in this category. (Requires Level 4 Access)");
-                }
-                
+                if (!isset($docPerms[$doc['category']]) || $docPerms[$doc['category']] < 4) throw new Exception("Permission denied.");
                 $s3->deleteFile($doc['file_path']);
                 $pdo->prepare("DELETE FROM project_documents WHERE id = ?")->execute([$docId]);
                 $message = "Document deleted successfully!";
@@ -131,20 +142,16 @@ if (isset($_GET['action']) && in_array($_GET['action'], ['view', 'download']) &&
     
     if ($doc) {
         if (!isset($docPerms[$doc['category']])) die("Unauthorized access.");
-        if ($_GET['action'] === 'download' && $docPerms[$doc['category']] < 2) die("Requires Level 2 Access to download.");
-
+        if ($_GET['action'] === 'download' && $docPerms[$doc['category']] < 2) die("Level 2 Access required.");
+        
         $url = $s3->getPresignedUrl($doc['file_path'], '+60 minutes');
-        if ($url) {
-            header("Location: " . $url);
-            exit;
-        } else {
-            $error = "Could not generate secure link.";
-        }
+        if ($url) { header("Location: " . $url); exit; } 
+        else { $error = "Could not generate link."; }
     }
 }
 
 // ==========================================
-// 2. DATA FETCHING & FILTERING
+// 4. DATA FETCHING
 // ==========================================
 $selectedProjectId = (isset($_GET['project_id']) && $_GET['project_id'] !== 'all') ? (int)$_GET['project_id'] : 'all';
 $selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? $_GET['category'] : 'all';
@@ -156,42 +163,30 @@ $canUploadAnything = false;
 foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break; } }
 
 if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
-    $documents = [];
-    $expiringDocs = [];
+    $documents = []; $expiringDocs = [];
 } else {
     $placeholders = implode(',', array_fill(0, count($accessibleProjectIds), '?'));
     $params = $accessibleProjectIds;
-    
     $allowedCatString = implode("','", array_map(function($c) { return addslashes($c); }, $accessibleCategories));
 
-    // Expiring Docs (EXCLUDES DISMISSED ALARMS)
+    // Fetch Expiring Documents
     $expStmt = $pdo->prepare("
         SELECT d.*, p.name as project_name 
-        FROM project_documents d 
-        JOIN projects p ON d.project_id = p.id 
-        WHERE d.project_id IN ($placeholders) 
-        AND d.category IN ('$allowedCatString')
-        AND d.expiry_date IS NOT NULL 
-        AND d.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-        AND d.alarm_dismissed = 0
+        FROM project_documents d JOIN projects p ON d.project_id = p.id 
+        WHERE d.project_id IN ($placeholders) AND d.category IN ('$allowedCatString')
+        AND d.expiry_date IS NOT NULL AND d.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND d.alarm_dismissed = 0
         ORDER BY d.expiry_date ASC
     ");
     $expStmt->execute($params);
     $expiringDocs = $expStmt->fetchAll();
 
-    // Main Doc List (Joins User who uploaded AND User who dismissed alarm)
-    $query = "SELECT d.*, p.name as project_name, u.first_name, u.last_name, 
-              u2.first_name as dis_fn, u2.last_name as dis_ln
-              FROM project_documents d 
-              JOIN projects p ON d.project_id = p.id 
-              LEFT JOIN users u ON d.uploaded_by = u.id 
-              LEFT JOIN users u2 ON d.alarm_dismissed_by = u2.id
-              WHERE d.project_id IN ($placeholders)
-              AND d.category IN ('$allowedCatString')";
-    
+    // Fetch Main Vault Documents
+    $query = "SELECT d.*, p.name as project_name, u.first_name, u.last_name, u2.first_name as dis_fn, u2.last_name as dis_ln
+              FROM project_documents d JOIN projects p ON d.project_id = p.id 
+              LEFT JOIN users u ON d.uploaded_by = u.id LEFT JOIN users u2 ON d.alarm_dismissed_by = u2.id
+              WHERE d.project_id IN ($placeholders) AND d.category IN ('$allowedCatString')";
     if ($selectedProjectId !== 'all') { $query .= " AND d.project_id = ?"; $params[] = $selectedProjectId; }
     if ($selectedCategory !== 'all' && in_array($selectedCategory, $accessibleCategories)) { $query .= " AND d.category = ?"; $params[] = $selectedCategory; }
-    
     $query .= " ORDER BY d.created_at DESC";
     $docStmt = $pdo->prepare($query);
     $docStmt->execute($params);
@@ -205,10 +200,9 @@ require_once 'header.php';
 <style>
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-.close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
+.close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
 .close-modal:hover { color: var(--text-primary); }
 
-/* Fullscreen Viewer Modal */
 .viewer-modal-content { width: 95%; max-width: 1400px; height: 90vh; margin: 2% auto; padding: 1rem; display: flex; flex-direction: column; }
 .viewer-iframe { flex: 1; width: 100%; border: 1px solid var(--border-glass); border-radius: 8px; background: #fff; }
 
@@ -225,72 +219,31 @@ require_once 'header.php';
 .badge-warning { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
 .badge-dismissed { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100,116,139,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; cursor: help; }
 
-/* Drag and Drop Zone Styles */
-.drop-zone {
-    border: 2px dashed var(--primary-color);
-    border-radius: 8px;
-    padding: 30px;
-    text-align: center;
-    background: rgba(0,0,0,0.2);
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.3s ease;
-    position: relative;
-    margin-top: 5px;
-}
-.drop-zone:hover {
-    background: rgba(99, 102, 241, 0.05);
-}
-.drop-zone.dragover {
-    background: rgba(16, 185, 129, 0.1); 
-    border-color: #10B981; 
-    transform: scale(1.02);
-}
-.drop-zone.error {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: #ef4444;
-}
-.drop-zone input[type="file"] {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    top: 0;
-    left: 0;
-    opacity: 0;
-    cursor: pointer;
-}
-.drop-zone-text {
-    font-size: 1.1rem;
-    font-weight: 600;
-    pointer-events: none; 
-    color: var(--text-primary);
-    transition: color 0.3s ease;
-}
-.drop-zone.dragover .drop-zone-text {
-    color: #10B981;
-}
-.drop-zone.error .drop-zone-text {
-    color: #ef4444;
-}
-.drop-zone-subtext {
-    font-size: 0.8rem;
-    margin-top: 8px;
-    pointer-events: none;
-}
+/* Direct Upload UI */
+.drop-zone { border: 2px dashed var(--primary-color); border-radius: 8px; padding: 30px; text-align: center; background: rgba(0,0,0,0.2); color: var(--text-muted); cursor: pointer; transition: all 0.3s ease; position: relative; margin-top: 5px; }
+.drop-zone:hover { background: rgba(99, 102, 241, 0.05); }
+.drop-zone.dragover { background: rgba(16, 185, 129, 0.1); border-color: #10B981; transform: scale(1.02); }
+.drop-zone.error { background: rgba(239, 68, 68, 0.1); border-color: #ef4444; }
+.drop-zone input[type="file"] { position: absolute; width: 100%; height: 100%; top: 0; left: 0; opacity: 0; cursor: pointer; }
+.drop-zone-text { font-size: 1.1rem; font-weight: 600; pointer-events: none; color: var(--text-primary); transition: color 0.3s ease; }
+.drop-zone.dragover .drop-zone-text { color: #10B981; }
+.drop-zone.error .drop-zone-text { color: #ef4444; }
+.drop-zone-subtext { font-size: 0.8rem; margin-top: 8px; pointer-events: none; }
+.progress-container { width: 100%; background: rgba(255,255,255,0.1); border-radius: 6px; height: 10px; margin-top: 15px; overflow: hidden; display: none; }
+.progress-fill { background: #10B981; height: 100%; width: 0%; transition: width 0.2s; }
 </style>
 
 <div class="main-container">
 
     <?php if (!empty($expiringDocs)): ?>
     <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.3); border-left: 4px solid #ef4444; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
-        <h3 style="margin-top: 0; color: #ef4444; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-            ⚠️ Action Required: Documents Expiring Soon
-        </h3>
+        <h3 style="margin-top: 0; color: #ef4444; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">⚠️ Action Required: Documents Expiring Soon</h3>
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
             <?php foreach($expiringDocs as $edoc): 
                 $now = new DateTime(); $exp = new DateTime($edoc['expiry_date']);
                 $now->setTime(0,0,0); $exp->setTime(0,0,0);
                 $days = (int)$now->diff($exp)->format('%r%a');
+                $catLvl = $docPerms[$edoc['category']] ?? 0;
             ?>
                 <div style="background: #1e1e2d; padding: 1rem; border-radius: 6px; border: 1px solid var(--border-glass);">
                     <div style="font-weight: 800; color: var(--primary-color); margin-bottom: 4px;"><?= htmlspecialchars($edoc['project_name']) ?></div>
@@ -300,7 +253,12 @@ require_once 'header.php';
                         <?php elseif($days === 0): ?><span class="badge-expired">Expires TODAY</span>
                         <?php else: ?><span class="badge-warning">Expires in <?= $days ?>d</span><?php endif; ?>
                         
-                        <button onclick="openViewer(<?= $edoc['id'] ?>, '<?= htmlspecialchars($edoc['title'], ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary" style="padding: 2px 8px;">View</button>
+                        <div style="display: flex; gap: 5px;">
+                            <button onclick="openViewer(<?= $edoc['id'] ?>, '<?= htmlspecialchars($edoc['title'], ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary" style="padding: 2px 8px;">View</button>
+                            <?php if ($catLvl >= 3): ?>
+                                <button onclick='openEditModal(<?= json_encode($edoc, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="btn btn-sm" style="background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid #f59e0b; padding: 2px 8px;">Edit</button>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
             <?php endforeach; ?>
@@ -382,9 +340,7 @@ require_once 'header.php';
                         <td class="doc-icon" style="text-align: center;"><?= $icon ?></td>
                         <td>
                             <div style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($d['title']) ?></div>
-                            <?php if(!empty($d['sub_category'])): ?>
-                                <div style="font-size: 0.75rem; color: var(--text-muted);"><?= htmlspecialchars($d['sub_category']) ?></div>
-                            <?php endif; ?>
+                            <?php if(!empty($d['sub_category'])): ?><div style="font-size: 0.75rem; color: var(--text-muted);"><?= htmlspecialchars($d['sub_category']) ?></div><?php endif; ?>
                         </td>
                         <td style="color: var(--primary-color); font-weight: 500;"><?= htmlspecialchars($d['project_name']) ?></td>
                         <td><span class="badge" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);"><?= htmlspecialchars($d['category']) ?></span></td>
@@ -439,9 +395,8 @@ require_once 'header.php';
     <div class="modal-content">
         <span class="close-modal" onclick="closeModal('uploadModal')">&times;</span>
         <h2 style="color: var(--primary-color); margin-top: 0;">Secure Upload to Vault</h2>
-        <form method="POST" enctype="multipart/form-data" id="uploadForm">
-            <input type="hidden" name="action" value="upload_document">
-            
+        
+        <form id="directUploadForm">
             <div class="form-group">
                 <label>Project Context *</label>
                 <select name="project_id" required>
@@ -477,9 +432,13 @@ require_once 'header.php';
             <div class="form-group">
                 <label>File to Upload *</label>
                 <div class="drop-zone" id="drop_zone">
-                    <input type="file" name="document_file" id="document_file" required>
+                    <input type="file" id="document_file" required>
                     <div class="drop-zone-text" id="drop_zone_text">📁 Click to browse or Drag & Drop here</div>
-                    <div class="drop-zone-subtext" id="drop_zone_subtext">Maximum Size: 500MB (PDF, DWG, JPG, MP4)</div>
+                    <div class="drop-zone-subtext" id="drop_zone_subtext">Maximum Size: 500MB (Direct to Cloudflare R2)</div>
+                </div>
+                
+                <div class="progress-container" id="uploadProgress">
+                    <div class="progress-fill" id="uploadProgressFill"></div>
                 </div>
             </div>
 
@@ -544,7 +503,6 @@ window.onclick = function(event) {
     if (event.target == document.getElementById('viewerModal')) closeViewer();
 }
 
-// Fullscreen Viewer
 function openViewer(id, title) {
     document.getElementById('viewerTitle').textContent = 'Viewing: ' + title;
     document.getElementById('viewerFrame').src = '?action=view&id=' + id;
@@ -555,13 +513,11 @@ function closeViewer() {
     document.getElementById('viewerFrame').src = ''; 
 }
 
-// Edit Modal Prep
 function openEditModal(data) {
     document.getElementById('edit_doc_id').value = data.id;
     document.getElementById('edit_title').value = data.title;
     document.getElementById('edit_subcat').value = data.sub_category || '';
     document.getElementById('edit_expiry').value = data.expiry_date || '';
-    
     updateSubCategories(data.category, 'edit_subcat_suggestions');
 
     const chk = document.getElementById('edit_alarm_check');
@@ -574,11 +530,8 @@ function openEditModal(data) {
         info.innerHTML = `Previously dismissed by ${data.dis_fn} ${data.dis_ln} on ${data.alarm_dismissed_at}`;
         info.style.display = 'block';
     } else {
-        chk.checked = false;
-        rsn.value = '';
-        info.style.display = 'none';
+        chk.checked = false; rsn.value = ''; info.style.display = 'none';
     }
-    
     toggleReasonField();
     document.getElementById('editModal').style.display = 'block';
 }
@@ -587,99 +540,139 @@ function toggleReasonField() {
     const isChecked = document.getElementById('edit_alarm_check').checked;
     const rsnDiv = document.getElementById('edit_reason_div');
     const rsnInput = document.getElementById('edit_alarm_reason');
-    
-    if (isChecked) {
-        rsnDiv.style.display = 'block';
-        rsnInput.required = true;
-    } else {
-        rsnDiv.style.display = 'none';
-        rsnInput.required = false;
-    }
+    if (isChecked) { rsnDiv.style.display = 'block'; rsnInput.required = true; } 
+    else { rsnDiv.style.display = 'none'; rsnInput.required = false; }
 }
 
-// Drag & Drop + Size Validation Functionality
+// ----------------------------------------------------
+// DIRECT-TO-CLOUD UPLOAD ENGINE & VALIDATION
+// ----------------------------------------------------
 const dropZone = document.getElementById('drop_zone');
 const dropZoneText = document.getElementById('drop_zone_text');
 const dropZoneSubtext = document.getElementById('drop_zone_subtext');
 const fileInput = document.getElementById('document_file');
+const uploadForm = document.getElementById('directUploadForm');
 const submitBtn = document.getElementById('uploadSubmitBtn');
+const progressBar = document.getElementById('uploadProgress');
+const progressFill = document.getElementById('uploadProgressFill');
 
 const MAX_SIZE_MB = 500;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 
 if (dropZone) {
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, preventDefaults, false);
-    });
-
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => {
-            if (!dropZone.classList.contains('error')) {
-                dropZone.classList.add('dragover');
-                dropZoneText.innerHTML = '🔥 Drop it like it\'s hot! 🔥';
-                dropZoneSubtext.innerHTML = 'Release to attach file';
-            }
-        }, false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => {
-            dropZone.classList.remove('dragover');
-            if (fileInput.files.length === 0) resetDropZoneText();
-        }, false);
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-        let dt = e.dataTransfer;
-        let files = dt.files;
-        fileInput.files = files; 
-        updateFileName(files);
-    }, false);
-    
-    fileInput.addEventListener('change', function() {
-        updateFileName(this.files);
-    });
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => dropZone.addEventListener(e, preventDefaults, false));
+    ['dragenter', 'dragover'].forEach(e => dropZone.addEventListener(e, () => { 
+        if (!dropZone.classList.contains('error')) {
+            dropZone.classList.add('dragover'); 
+            dropZoneText.innerHTML = '🔥 Drop it like it\'s hot! 🔥'; 
+        }
+    }, false));
+    ['dragleave', 'drop'].forEach(e => dropZone.addEventListener(e, () => { 
+        dropZone.classList.remove('dragover'); 
+        if (fileInput.files.length === 0) resetDropZoneText(); 
+    }, false));
+    dropZone.addEventListener('drop', (e) => { fileInput.files = e.dataTransfer.files; updateFileName(fileInput.files); }, false);
+    fileInput.addEventListener('change', function() { updateFileName(this.files); });
 }
 
-function preventDefaults(e) {
-    e.preventDefault();
-    e.stopPropagation();
-}
+function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
 
 function updateFileName(files) {
     if (files.length > 0) {
         const file = files[0];
-        
-        // Immediate Size Check
         if (file.size > MAX_SIZE_BYTES) {
             dropZone.classList.add('error');
             dropZoneText.innerHTML = '❌ File is too large!';
-            dropZoneSubtext.innerHTML = `Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB. The maximum limit is ${MAX_SIZE_MB}MB.`;
-            fileInput.value = ''; // Clear the input
+            dropZoneSubtext.innerHTML = `Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB. Limit is ${MAX_SIZE_MB}MB.`;
+            fileInput.value = '';
             submitBtn.disabled = true;
             return;
         }
-
         dropZone.classList.remove('error');
         dropZoneText.innerHTML = '✅ ' + file.name;
         dropZoneSubtext.innerHTML = (file.size / 1024 / 1024).toFixed(2) + ' MB ready to upload';
         dropZone.style.borderColor = '#10B981';
         submitBtn.disabled = false;
-        
-    } else {
-        resetDropZoneText();
-    }
+    } else { resetDropZoneText(); }
 }
 
-function resetDropZoneText() {
+function resetDropZoneText() { 
     dropZone.classList.remove('error');
-    dropZoneText.innerHTML = '📁 Click to browse or Drag & Drop here';
-    dropZoneSubtext.innerHTML = `Maximum Size: ${MAX_SIZE_MB}MB (PDF, DWG, Images, Videos)`;
-    dropZone.style.borderColor = 'var(--primary-color)';
+    dropZoneText.innerHTML = '📁 Click to browse or Drag & Drop here'; 
+    dropZoneSubtext.innerHTML = `Maximum Size: ${MAX_SIZE_MB}MB (Direct to Cloudflare)`; 
+    dropZone.style.borderColor = 'var(--primary-color)'; 
     submitBtn.disabled = false;
 }
 
-// Suggestions Dictionary
+if (uploadForm) {
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const file = fileInput.files[0];
+        if(!file) { alert("Please select a file first."); return; }
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = 'Initiating Secure Link...';
+        
+        // 1. Ask PHP for a secure upload URL
+        const authData = new FormData();
+        authData.append('ajax_action', 'get_upload_url');
+        authData.append('category', uploadForm.category.value);
+        authData.append('filename', file.name);
+        authData.append('mime_type', file.type || 'application/octet-stream');
+
+        try {
+            let authRes = await fetch('documentation.php', { method: 'POST', body: authData });
+            let authJson = await authRes.json();
+            if(!authJson.success) throw new Error(authJson.error);
+
+            // 2. Upload file DIRECTLY to Cloudflare
+            progressBar.style.display = 'block';
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', authJson.url, true);
+            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+            
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percentComplete = (e.loaded / e.total) * 100;
+                    progressFill.style.width = percentComplete + '%';
+                    submitBtn.innerHTML = `Uploading... ${Math.round(percentComplete)}%`;
+                }
+            };
+
+            xhr.onload = async function() {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    // 3. Tell PHP to save the DB record
+                    submitBtn.innerHTML = 'Finalizing Record...';
+                    
+                    const dbData = new FormData(uploadForm);
+                    dbData.append('ajax_action', 'save_document_record');
+                    dbData.append('file_key', authJson.key);
+                    dbData.append('filename', file.name);
+
+                    let dbRes = await fetch('documentation.php', { method: 'POST', body: dbData });
+                    let dbJson = await dbRes.json();
+                    
+                    if(dbJson.success) { window.location.reload(); } 
+                    else { throw new Error(dbJson.error); }
+                } else {
+                    throw new Error('Cloudflare rejected the upload. Check CORS settings.');
+                }
+            };
+
+            xhr.onerror = function() { throw new Error('Network Error during upload.'); };
+            xhr.send(file);
+
+        } catch (err) {
+            alert("Error: " + err.message);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = 'Upload & Encrypt';
+            progressBar.style.display = 'none';
+        }
+    });
+}
+
 const suggestions = {
     'BCA': ['Condition Report', 'Method Statement', 'CAR Insurance', 'Bank Guarantee', 'Responsibility Form', 'Clearance Letter'],
     'Engineering': ['ARMS Application', 'Water/Sewerage Application', 'PA Compliance', 'EPC Certificate', 'Lift Certification', 'Fire Safety Comm.'],
@@ -688,18 +681,11 @@ const suggestions = {
     'Commercial': ['Quote', 'Contract', 'PO', 'Guarantee', 'Receipt'],
     'Sales': ['Price List', 'Marketing Plan', 'Render (Image)', 'Render (Video)', 'Brochure']
 };
-
 function updateSubCategories(category, listId) {
     const dataList = document.getElementById(listId);
     if(!dataList) return;
     dataList.innerHTML = '';
-    if (suggestions[category]) {
-        suggestions[category].forEach(item => {
-            const option = document.createElement('option');
-            option.value = item;
-            dataList.appendChild(option);
-        });
-    }
+    if (suggestions[category]) { suggestions[category].forEach(item => { const opt = document.createElement('option'); opt.value = item; dataList.appendChild(opt); }); }
 }
 </script>
 
