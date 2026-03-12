@@ -23,10 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'manage_professionals' => isset($_POST['manage_professionals']) ? 1 : 0,
         'manage_users' => isset($_POST['manage_users']) ? 1 : 0,
         'manage_subcontractors' => isset($_POST['manage_subcontractors']) ? 1 : 0,
-        // Subcontractor Accounts (Action)
         'view_subcontractor_accounts' => isset($_POST['view_subcontractor_accounts']) ? 1 : 0,
         'manage_subcontractor_accounts' => isset($_POST['manage_subcontractor_accounts']) ? 1 : 0,
-        // Navigation Visibility Flags
         'view_mobilisation' => isset($_POST['view_mobilisation']) ? 1 : 0,
         'view_projects' => isset($_POST['view_projects']) ? 1 : 0,
         'view_ohsa' => isset($_POST['view_ohsa']) ? 1 : 0,
@@ -35,7 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'view_drawings' => isset($_POST['view_drawings']) ? 1 : 0,
         'view_property_sales' => isset($_POST['view_property_sales']) ? 1 : 0,
         'view_capital_projects' => isset($_POST['view_capital_projects']) ? 1 : 0,
-        // Subcontractor Accounts (Menu)
         'view_nav_subcontractors' => isset($_POST['view_nav_subcontractors']) ? 1 : 0,
     ];
 
@@ -81,19 +78,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
         $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
 
-        // Vault Permissions
-        $doc_bca = isset($_POST['doc_bca']) ? 1 : 0;
-        $doc_ohsa = isset($_POST['doc_ohsa']) ? 1 : 0;
-        $doc_drawings = isset($_POST['doc_drawings']) ? 1 : 0;
-        $doc_commercial = isset($_POST['doc_commercial']) ? 1 : 0;
-        $doc_sales = isset($_POST['doc_sales']) ? 1 : 0;
+        // 4-Tier Document Vault Permissions
+        $doc_bca = isset($_POST['doc_bca']) ? (int)$_POST['doc_bca'] : 0;
+        $doc_ohsa = isset($_POST['doc_ohsa']) ? (int)$_POST['doc_ohsa'] : 0;
+        $doc_drawings = isset($_POST['doc_drawings']) ? (int)$_POST['doc_drawings'] : 0;
+        $doc_commercial = isset($_POST['doc_commercial']) ? (int)$_POST['doc_commercial'] : 0;
+        $doc_sales = isset($_POST['doc_sales']) ? (int)$_POST['doc_sales'] : 0;
 
         try {
             $pdo->beginTransaction();
             $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_commercial=?, doc_sales=? WHERE id=?");
             $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_commercial, $doc_sales, $userId]);
             
-            // Password update if provided
             if (!empty($_POST['new_password'])) {
                 $pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
                 $pdo->prepare("UPDATE users SET password_hash=? WHERE id=?")->execute([$pass, $userId]);
@@ -170,7 +166,6 @@ require_once 'header.php';
 ?>
 
 <style>
-/* Safe Custom Modal CSS */
 .custom-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.75); backdrop-filter: blur(4px); }
 .custom-modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
 .custom-close-btn { position: absolute; top: 1.5rem; right: 1.5rem; color: var(--text-muted); font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
@@ -253,16 +248,62 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_works_sales" id="edit_cap_view_works_sales" <?= !empty($selectedUser['view_works_sales']) ? 'checked' : '' ?>> Works Sales</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_property_sales" id="edit_cap_view_property_sales" <?= !empty($selectedUser['view_property_sales']) ? 'checked' : '' ?>> Property Sales</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_capital_projects" id="edit_cap_view_capital_projects" <?= !empty($selectedUser['view_capital_projects']) ? 'checked' : '' ?>> Capital Projects</label>
-                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_nav_subcontractors" id="edit_cap_view_nav_subcontractors" <?= !empty($selectedUser['view_nav_subcontractors']) ? 'checked' : '' ?>> Subcon. Accounts Menu</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_nav_subcontractors" id="edit_cap_view_nav_subcontractors" <?= !empty($selectedUser['view_nav_subcontractors']) ? 'checked' : '' ?>> Subcon. Accounts</label>
                         </div>
 
-                        <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Document Vault Access</h4>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
-                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_bca" id="edit_cap_doc_bca" <?= !empty($selectedUser['doc_bca']) ? 'checked' : '' ?>> BCA Docs</label>
-                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_ohsa" id="edit_cap_doc_ohsa" <?= !empty($selectedUser['doc_ohsa']) ? 'checked' : '' ?>> OHSA Docs</label>
-                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_drawings" id="edit_cap_doc_drawings" <?= !empty($selectedUser['doc_drawings']) ? 'checked' : '' ?>> Drawings</label>
-                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_commercial" id="edit_cap_doc_commercial" <?= !empty($selectedUser['doc_commercial']) ? 'checked' : '' ?>> Commercial</label>
-                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="doc_sales" id="edit_cap_doc_sales" <?= !empty($selectedUser['doc_sales']) ? 'checked' : '' ?>> Sales</label>
+                        <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Document Vault Access Levels</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.8rem; margin-bottom: 2px;">BCA Documents</label>
+                                <select name="doc_bca" id="edit_cap_doc_bca" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px;">
+                                    <option value="0" <?= $selectedUser['doc_bca'] == 0 ? 'selected' : '' ?>>0. No Access</option>
+                                    <option value="1" <?= $selectedUser['doc_bca'] == 1 ? 'selected' : '' ?>>1. View Online Only</option>
+                                    <option value="2" <?= $selectedUser['doc_bca'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
+                                    <option value="3" <?= $selectedUser['doc_bca'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
+                                    <option value="4" <?= $selectedUser['doc_bca'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.8rem; margin-bottom: 2px;">OHSA Documents</label>
+                                <select name="doc_ohsa" id="edit_cap_doc_ohsa" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px;">
+                                    <option value="0" <?= $selectedUser['doc_ohsa'] == 0 ? 'selected' : '' ?>>0. No Access</option>
+                                    <option value="1" <?= $selectedUser['doc_ohsa'] == 1 ? 'selected' : '' ?>>1. View Online Only</option>
+                                    <option value="2" <?= $selectedUser['doc_ohsa'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
+                                    <option value="3" <?= $selectedUser['doc_ohsa'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
+                                    <option value="4" <?= $selectedUser['doc_ohsa'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.8rem; margin-bottom: 2px;">Drawings & Plans</label>
+                                <select name="doc_drawings" id="edit_cap_doc_drawings" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px;">
+                                    <option value="0" <?= $selectedUser['doc_drawings'] == 0 ? 'selected' : '' ?>>0. No Access</option>
+                                    <option value="1" <?= $selectedUser['doc_drawings'] == 1 ? 'selected' : '' ?>>1. View Online Only</option>
+                                    <option value="2" <?= $selectedUser['doc_drawings'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
+                                    <option value="3" <?= $selectedUser['doc_drawings'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
+                                    <option value="4" <?= $selectedUser['doc_drawings'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.8rem; margin-bottom: 2px;">Commercial Docs</label>
+                                <select name="doc_commercial" id="edit_cap_doc_commercial" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px;">
+                                    <option value="0" <?= $selectedUser['doc_commercial'] == 0 ? 'selected' : '' ?>>0. No Access</option>
+                                    <option value="1" <?= $selectedUser['doc_commercial'] == 1 ? 'selected' : '' ?>>1. View Online Only</option>
+                                    <option value="2" <?= $selectedUser['doc_commercial'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
+                                    <option value="3" <?= $selectedUser['doc_commercial'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
+                                    <option value="4" <?= $selectedUser['doc_commercial'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.8rem; margin-bottom: 2px;">Sales Docs (Pricing/Renders)</label>
+                                <select name="doc_sales" id="edit_cap_doc_sales" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px;">
+                                    <option value="0" <?= $selectedUser['doc_sales'] == 0 ? 'selected' : '' ?>>0. No Access</option>
+                                    <option value="1" <?= $selectedUser['doc_sales'] == 1 ? 'selected' : '' ?>>1. View Online Only</option>
+                                    <option value="2" <?= $selectedUser['doc_sales'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
+                                    <option value="3" <?= $selectedUser['doc_sales'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
+                                    <option value="4" <?= $selectedUser['doc_sales'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
@@ -404,29 +445,47 @@ require_once 'header.php';
 </div>
 
 <script>
-// Open/Close Create Modal
 function openCreateModal() { document.getElementById('createModal').style.display = 'block'; }
 function closeCreateModal() { document.getElementById('createModal').style.display = 'none'; }
 window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
 
-// Capability Defaults Script - NOW INCLUDING DOCUMENT VAULT PERMISSIONS
+// UI Action Checkbox Defaults
 const roleDefaults = {
-    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'doc_bca', 'doc_ohsa', 'doc_drawings', 'doc_commercial', 'doc_sales'],
-    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'doc_bca', 'doc_ohsa', 'doc_drawings', 'doc_commercial', 'doc_sales'],
-    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'doc_bca', 'doc_ohsa', 'doc_drawings'],
-    'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'doc_bca', 'doc_ohsa', 'doc_drawings'],
-    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors', 'doc_commercial'],
-    'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation', 'doc_drawings', 'doc_bca'],
-    'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation', 'doc_drawings', 'doc_bca'],
-    'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'doc_drawings'],
-    'site_technical_officer': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'doc_bca', 'doc_ohsa', 'doc_drawings'],
+    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors'],
+    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
+    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+    'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors'],
+    'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
+    'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
+    'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings'],
+    'site_technical_officer': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
     'quality_controller': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation'],
-    'pmo_staff': ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation', 'doc_bca'],
-    'ohsa_rep': ['assign_actions', 'view_projects', 'view_ohsa', 'doc_ohsa'],
-    'subcontractor': ['assign_actions', 'view_projects', 'view_drawings', 'doc_drawings'],
-    'sales_manager': ['view_works_sales', 'view_property_sales', 'doc_sales'],
-    'sales_agent': ['view_property_sales', 'doc_sales'],
+    'pmo_staff': ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation'],
+    'ohsa_rep': ['assign_actions', 'view_projects', 'view_ohsa'],
+    'subcontractor': ['assign_actions', 'view_projects', 'view_drawings'],
+    'sales_manager': ['view_works_sales', 'view_property_sales'],
+    'sales_agent': ['view_property_sales'],
     'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects']
+};
+
+// Document Vault Tier Defaults
+const docDefaults = {
+    'admin': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_commercial: 4, doc_sales: 4 },
+    'director': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_commercial: 4, doc_sales: 4 },
+    'system_manager': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_commercial: 0, doc_sales: 0 },
+    'project_manager': { doc_bca: 3, doc_ohsa: 3, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
+    'accountant': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 4, doc_sales: 0 },
+    'architect': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
+    'structural_engineer': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
+    'services_engineer': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 3, doc_commercial: 0, doc_sales: 0 },
+    'site_technical_officer': { doc_bca: 2, doc_ohsa: 3, doc_drawings: 2, doc_commercial: 0, doc_sales: 0 },
+    'quality_controller': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_commercial: 0, doc_sales: 0 },
+    'pmo_staff': { doc_bca: 3, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 0, doc_sales: 0 },
+    'ohsa_rep': { doc_bca: 0, doc_ohsa: 3, doc_drawings: 0, doc_commercial: 0, doc_sales: 0 },
+    'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_commercial: 0, doc_sales: 0 },
+    'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 0, doc_sales: 4 },
+    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_commercial: 0, doc_sales: 2 }
 };
 
 function toggleAccessSections(type) {
@@ -450,10 +509,21 @@ function toggleAccessSections(type) {
 function applyRoleDefaults(type) {
     const roleSelect = document.getElementById(type + 'Role');
     if (!roleSelect) return;
-    const defaults = roleDefaults[roleSelect.value] || [];
+    const role = roleSelect.value;
     
+    // Apply Action Checkboxes
+    const defaults = roleDefaults[role] || [];
     document.querySelectorAll('.cap-check-' + type).forEach(box => box.checked = false);
     defaults.forEach(cap => { const box = document.getElementById(type + '_cap_' + cap); if (box) box.checked = true; });
+
+    // Apply Document Vault Tiers
+    document.querySelectorAll('.doc-select-' + type).forEach(sel => sel.value = '0');
+    if (docDefaults[role]) {
+        Object.keys(docDefaults[role]).forEach(key => {
+            const sel = document.getElementById(type + '_cap_' + key);
+            if (sel) sel.value = docDefaults[role][key];
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() { toggleAccessSections('edit'); });
