@@ -1,0 +1,7 @@
+{
+    "name": "estate-hub/malta",
+    "description": "Estate Hub Management System",
+    "require": {
+        "aws/aws-sdk-php": "^3.0"
+    }
+}
