@@ -1,7 +1,7 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
-require_once 'S3FileManager.php'; // Our new Cloudflare R2 Helper
+require_once 'S3FileManager.php'; 
 
 $userId = getCurrentUserId();
 $isAdmin = isAdmin();
@@ -11,6 +11,20 @@ $s3 = new S3FileManager();
 
 $message = ''; 
 $error = '';
+
+// ==========================================
+// 1. DETERMINE USER CATEGORY PERMISSIONS
+// ==========================================
+$stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_commercial, doc_sales FROM users WHERE id = ?");
+$stmtPerms->execute([$userId]);
+$uPerm = $stmtPerms->fetch(PDO::FETCH_ASSOC);
+
+$accessibleCategories = ['General']; // Everyone can see 'General'
+if ($isAdmin || !empty($uPerm['doc_bca'])) $accessibleCategories[] = 'BCA';
+if ($isAdmin || !empty($uPerm['doc_ohsa'])) $accessibleCategories[] = 'OHSA';
+if ($isAdmin || !empty($uPerm['doc_drawings'])) $accessibleCategories[] = 'Drawings';
+if ($isAdmin || !empty($uPerm['doc_commercial'])) $accessibleCategories[] = 'Commercial';
+if ($isAdmin || !empty($uPerm['doc_sales'])) $accessibleCategories[] = 'Sales';
 
 // Handle Actions (Upload / Delete)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -24,6 +38,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $title = trim($_POST['title']);
             $expiryDate = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
             
+            // Security Check: Is user allowed to upload to this category?
+            if (!in_array($category, $accessibleCategories)) {
+                throw new Exception("You do not have permission to upload documents to the '$category' category.");
+            }
+
             if (isset($_FILES['document_file']) && $_FILES['document_file']['error'] === UPLOAD_ERR_OK) {
                 $tmpPath = $_FILES['document_file']['tmp_name'];
                 $originalName = $_FILES['document_file']['name'];
@@ -45,26 +64,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "No file selected or upload error.";
             }
         } catch (Exception $e) {
-            $error = "Database Error: " . $e->getMessage();
+            $error = "Error: " . $e->getMessage();
         }
     } 
     elseif ($action === 'delete_document') {
         try {
             $docId = (int)$_POST['document_id'];
-            // Get file path
-            $stmt = $pdo->prepare("SELECT file_path FROM project_documents WHERE id = ?");
+            $stmt = $pdo->prepare("SELECT file_path, category FROM project_documents WHERE id = ?");
             $stmt->execute([$docId]);
             $doc = $stmt->fetch();
             
             if ($doc) {
-                // 1. Delete from R2
+                // Security Check: Can they delete from this category?
+                if (!in_array($doc['category'], $accessibleCategories)) {
+                    throw new Exception("You do not have permission to delete this document.");
+                }
+                
                 $s3->deleteFile($doc['file_path']);
-                // 2. Delete from DB
                 $pdo->prepare("DELETE FROM project_documents WHERE id = ?")->execute([$docId]);
                 $message = "Document deleted successfully!";
             }
         } catch (Exception $e) {
-            $error = "Error deleting document.";
+            $error = $e->getMessage();
         }
     }
 }
@@ -72,12 +93,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Handle Secure Viewing via GET
 if (isset($_GET['action']) && $_GET['action'] === 'view' && isset($_GET['id'])) {
     $docId = (int)$_GET['id'];
-    $stmt = $pdo->prepare("SELECT file_path FROM project_documents WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT file_path, category FROM project_documents WHERE id = ?");
     $stmt->execute([$docId]);
     $doc = $stmt->fetch();
     
     if ($doc) {
-        // Generate a 60-minute secure viewing link
+        // Security Check: Can they view this category?
+        if (!in_array($doc['category'], $accessibleCategories)) {
+            die("Unauthorized access to this document category.");
+        }
+
         $url = $s3->getPresignedUrl($doc['file_path'], '+60 minutes');
         if ($url) {
             header("Location: " . $url);
@@ -88,9 +113,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'view' && isset($_GET['id'])) 
     }
 }
 
-// Data Fetching & Filters
-$selectedProjectId = isset($_GET['project_id']) ? (int)$_GET['project_id'] : 'all';
-$selectedCategory = isset($_GET['category']) ? $_GET['category'] : 'all';
+// ==========================================
+// 2. DATA FETCHING & FILTERING
+// ==========================================
+
+// FIX: Safely parse 'all' so it doesn't become 0
+$selectedProjectId = (isset($_GET['project_id']) && $_GET['project_id'] !== 'all') ? (int)$_GET['project_id'] : 'all';
+$selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? $_GET['category'] : 'all';
 
 $projects = getAccessibleProjects($pdo, $userId);
 $accessibleProjectIds = array_column($projects, 'id');
@@ -101,13 +130,17 @@ if (empty($accessibleProjectIds)) {
 } else {
     $placeholders = implode(',', array_fill(0, count($accessibleProjectIds), '?'));
     $params = $accessibleProjectIds;
+    
+    // Safety Array of allowed categories for SQL
+    $allowedCatString = implode("','", array_map(function($c) { return addslashes($c); }, $accessibleCategories));
 
-    // Fetch Expiring Documents (Within 30 Days)
+    // Fetch Expiring Documents (Only for categories the user is allowed to see)
     $expStmt = $pdo->prepare("
         SELECT d.*, p.name as project_name 
         FROM project_documents d 
         JOIN projects p ON d.project_id = p.id 
         WHERE d.project_id IN ($placeholders) 
+        AND d.category IN ('$allowedCatString')
         AND d.expiry_date IS NOT NULL 
         AND d.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
         ORDER BY d.expiry_date ASC
@@ -120,15 +153,20 @@ if (empty($accessibleProjectIds)) {
               FROM project_documents d 
               JOIN projects p ON d.project_id = p.id 
               LEFT JOIN users u ON d.uploaded_by = u.id 
-              WHERE d.project_id IN ($placeholders)";
+              WHERE d.project_id IN ($placeholders)
+              AND d.category IN ('$allowedCatString')";
     
     if ($selectedProjectId !== 'all') {
         $query .= " AND d.project_id = ?";
         $params[] = $selectedProjectId;
     }
+    
     if ($selectedCategory !== 'all') {
-        $query .= " AND d.category = ?";
-        $params[] = $selectedCategory;
+        // Double check they aren't trying to force a URL category they don't own
+        if (in_array($selectedCategory, $accessibleCategories)) {
+            $query .= " AND d.category = ?";
+            $params[] = $selectedCategory;
+        }
     }
     
     $query .= " ORDER BY d.created_at DESC";
@@ -136,8 +174,6 @@ if (empty($accessibleProjectIds)) {
     $docStmt->execute($params);
     $documents = $docStmt->fetchAll();
 }
-
-$categories = ['BCA', 'OHSA', 'Drawings', 'Commercial', 'Sales', 'General'];
 
 $pageTitle = 'Document Vault';
 require_once 'header.php';
@@ -222,8 +258,8 @@ require_once 'header.php';
     </div>
 
     <div class="cat-tabs">
-        <a href="?project_id=<?= $selectedProjectId ?>&category=all" class="cat-tab <?= $selectedCategory === 'all' ? 'active' : '' ?>">All Documents</a>
-        <?php foreach($categories as $cat): ?>
+        <a href="?project_id=<?= $selectedProjectId ?>&category=all" class="cat-tab <?= $selectedCategory === 'all' ? 'active' : '' ?>">All Permitted Documents</a>
+        <?php foreach($accessibleCategories as $cat): ?>
             <a href="?project_id=<?= $selectedProjectId ?>&category=<?= urlencode($cat) ?>" class="cat-tab <?= $selectedCategory === $cat ? 'active' : '' ?>"><?= htmlspecialchars($cat) ?></a>
         <?php endforeach; ?>
     </div>
@@ -317,7 +353,7 @@ require_once 'header.php';
                     <label>Main Category *</label>
                     <select name="category" required onchange="updateSubCategories(this.value)">
                         <option value="">-- Select --</option>
-                        <?php foreach($categories as $cat): ?>
+                        <?php foreach($accessibleCategories as $cat): ?>
                             <option value="<?= $cat ?>"><?= $cat ?></option>
                         <?php endforeach; ?>
                     </select>
