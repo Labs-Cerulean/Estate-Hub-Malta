@@ -25,7 +25,6 @@ $stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_engineer
 $stmtPerms->execute([$userId]);
 $uPerm = $stmtPerms->fetch(PDO::FETCH_ASSOC);
 
-// Map categories to their integer access level
 $docPerms = [];
 if ($isAdmin || (int)$uPerm['doc_bca'] > 0) $docPerms['BCA'] = $isAdmin ? 4 : (int)$uPerm['doc_bca'];
 if ($isAdmin || (int)$uPerm['doc_ohsa'] > 0) $docPerms['OHSA'] = $isAdmin ? 4 : (int)$uPerm['doc_ohsa'];
@@ -42,7 +41,6 @@ $accessibleCategories = array_keys($docPerms);
 if (isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
     try {
-        // Generate the secure Cloudflare upload URL
         if ($_POST['ajax_action'] === 'get_upload_url') {
             $cat = $_POST['category'];
             if (!isset($docPerms[$cat]) || $docPerms[$cat] < 3) {
@@ -57,7 +55,6 @@ if (isset($_POST['ajax_action'])) {
             exit;
         }
 
-        // Save the record to the database AFTER successful browser upload
         if ($_POST['ajax_action'] === 'save_document_record') {
             $projectId = (int)$_POST['project_id'];
             $category = $_POST['category'];
@@ -151,7 +148,7 @@ if (isset($_GET['action']) && in_array($_GET['action'], ['view', 'download']) &&
 }
 
 // ==========================================
-// 4. DATA FETCHING
+// 4. DATA FETCHING & TREE BUILDING
 // ==========================================
 $selectedProjectId = (isset($_GET['project_id']) && $_GET['project_id'] !== 'all') ? (int)$_GET['project_id'] : 'all';
 $selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? $_GET['category'] : 'all';
@@ -162,9 +159,11 @@ $accessibleProjectIds = array_column($projects, 'id');
 $canUploadAnything = false;
 foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break; } }
 
-if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
-    $documents = []; $expiringDocs = [];
-} else {
+$documents = []; 
+$expiringDocs = [];
+$tree = []; // To hold the hierarchical folder structure
+
+if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $placeholders = implode(',', array_fill(0, count($accessibleProjectIds), '?'));
     $params = $accessibleProjectIds;
     $allowedCatString = implode("','", array_map(function($c) { return addslashes($c); }, $accessibleCategories));
@@ -187,10 +186,23 @@ if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
               WHERE d.project_id IN ($placeholders) AND d.category IN ('$allowedCatString')";
     if ($selectedProjectId !== 'all') { $query .= " AND d.project_id = ?"; $params[] = $selectedProjectId; }
     if ($selectedCategory !== 'all' && in_array($selectedCategory, $accessibleCategories)) { $query .= " AND d.category = ?"; $params[] = $selectedCategory; }
-    $query .= " ORDER BY d.created_at DESC";
+    $query .= " ORDER BY p.name ASC, d.category ASC, d.sub_category ASC, d.created_at DESC";
     $docStmt = $pdo->prepare($query);
     $docStmt->execute($params);
     $documents = $docStmt->fetchAll();
+
+    // Build the Tree Array [Project][Category][SubCategory] = [Files]
+    foreach ($documents as $d) {
+        $pName = $d['project_name'];
+        $cat = $d['category'];
+        $subcat = empty($d['sub_category']) ? 'Uncategorized' : $d['sub_category'];
+
+        if (!isset($tree[$pName])) $tree[$pName] = [];
+        if (!isset($tree[$pName][$cat])) $tree[$pName][$cat] = [];
+        if (!isset($tree[$pName][$cat][$subcat])) $tree[$pName][$cat][$subcat] = [];
+
+        $tree[$pName][$cat][$subcat][] = $d;
+    }
 }
 
 $pageTitle = 'Document Vault';
@@ -198,28 +210,45 @@ require_once 'header.php';
 ?>
 
 <style>
+/* FOLDER TREE STYLES */
+.vault-container { background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 3rem; }
+.tree-details { margin-bottom: 0.5rem; }
+.tree-details > summary { list-style: none; cursor: pointer; outline: none; padding: 0.75rem 1rem; border-radius: 6px; background: rgba(255,255,255,0.02); font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 10px; transition: background 0.2s; border: 1px solid transparent;}
+.tree-details > summary::-webkit-details-marker { display: none; }
+.tree-details > summary:hover { background: rgba(255,255,255,0.05); }
+.tree-details[open] > summary { border-bottom: 1px solid var(--border-glass); border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0.5rem;}
+.tree-details > summary::before { content: '📁'; font-size: 1.2rem; transition: transform 0.2s; }
+.tree-details[open] > summary::before { content: '📂'; }
+
+/* Nested Indentation */
+.tree-level-1 { margin-left: 1.5rem; margin-top: 0.5rem; border-left: 2px dashed rgba(255,255,255,0.1); padding-left: 1rem; }
+.tree-level-2 { margin-left: 1rem; margin-top: 0.5rem; }
+.tree-level-3 { margin-left: 1rem; }
+
+/* File Item Card */
+.file-card { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 6px; margin-bottom: 0.5rem; transition: transform 0.15s, box-shadow 0.15s; }
+.file-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); border-color: rgba(99, 102, 241, 0.4); }
+.file-info { display: flex; align-items: center; gap: 12px; }
+.file-icon { font-size: 1.8rem; line-height: 1; }
+.file-meta { font-size: 0.75rem; color: var(--text-muted); display: flex; gap: 15px; margin-top: 4px; }
+.file-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Badges */
+.badge-expired { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+.badge-warning { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+.badge-dismissed { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100,116,139,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; cursor: help; }
+
+/* Modals */
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
 .close-modal:hover { color: var(--text-primary); }
 
+/* Viewer */
 .viewer-modal-content { width: 95%; max-width: 1400px; height: 90vh; margin: 2% auto; padding: 1rem; display: flex; flex-direction: column; }
 .viewer-iframe { flex: 1; width: 100%; border: 1px solid var(--border-glass); border-radius: 8px; background: #fff; }
 
-.filter-bar { display: flex; gap: 1rem; margin-bottom: 1.5rem; background: var(--bg-panel); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); align-items: center; }
-.filter-bar select { padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); font-size: 0.9rem; min-width: 200px; }
-
-.cat-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; overflow-x: auto; }
-.cat-tab { padding: 0.5rem 1rem; border-radius: 6px; color: var(--text-secondary); text-decoration: none; font-weight: 600; font-size: 0.85rem; white-space: nowrap; transition: 0.2s; }
-.cat-tab:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
-.cat-tab.active { background: rgba(99, 102, 241, 0.1); color: var(--primary-color); border: 1px solid rgba(99, 102, 241, 0.3); }
-
-.doc-icon { font-size: 1.5rem; line-height: 1; }
-.badge-expired { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
-.badge-warning { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
-.badge-dismissed { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100,116,139,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; cursor: help; }
-
-/* Direct Upload UI */
+/* Uploader Drop Zone */
 .drop-zone { border: 2px dashed var(--primary-color); border-radius: 8px; padding: 30px; text-align: center; background: rgba(0,0,0,0.2); color: var(--text-muted); cursor: pointer; transition: all 0.3s ease; position: relative; margin-top: 5px; }
 .drop-zone:hover { background: rgba(99, 102, 241, 0.05); }
 .drop-zone.dragover { background: rgba(16, 185, 129, 0.1); border-color: #10B981; transform: scale(1.02); }
@@ -231,6 +260,10 @@ require_once 'header.php';
 .drop-zone-subtext { font-size: 0.8rem; margin-top: 8px; pointer-events: none; }
 .progress-container { width: 100%; background: rgba(255,255,255,0.1); border-radius: 6px; height: 10px; margin-top: 15px; overflow: hidden; display: none; }
 .progress-fill { background: #10B981; height: 100%; width: 0%; transition: width 0.2s; }
+
+/* Controls Header */
+.vault-header-controls { display: flex; gap: 1rem; margin-bottom: 1.5rem; background: var(--bg-panel); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.search-input { padding: 0.6rem 1rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); font-size: 0.95rem; min-width: 300px; width: 100%; max-width: 400px; }
 </style>
 
 <div class="main-container">
@@ -269,7 +302,7 @@ require_once 'header.php';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <div>
             <h1 class="page-title" style="margin-bottom: 0;">Universal Document Vault</h1>
-            <p style="color: var(--text-secondary); margin-top: 0.25rem;">Secure Cloudflare R2 Storage.</p>
+            <p style="color: var(--text-secondary); margin-top: 0.25rem;">Organized, secure, and fully encrypted cloud storage.</p>
         </div>
         <?php if ($canUploadAnything): ?>
             <button onclick="openUploadModal()" class="btn btn-primary">+ Upload Document</button>
@@ -279,103 +312,126 @@ require_once 'header.php';
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-    <div class="filter-bar">
-        <strong style="color: var(--primary-color);">Filter Context:</strong>
-        <form method="GET" style="margin: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+    <div class="vault-header-controls">
+        <form method="GET" style="margin: 0; display: flex; gap: 10px; align-items: center;">
+            <strong style="color: var(--primary-color);">Filter Context:</strong>
             <input type="hidden" name="category" value="<?= htmlspecialchars($selectedCategory) ?>">
-            <select name="project_id" onchange="this.form.submit()">
+            <select name="project_id" onchange="this.form.submit()" style="padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary);">
                 <option value="all">-- All Accessible Projects --</option>
                 <?php foreach($projects as $p): ?>
                     <option value="<?= $p['id'] ?>" <?= $selectedProjectId == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
                 <?php endforeach; ?>
             </select>
         </form>
+        
+        <div style="position: relative;">
+            <input type="text" id="docSearch" class="search-input" placeholder="🔍 Search files by name, type, or user..." onkeyup="filterTree()">
+        </div>
     </div>
 
     <div class="cat-tabs">
-        <a href="?project_id=<?= $selectedProjectId ?>&category=all" class="cat-tab <?= $selectedCategory === 'all' ? 'active' : '' ?>">All Permitted Documents</a>
+        <a href="?project_id=<?= $selectedProjectId ?>&category=all" class="cat-tab <?= $selectedCategory === 'all' ? 'active' : '' ?>">All Folders</a>
         <?php foreach($accessibleCategories as $cat): ?>
             <a href="?project_id=<?= $selectedProjectId ?>&category=<?= urlencode($cat) ?>" class="cat-tab <?= $selectedCategory === $cat ? 'active' : '' ?>"><?= htmlspecialchars($cat) ?></a>
         <?php endforeach; ?>
     </div>
 
-    <div class="table-container">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th style="width: 40px;">Type</th>
-                    <th>Document Title</th>
-                    <th>Project</th>
-                    <th>Category</th>
-                    <th>Expiry / Status</th>
-                    <th>Uploaded By</th>
-                    <th style="text-align: right;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($documents)): ?>
-                    <tr><td colspan="7" style="text-align: center; padding: 2rem;">No documents found.</td></tr>
-                <?php else: ?>
-                    <?php foreach($documents as $d): 
-                        $ext = strtolower($d['file_type']);
-                        $icon = '📄';
-                        if ($ext === 'pdf') $icon = '📕';
-                        if (in_array($ext, ['dwg', 'dxf', 'cad'])) $icon = '📐';
-                        if (in_array($ext, ['jpg', 'png', 'jpeg'])) $icon = '🖼️';
-                        if (in_array($ext, ['mp4', 'mov', 'avi'])) $icon = '🎬';
-
-                        $expText = '-';
-                        if ($d['expiry_date']) {
-                            $expText = date('d M Y', strtotime($d['expiry_date']));
-                            if ($d['alarm_dismissed']) {
-                                $tooltip = "Dismissed by " . htmlspecialchars($d['dis_fn']) . ": " . htmlspecialchars($d['alarm_dismissed_reason']);
-                                $expText = "<span class='badge-dismissed' title='$tooltip'>$expText (Alarm Off)</span>";
-                            } elseif (strtotime($d['expiry_date']) < time()) {
-                                $expText = "<span class='badge-expired'>$expText (Expired)</span>";
-                            }
-                        }
-                        $catLvl = $docPerms[$d['category']] ?? 0;
-                    ?>
-                    <tr>
-                        <td class="doc-icon" style="text-align: center;"><?= $icon ?></td>
-                        <td>
-                            <div style="font-weight: 600; color: var(--text-primary);"><?= htmlspecialchars($d['title']) ?></div>
-                            <?php if(!empty($d['sub_category'])): ?><div style="font-size: 0.75rem; color: var(--text-muted);"><?= htmlspecialchars($d['sub_category']) ?></div><?php endif; ?>
-                        </td>
-                        <td style="color: var(--primary-color); font-weight: 500;"><?= htmlspecialchars($d['project_name']) ?></td>
-                        <td><span class="badge" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);"><?= htmlspecialchars($d['category']) ?></span></td>
-                        <td><?= $expText ?></td>
-                        <td style="font-size: 0.8rem; color: var(--text-secondary);">
-                            <?= htmlspecialchars($d['first_name'] . ' ' . $d['last_name']) ?><br>
-                            <span style="color: var(--text-muted);"><?= date('d M y', strtotime($d['created_at'])) ?></span>
-                        </td>
-                        <td style="text-align: right;">
-                            <button onclick="openViewer(<?= $d['id'] ?>, '<?= htmlspecialchars($d['title'], ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary" title="View Document in Screen">👁️</button>
+    <div class="vault-container">
+        <?php if (empty($tree)): ?>
+            <div style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                <h2>📁 Vault is Empty</h2>
+                <p>No documents found matching your current filters or access levels.</p>
+            </div>
+        <?php else: ?>
+            <div id="vaultTree">
+                <?php foreach ($tree as $pName => $categories): ?>
+                    <details class="tree-details project-folder" open>
+                        <summary><?= htmlspecialchars($pName) ?></summary>
+                        <div class="tree-level-1">
                             
-                            <?php if ($catLvl >= 2): ?>
-                                <a href="?action=download&id=<?= $d['id'] ?>" target="_blank" class="btn btn-sm btn-primary" title="Download Original File">↓</a>
-                            <?php endif; ?>
-                            
-                            <?php if ($catLvl >= 3): ?>
-                                <button onclick='openEditModal(<?= json_encode($d, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="btn btn-sm" style="background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid #f59e0b;" title="Edit Document & Alarms">✎</button>
-                            <?php endif; ?>
+                            <?php foreach ($categories as $catName => $content): ?>
+                                <details class="tree-details category-folder" open>
+                                    <summary style="font-size: 0.95rem; color: #a5b4fc;"><?= htmlspecialchars($catName) ?></summary>
+                                    <div class="tree-level-2">
+                                        
+                                        <?php foreach ($content['subcats'] as $subCatName => $files): ?>
+                                            <details class="tree-details subcat-folder">
+                                                <summary style="font-size: 0.9rem; color: #818cf8;"><?= htmlspecialchars($subCatName) ?></summary>
+                                                <div class="tree-level-3">
+                                                    <?php foreach ($files as $f): renderFileCard($f, $docPerms); endforeach; ?>
+                                                </div>
+                                            </details>
+                                        <?php endforeach; ?>
 
-                            <?php if ($catLvl >= 4): ?>
-                                <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to permanently delete this document from the cloud?');">
-                                    <input type="hidden" name="action" value="delete_document">
-                                    <input type="hidden" name="document_id" value="<?= $d['id'] ?>">
-                                    <button type="submit" class="btn btn-sm btn-danger" title="Delete Permanently">X</button>
-                                </form>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
+                                        <div class="loose-files" style="margin-top: 0.5rem;">
+                                            <?php foreach ($content['loose'] as $f): renderFileCard($f, $docPerms); endforeach; ?>
+                                        </div>
+
+                                    </div>
+                                </details>
+                            <?php endforeach; ?>
+
+                        </div>
+                    </details>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
     </div>
-
 </div>
+
+<?php 
+// Helper function to render a beautiful file row
+function renderFileCard($d, $docPerms) {
+    $ext = strtolower($d['file_type']);
+    $icon = '📄';
+    if ($ext === 'pdf') $icon = '📕';
+    if (in_array($ext, ['dwg', 'dxf', 'cad'])) $icon = '📐';
+    if (in_array($ext, ['jpg', 'png', 'jpeg'])) $icon = '🖼️';
+    if (in_array($ext, ['mp4', 'mov', 'avi'])) $icon = '🎬';
+
+    $expText = '';
+    if ($d['expiry_date']) {
+        $dateStr = date('d M Y', strtotime($d['expiry_date']));
+        if ($d['alarm_dismissed']) {
+            $tooltip = "Dismissed by " . htmlspecialchars($d['dis_fn']) . ": " . htmlspecialchars($d['alarm_dismissed_reason']);
+            $expText = "<span class='badge-dismissed' title='$tooltip'>Alarm Off ($dateStr)</span>";
+        } elseif (strtotime($d['expiry_date']) < time()) {
+            $expText = "<span class='badge-expired'>Expired: $dateStr</span>";
+        } else {
+            $expText = "<span class='badge-warning'>Exp: $dateStr</span>";
+        }
+    }
+    
+    $catLvl = $docPerms[$d['category']] ?? 0;
+    
+    // Create searchable string
+    $searchString = htmlspecialchars(strtolower($d['title'] . " " . $d['category'] . " " . $d['sub_category'] . " " . $d['first_name'] . " " . $d['last_name'] . " " . $ext));
+
+    echo "<div class='file-card' data-search='{$searchString}'>
+        <div class='file-info'>
+            <div class='file-icon'>$icon</div>
+            <div>
+                <div style='font-weight: 600; color: var(--text-primary); font-size: 0.95rem;'>" . htmlspecialchars($d['title']) . "</div>
+                <div class='file-meta'>
+                    <span>Uploaded by " . htmlspecialchars($d['first_name'] . ' ' . $d['last_name']) . "</span>
+                    <span>" . date('d M Y', strtotime($d['created_at'])) . "</span>
+                    $expText
+                </div>
+            </div>
+        </div>
+        <div class='file-actions'>
+            <button onclick=\"openViewer({$d['id']}, '" . htmlspecialchars($d['title'], ENT_QUOTES) . "')\" class='btn btn-sm btn-secondary' title='View in Screen'>👁️ View</button>";
+            if ($catLvl >= 2) echo "<a href='?action=download&id={$d['id']}' target='_blank' class='btn btn-sm btn-primary' title='Download Original'>↓ Download</a>";
+            if ($catLvl >= 3) echo "<button onclick='openEditModal(" . json_encode($d, JSON_HEX_APOS | JSON_HEX_QUOT) . ")' class='btn btn-sm' style='background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid #f59e0b;'>✎ Edit</button>";
+            if ($catLvl >= 4) echo "
+                <form method='POST' style='display:inline;' onsubmit=\"return confirm('Delete this document permanently?');\">
+                    <input type='hidden' name='action' value='delete_document'>
+                    <input type='hidden' name='document_id' value='{$d['id']}'>
+                    <button type='submit' class='btn btn-sm btn-danger'>X Delete</button>
+                </form>";
+    echo "</div></div>";
+}
+?>
 
 <div id="viewerModal" class="modal">
     <div class="modal-content viewer-modal-content">
@@ -436,7 +492,6 @@ require_once 'header.php';
                     <div class="drop-zone-text" id="drop_zone_text">📁 Click to browse or Drag & Drop here</div>
                     <div class="drop-zone-subtext" id="drop_zone_subtext">Maximum Size: 500MB (Direct to Cloudflare R2)</div>
                 </div>
-                
                 <div class="progress-container" id="uploadProgress">
                     <div class="progress-fill" id="uploadProgressFill"></div>
                 </div>
@@ -494,7 +549,82 @@ require_once 'header.php';
 </div>
 
 <script>
-// UI Modals
+// ==========================================
+// TREE SEARCH ENGINE
+// ==========================================
+function filterTree() {
+    const query = document.getElementById('docSearch').value.toLowerCase();
+    const projects = document.querySelectorAll('.project-folder');
+
+    projects.forEach(proj => {
+        let projHasVisibleFiles = false;
+        const categories = proj.querySelectorAll('.category-folder');
+
+        categories.forEach(cat => {
+            let catHasVisibleFiles = false;
+            
+            // Check files inside sub-category folders
+            const subcats = cat.querySelectorAll('.subcat-folder');
+            subcats.forEach(subcat => {
+                let subcatHasVisibleFiles = false;
+                const files = subcat.querySelectorAll('.file-card');
+                
+                files.forEach(file => {
+                    const searchData = file.getAttribute('data-search');
+                    if (searchData.includes(query)) {
+                        file.style.display = 'flex';
+                        subcatHasVisibleFiles = true;
+                        catHasVisibleFiles = true;
+                        projHasVisibleFiles = true;
+                    } else {
+                        file.style.display = 'none';
+                    }
+                });
+
+                if (query !== '') {
+                    subcat.style.display = subcatHasVisibleFiles ? 'block' : 'none';
+                    if (subcatHasVisibleFiles) subcat.open = true;
+                } else {
+                    subcat.style.display = 'block';
+                    subcat.open = false; // Reset to closed when search cleared
+                }
+            });
+
+            // Check loose files directly in the category
+            const looseFiles = cat.querySelectorAll('.loose-files .file-card');
+            looseFiles.forEach(file => {
+                const searchData = file.getAttribute('data-search');
+                if (searchData.includes(query)) {
+                    file.style.display = 'flex';
+                    catHasVisibleFiles = true;
+                    projHasVisibleFiles = true;
+                } else {
+                    file.style.display = 'none';
+                }
+            });
+
+            if (query !== '') {
+                cat.style.display = catHasVisibleFiles ? 'block' : 'none';
+                if (catHasVisibleFiles) cat.open = true;
+            } else {
+                cat.style.display = 'block';
+                cat.open = true; // Default category open state
+            }
+        });
+
+        if (query !== '') {
+            proj.style.display = projHasVisibleFiles ? 'block' : 'none';
+            if (projHasVisibleFiles) proj.open = true;
+        } else {
+            proj.style.display = 'block';
+            proj.open = true; // Default project open state
+        }
+    });
+}
+
+// ==========================================
+// MODALS & UI
+// ==========================================
 function openUploadModal() { document.getElementById('uploadModal').style.display = 'block'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 window.onclick = function(event) {
@@ -544,9 +674,9 @@ function toggleReasonField() {
     else { rsnDiv.style.display = 'none'; rsnInput.required = false; }
 }
 
-// ----------------------------------------------------
-// DIRECT-TO-CLOUD UPLOAD ENGINE & VALIDATION
-// ----------------------------------------------------
+// ==========================================
+// DIRECT-TO-CLOUD UPLOAD ENGINE
+// ==========================================
 const dropZone = document.getElementById('drop_zone');
 const dropZoneText = document.getElementById('drop_zone_text');
 const dropZoneSubtext = document.getElementById('drop_zone_subtext');
@@ -614,7 +744,6 @@ if (uploadForm) {
         submitBtn.disabled = true;
         submitBtn.innerHTML = 'Initiating Secure Link...';
         
-        // 1. Ask PHP for a secure upload URL
         const authData = new FormData();
         authData.append('ajax_action', 'get_upload_url');
         authData.append('category', uploadForm.category.value);
@@ -626,7 +755,6 @@ if (uploadForm) {
             let authJson = await authRes.json();
             if(!authJson.success) throw new Error(authJson.error);
 
-            // 2. Upload file DIRECTLY to Cloudflare
             progressBar.style.display = 'block';
             
             const xhr = new XMLHttpRequest();
@@ -643,7 +771,6 @@ if (uploadForm) {
 
             xhr.onload = async function() {
                 if (xhr.status >= 200 && xhr.status < 300) {
-                    // 3. Tell PHP to save the DB record
                     submitBtn.innerHTML = 'Finalizing Record...';
                     
                     const dbData = new FormData(uploadForm);
@@ -673,6 +800,7 @@ if (uploadForm) {
     });
 }
 
+// Suggestions Dictionary
 const suggestions = {
     'BCA': ['Condition Report', 'Method Statement', 'CAR Insurance', 'Bank Guarantee', 'Responsibility Form', 'Clearance Letter'],
     'Engineering': ['ARMS Application', 'Water/Sewerage Application', 'PA Compliance', 'EPC Certificate', 'Lift Certification', 'Fire Safety Comm.'],
