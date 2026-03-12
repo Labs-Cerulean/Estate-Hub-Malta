@@ -89,7 +89,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("UPDATE project_documents SET title=?, sub_category=?, expiry_date=?, alarm_dismissed=1, alarm_dismissed_reason=?, alarm_dismissed_by=?, alarm_dismissed_at=NOW() WHERE id=?");
                 $stmt->execute([$title, $subCategory, $expiryDate, $dismissReason, $userId, $docId]);
             } else {
-                // If they uncheck the box, it reactivates the alarm
                 $stmt = $pdo->prepare("UPDATE project_documents SET title=?, sub_category=?, expiry_date=?, alarm_dismissed=0, alarm_dismissed_reason=NULL, alarm_dismissed_by=NULL, alarm_dismissed_at=NULL WHERE id=?");
                 $stmt->execute([$title, $subCategory, $expiryDate, $docId]);
             }
@@ -219,6 +218,52 @@ require_once 'header.php';
 .badge-expired { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
 .badge-warning { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
 .badge-dismissed { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100,116,139,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; cursor: help; }
+
+/* Drag and Drop Zone Styles */
+.drop-zone {
+    border: 2px dashed var(--primary-color);
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    background: rgba(0,0,0,0.2);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    margin-top: 5px;
+}
+.drop-zone:hover {
+    background: rgba(99, 102, 241, 0.05);
+}
+.drop-zone.dragover {
+    background: rgba(16, 185, 129, 0.1); /* Soft green background */
+    border-color: #10B981; /* Green border */
+    transform: scale(1.02);
+}
+.drop-zone input[type="file"] {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+.drop-zone-text {
+    font-size: 1.1rem;
+    font-weight: 600;
+    pointer-events: none; /* Let clicks pass through to input */
+    color: var(--text-primary);
+    transition: color 0.3s ease;
+}
+.drop-zone.dragover .drop-zone-text {
+    color: #10B981;
+}
+.drop-zone-subtext {
+    font-size: 0.8rem;
+    margin-top: 8px;
+    pointer-events: none;
+}
 </style>
 
 <div class="main-container">
@@ -418,7 +463,11 @@ require_once 'header.php';
 
             <div class="form-group">
                 <label>File to Upload *</label>
-                <input type="file" name="document_file" required style="padding: 10px; border: 1px dashed var(--primary-color); width: 100%; border-radius: 6px; background: rgba(0,0,0,0.2);">
+                <div class="drop-zone" id="drop_zone">
+                    <input type="file" name="document_file" id="document_file" required>
+                    <div class="drop-zone-text" id="drop_zone_text">📁 Click to browse or Drag & Drop here</div>
+                    <div class="drop-zone-subtext" id="drop_zone_subtext">PDFs, DWGs, Images, and Videos are securely streamed to R2.</div>
+                </div>
             </div>
 
             <div class="form-group" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); padding: 10px; border-radius: 6px;">
@@ -491,7 +540,7 @@ function openViewer(id, title) {
 }
 function closeViewer() {
     document.getElementById('viewerModal').style.display = 'none';
-    document.getElementById('viewerFrame').src = ''; // Stop video playback etc.
+    document.getElementById('viewerFrame').src = ''; 
 }
 
 // Edit Modal Prep
@@ -534,6 +583,65 @@ function toggleReasonField() {
         rsnDiv.style.display = 'none';
         rsnInput.required = false;
     }
+}
+
+// Drag & Drop Functionality
+const dropZone = document.getElementById('drop_zone');
+const dropZoneText = document.getElementById('drop_zone_text');
+const dropZoneSubtext = document.getElementById('drop_zone_subtext');
+const fileInput = document.getElementById('document_file');
+
+if (dropZone) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.add('dragover');
+            dropZoneText.innerHTML = '🔥 Drop it like it\'s hot! 🔥';
+            dropZoneSubtext.innerHTML = 'Release to attach file';
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.remove('dragover');
+            if (fileInput.files.length === 0) resetDropZoneText();
+        }, false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        let dt = e.dataTransfer;
+        let files = dt.files;
+        fileInput.files = files; 
+        updateFileName(files);
+    }, false);
+    
+    fileInput.addEventListener('change', function() {
+        updateFileName(this.files);
+    });
+}
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function updateFileName(files) {
+    if (files.length > 0) {
+        dropZoneText.innerHTML = '✅ ' + files[0].name;
+        dropZoneSubtext.innerHTML = (files[0].size / 1024 / 1024).toFixed(2) + ' MB ready to upload';
+        dropZone.style.borderColor = '#10B981';
+    } else {
+        resetDropZoneText();
+    }
+}
+
+function resetDropZoneText() {
+    dropZoneText.innerHTML = '📁 Click to browse or Drag & Drop here';
+    dropZoneSubtext.innerHTML = 'PDFs, DWGs, Images, and Videos are securely streamed to R2.';
+    dropZone.style.borderColor = 'var(--primary-color)';
 }
 
 // Suggestions Dictionary
