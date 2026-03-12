@@ -191,17 +191,22 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $docStmt->execute($params);
     $documents = $docStmt->fetchAll();
 
-    // Build the Tree Array [Project][Category][SubCategory] = [Files]
+    // Correctly build the Tree Array 
+    // [Project] -> [Category] -> ['subcats' => [SubCatName => Files], 'loose' => [Files]]
     foreach ($documents as $d) {
         $pName = $d['project_name'];
         $cat = $d['category'];
-        $subcat = empty($d['sub_category']) ? 'Uncategorized' : $d['sub_category'];
+        $subcat = empty($d['sub_category']) ? '' : trim($d['sub_category']);
 
         if (!isset($tree[$pName])) $tree[$pName] = [];
-        if (!isset($tree[$pName][$cat])) $tree[$pName][$cat] = [];
-        if (!isset($tree[$pName][$cat][$subcat])) $tree[$pName][$cat][$subcat] = [];
+        if (!isset($tree[$pName][$cat])) $tree[$pName][$cat] = ['subcats' => [], 'loose' => []];
 
-        $tree[$pName][$cat][$subcat][] = $d;
+        if ($subcat !== '') {
+            if (!isset($tree[$pName][$cat]['subcats'][$subcat])) $tree[$pName][$cat]['subcats'][$subcat] = [];
+            $tree[$pName][$cat]['subcats'][$subcat][] = $d;
+        } else {
+            $tree[$pName][$cat]['loose'][] = $d;
+        }
     }
 }
 
