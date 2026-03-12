@@ -1,4 +1,10 @@
 <?php
+// Catch Server-level POST overflows gracefully before anything else loads
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && $_SERVER['CONTENT_LENGTH'] > 0) {
+    $error = "The uploaded file is too large and exceeded the server limits. Please upload a file smaller than 500MB.";
+    $_POST['action'] = 'overflow_error'; // Prevent downstream logic from running
+}
+
 require_once 'init.php';
 require_once 'session-check.php';
 require_once 'S3FileManager.php'; 
@@ -8,7 +14,7 @@ $isAdmin = isAdmin();
 
 $s3 = new S3FileManager();
 $message = ''; 
-$error = '';
+$error = $error ?? ''; // Retain overflow error if caught above
 
 // ==========================================
 // 1. DETERMINE USER CATEGORY PERMISSIONS
@@ -29,7 +35,7 @@ if ($isAdmin || (int)$uPerm['doc_sales'] > 0) $docPerms['Sales'] = $isAdmin ? 4 
 $accessibleCategories = array_keys($docPerms);
 
 // Handle Actions (Upload / Edit / Delete)
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== 'overflow_error') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'upload_document') {
@@ -61,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = "Failed to upload file to Cloud Storage.";
                 }
             } else {
-                $error = "No file selected or upload error.";
+                $error = "No file selected, or the file exceeded limits.";
             }
         } catch (Exception $e) { $error = $e->getMessage(); }
     } 
@@ -236,9 +242,13 @@ require_once 'header.php';
     background: rgba(99, 102, 241, 0.05);
 }
 .drop-zone.dragover {
-    background: rgba(16, 185, 129, 0.1); /* Soft green background */
-    border-color: #10B981; /* Green border */
+    background: rgba(16, 185, 129, 0.1); 
+    border-color: #10B981; 
     transform: scale(1.02);
+}
+.drop-zone.error {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: #ef4444;
 }
 .drop-zone input[type="file"] {
     position: absolute;
@@ -252,12 +262,15 @@ require_once 'header.php';
 .drop-zone-text {
     font-size: 1.1rem;
     font-weight: 600;
-    pointer-events: none; /* Let clicks pass through to input */
+    pointer-events: none; 
     color: var(--text-primary);
     transition: color 0.3s ease;
 }
 .drop-zone.dragover .drop-zone-text {
     color: #10B981;
+}
+.drop-zone.error .drop-zone-text {
+    color: #ef4444;
 }
 .drop-zone-subtext {
     font-size: 0.8rem;
@@ -426,7 +439,7 @@ require_once 'header.php';
     <div class="modal-content">
         <span class="close-modal" onclick="closeModal('uploadModal')">&times;</span>
         <h2 style="color: var(--primary-color); margin-top: 0;">Secure Upload to Vault</h2>
-        <form method="POST" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data" id="uploadForm">
             <input type="hidden" name="action" value="upload_document">
             
             <div class="form-group">
@@ -466,7 +479,7 @@ require_once 'header.php';
                 <div class="drop-zone" id="drop_zone">
                     <input type="file" name="document_file" id="document_file" required>
                     <div class="drop-zone-text" id="drop_zone_text">📁 Click to browse or Drag & Drop here</div>
-                    <div class="drop-zone-subtext" id="drop_zone_subtext">PDFs, DWGs, Images, and Videos are securely streamed to R2.</div>
+                    <div class="drop-zone-subtext" id="drop_zone_subtext">Maximum Size: 500MB (PDF, DWG, JPG, MP4)</div>
                 </div>
             </div>
 
@@ -475,7 +488,7 @@ require_once 'header.php';
                 <input type="date" name="expiry_date" style="background: var(--bg-panel);">
             </div>
             
-            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Upload & Encrypt</button>
+            <button type="submit" class="btn btn-primary" id="uploadSubmitBtn" style="width: 100%; margin-top: 10px;">Upload & Encrypt</button>
         </form>
     </div>
 </div>
@@ -512,8 +525,7 @@ require_once 'header.php';
                         <label>Reason for dismissal (Required) *</label>
                         <textarea name="alarm_dismissed_reason" id="edit_alarm_reason" rows="2" placeholder="e.g. Project completed, insurance no longer needed."></textarea>
                     </div>
-                    <div id="edit_dismissed_info" style="display: none; margin-top: 10px; font-size: 0.8rem; color: #94a3b8; font-style: italic;">
-                        </div>
+                    <div id="edit_dismissed_info" style="display: none; margin-top: 10px; font-size: 0.8rem; color: #94a3b8; font-style: italic;"></div>
                 </div>
             </div>
             
@@ -585,11 +597,15 @@ function toggleReasonField() {
     }
 }
 
-// Drag & Drop Functionality
+// Drag & Drop + Size Validation Functionality
 const dropZone = document.getElementById('drop_zone');
 const dropZoneText = document.getElementById('drop_zone_text');
 const dropZoneSubtext = document.getElementById('drop_zone_subtext');
 const fileInput = document.getElementById('document_file');
+const submitBtn = document.getElementById('uploadSubmitBtn');
+
+const MAX_SIZE_MB = 500;
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 
 if (dropZone) {
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -598,9 +614,11 @@ if (dropZone) {
 
     ['dragenter', 'dragover'].forEach(eventName => {
         dropZone.addEventListener(eventName, () => {
-            dropZone.classList.add('dragover');
-            dropZoneText.innerHTML = '🔥 Drop it like it\'s hot! 🔥';
-            dropZoneSubtext.innerHTML = 'Release to attach file';
+            if (!dropZone.classList.contains('error')) {
+                dropZone.classList.add('dragover');
+                dropZoneText.innerHTML = '🔥 Drop it like it\'s hot! 🔥';
+                dropZoneSubtext.innerHTML = 'Release to attach file';
+            }
         }, false);
     });
 
@@ -630,18 +648,35 @@ function preventDefaults(e) {
 
 function updateFileName(files) {
     if (files.length > 0) {
-        dropZoneText.innerHTML = '✅ ' + files[0].name;
-        dropZoneSubtext.innerHTML = (files[0].size / 1024 / 1024).toFixed(2) + ' MB ready to upload';
+        const file = files[0];
+        
+        // Immediate Size Check
+        if (file.size > MAX_SIZE_BYTES) {
+            dropZone.classList.add('error');
+            dropZoneText.innerHTML = '❌ File is too large!';
+            dropZoneSubtext.innerHTML = `Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB. The maximum limit is ${MAX_SIZE_MB}MB.`;
+            fileInput.value = ''; // Clear the input
+            submitBtn.disabled = true;
+            return;
+        }
+
+        dropZone.classList.remove('error');
+        dropZoneText.innerHTML = '✅ ' + file.name;
+        dropZoneSubtext.innerHTML = (file.size / 1024 / 1024).toFixed(2) + ' MB ready to upload';
         dropZone.style.borderColor = '#10B981';
+        submitBtn.disabled = false;
+        
     } else {
         resetDropZoneText();
     }
 }
 
 function resetDropZoneText() {
+    dropZone.classList.remove('error');
     dropZoneText.innerHTML = '📁 Click to browse or Drag & Drop here';
-    dropZoneSubtext.innerHTML = 'PDFs, DWGs, Images, and Videos are securely streamed to R2.';
+    dropZoneSubtext.innerHTML = `Maximum Size: ${MAX_SIZE_MB}MB (PDF, DWG, Images, Videos)`;
     dropZone.style.borderColor = 'var(--primary-color)';
+    submitBtn.disabled = false;
 }
 
 // Suggestions Dictionary
