@@ -173,11 +173,12 @@ require_once 'header.php';
 
 /* Elements */
 .warning-pill { display: inline-block; padding: 0.2rem 0.5rem; background: rgba(239, 68, 68, 0.15); color: #ef4444; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-top: 0.25rem; border: 1px solid rgba(239, 68, 68, 0.3); }
+.project-link:hover { text-decoration: underline !important; }
 
 /* Modal Styles */
-.modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 2% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 95%; max-width: 900px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-.close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
+.close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
 .close-modal:hover { color: var(--text-primary); }
 
 .eq-row { display: grid; grid-template-columns: 2fr 3fr 1fr 1.5fr auto; gap: 0.5rem; margin-bottom: 0.75rem; align-items: start; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 6px; border: 1px solid var(--border-glass); }
@@ -253,9 +254,11 @@ require_once 'header.php';
                 <?php else: ?>
                     <?php foreach($ohsaProjects as $p): ?>
                         <tr>
-                            <td style="font-weight: 700; color: var(--primary-color);">
-                                <?= htmlspecialchars($p['name']) ?><br>
-                                <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
+                            <td style="font-weight: 700;">
+                                <a href="javascript:void(0);" onclick='openProjectDetailsModal(<?= json_encode($p, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' style="color: var(--primary-color); text-decoration: none; display: inline-block;" class="project-link" title="Click to view details">
+                                    <?= htmlspecialchars($p['name']) ?><br>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
+                                </a>
                             </td>
                             <td><?= htmlspecialchars($p['stage']) ?></td>
                             
@@ -295,7 +298,7 @@ require_once 'header.php';
                             
                             <?php if ($canEditOHSA): ?>
                             <td>
-                                <button onclick='openOHSAModal(<?= json_encode($p, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-primary" style="margin:0;">Manage OHSA</button>
+                                <button onclick='openOHSAModal(<?= json_encode($p, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="btn btn-sm btn-primary" style="margin:0;">Manage OHSA</button>
                             </td>
                             <?php endif; ?>
                         </tr>
@@ -306,10 +309,40 @@ require_once 'header.php';
     </div>
 </div>
 
+<div id="projectDetailsModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <span class="close-modal" onclick="closeProjectDetailsModal()">&times;</span>
+        <h2 id="pdModalName" style="color: var(--primary-color); margin-top: 0; margin-bottom: 1.5rem;">Project Name</h2>
+        
+        <div style="background: rgba(255,255,255,0.03); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.95rem;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
+                <span style="color: var(--text-muted);">Client:</span>
+                <strong id="pdModalClient" style="color: var(--text-primary);"></strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
+                <span style="color: var(--text-muted);">Location:</span>
+                <strong id="pdModalLocation" style="color: var(--text-primary); text-align: right;"></strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
+                <span style="color: var(--text-muted);">Type:</span>
+                <strong id="pdModalType" style="color: var(--text-primary);"></strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
+                <span style="color: var(--text-muted);">Status:</span>
+                <strong id="pdModalStatus" style="color: var(--text-primary);"></strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-muted);">Finish Req:</span>
+                <strong id="pdModalFinish" style="color: var(--text-primary);"></strong>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?php if ($canEditOHSA): ?>
 <div id="ohsaModal" class="modal">
     <div class="modal-content">
-        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <span class="close-modal" onclick="closeOHSAModal()">&times;</span>
         <h2 id="modalProjectName" style="margin-bottom: 1.5rem; color: var(--primary-color);">Manage OHSA Details</h2>
         
         <form method="POST">
@@ -366,8 +399,7 @@ require_once 'header.php';
                     <div style="width: 30px;"></div>
                 </div>
 
-                <div id="equipmentContainer">
-                    </div>
+                <div id="equipmentContainer"></div>
             </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save OHSA Details</button>
@@ -414,12 +446,11 @@ function openOHSAModal(project) {
     document.getElementById('modalPscsName').value = project.pscs_name || '';
     
     const container = document.getElementById('equipmentContainer');
-    container.innerHTML = ''; // Clear existing
+    container.innerHTML = ''; 
     
     if (project.equipment && project.equipment.length > 0) {
         project.equipment.forEach(eq => addEquipmentRow(eq));
     } else {
-        // Pre-fill two standard blanks to guide the user
         addEquipmentRow({equipment_name: 'Tower Crane', details: '', is_certified: 'N/A', expiry_date: ''});
         addEquipmentRow({equipment_name: 'Crane Chains', details: '', is_certified: 'N/A', expiry_date: ''});
     }
@@ -427,12 +458,44 @@ function openOHSAModal(project) {
     document.getElementById('ohsaModal').style.display = 'block';
 }
 
-function closeModal() { document.getElementById('ohsaModal').style.display = 'none'; }
-window.onclick = function(event) { let modal = document.getElementById('ohsaModal'); if (event.target == modal) { modal.style.display = "none"; } }
-
+function closeOHSAModal() { document.getElementById('ohsaModal').style.display = 'none'; }
 function escapeHtml(text) { return text ? String(text).replace(/[&<>"'`=\/]/g, function(s){return entityMap[s];}) : ''; }
 const entityMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'};
 </script>
 <?php endif; ?>
+
+<script>
+// Project Details View Logic (Available to all users viewing the page)
+function openProjectDetailsModal(project) {
+    document.getElementById('pdModalName').textContent = project.name;
+    document.getElementById('pdModalClient').textContent = project.client_name || 'N/A';
+    
+    // Safely combine location fields, dropping empty ones
+    let locationParts = [];
+    if (project.address) locationParts.push(project.address);
+    if (project.city) locationParts.push(project.city);
+    if (project.island) locationParts.push(project.island);
+    
+    document.getElementById('pdModalLocation').textContent = locationParts.length > 0 ? locationParts.join(', ') : 'N/A';
+    document.getElementById('pdModalType').textContent = project.type || 'N/A';
+    document.getElementById('pdModalStatus').textContent = project.project_status || 'Active';
+    document.getElementById('pdModalFinish').textContent = project.finishlevel || 'N/A';
+    
+    document.getElementById('projectDetailsModal').style.display = 'block';
+}
+
+function closeProjectDetailsModal() { 
+    document.getElementById('projectDetailsModal').style.display = 'none'; 
+}
+
+// Global modal closer logic
+window.onclick = function(event) { 
+    let ohsaModal = document.getElementById('ohsaModal'); 
+    let pdModal = document.getElementById('projectDetailsModal');
+    
+    if (ohsaModal && event.target == ohsaModal) { ohsaModal.style.display = "none"; } 
+    if (pdModal && event.target == pdModal) { pdModal.style.display = "none"; } 
+}
+</script>
 
 <?php require_once 'footer.php'; ?>
