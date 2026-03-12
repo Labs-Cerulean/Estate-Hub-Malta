@@ -215,6 +215,12 @@ require_once 'header.php';
 ?>
 
 <style>
+
+.cat-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; overflow-x: auto; }
+.cat-tab { padding: 0.5rem 1rem; border-radius: 6px; color: var(--text-secondary); text-decoration: none; font-weight: 600; font-size: 0.85rem; white-space: nowrap; transition: 0.2s; }
+.cat-tab:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+.cat-tab.active { background: rgba(99, 102, 241, 0.1); color: var(--primary-color); border: 1px solid rgba(99, 102, 241, 0.3); }
+    
 /* FOLDER TREE STYLES */
 .vault-container { background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.5rem; margin-bottom: 3rem; }
 .tree-details { margin-bottom: 0.5rem; }
