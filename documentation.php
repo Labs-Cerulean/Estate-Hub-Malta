@@ -19,7 +19,7 @@ $stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_commerci
 $stmtPerms->execute([$userId]);
 $uPerm = $stmtPerms->fetch(PDO::FETCH_ASSOC);
 
-$accessibleCategories = ['General']; // Everyone can see 'General'
+$accessibleCategories = []; // Removed 'General'. Strict permissions only.
 if ($isAdmin || !empty($uPerm['doc_bca'])) $accessibleCategories[] = 'BCA';
 if ($isAdmin || !empty($uPerm['doc_ohsa'])) $accessibleCategories[] = 'OHSA';
 if ($isAdmin || !empty($uPerm['doc_drawings'])) $accessibleCategories[] = 'Drawings';
@@ -117,14 +117,14 @@ if (isset($_GET['action']) && $_GET['action'] === 'view' && isset($_GET['id'])) 
 // 2. DATA FETCHING & FILTERING
 // ==========================================
 
-// FIX: Safely parse 'all' so it doesn't become 0
 $selectedProjectId = (isset($_GET['project_id']) && $_GET['project_id'] !== 'all') ? (int)$_GET['project_id'] : 'all';
 $selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? $_GET['category'] : 'all';
 
 $projects = getAccessibleProjects($pdo, $userId);
 $accessibleProjectIds = array_column($projects, 'id');
 
-if (empty($accessibleProjectIds)) {
+// If user has zero categories permitted, don't even run the queries
+if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
     $documents = [];
     $expiringDocs = [];
 } else {
@@ -236,7 +236,9 @@ require_once 'header.php';
             <h1 class="page-title" style="margin-bottom: 0;">Universal Document Vault</h1>
             <p style="color: var(--text-secondary); margin-top: 0.25rem;">Secure Cloudflare R2 Storage.</p>
         </div>
-        <button onclick="openUploadModal()" class="btn btn-primary">+ Upload Document</button>
+        <?php if (!empty($accessibleCategories)): ?>
+            <button onclick="openUploadModal()" class="btn btn-primary">+ Upload Document</button>
+        <?php endif; ?>
     </div>
 
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
@@ -331,6 +333,7 @@ require_once 'header.php';
 
 </div>
 
+<?php if (!empty($accessibleCategories)): ?>
 <div id="uploadModal" class="modal">
     <div class="modal-content">
         <span class="close-modal" onclick="closeModal('uploadModal')">&times;</span>
@@ -386,18 +389,22 @@ require_once 'header.php';
         </form>
     </div>
 </div>
+<?php endif; ?>
 
 <script>
 function openUploadModal() {
-    document.getElementById('uploadModal').style.display = 'block';
+    const modal = document.getElementById('uploadModal');
+    if(modal) modal.style.display = 'block';
 }
 
 function closeModal(id) {
-    document.getElementById(id).style.display = 'none';
+    const modal = document.getElementById(id);
+    if(modal) modal.style.display = 'none';
 }
 
 window.onclick = function(event) {
-    if (event.target == document.getElementById('uploadModal')) {
+    const modal = document.getElementById('uploadModal');
+    if (modal && event.target == modal) {
         closeModal('uploadModal');
     }
 }
@@ -412,6 +419,7 @@ const suggestions = {
 
 function updateSubCategories(category) {
     const dataList = document.getElementById('subcat_suggestions');
+    if(!dataList) return;
     dataList.innerHTML = '';
     
     if (suggestions[category]) {
