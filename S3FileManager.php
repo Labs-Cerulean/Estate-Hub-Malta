@@ -16,24 +16,39 @@ class S3FileManager {
         $secretKey = getenv('R2_SECRET_KEY') ?: 'dfb3914f821ece155958041f8e0592de575dbe53fe29f7e1fef15901a6d11bdb';
         $this->bucket = getenv('R2_BUCKET_NAME') ?: 'estate-hub-vault';
 
-        $credentials = new Aws\Credentials\Credentials($accessKey, $secretKey);
-
-        $this->client = new S3Client([
+       $this->client = new S3Client([
             'version'                 => 'latest',
-            'region'                  => 'auto', // Cloudflare R2 uses 'auto'
+            'region'                  => 'auto', 
             'endpoint'                => "https://{$accountId}.r2.cloudflarestorage.com",
             'credentials'             => $credentials,
-            // R2 requires path style endpoints
             'use_path_style_endpoint' => true,
         ]);
     }
 
-    /**
-     * Uploads a file directly to Cloudflare R2
-     * Returns the stored File Key (path) on success, or false on failure.
-     */
+    // NEW: Generates a secure, temporary URL for the browser to upload directly to R2
+    public function getPresignedUploadUrl($originalFileName, $contentType, $folder = 'general') {
+        $cleanName = preg_replace('/[^a-zA-Z0-9.\-_]/', '', basename($originalFileName));
+        $key = "documents/{$folder}/" . date('Y/m/') . uniqid() . '_' . $cleanName;
+
+        try {
+            $cmd = $this->client->getCommand('PutObject', [
+                'Bucket'      => $this->bucket,
+                'Key'         => $key,
+                'ContentType' => $contentType
+            ]);
+            // Link expires in 30 minutes
+            $request = $this->client->createPresignedRequest($cmd, '+30 minutes');
+            return [
+                'url' => (string)$request->getUri(),
+                'key' => $key
+            ];
+        } catch (AwsException $e) {
+            error_log("R2 Upload URL Error: " . $e->getMessage());
+            return false;
+        }
+    }
+
     public function uploadFile($fileTempPath, $originalFileName, $contentType = 'application/octet-stream', $folder = 'general') {
-        // Sanitize file name and create a unique path: e.g., documents/drawings/2026/03/uniqueid_file.pdf
         $cleanName = preg_replace('/[^a-zA-Z0-9.\-_]/', '', basename($originalFileName));
         $key = "documents/{$folder}/" . date('Y/m/') . uniqid() . '_' . $cleanName;
         
@@ -51,10 +66,6 @@ class S3FileManager {
         }
     }
 
-    /**
-     * Generates a secure, temporary, expiring URL to view/download the file
-     * By default, the link expires in 60 minutes.
-     */
     public function getPresignedUrl($key, $expiry = '+60 minutes') {
         try {
             $cmd = $this->client->getCommand('GetObject', [
@@ -64,14 +75,10 @@ class S3FileManager {
             $request = $this->client->createPresignedRequest($cmd, $expiry);
             return (string)$request->getUri();
         } catch (AwsException $e) {
-            error_log("R2 URL Gen Error: " . $e->getMessage());
             return false;
         }
     }
 
-    /**
-     * Permanently deletes a file from the bucket
-     */
     public function deleteFile($key) {
         try {
             $this->client->deleteObject([
@@ -80,7 +87,6 @@ class S3FileManager {
             ]);
             return true;
         } catch (AwsException $e) {
-            error_log("R2 Delete Error: " . $e->getMessage());
             return false;
         }
     }
