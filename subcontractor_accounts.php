@@ -494,6 +494,14 @@ require_once 'header.php';
                                 // Progress Calculation
                                 $prog_pct = $w['total_inc_vat'] > 0 ? ($c_tot / $w['total_inc_vat']) * 100 : 0;
                                 $prog_class = $prog_pct > 100 ? 'over' : '';
+                                
+                                // Payload for specific modal stats
+                                $statsPayload = json_encode([
+                                    'tot' => $w['total_inc_vat'],
+                                    'cert' => $c_tot,
+                                    'inv' => $i_tot,
+                                    'pay' => $p_tot
+                                ]);
                             ?>
                             <tr>
                                 <td>
@@ -531,9 +539,13 @@ require_once 'header.php';
                                 <td style="text-align: right; font-weight: bold;" class="<?= $due_i > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_i, 2) ?></td>
                                 
                                 <?php if($canManage): ?>
-                                <td style="text-align: center;">
-                                    <button onclick='openTxModal(null, <?= $w['id'] ?>, "Certification", <?= $w['is_measured'] ? "true" : "false" ?>, <?= $w['vat_rate'] ?>)' class="btn btn-sm btn-primary" title="Log Activity / Certify">+</button>
-                                    <button onclick='openWorkModal(<?= json_encode($w, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" title="Edit Work Order">✎</button>
+                                <td style="text-align: center; vertical-align: middle;">
+                                    <div style="display: flex; gap: 4px; justify-content: center; align-items: center;">
+                                        <button onclick='openTxModal(null, <?= $w['id'] ?>, "Certification", <?= $w['is_measured'] ? "true" : "false" ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)' class="btn btn-sm" style="background: rgba(59,130,246,0.1); color: #3B82F6; border: 1px solid #3B82F6; padding: 2px 6px;" title="Add Certificate">Cert</button>
+                                        <button onclick='openTxModal(null, <?= $w['id'] ?>, "Invoice", <?= $w['is_measured'] ? "true" : "false" ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)' class="btn btn-sm" style="background: rgba(245,158,11,0.1); color: #F59E0B; border: 1px solid #F59E0B; padding: 2px 6px;" title="Add Invoice">Inv</button>
+                                        <button onclick='openTxModal(null, <?= $w['id'] ?>, "Payment", <?= $w['is_measured'] ? "true" : "false" ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)' class="btn btn-sm" style="background: rgba(16,185,129,0.1); color: #10B981; border: 1px solid #10B981; padding: 2px 6px;" title="Add Payment">Pay</button>
+                                        <button onclick='openWorkModal(<?= json_encode($w, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" title="Edit Work Order" style="padding: 2px 6px;">✎</button>
+                                    </div>
                                 </td>
                                 <?php endif; ?>
                             </tr>
@@ -683,6 +695,8 @@ require_once 'header.php';
                     <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
                     <input type="hidden" name="action" value="save_transaction">
                     <input type="hidden" name="transaction_id" id="t_id">
+                    
+                    <div id="t_work_stats" style="display:none;"></div>
                     
                     <?php if (!$sub_id): ?>
                         <div class="form-group">
@@ -865,13 +879,41 @@ require_once 'header.php';
         let currentModalIsMeasured = false;
         let isEditMode = false;
 
-        async function openTxModal(data, work_id, type, isMeasured, vatRate) {
+        // If the user manually changes the Work Order link in the modal, hide the snapshot to prevent confusion
+        const workDropdown = document.getElementById('t_work_id');
+        if (workDropdown) {
+            workDropdown.addEventListener('change', function() {
+                document.getElementById('t_work_stats').style.display = 'none';
+            });
+        }
+
+        async function openTxModal(data, work_id, type, isMeasured, vatRate, stats = null) {
             currentModalIsMeasured = isMeasured === true || isMeasured === 'true' || isMeasured === 1;
             isEditMode = (data !== null);
             
             document.getElementById('t_work_id').value = work_id || '';
             document.getElementById('t_type').value = type || 'Certification';
             document.getElementById('t_vat_rate').value = vatRate || 18;
+
+            // Generate Top Header Snapshot if stats are passed
+            const statsContainer = document.getElementById('t_work_stats');
+            if (stats && stats.tot > 0) {
+                const c_pct = ((stats.cert / stats.tot) * 100).toFixed(1);
+                const i_pct = ((stats.inv / stats.tot) * 100).toFixed(1);
+                const p_pct = ((stats.pay / stats.tot) * 100).toFixed(1);
+                
+                statsContainer.innerHTML = `
+                    <div style="display:flex; justify-content: space-between; text-align: center; font-size: 0.8rem; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px solid var(--border-glass);">
+                        <div><span style="color:var(--text-muted)">Order Value</span><br><strong>€${parseFloat(stats.tot).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</strong></div>
+                        <div><span style="color:#3B82F6">Certified</span><br><strong>€${parseFloat(stats.cert).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${c_pct}%)</strong></div>
+                        <div><span style="color:#F59E0B">Invoiced</span><br><strong>€${parseFloat(stats.inv).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${i_pct}%)</strong></div>
+                        <div><span style="color:#10B981">Paid</span><br><strong>€${parseFloat(stats.pay).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${p_pct}%)</strong></div>
+                    </div>
+                `;
+                statsContainer.style.display = 'block';
+            } else {
+                statsContainer.style.display = 'none';
+            }
 
             if (data) {
                 document.getElementById('tModalTitle').textContent = 'Edit Activity';
@@ -881,7 +923,7 @@ require_once 'header.php';
                 document.getElementById('t_ref').value = data.reference;
                 document.getElementById('t_notes').value = data.notes;
             } else {
-                document.getElementById('tModalTitle').textContent = 'Log Activity';
+                document.getElementById('tModalTitle').textContent = 'Log ' + type;
                 document.getElementById('t_id').value = '';
                 document.getElementById('t_amount').value = '';
                 document.getElementById('t_ref').value = '';
