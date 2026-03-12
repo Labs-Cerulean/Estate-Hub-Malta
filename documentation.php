@@ -6,9 +6,7 @@ require_once 'S3FileManager.php';
 $userId = getCurrentUserId();
 $isAdmin = isAdmin();
 
-// Initialize S3 Manager
 $s3 = new S3FileManager();
-
 $message = ''; 
 $error = '';
 
@@ -19,12 +17,15 @@ $stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_commerci
 $stmtPerms->execute([$userId]);
 $uPerm = $stmtPerms->fetch(PDO::FETCH_ASSOC);
 
-$accessibleCategories = []; // Removed 'General'. Strict permissions only.
-if ($isAdmin || !empty($uPerm['doc_bca'])) $accessibleCategories[] = 'BCA';
-if ($isAdmin || !empty($uPerm['doc_ohsa'])) $accessibleCategories[] = 'OHSA';
-if ($isAdmin || !empty($uPerm['doc_drawings'])) $accessibleCategories[] = 'Drawings';
-if ($isAdmin || !empty($uPerm['doc_commercial'])) $accessibleCategories[] = 'Commercial';
-if ($isAdmin || !empty($uPerm['doc_sales'])) $accessibleCategories[] = 'Sales';
+// Map categories to their integer access level
+$docPerms = [];
+if ($isAdmin || (int)$uPerm['doc_bca'] > 0) $docPerms['BCA'] = $isAdmin ? 4 : (int)$uPerm['doc_bca'];
+if ($isAdmin || (int)$uPerm['doc_ohsa'] > 0) $docPerms['OHSA'] = $isAdmin ? 4 : (int)$uPerm['doc_ohsa'];
+if ($isAdmin || (int)$uPerm['doc_drawings'] > 0) $docPerms['Drawings'] = $isAdmin ? 4 : (int)$uPerm['doc_drawings'];
+if ($isAdmin || (int)$uPerm['doc_commercial'] > 0) $docPerms['Commercial'] = $isAdmin ? 4 : (int)$uPerm['doc_commercial'];
+if ($isAdmin || (int)$uPerm['doc_sales'] > 0) $docPerms['Sales'] = $isAdmin ? 4 : (int)$uPerm['doc_sales'];
+
+$accessibleCategories = array_keys($docPerms);
 
 // Handle Actions (Upload / Delete)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -34,26 +35,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $projectId = (int)$_POST['project_id'];
             $category = $_POST['category'];
+            
+            // Security Check: Must be Level 3 or 4 to Upload
+            if (!isset($docPerms[$category]) || $docPerms[$category] < 3) {
+                throw new Exception("You do not have permission to upload documents to the '$category' category. (Requires Level 3 Access)");
+            }
+
             $subCategory = trim($_POST['sub_category'] ?? '');
             $title = trim($_POST['title']);
             $expiryDate = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
             
-            // Security Check: Is user allowed to upload to this category?
-            if (!in_array($category, $accessibleCategories)) {
-                throw new Exception("You do not have permission to upload documents to the '$category' category.");
-            }
-
             if (isset($_FILES['document_file']) && $_FILES['document_file']['error'] === UPLOAD_ERR_OK) {
                 $tmpPath = $_FILES['document_file']['tmp_name'];
                 $originalName = $_FILES['document_file']['name'];
                 $mimeType = $_FILES['document_file']['type'];
                 $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
-                // 1. Upload to Cloudflare R2
                 $fileKey = $s3->uploadFile($tmpPath, $originalName, $mimeType, strtolower($category));
                 
                 if ($fileKey) {
-                    // 2. Save reference in Database
                     $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, expiry_date, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$projectId, $category, $subCategory, $title, $fileKey, $ext, $expiryDate, $userId]);
                     $message = "Document uploaded successfully!";
@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "No file selected or upload error.";
             }
         } catch (Exception $e) {
-            $error = "Error: " . $e->getMessage();
+            $error = $e->getMessage();
         }
     } 
     elseif ($action === 'delete_document') {
@@ -75,9 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $doc = $stmt->fetch();
             
             if ($doc) {
-                // Security Check: Can they delete from this category?
-                if (!in_array($doc['category'], $accessibleCategories)) {
-                    throw new Exception("You do not have permission to delete this document.");
+                // Security Check: Must be Level 4 to Delete
+                if (!isset($docPerms[$doc['category']]) || $docPerms[$doc['category']] < 4) {
+                    throw new Exception("You do not have permission to delete documents in this category. (Requires Level 4 Access)");
                 }
                 
                 $s3->deleteFile($doc['file_path']);
@@ -91,16 +91,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Handle Secure Viewing via GET
-if (isset($_GET['action']) && $_GET['action'] === 'view' && isset($_GET['id'])) {
+if (isset($_GET['action']) && in_array($_GET['action'], ['view', 'download']) && isset($_GET['id'])) {
     $docId = (int)$_GET['id'];
     $stmt = $pdo->prepare("SELECT file_path, category FROM project_documents WHERE id = ?");
     $stmt->execute([$docId]);
     $doc = $stmt->fetch();
     
     if ($doc) {
-        // Security Check: Can they view this category?
-        if (!in_array($doc['category'], $accessibleCategories)) {
+        // Security Checks
+        if (!isset($docPerms[$doc['category']])) {
             die("Unauthorized access to this document category.");
+        }
+        if ($_GET['action'] === 'download' && $docPerms[$doc['category']] < 2) {
+            die("You do not have download permissions for this document. (Requires Level 2 Access)");
         }
 
         $url = $s3->getPresignedUrl($doc['file_path'], '+60 minutes');
@@ -108,7 +111,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'view' && isset($_GET['id'])) 
             header("Location: " . $url);
             exit;
         } else {
-            $error = "Could not generate secure viewing link.";
+            $error = "Could not generate secure link.";
         }
     }
 }
@@ -123,7 +126,10 @@ $selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? 
 $projects = getAccessibleProjects($pdo, $userId);
 $accessibleProjectIds = array_column($projects, 'id');
 
-// If user has zero categories permitted, don't even run the queries
+// Determine if user has Upload rights in AT LEAST ONE category to show the global "+ Upload" button
+$canUploadAnything = false;
+foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break; } }
+
 if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
     $documents = [];
     $expiringDocs = [];
@@ -131,10 +137,8 @@ if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
     $placeholders = implode(',', array_fill(0, count($accessibleProjectIds), '?'));
     $params = $accessibleProjectIds;
     
-    // Safety Array of allowed categories for SQL
     $allowedCatString = implode("','", array_map(function($c) { return addslashes($c); }, $accessibleCategories));
 
-    // Fetch Expiring Documents (Only for categories the user is allowed to see)
     $expStmt = $pdo->prepare("
         SELECT d.*, p.name as project_name 
         FROM project_documents d 
@@ -148,7 +152,6 @@ if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
     $expStmt->execute($params);
     $expiringDocs = $expStmt->fetchAll();
 
-    // Fetch Main Document List
     $query = "SELECT d.*, p.name as project_name, u.first_name, u.last_name 
               FROM project_documents d 
               JOIN projects p ON d.project_id = p.id 
@@ -162,7 +165,6 @@ if (empty($accessibleProjectIds) || empty($accessibleCategories)) {
     }
     
     if ($selectedCategory !== 'all') {
-        // Double check they aren't trying to force a URL category they don't own
         if (in_array($selectedCategory, $accessibleCategories)) {
             $query .= " AND d.category = ?";
             $params[] = $selectedCategory;
@@ -211,6 +213,8 @@ require_once 'header.php';
                 $exp = new DateTime($edoc['expiry_date']);
                 $now->setTime(0,0,0); $exp->setTime(0,0,0);
                 $days = (int)$now->diff($exp)->format('%r%a');
+                
+                $catLvl = $docPerms[$edoc['category']] ?? 0;
             ?>
                 <div style="background: #1e1e2d; padding: 1rem; border-radius: 6px; border: 1px solid var(--border-glass);">
                     <div style="font-weight: 800; color: var(--primary-color); margin-bottom: 4px;"><?= htmlspecialchars($edoc['project_name']) ?></div>
@@ -223,7 +227,12 @@ require_once 'header.php';
                         <?php else: ?>
                             <span class="badge-warning">Expires in <?= $days ?>d</span>
                         <?php endif; ?>
-                        <a href="?action=view&id=<?= $edoc['id'] ?>" target="_blank" class="btn btn-sm" style="padding: 2px 8px;">View</a>
+                        
+                        <?php if ($catLvl >= 2): ?>
+                            <a href="?action=download&id=<?= $edoc['id'] ?>" target="_blank" class="btn btn-sm" style="padding: 2px 8px;">Download</a>
+                        <?php else: ?>
+                            <a href="?action=view&id=<?= $edoc['id'] ?>" target="_blank" class="btn btn-sm btn-secondary" style="padding: 2px 8px;">View</a>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endforeach; ?>
@@ -236,7 +245,7 @@ require_once 'header.php';
             <h1 class="page-title" style="margin-bottom: 0;">Universal Document Vault</h1>
             <p style="color: var(--text-secondary); margin-top: 0.25rem;">Secure Cloudflare R2 Storage.</p>
         </div>
-        <?php if (!empty($accessibleCategories)): ?>
+        <?php if ($canUploadAnything): ?>
             <button onclick="openUploadModal()" class="btn btn-primary">+ Upload Document</button>
         <?php endif; ?>
     </div>
@@ -281,7 +290,7 @@ require_once 'header.php';
             </thead>
             <tbody>
                 <?php if (empty($documents)): ?>
-                    <tr><td colspan="7" style="text-align: center; padding: 2rem;">No documents found matching the filters.</td></tr>
+                    <tr><td colspan="7" style="text-align: center; padding: 2rem;">No documents found.</td></tr>
                 <?php else: ?>
                     <?php foreach($documents as $d): 
                         $ext = strtolower($d['file_type']);
@@ -300,6 +309,8 @@ require_once 'header.php';
                                 $expText = "<span style='color: #ef4444; font-weight: bold;'>$expText (Expired)</span>";
                             }
                         }
+                        
+                        $catLvl = $docPerms[$d['category']] ?? 0;
                     ?>
                     <tr>
                         <td class="doc-icon" style="text-align: center;"><?= $icon ?></td>
@@ -317,12 +328,19 @@ require_once 'header.php';
                             <span style="color: var(--text-muted);"><?= date('d M y', strtotime($d['created_at'])) ?></span>
                         </td>
                         <td style="text-align: right;">
-                            <a href="?action=view&id=<?= $d['id'] ?>" target="_blank" class="btn btn-sm btn-primary">View</a>
-                            <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to permanently delete this document from the cloud?');">
-                                <input type="hidden" name="action" value="delete_document">
-                                <input type="hidden" name="document_id" value="<?= $d['id'] ?>">
-                                <button type="submit" class="btn btn-sm btn-danger">X</button>
-                            </form>
+                            <?php if ($catLvl >= 2): ?>
+                                <a href="?action=download&id=<?= $d['id'] ?>" target="_blank" class="btn btn-sm btn-primary">Download</a>
+                            <?php else: ?>
+                                <a href="?action=view&id=<?= $d['id'] ?>" target="_blank" class="btn btn-sm btn-secondary">View</a>
+                            <?php endif; ?>
+                            
+                            <?php if ($catLvl >= 4): ?>
+                                <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to permanently delete this document from the cloud?');">
+                                    <input type="hidden" name="action" value="delete_document">
+                                    <input type="hidden" name="document_id" value="<?= $d['id'] ?>">
+                                    <button type="submit" class="btn btn-sm btn-danger">X</button>
+                                </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -333,7 +351,7 @@ require_once 'header.php';
 
 </div>
 
-<?php if (!empty($accessibleCategories)): ?>
+<?php if ($canUploadAnything): ?>
 <div id="uploadModal" class="modal">
     <div class="modal-content">
         <span class="close-modal" onclick="closeModal('uploadModal')">&times;</span>
@@ -356,8 +374,10 @@ require_once 'header.php';
                     <label>Main Category *</label>
                     <select name="category" required onchange="updateSubCategories(this.value)">
                         <option value="">-- Select --</option>
-                        <?php foreach($accessibleCategories as $cat): ?>
-                            <option value="<?= $cat ?>"><?= $cat ?></option>
+                        <?php foreach($docPerms as $cat => $lvl): ?>
+                            <?php if ($lvl >= 3): ?>
+                                <option value="<?= $cat ?>"><?= $cat ?></option>
+                            <?php endif; ?>
                         <?php endforeach; ?>
                     </select>
                 </div>
