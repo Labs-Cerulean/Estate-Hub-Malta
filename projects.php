@@ -71,7 +71,7 @@ $filterSub = $_GET['filter_sub'] ?? 'all';
 
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
-$allowedSorts = ['name', 'stage', 'finishlevel', 'demo_status', 'exc_status', 'const_status', 'fin_status', 'pm_const', 'pm_fin'];
+$allowedSorts = ['name', 'stage', 'finishlevel', 'safety_status', 'demo_status', 'exc_status', 'const_status', 'fin_status', 'pm_const', 'pm_fin'];
 if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
 $allowedOrders = ['ASC', 'DESC'];
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
@@ -96,6 +96,7 @@ $projectIds = array_column($projectsRaw, 'id');
 $mobData = [];
 $blockAggData = [];
 $floorFinishesData = [];
+$ohsaData = []; // NEW: OHSA Data
 
 if (!empty($projectIds)) {
     $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
@@ -105,6 +106,11 @@ if (!empty($projectIds)) {
     $mobStmt->execute($projectIds);
     foreach ($mobStmt->fetchAll() as $row) { $mobData[$row['project_id']] = $row; }
     
+    // Fetch OHSA Safety Statuses
+    $ohsaStmt = $pdo->prepare("SELECT project_id, safety_status, safety_comments FROM project_ohsa_setup WHERE project_id IN ($placeholders)");
+    $ohsaStmt->execute($projectIds);
+    foreach ($ohsaStmt->fetchAll() as $row) { $ohsaData[$row['project_id']] = $row; }
+
     // Fetch Block & Floor Construction Statuses
     $blockStmt = $pdo->prepare("
         SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, 
@@ -151,6 +157,10 @@ foreach ($projectsRaw as $p) {
         $p['demo_status'] = $mobData[$p['id']]['demo_status'] ?? 'Pending';
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         
+        // Attach OHSA Data
+        $p['safety_status'] = $ohsaData[$p['id']]['safety_status'] ?? 'N/A';
+        $p['safety_comments'] = $ohsaData[$p['id']]['safety_comments'] ?? '';
+
         $projConstStatuses = [];
         $projFinStatuses = [];
         $p['detailed_blocks'] = []; 
@@ -274,13 +284,17 @@ if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn(
 
 $stageEnumMap = ['Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
+$safetyEnumMap = ['Green'=>3, 'Yellow'=>2, 'Red'=>1, 'N/A'=>0]; // Red gets priority (lowest num) for ASC sorting
 
-usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageEnumMap, $statusEnumMap) {
+usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageEnumMap, $statusEnumMap, $safetyEnumMap) {
     $valA = ''; $valB = '';
     
     if ($sortBy === 'stage') {
         $valA = $stageEnumMap[$a['stage']] ?? 0;
         $valB = $stageEnumMap[$b['stage']] ?? 0;
+    } elseif ($sortBy === 'safety_status') {
+        $valA = $safetyEnumMap[$a['safety_status']] ?? 0;
+        $valB = $safetyEnumMap[$b['safety_status']] ?? 0;
     } elseif (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) {
         $valA = $statusEnumMap[$a[$sortBy]] ?? 0;
         $valB = $statusEnumMap[$b[$sortBy]] ?? 0;
@@ -327,6 +341,12 @@ function renderStatusBadge($status) {
     ];
     $style = $colors[$status] ?? $colors['Pending'];
     return "<span style='display: inline-flex; justify-content: center; min-width: 75px; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
+}
+
+function renderOhsaIcon($status, $pJson) {
+    $icons = ['Green' => '🟢', 'Yellow' => '🟡', 'Red' => '🔴', 'N/A' => '⚪'];
+    $icon = $icons[$status] ?? '⚪';
+    return "<div onclick='openOhsaInfoModal($pJson)' class='clickable-cell' style='justify-content:center; font-size:1.1rem;' title='View Safety Status'>$icon</div>";
 }
 
 // Helper functions for cell rendering
@@ -526,6 +546,8 @@ require_once 'header.php';
                     <th><a href="<?= getSortUrl('stage') ?>" class="sort-link">Stage <span class="sort-indicator"><?= getSortIndicator('stage') ?></span></a></th>
                     <th><a href="<?= getSortUrl('finishlevel') ?>" class="sort-link">Finish Req <span class="sort-indicator"><?= getSortIndicator('finishlevel') ?></span></a></th>
                     
+                    <th style="border-left: 2px solid var(--border-glass); text-align: center;" title="Site Safety Status"><a href="<?= getSortUrl('safety_status') ?>" class="sort-link" style="justify-content:center;">OHSA <span class="sort-indicator"><?= getSortIndicator('safety_status') ?></span></a></th>
+
                     <th style="border-left: 2px solid var(--border-glass); text-align: center;"><a href="<?= getSortUrl('demo_status') ?>" class="sort-link" style="justify-content:center;">Demolition <span class="sort-indicator"><?= getSortIndicator('demo_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('exc_status') ?>" class="sort-link" style="justify-content:center;">Excavation <span class="sort-indicator"><?= getSortIndicator('exc_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
@@ -541,10 +563,11 @@ require_once 'header.php';
             </thead>
             <tbody>
                 <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="12" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
+                    <tr><td colspan="13" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): 
                         $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
+                        $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
                     ?>
                         <tr>
                             <td>
@@ -559,6 +582,10 @@ require_once 'header.php';
                             <td><div class="normal-cell"><?= htmlspecialchars($p['stage']) ?></div></td>
                             <td><div class="normal-cell"><?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></div></td>
                             
+                            <td style="border-left: 2px solid var(--border-glass); text-align: center;">
+                                <?= renderOhsaIcon($p['safety_status'], $ohsaJson) ?>
+                            </td>
+
                             <td style="border-left: 2px solid var(--border-glass);">
                                 <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
                             </td>
@@ -599,6 +626,26 @@ require_once 'header.php';
 <script>
 const canUpdateStatusGlobal = <?= $canUpdateStatus ? 'true' : 'false' ?>;
 </script>
+
+<div id="ohsaInfoModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <span class="close-modal" onclick="closeModal('ohsaInfoModal')">&times;</span>
+        <h2 style="margin-top: 0; color: var(--primary-color);" id="ohsaInfoTitle">Safety Details</h2>
+        
+        <div style="text-align: center; margin: 1.5rem 0;">
+            <span id="ohsaInfoBadge" style="padding: 0.5rem 1rem; border-radius: 8px; font-size: 1rem; font-weight: bold;"></span>
+        </div>
+        
+        <div class="form-group">
+            <label>Safety Comments / Alerts:</label>
+            <div id="ohsaInfoComments" style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 6px; border: 1px solid var(--border-glass); min-height: 80px; white-space: pre-wrap; font-size: 0.9rem; color: var(--text-primary); line-height: 1.5;"></div>
+        </div>
+        
+        <div style="text-align: right; margin-top: 1.5rem; border-top: 1px solid var(--border-glass); padding-top: 1rem;">
+            <a href="ohsa.php" class="btn btn-sm btn-secondary">Go to Full OHSA Dashboard</a>
+        </div>
+    </div>
+</div>
 
 <?php if ($canAssignTeam): ?>
 <div id="assignModal" class="modal">
@@ -720,6 +767,21 @@ window.onclick = function(e) {
     if (e.target.classList.contains('modal')) e.target.style.display = "none";
 }
 
+// 0. OHSA Info Modal
+function openOhsaInfoModal(data) {
+    document.getElementById('ohsaInfoTitle').textContent = 'Safety: ' + data.name;
+    const badge = document.getElementById('ohsaInfoBadge');
+    
+    badge.textContent = data.status;
+    if (data.status === 'Red') { badge.style.background = 'rgba(239, 68, 68, 0.2)'; badge.style.color = '#ef4444'; badge.style.border = '1px solid #ef4444'; }
+    else if (data.status === 'Yellow') { badge.style.background = 'rgba(245, 158, 11, 0.2)'; badge.style.color = '#f59e0b'; badge.style.border = '1px solid #f59e0b'; }
+    else if (data.status === 'Green') { badge.style.background = 'rgba(34, 197, 94, 0.2)'; badge.style.color = '#22c55e'; badge.style.border = '1px solid #22c55e'; }
+    else { badge.textContent = 'N/A'; badge.style.background = 'rgba(255, 255, 255, 0.1)'; badge.style.color = '#9ca3af'; badge.style.border = '1px solid #4b5563'; }
+    
+    document.getElementById('ohsaInfoComments').textContent = data.comments || 'No active comments or warnings for this site.';
+    document.getElementById('ohsaInfoModal').style.display = 'block';
+}
+
 // 1. Assign Team Modal
 function openAssignModal(data) {
     document.getElementById('modalProjectId').value = data.id;
@@ -801,14 +863,14 @@ function openExecution(id, name) {
     document.getElementById('execExternalLink').href = 'project-status.php?id=' + id;
     document.getElementById('execIframe').src = 'project-status.php?id=' + id + '&modal=1';
     document.getElementById('executionModal').style.display = 'block';
-    document.body.style.overflow = 'hidden'; // Stop background scrolling
+    document.body.style.overflow = 'hidden'; 
 }
 
 function closeExecution() {
     document.getElementById('executionModal').style.display = 'none';
     document.getElementById('execIframe').src = '';
     document.body.style.overflow = 'auto';
-    window.location.reload(); // Refresh the parent page so they see any status changes made in the iframe
+    window.location.reload(); 
 }
 
 // Island Filter Logic
