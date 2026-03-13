@@ -10,23 +10,45 @@ if (!hasPermission('view_projects') && !isAdmin()) {
 
 $message = ''; $error = '';
 $canAssignTeam = hasPermission('edit_project_details') || isAdmin();
+$canUpdateStatus = hasPermission('update_project_status') || isAdmin();
 
-// Handle Team Assignment Form Submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'assign_team' && $canAssignTeam) {
-    try {
-        $pId = $_POST['project_id'];
-        $stmt = $pdo->prepare("UPDATE projects SET pm_construction_id=?, pm_finishes_id=?, sub_demolition_id=?, sub_excavation_id=?, sub_construction_id=? WHERE id=?");
-        $stmt->execute([
-            empty($_POST['pm_const']) ? null : $_POST['pm_const'],
-            empty($_POST['pm_fin']) ? null : $_POST['pm_fin'],
-            empty($_POST['sub_demo']) ? null : $_POST['sub_demo'],
-            empty($_POST['sub_exc']) ? null : $_POST['sub_exc'],
-            empty($_POST['sub_const']) ? null : $_POST['sub_const'],
-            $pId
-        ]);
-        $message = "Project team updated successfully!";
-    } catch (PDOException $e) {
-        $error = "Error updating team: " . $e->getMessage();
+// ==========================================
+// HANDLE POST ACTIONS
+// ==========================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    
+    // ACTION: Assign Team
+    if ($_POST['action'] === 'assign_team' && $canAssignTeam) {
+        try {
+            $pId = $_POST['project_id'];
+            $stmt = $pdo->prepare("UPDATE projects SET pm_construction_id=?, pm_finishes_id=?, sub_demolition_id=?, sub_excavation_id=?, sub_construction_id=? WHERE id=?");
+            $stmt->execute([
+                empty($_POST['pm_const']) ? null : $_POST['pm_const'],
+                empty($_POST['pm_fin']) ? null : $_POST['pm_fin'],
+                empty($_POST['sub_demo']) ? null : $_POST['sub_demo'],
+                empty($_POST['sub_exc']) ? null : $_POST['sub_exc'],
+                empty($_POST['sub_const']) ? null : $_POST['sub_const'],
+                $pId
+            ]);
+            $message = "Project team updated successfully!";
+        } catch (PDOException $e) { $error = "Error updating team: " . $e->getMessage(); }
+    }
+
+    // ACTION: Quick Update Mobilisation
+    if ($_POST['action'] === 'update_mobilisation' && $canUpdateStatus) {
+        try {
+            $pId = (int)$_POST['project_id'];
+            $type = $_POST['mob_type'];
+            $status = $_POST['status'];
+            $col = ($type === 'demo') ? 'demo_status' : 'excavation_status';
+            
+            $stmt = $pdo->prepare("INSERT IGNORE INTO project_mobilisation (project_id) VALUES (?)");
+            $stmt->execute([$pId]);
+
+            $stmt = $pdo->prepare("UPDATE project_mobilisation SET $col = ? WHERE project_id = ?");
+            $stmt->execute([$status, $pId]);
+            $message = "Mobilisation status updated successfully!";
+        } catch (PDOException $e) { $error = "Error updating status: " . $e->getMessage(); }
     }
 }
 
@@ -83,7 +105,7 @@ if (!empty($projectIds)) {
     $mobStmt->execute($projectIds);
     foreach ($mobStmt->fetchAll() as $row) { $mobData[$row['project_id']] = $row; }
     
-    // Fetch Block & Floor Construction Statuses (NOW INCLUDES construction_pct)
+    // Fetch Block & Floor Construction Statuses
     $blockStmt = $pdo->prepare("
         SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, 
                bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status, bl.construction_pct
@@ -95,7 +117,6 @@ if (!empty($projectIds)) {
     $blockStmt->execute($projectIds);
     $allBlocksAndLevels = $blockStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Group construction data for high-level aggregation
     foreach ($allBlocksAndLevels as $row) {
         $blockAggData[$row['project_id']][] = $row; 
     }
@@ -110,7 +131,6 @@ if (!empty($projectIds)) {
     $finStmt->execute($projectIds);
     $rawFloorFinishes = $finStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Index floor finishes for quick lookup
     foreach ($rawFloorFinishes as $fRow) {
         $floorFinishesData[$fRow['project_id']][$fRow['block_id']][$fRow['level_id']][] = $fRow['status'];
     }
@@ -298,7 +318,7 @@ function getSortIndicator($column) {
     return '';
 }
 
-function renderStatusBadge($status, $isSmall = false) {
+function renderStatusBadge($status) {
     $colors = [
         'Pending' => 'background: rgba(107, 114, 128, 0.1); color: #9ca3af; border: 1px solid #4b5563;',
         'In Progress' => 'background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid #d97706;',
@@ -306,13 +326,41 @@ function renderStatusBadge($status, $isSmall = false) {
         'NA' => 'background: rgba(255, 255, 255, 0.05); color: #6b7280; border: 1px solid #374151;'
     ];
     $style = $colors[$status] ?? $colors['Pending'];
-    $padding = $isSmall ? '0.15rem 0.4rem' : '0.25rem 0.5rem';
-    $fontSize = $isSmall ? '0.65rem' : '0.7rem';
-    $minWidth = $isSmall ? '60px' : '75px';
-    return "<span style='display: inline-flex; justify-content: center; min-width: $minWidth; padding: $padding; border-radius: 4px; font-size: $fontSize; font-weight: 600; white-space: nowrap; $style'>$status</span>";
+    return "<span style='display: inline-flex; justify-content: center; min-width: 75px; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
 }
 
-$pageTitle = 'Project Status Matrix';
+// Helper functions for cell rendering
+function renderDemoExcBadge($badgeHtml, $pId, $pName, $type, $status, $canUpdateStatus) {
+    if ($canUpdateStatus) {
+        return "<div onclick='openMobModal($pId, \"$pName\", \"$type\", \"$status\")' class='clickable-cell' style='justify-content:center;' title='Click to Update Phase'>
+                    $badgeHtml
+                    <span class='edit-icon'>✎</span>
+                </div>";
+    }
+    return "<div class='normal-cell' style='justify-content:center;'>$badgeHtml</div>";
+}
+
+function renderConstFinBadge($badgeHtml, $type, $pJson, $canUpdateStatus) {
+    $icon = $canUpdateStatus ? "✎" : "👁️";
+    $title = $canUpdateStatus ? 'Click to View Details & Update' : 'Click to View Details';
+    return "<div onclick='openConstFinModal(\"$type\", $pJson)' class='clickable-cell' style='justify-content:center;' title='$title'>
+                $badgeHtml
+                <span class='edit-icon'>$icon</span>
+            </div>";
+}
+
+function renderTeamCell($text, $pJson, $canAssignTeam) {
+    $display = $text === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($text);
+    if ($canAssignTeam) {
+        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team'>
+                    <span style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;'>$display</span>
+                    <span class='edit-icon'>✎</span>
+                </div>";
+    }
+    return "<div class='normal-cell' style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>$display</div>";
+}
+
+$pageTitle = 'Project Execution Matrix';
 require_once 'header.php';
 ?>
 
@@ -320,31 +368,49 @@ require_once 'header.php';
 .matrix-wrapper { position: relative; width: 100%; max-height: calc(100vh - 180px); overflow: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
 .matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.85rem; }
 .matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-.matrix-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; }
+
+/* Remove standard padding because inner divs will handle it for clickable areas */
+.matrix-table td { padding: 0; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; height: 50px; }
 
 .sort-link { color: inherit; text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .sort-link:hover { color: var(--primary-color); }
 .sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 
 .matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
-.matrix-table tbody tr.main-row td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); }
-.matrix-table thead th:last-child { position: sticky; right: 0; z-index: 20; border-left: 2px solid var(--border-glass); }
-.matrix-table tbody tr.main-row td:last-child { position: sticky; right: 0; background: #1e1e2d; z-index: 5; border-left: 2px solid var(--border-glass); }
+.matrix-table tbody tr td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); }
+.matrix-table tbody tr:hover td:first-child { background: #2a2a3b; }
+.matrix-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
 
-.matrix-table tbody tr.main-row:hover td { background: rgba(255,255,255,0.03); }
-.matrix-table tbody tr.main-row:hover td:first-child,
-.matrix-table tbody tr.main-row:hover td:last-child { background: #2a2a3b; }
+/* Unified Cell Interactions */
+.normal-cell { padding: 0.75rem 1rem; height: 100%; display: flex; align-items: center; }
+.clickable-cell {
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s ease;
+}
+.clickable-cell:hover {
+    background: rgba(99, 102, 241, 0.1);
+}
+.clickable-cell .edit-icon {
+    font-size: 0.85rem;
+    opacity: 0.2;
+    color: var(--primary-color);
+    transition: opacity 0.2s, transform 0.2s;
+    flex-shrink: 0;
+}
+.clickable-cell:hover .edit-icon {
+    opacity: 1;
+    transform: scale(1.15);
+}
 
-.sub-row td.sub-content { background: rgba(99, 102, 241, 0.05); border-bottom: 2px solid var(--border-glass); padding: 0; }
-.sub-row td.sticky-left { position: sticky; left: 0; background: #1a1a24; z-index: 5; border-right: 2px solid var(--border-glass); border-bottom: 2px solid var(--border-glass); }
-.sub-row td.sticky-right { position: sticky; right: 0; background: #1a1a24; z-index: 5; border-left: 2px solid var(--border-glass); border-bottom: 2px solid var(--border-glass); }
-
-.btn-expand { background: none; border: 1px solid var(--border-glass); color: var(--text-primary); border-radius: 4px; cursor: pointer; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; margin-right: 0.5rem; font-weight: bold; transition: all 0.2s; }
-.btn-expand:hover { background: rgba(255,255,255,0.1); }
-
-.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-.close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; }
+.close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
 .close-modal:hover { color: var(--text-primary); }
 </style>
 
@@ -353,7 +419,7 @@ require_once 'header.php';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
             <h1 class="page-title" style="margin-bottom: 0;">Project Execution Matrix</h1>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Live operational status for projects in Stages 4 through 11.</p>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Live operational dashboard. Click on any project, status, or team member to manage them directly.</p>
         </div>
     </div>
 
@@ -471,115 +537,58 @@ require_once 'header.php';
                     <th style="border-left: 2px solid var(--border-glass);">Sub (Demolition)</th>
                     <th>Sub (Excavation)</th>
                     <th>Sub (Construction)</th>
-                    
-                    <?php if ($canAssignTeam): ?><th style="text-align: center;">Action</th><?php endif; ?>
                 </tr>
             </thead>
             <tbody>
                 <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="13" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
+                    <tr><td colspan="12" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
                 <?php else: ?>
-                    <?php foreach($matrixProjects as $p): ?>
-                        <tr class="main-row">
-                            <td style="font-weight: 700; color: var(--primary-color);">
-                                <div style="display: flex; align-items: flex-start;">
-                                    <button class="btn-expand" onclick="toggleDetails(<?= $p['id'] ?>)" title="View Blocks & Floors">⏬</button>
+                    <?php foreach($matrixProjects as $p): 
+                        $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
+                    ?>
+                        <tr>
+                            <td>
+                                <div onclick="openExecution(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>')" class="clickable-cell" style="align-items: flex-start; justify-content: space-between;" title="Open Execution Dashboard">
                                     <div>
-                                        <?= htmlspecialchars($p['name']) ?><br>
+                                        <div style="font-weight: 700; color: var(--primary-color); font-size: 0.95rem; margin-bottom: 2px; white-space: normal; line-height: 1.2;"><?= htmlspecialchars($p['name']) ?></div>
                                         <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
                                     </div>
+                                    <span class="edit-icon" style="font-size: 1.2rem; margin-top: 2px;">↗</span>
                                 </div>
                             </td>
-                            <td><?= htmlspecialchars($p['stage']) ?></td>
-                            <td><?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></td>
-                            
-                            <td style="border-left: 2px solid var(--border-glass); text-align: center;"><?= renderStatusBadge($p['demo_status']) ?></td>
-                            <td style="text-align: center;"><?= renderStatusBadge($p['exc_status']) ?></td>
-                            <td style="text-align: center;"><?= renderStatusBadge($p['const_status']) ?></td>
-                            <td style="text-align: center;"><?= renderStatusBadge($p['fin_status']) ?></td>
-
-                            <td style="border-left: 2px solid var(--border-glass);">
-                                <?= $p['pm_const_name'] === 'Unassigned' ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['pm_const_name']) ?>
-                            </td>
-                            <td>
-                                <?= $p['pm_fin_name'] === 'Unassigned' ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['pm_fin_name']) ?>
-                            </td>
+                            <td><div class="normal-cell"><?= htmlspecialchars($p['stage']) ?></div></td>
+                            <td><div class="normal-cell"><?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></div></td>
                             
                             <td style="border-left: 2px solid var(--border-glass);">
-                                <?= $p['sub_demo_name'] === 'Unassigned' ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['sub_demo_name']) ?>
+                                <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
                             </td>
                             <td>
-                                <?= $p['sub_exc_name'] === 'Unassigned' ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['sub_exc_name']) ?>
+                                <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?>
                             </td>
                             <td>
-                                <?= $p['sub_const_name'] === 'Unassigned' ? '<span style="color:var(--text-muted); font-style:italic;">Unassigned</span>' : htmlspecialchars($p['sub_const_name']) ?>
+                                <?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?>
+                            </td>
+                            <td>
+                                <?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?>
+                            </td>
+
+                            <td style="border-left: 2px solid var(--border-glass);">
+                                <?= renderTeamCell($p['pm_const_name'], $pJson, $canAssignTeam) ?>
+                            </td>
+                            <td>
+                                <?= renderTeamCell($p['pm_fin_name'], $pJson, $canAssignTeam) ?>
                             </td>
                             
-                            <?php if ($canAssignTeam): ?>
-                            <td style="text-align: center;">
-                                <button onclick='openAssignModal(<?= json_encode([
-                                    "id" => $p["id"], "name" => $p["name"],
-                                    "pm_const" => $p["pm_construction_id"], "pm_fin" => $p["pm_finishes_id"],
-                                    "sub_demo" => $p["sub_demolition_id"], "sub_exc" => $p["sub_excavation_id"], "sub_const" => $p["sub_construction_id"]
-                                ], JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" style="padding: 0.35rem 0.75rem; margin: 0;">Assign Team</button>
+                            <td style="border-left: 2px solid var(--border-glass);">
+                                <?= renderTeamCell($p['sub_demo_name'], $pJson, $canAssignTeam) ?>
                             </td>
-                            <?php endif; ?>
-                        </tr>
-                        
-                        <tr id="details-row-<?= $p['id'] ?>" class="sub-row" style="display: none;">
-                            <td class="sticky-left"></td>
-                            <td colspan="11" class="sub-content">
-                                <div style="padding: 1.5rem; display: flex; gap: 1.5rem; flex-wrap: wrap; overflow-x: auto;">
-                                    <?php if (empty($p['detailed_blocks'])): ?>
-                                        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">No blocks or levels have been defined for this project.</p>
-                                    <?php else: ?>
-                                        <?php foreach ($p['detailed_blocks'] as $b): ?>
-                                            <div style="background: var(--bg-primary); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1rem; min-width: 300px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-top: 3px solid var(--primary-color);">
-                                                <h4 style="margin-bottom: 0.75rem; color: var(--primary-color); border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
-                                                    <?= htmlspecialchars($b['name']) ?>
-                                                    <div style="display: flex; flex-direction: column; align-items: flex-end;">
-                                                        <span style="font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px;">Block Finishes</span>
-                                                        <?= renderStatusBadge($b['master_finishes'], true) ?>
-                                                    </div>
-                                                </h4>
-                                                
-                                                <?php if (empty($b['levels'])): ?>
-                                                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 1rem; font-style: italic;">No floors added.</p>
-                                                <?php else: ?>
-                                                    <table style="width: 100%; font-size: 0.8rem; border-collapse: collapse; margin-top: 0.5rem;">
-                                                        <thead>
-                                                            <tr>
-                                                                <th style="padding: 0.25rem 0; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); font-weight: normal;">Level / Floor</th>
-                                                                <th style="padding: 0.25rem 0.5rem; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); font-weight: normal; text-align: center;">Const.</th>
-                                                                <th style="padding: 0.25rem 0; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); font-weight: normal; text-align: right;">Finishes</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                        <?php foreach ($b['levels'] as $lvl): ?>
-                                                            <tr>
-                                                                <td style="padding: 0.5rem 0; color: var(--text-primary); border-bottom: 1px solid rgba(255,255,255,0.02); font-weight: 500;"><?= htmlspecialchars($lvl['name']) ?></td>
-                                                                <td style="padding: 0.5rem 0.5rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.02);">
-                                                                    <?= renderStatusBadge($lvl['const_status'], true) ?>
-                                                                    <?php if($lvl['const_status'] === 'In Progress' && $lvl['const_pct'] > 0): ?>
-                                                                        <div style="font-size: 0.65rem; color: var(--primary-color); margin-top: 2px; font-weight: bold;"><?= (float)$lvl['const_pct'] ?>%</div>
-                                                                    <?php endif; ?>
-                                                                </td>
-                                                                <td style="padding: 0.5rem 0; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.02);"><?= renderStatusBadge($lvl['fin_status'], true) ?></td>
-                                                            </tr>
-                                                        <?php endforeach; ?>
-                                                        </tbody>
-                                                    </table>
-                                                <?php endif; ?>
-                                            </div>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                </div>
+                            <td>
+                                <?= renderTeamCell($p['sub_exc_name'], $pJson, $canAssignTeam) ?>
                             </td>
-                            <?php if ($canAssignTeam): ?>
-                                <td class="sticky-right"></td>
-                            <?php endif; ?>
+                            <td>
+                                <?= renderTeamCell($p['sub_const_name'], $pJson, $canAssignTeam) ?>
+                            </td>
                         </tr>
-
                     <?php endforeach; ?>
                 <?php endif; ?>
             </tbody>
@@ -587,10 +596,14 @@ require_once 'header.php';
     </div>
 </div>
 
+<script>
+const canUpdateStatusGlobal = <?= $canUpdateStatus ? 'true' : 'false' ?>;
+</script>
+
 <?php if ($canAssignTeam): ?>
 <div id="assignModal" class="modal">
     <div class="modal-content">
-        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <span class="close-modal" onclick="closeModal('assignModal')">&times;</span>
         <h2 id="modalProjectName" style="margin-bottom: 1.5rem; color: var(--primary-color);">Assign Project Team</h2>
         
         <form method="POST">
@@ -645,60 +658,176 @@ require_once 'header.php';
     </div>
 </div>
 <?php endif; ?>
+
+<?php if ($canUpdateStatus): ?>
+<div id="mobUpdateModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+        <span class="close-modal" onclick="closeModal('mobUpdateModal')">&times;</span>
+        <h2 id="mobModalTitle" style="margin-top: 0; color: var(--primary-color);">Update Status</h2>
+        <form method="POST">
+            <input type="hidden" name="action" value="update_mobilisation">
+            <input type="hidden" name="project_id" id="mobProjectId">
+            <input type="hidden" name="mob_type" id="mobType">
+            
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label>Overall Phase Status</label>
+                <select name="status" id="mobStatus" required>
+                    <option value="Pending">Pending</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Complete">Complete</option>
+                    <option value="NA">N/A</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">Save Status</button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
+<div id="statusDetailModal" class="modal">
+    <div class="modal-content" style="max-width: 500px; padding: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h2 id="sdModalTitle" style="margin: 0; color: var(--primary-color);">Details</h2>
+            <span class="close-modal" onclick="closeModal('statusDetailModal')" style="float:none;">&times;</span>
+        </div>
+        
+        <div id="sdModalBody" style="max-height: 50vh; overflow-y: auto; padding-right: 5px;">
+            </div>
+        
+        <div style="margin-top: 1.5rem; text-align: right; border-top: 1px solid var(--border-glass); padding-top: 1.5rem;" id="sdFooter">
+            <button id="sdEditBtn" class="btn btn-primary" style="width:100%;">Open Execution Workspace to Edit Details</button>
+        </div>
+    </div>
+</div>
+
+<div id="executionModal" class="modal">
+    <div class="modal-content" style="width: 95%; max-width: 1600px; height: 95vh; padding: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary);">
+        <div style="padding: 1rem 1.5rem; background: var(--bg-panel); border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;">
+            <h2 id="execModalTitle" style="margin:0; color: var(--primary-color); font-size: 1.25rem;">Project Execution Workspace</h2>
+            <div style="display:flex; gap: 15px; align-items:center;">
+                <a id="execExternalLink" href="#" target="_blank" class="btn btn-sm btn-secondary" style="margin:0;">Open Full Tab</a>
+                <span class="close-modal" onclick="closeExecution()" style="font-size: 2rem; line-height:1; float:none;">&times;</span>
+            </div>
+        </div>
+        <iframe id="execIframe" style="flex: 1; width: 100%; border: none; background: var(--bg-primary);"></iframe>
+    </div>
+</div>
+
 <script>
+// UI Control
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+window.onclick = function(e) {
+    if (e.target.classList.contains('modal')) e.target.style.display = "none";
+}
+
+// 1. Assign Team Modal
 function openAssignModal(data) {
     document.getElementById('modalProjectId').value = data.id;
     document.getElementById('modalProjectName').textContent = 'Assign Team: ' + data.name;
-    
-    document.getElementById('modalPmConst').value = data.pm_const || '';
-    document.getElementById('modalPmFin').value = data.pm_fin || '';
-    document.getElementById('modalSubDemo').value = data.sub_demo || '';
-    document.getElementById('modalSubExc').value = data.sub_exc || '';
-    document.getElementById('modalSubConst').value = data.sub_const || '';
-    
+    document.getElementById('modalPmConst').value = data.pm_construction_id || '';
+    document.getElementById('modalPmFin').value = data.pm_finishes_id || '';
+    document.getElementById('modalSubDemo').value = data.sub_demolition_id || '';
+    document.getElementById('modalSubExc').value = data.sub_excavation_id || '';
+    document.getElementById('modalSubConst').value = data.sub_construction_id || '';
     document.getElementById('assignModal').style.display = 'block';
 }
 
-function closeModal() {
-    document.getElementById('assignModal').style.display = 'none';
+// 2. Quick Update Mobilisation Modal
+function openMobModal(pId, pName, type, currentStatus) {
+    document.getElementById('mobProjectId').value = pId;
+    document.getElementById('mobType').value = type;
+    document.getElementById('mobModalTitle').textContent = (type === 'demo' ? 'Demolition: ' : 'Excavation: ') + pName;
+    document.getElementById('mobStatus').value = currentStatus || 'Pending';
+    document.getElementById('mobUpdateModal').style.display = 'block';
 }
 
-window.onclick = function(event) {
-    let modal = document.getElementById('assignModal');
-    if (event.target == modal) { modal.style.display = "none"; }
-}
-
-function toggleDetails(id) {
-    const row = document.getElementById('details-row-' + id);
-    if (row.style.display === 'none') {
-        row.style.display = 'table-row';
+// 3. Status Detail Modal (Const/Fin Breakdown)
+function openConstFinModal(type, project) {
+    document.getElementById('sdModalTitle').textContent = (type === 'const' ? 'Construction: ' : 'Finishes: ') + project.name;
+    
+    let html = '';
+    if (!project.detailed_blocks || project.detailed_blocks.length === 0) {
+        html = '<div style="color: var(--text-muted); font-style: italic; text-align: center; padding: 2rem;">No blocks or levels defined for this project.</div>';
     } else {
-        row.style.display = 'none';
+        project.detailed_blocks.forEach(b => {
+            html += `<div style="background: var(--bg-primary); border: 1px solid var(--border-glass); border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem; border-left: 3px solid var(--primary-color);">
+                <h4 style="margin: 0 0 1rem 0; color: var(--primary-color); border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; display: flex; justify-content: space-between;">
+                    ${b.name}
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">Overall: <span style="color:#fff; font-weight:bold;">${b.master_finishes}</span></span>
+                </h4>`;
+            
+            if (!b.levels || b.levels.length === 0) {
+                html += `<div style="font-size: 0.85rem; color: var(--text-muted); font-style: italic;">No levels added.</div>`;
+            } else {
+                html += `<table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;"><tbody>`;
+                b.levels.forEach(lvl => {
+                    let statusText = type === 'const' ? lvl.const_status : lvl.fin_status;
+                    let pctText = (type === 'const' && lvl.const_status === 'In Progress' && lvl.const_pct > 0) ? `<span style="color:var(--primary-color); font-weight:bold; margin-left: 5px;">${lvl.const_pct}%</span>` : '';
+                    
+                    let colorCode = '#9ca3af';
+                    if(statusText === 'Complete') colorCode = '#22c55e';
+                    if(statusText === 'In Progress') colorCode = '#f59e0b';
+
+                    html += `<tr>
+                        <td style="padding: 0.5rem 0; color: var(--text-secondary); border-bottom: 1px solid rgba(255,255,255,0.02);">${lvl.name}</td>
+                        <td style="padding: 0.5rem 0; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.02); font-weight: 600; color: ${colorCode};">${statusText}${pctText}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+            }
+            html += `</div>`;
+        });
     }
+    
+    document.getElementById('sdModalBody').innerHTML = html;
+    
+    const btn = document.getElementById('sdEditBtn');
+    if (canUpdateStatusGlobal) {
+        btn.style.display = 'inline-block';
+        btn.onclick = function() {
+            closeModal('statusDetailModal');
+            openExecution(project.id, project.name);
+        };
+    } else {
+        btn.style.display = 'none';
+    }
+    
+    document.getElementById('statusDetailModal').style.display = 'block';
 }
 
+// 4. Full Execution Workspace Iframe
+function openExecution(id, name) {
+    document.getElementById('execModalTitle').textContent = 'Execution Workspace: ' + name;
+    document.getElementById('execExternalLink').href = 'project-status.php?id=' + id;
+    document.getElementById('execIframe').src = 'project-status.php?id=' + id + '&modal=1';
+    document.getElementById('executionModal').style.display = 'block';
+    document.body.style.overflow = 'hidden'; // Stop background scrolling
+}
+
+function closeExecution() {
+    document.getElementById('executionModal').style.display = 'none';
+    document.getElementById('execIframe').src = '';
+    document.body.style.overflow = 'auto';
+    window.location.reload(); // Refresh the parent page so they see any status changes made in the iframe
+}
+
+// Island Filter Logic
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('matrixFilters');
     if (!form) return;
-
     const maltaCheckbox = document.getElementById('island_malta');
     const gozoCheckbox = document.getElementById('island_gozo');
-
     function validateIslands(e) {
         if (!maltaCheckbox.checked && !gozoCheckbox.checked) { e.preventDefault(); this.checked = true; alert('At least one island must be selected'); }
     }
-
     if(maltaCheckbox) maltaCheckbox.addEventListener('change', validateIslands);
     if(gozoCheckbox) gozoCheckbox.addEventListener('change', validateIslands);
-
     form.addEventListener('submit', function(e) {
         const existingInput = form.querySelector('input[name="filter_island"]');
         if (existingInput) existingInput.remove();
-
         let filterValue = 'all';
         if (maltaCheckbox && maltaCheckbox.checked && (!gozoCheckbox || !gozoCheckbox.checked)) filterValue = 'Malta';
         else if (gozoCheckbox && gozoCheckbox.checked && (!maltaCheckbox || !maltaCheckbox.checked)) filterValue = 'Gozo';
-
         const input = document.createElement('input');
         input.type = 'hidden';
         input.name = 'filter_island';
