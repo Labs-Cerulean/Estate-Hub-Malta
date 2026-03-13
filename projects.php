@@ -73,7 +73,7 @@ $filterSub = $_GET['filter_sub'] ?? 'all';
 
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
-$allowedSorts = ['name', 'demo_status', 'exc_status', 'const_status', 'fin_status', 'pm_const', 'pm_fin'];
+$allowedSorts = ['name', 'demo_status', 'exc_status', 'const_status', 'fin_status', 'pm_const'];
 if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
 $allowedOrders = ['ASC', 'DESC'];
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
@@ -260,9 +260,9 @@ usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $statusEnumMap
     if (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) {
         $valA = $statusEnumMap[$a[$sortBy]] ?? 0;
         $valB = $statusEnumMap[$b[$sortBy]] ?? 0;
-    } elseif (in_array($sortBy, ['pm_const', 'pm_fin'])) {
-        $key = $sortBy . '_name';
-        $valA = $a[$key] ?? ''; $valB = $b[$key] ?? '';
+    } elseif ($sortBy === 'pm_const') {
+        $valA = $a['pm_const_name'] ?? ''; 
+        $valB = $b['pm_const_name'] ?? '';
     } else {
         $valA = $a[$sortBy] ?? ''; $valB = $b[$sortBy] ?? '';
     }
@@ -314,6 +314,21 @@ function renderConstFinBadge($badgeHtml, $type, $pJson, $canUpdateStatus) {
     $icon = $canUpdateStatus ? "✎" : "👁️";
     $title = $canUpdateStatus ? 'Click to View Details & Update' : 'Click to View Details';
     return "<div onclick='openConstFinModal(\"$type\", $pJson)' class='clickable-cell' style='justify-content:center;' title='$title'>$badgeHtml<span class='edit-icon'>$icon</span></div>";
+}
+
+function renderPMsCell($pmConst, $pmFin, $pJson, $canAssignTeam) {
+    $cDisplay = $pmConst === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($pmConst);
+    $fDisplay = $pmFin === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($pmFin);
+    
+    $content = "<div style='display:flex; flex-direction:column; gap:4px; font-size: 0.8rem; flex:1;'>
+                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Construction PM'><span style='color:var(--text-muted); font-size:0.7rem; text-transform:uppercase;'>Const:</span> $cDisplay</div>
+                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Finishes PM'><span style='color:var(--text-muted); font-size:0.7rem; text-transform:uppercase;'>Fin:</span> $fDisplay</div>
+                </div>";
+
+    if ($canAssignTeam) {
+        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team'>$content<span class='edit-icon'>✎</span></div>";
+    }
+    return "<div class='normal-cell'>$content</div>";
 }
 
 function renderTeamCell($text, $pJson, $canAssignTeam) {
@@ -440,8 +455,7 @@ require_once 'header.php';
                     <th style="text-align: center;"><a href="<?= getSortUrl('exc_status') ?>" class="sort-link" style="justify-content:center;">Excavation <span class="sort-indicator"><?= getSortIndicator('exc_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('fin_status') ?>" class="sort-link" style="justify-content:center;">Finishes <span class="sort-indicator"><?= getSortIndicator('fin_status') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass);"><a href="<?= getSortUrl('pm_const') ?>" class="sort-link">PM (Const) <span class="sort-indicator"><?= getSortIndicator('pm_const') ?></span></a></th>
-                    <th><a href="<?= getSortUrl('pm_fin') ?>" class="sort-link">PM (Finishes) <span class="sort-indicator"><?= getSortIndicator('pm_fin') ?></span></a></th>
+                    <th style="border-left: 2px solid var(--border-glass);"><a href="<?= getSortUrl('pm_const') ?>" class="sort-link">Project Managers <span class="sort-indicator"><?= getSortIndicator('pm_const') ?></span></a></th>
                     <th style="border-left: 2px solid var(--border-glass);">Sub (Demolition)</th>
                     <th>Sub (Excavation)</th>
                     <th>Sub (Construction)</th>
@@ -450,7 +464,7 @@ require_once 'header.php';
             </thead>
             <tbody>
                 <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="11" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
+                    <tr><td colspan="10" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): 
                         $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
@@ -485,8 +499,9 @@ require_once 'header.php';
                             <td><?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?></td>
                             <td><?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?></td>
 
-                            <td style="border-left: 2px solid var(--border-glass);"><?= renderTeamCell($p['pm_const_name'], $pJson, $canAssignTeam) ?></td>
-                            <td><?= renderTeamCell($p['pm_fin_name'], $pJson, $canAssignTeam) ?></td>
+                            <td style="border-left: 2px solid var(--border-glass);">
+                                <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
+                            </td>
                             <td style="border-left: 2px solid var(--border-glass);"><?= renderTeamCell($p['sub_demo_name'], $pJson, $canAssignTeam) ?></td>
                             <td><?= renderTeamCell($p['sub_exc_name'], $pJson, $canAssignTeam) ?></td>
                             <td><?= renderTeamCell($p['sub_const_name'], $pJson, $canAssignTeam) ?></td>
@@ -542,7 +557,8 @@ require_once 'header.php';
                         <input type="text" id="tagSearch" class="tag-search-input" placeholder="Type to search contractors..." autocomplete="off">
                     </div>
                     <div id="tagDropdown" class="tag-dropdown custom-scrollbar"></div>
-                    <div id="tagHiddenInputs"></div> </div>
+                    <div id="tagHiddenInputs"></div> 
+                </div>
             </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save Assignments</button>
@@ -595,16 +611,9 @@ require_once 'header.php';
 </div>
 
 <script>
-// =====================================
-// GLOBAL MODAL CONTROLS
-// =====================================
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 window.onclick = function(e) { if (e.target.classList.contains('modal')) e.target.style.display = "none"; }
 
-// =====================================
-// DYNAMIC IFRAME LOADER
-// =====================================
-// Fixed routing parameter: passed 'project_id=' instead of 'id=' so mobilisation_detail catches it properly!
 function openIframeModal(id, name, targetFile) {
     let url = targetFile + '?project_id=' + id + '&modal=1';
     
@@ -634,9 +643,6 @@ function closeIframeModal() {
     window.location.reload(); 
 }
 
-// =====================================
-// OHSA / CONST / MOB MODALS
-// =====================================
 function openOhsaInfoModal(data) {
     document.getElementById('ohsaInfoTitle').textContent = 'Safety: ' + data.name;
     const badge = document.getElementById('ohsaInfoBadge');
@@ -691,15 +697,12 @@ function openConstFinModal(type, project) {
         btn.style.display = 'inline-block';
         btn.onclick = function() {
             closeModal('statusDetailModal');
-            openIframeModal(project.id, project.name, 'mobilisation_detail.php'); // CORRECT ROUTING TO EXECUTION
+            openIframeModal(project.id, project.name, 'mobilisation_detail.php');
         };
     } else { btn.style.display = 'none'; }
     document.getElementById('statusDetailModal').style.display = 'block';
 }
 
-// =====================================
-// MODERN FINISHES TAG SELECTOR
-// =====================================
 const allSubs = <?= json_encode($subs) ?>;
 let selectedTagIds = []; 
 
@@ -709,7 +712,6 @@ function renderTags() {
     const hiddenContainer = document.getElementById('tagHiddenInputs');
     if (!box || !hiddenContainer) return;
     
-    // Remove existing pills
     box.querySelectorAll('.tag-pill').forEach(el => el.remove());
     hiddenContainer.innerHTML = '';
     
@@ -775,7 +777,6 @@ function initTagSelector() {
     searchInput.addEventListener('input', filterOptions);
     searchInput.addEventListener('focus', filterOptions);
     
-    // Close dropdown on outside click
     document.addEventListener('click', (e) => {
         if (!container.contains(e.target)) dropdown.style.display = 'none';
     });
@@ -797,7 +798,6 @@ function openAssignModal(data) {
 }
 
 document.addEventListener('DOMContentLoaded', initTagSelector);
-
 </script>
 
 <?php require_once 'footer.php'; ?>
