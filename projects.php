@@ -21,13 +21,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'assign_team' && $canAssignTeam) {
         try {
             $pId = $_POST['project_id'];
-            $stmt = $pdo->prepare("UPDATE projects SET pm_construction_id=?, pm_finishes_id=?, sub_demolition_id=?, sub_excavation_id=?, sub_construction_id=? WHERE id=?");
+            $subFinishes = isset($_POST['sub_finishes']) ? implode(',', $_POST['sub_finishes']) : null;
+            
+            $stmt = $pdo->prepare("UPDATE projects SET pm_construction_id=?, pm_finishes_id=?, sub_demolition_id=?, sub_excavation_id=?, sub_construction_id=?, sub_finishes_ids=? WHERE id=?");
             $stmt->execute([
                 empty($_POST['pm_const']) ? null : $_POST['pm_const'],
                 empty($_POST['pm_fin']) ? null : $_POST['pm_fin'],
                 empty($_POST['sub_demo']) ? null : $_POST['sub_demo'],
                 empty($_POST['sub_exc']) ? null : $_POST['sub_exc'],
                 empty($_POST['sub_const']) ? null : $_POST['sub_const'],
+                $subFinishes,
                 $pId
             ]);
             $message = "Project team updated successfully!";
@@ -96,7 +99,7 @@ $projectIds = array_column($projectsRaw, 'id');
 $mobData = [];
 $blockAggData = [];
 $floorFinishesData = [];
-$ohsaData = []; // NEW: OHSA Data
+$ohsaData = []; 
 
 if (!empty($projectIds)) {
     $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
@@ -157,7 +160,6 @@ foreach ($projectsRaw as $p) {
         $p['demo_status'] = $mobData[$p['id']]['demo_status'] ?? 'Pending';
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         
-        // Attach OHSA Data
         $p['safety_status'] = $ohsaData[$p['id']]['safety_status'] ?? 'N/A';
         $p['safety_comments'] = $ohsaData[$p['id']]['safety_comments'] ?? '';
 
@@ -284,7 +286,7 @@ if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn(
 
 $stageEnumMap = ['Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
-$safetyEnumMap = ['Green'=>3, 'Yellow'=>2, 'Red'=>1, 'N/A'=>0]; // Red gets priority (lowest num) for ASC sorting
+$safetyEnumMap = ['Green'=>3, 'Yellow'=>2, 'Red'=>1, 'N/A'=>0];
 
 usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageEnumMap, $statusEnumMap, $safetyEnumMap) {
     $valA = ''; $valB = '';
@@ -349,7 +351,6 @@ function renderOhsaIcon($status, $pJson) {
     return "<div onclick='openOhsaInfoModal($pJson)' class='clickable-cell' style='justify-content:center; font-size:1.1rem;' title='View Safety Status'>$icon</div>";
 }
 
-// Helper functions for cell rendering
 function renderDemoExcBadge($badgeHtml, $pId, $pName, $type, $status, $canUpdateStatus) {
     if ($canUpdateStatus) {
         return "<div onclick='openMobModal($pId, \"$pName\", \"$type\", \"$status\")' class='clickable-cell' style='justify-content:center;' title='Click to Update Phase'>
@@ -380,6 +381,29 @@ function renderTeamCell($text, $pJson, $canAssignTeam) {
     return "<div class='normal-cell' style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>$display</div>";
 }
 
+// NEW: Custom renderer for the Multi-Select Finishes Cell with an internal scrollbar
+function renderFinishesTeamCell($idsString, $subsArray, $pJson, $canAssignTeam) {
+    $ids = empty($idsString) ? [] : explode(',', $idsString);
+    $names = [];
+    foreach ($ids as $id) {
+        foreach ($subsArray as $sub) {
+            if ($sub['id'] == $id) { $names[] = $sub['name']; break; }
+        }
+    }
+    
+    $display = empty($names) ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : implode('<br>', array_map('htmlspecialchars', $names));
+    
+    $content = "<div class='custom-scrollbar' style='max-height: 45px; overflow-y: auto; width: 100%; font-size: 0.8rem; line-height: 1.3; padding-right: 4px;'>" . $display . "</div>";
+
+    if ($canAssignTeam) {
+        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team'>
+                    $content
+                    <span class='edit-icon'>✎</span>
+                </div>";
+    }
+    return "<div class='normal-cell'>$content</div>";
+}
+
 $pageTitle = 'Project Execution Matrix';
 require_once 'header.php';
 ?>
@@ -389,13 +413,14 @@ require_once 'header.php';
 .matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.85rem; }
 .matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
 
-/* Remove standard padding because inner divs will handle it for clickable areas */
+/* Removed right-side sticky classes entirely to fix horizontal scroll crush */
 .matrix-table td { padding: 0; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; height: 50px; }
 
 .sort-link { color: inherit; text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .sort-link:hover { color: var(--primary-color); }
 .sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 
+/* Keep Left Column Sticky */
 .matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
 .matrix-table tbody tr td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); }
 .matrix-table tbody tr:hover td:first-child { background: #2a2a3b; }
@@ -403,30 +428,15 @@ require_once 'header.php';
 
 /* Unified Cell Interactions */
 .normal-cell { padding: 0.75rem 1rem; height: 100%; display: flex; align-items: center; }
-.clickable-cell {
-    cursor: pointer;
-    padding: 0.75rem 1rem;
-    height: 100%;
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: background 0.2s ease;
-}
-.clickable-cell:hover {
-    background: rgba(99, 102, 241, 0.1);
-}
-.clickable-cell .edit-icon {
-    font-size: 0.85rem;
-    opacity: 0.2;
-    color: var(--primary-color);
-    transition: opacity 0.2s, transform 0.2s;
-    flex-shrink: 0;
-}
-.clickable-cell:hover .edit-icon {
-    opacity: 1;
-    transform: scale(1.15);
-}
+.clickable-cell { cursor: pointer; padding: 0.75rem 1rem; height: 100%; width: 100%; display: flex; align-items: center; gap: 8px; transition: background 0.2s ease; }
+.clickable-cell:hover { background: rgba(99, 102, 241, 0.1); }
+.clickable-cell .edit-icon { font-size: 0.85rem; opacity: 0.2; color: var(--primary-color); transition: opacity 0.2s, transform 0.2s; flex-shrink: 0; }
+.clickable-cell:hover .edit-icon { opacity: 1; transform: scale(1.15); }
+
+/* Custom Thin Scrollbar for nested elements */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--primary-color); border-radius: 4px; }
 
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -559,11 +569,12 @@ require_once 'header.php';
                     <th style="border-left: 2px solid var(--border-glass);">Sub (Demolition)</th>
                     <th>Sub (Excavation)</th>
                     <th>Sub (Construction)</th>
+                    <th>Sub (Finishes)</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="13" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
+                    <tr><td colspan="14" style="text-align: center; padding: 2rem;">No active projects found matching these filters.</td></tr>
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): 
                         $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
@@ -571,7 +582,7 @@ require_once 'header.php';
                     ?>
                         <tr>
                             <td>
-                                <div onclick="openExecution(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>')" class="clickable-cell" style="align-items: flex-start; justify-content: space-between;" title="Open Execution Dashboard">
+                                <div onclick="openWorkspaceModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>')" class="clickable-cell" style="align-items: flex-start; justify-content: space-between;" title="Open Execution Dashboard">
                                     <div>
                                         <div style="font-weight: 700; color: var(--primary-color); font-size: 0.95rem; margin-bottom: 2px; white-space: normal; line-height: 1.2;"><?= htmlspecialchars($p['name']) ?></div>
                                         <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
@@ -614,6 +625,9 @@ require_once 'header.php';
                             </td>
                             <td>
                                 <?= renderTeamCell($p['sub_const_name'], $pJson, $canAssignTeam) ?>
+                            </td>
+                            <td>
+                                <?= renderFinishesTeamCell($p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -676,7 +690,7 @@ const canUpdateStatusGlobal = <?= $canUpdateStatus ? 'true' : 'false' ?>;
             </div>
 
             <h4 style="margin-bottom: 0.5rem; color: var(--text-secondary); border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Lead Subcontractors</h4>
-            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                 <div class="form-group">
                     <label>Demolition</label>
                     <select name="sub_demo" id="modalSubDemo">
@@ -698,6 +712,12 @@ const canUpdateStatusGlobal = <?= $canUpdateStatus ? 'true' : 'false' ?>;
                         <?php foreach($subs as $sub): ?><option value="<?= $sub['id'] ?>"><?= htmlspecialchars($sub['name']) ?></option><?php endforeach; ?>
                     </select>
                 </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 2rem;">
+                <label>Finishes Contractors (Hold Ctrl/Cmd to select multiple)</label>
+                <select name="sub_finishes[]" id="modalSubFinishes" multiple size="4" class="custom-scrollbar" style="width: 100%; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary);">
+                    <?php foreach($subs as $sub): ?><option value="<?= $sub['id'] ?>"><?= htmlspecialchars($sub['name']) ?></option><?php endforeach; ?>
+                </select>
             </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save Assignments</button>
@@ -738,25 +758,25 @@ const canUpdateStatusGlobal = <?= $canUpdateStatus ? 'true' : 'false' ?>;
             <span class="close-modal" onclick="closeModal('statusDetailModal')" style="float:none;">&times;</span>
         </div>
         
-        <div id="sdModalBody" style="max-height: 50vh; overflow-y: auto; padding-right: 5px;">
+        <div id="sdModalBody" class="custom-scrollbar" style="max-height: 50vh; overflow-y: auto; padding-right: 5px;">
             </div>
         
         <div style="margin-top: 1.5rem; text-align: right; border-top: 1px solid var(--border-glass); padding-top: 1.5rem;" id="sdFooter">
-            <button id="sdEditBtn" class="btn btn-primary" style="width:100%;">Open Execution Workspace to Edit Details</button>
+            <button id="sdEditBtn" class="btn btn-primary" style="width:100%;">Open Workspace to Update Status</button>
         </div>
     </div>
 </div>
 
-<div id="executionModal" class="modal">
+<div id="workspaceModal" class="modal">
     <div class="modal-content" style="width: 95%; max-width: 1600px; height: 95vh; padding: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary);">
         <div style="padding: 1rem 1.5rem; background: var(--bg-panel); border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;">
-            <h2 id="execModalTitle" style="margin:0; color: var(--primary-color); font-size: 1.25rem;">Project Execution Workspace</h2>
+            <h2 id="workspaceModalTitle" style="margin:0; color: var(--primary-color); font-size: 1.25rem;">Project Workspace</h2>
             <div style="display:flex; gap: 15px; align-items:center;">
-                <a id="execExternalLink" href="#" target="_blank" class="btn btn-sm btn-secondary" style="margin:0;">Open Full Tab</a>
-                <span class="close-modal" onclick="closeExecution()" style="font-size: 2rem; line-height:1; float:none;">&times;</span>
+                <a id="workspaceExternalLink" href="#" target="_blank" class="btn btn-sm btn-secondary" style="margin:0;">Open Full Tab</a>
+                <span class="close-modal" onclick="closeWorkspaceModal()" style="font-size: 2rem; line-height:1; float:none;">&times;</span>
             </div>
         </div>
-        <iframe id="execIframe" style="flex: 1; width: 100%; border: none; background: var(--bg-primary);"></iframe>
+        <iframe id="workspaceIframe" style="flex: 1; width: 100%; border: none; background: var(--bg-primary);"></iframe>
     </div>
 </div>
 
@@ -791,6 +811,19 @@ function openAssignModal(data) {
     document.getElementById('modalSubDemo').value = data.sub_demolition_id || '';
     document.getElementById('modalSubExc').value = data.sub_excavation_id || '';
     document.getElementById('modalSubConst').value = data.sub_construction_id || '';
+    
+    // Set Finishes Multi-Select
+    const finSelect = document.getElementById('modalSubFinishes');
+    if (finSelect) {
+        for (let i = 0; i < finSelect.options.length; i++) finSelect.options[i].selected = false;
+        if (data.sub_finishes_ids) {
+            const ids = data.sub_finishes_ids.split(',');
+            for (let i = 0; i < finSelect.options.length; i++) {
+                if (ids.includes(finSelect.options[i].value)) finSelect.options[i].selected = true;
+            }
+        }
+    }
+    
     document.getElementById('assignModal').style.display = 'block';
 }
 
@@ -848,7 +881,7 @@ function openConstFinModal(type, project) {
         btn.style.display = 'inline-block';
         btn.onclick = function() {
             closeModal('statusDetailModal');
-            openExecution(project.id, project.name);
+            openWorkspaceModal(project.id, project.name);
         };
     } else {
         btn.style.display = 'none';
@@ -857,18 +890,18 @@ function openConstFinModal(type, project) {
     document.getElementById('statusDetailModal').style.display = 'block';
 }
 
-// 4. Full Execution Workspace Iframe
-function openExecution(id, name) {
-    document.getElementById('execModalTitle').textContent = 'Execution Workspace: ' + name;
-    document.getElementById('execExternalLink').href = 'project-status.php?id=' + id;
-    document.getElementById('execIframe').src = 'project-status.php?id=' + id + '&modal=1';
-    document.getElementById('executionModal').style.display = 'block';
+// 4. Full Execution Workspace Iframe (Renamed to avoid conflicts)
+function openWorkspaceModal(id, name) {
+    document.getElementById('workspaceModalTitle').textContent = 'Execution Workspace: ' + name;
+    document.getElementById('workspaceExternalLink').href = 'mobilisation_detail.php?id=' + id;
+    document.getElementById('workspaceIframe').src = 'mobilisation_detail.php?id=' + id + '&modal=1';
+    document.getElementById('workspaceModal').style.display = 'block';
     document.body.style.overflow = 'hidden'; 
 }
 
-function closeExecution() {
-    document.getElementById('executionModal').style.display = 'none';
-    document.getElementById('execIframe').src = '';
+function closeWorkspaceModal() {
+    document.getElementById('workspaceModal').style.display = 'none';
+    document.getElementById('workspaceIframe').src = '';
     document.body.style.overflow = 'auto';
     window.location.reload(); 
 }
