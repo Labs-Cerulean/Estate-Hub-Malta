@@ -250,7 +250,7 @@ if ($filterClient !== 'all') {
 }
 
 if ($filterPm !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
-if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub)); }
+if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
 
 $statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
@@ -367,7 +367,7 @@ require_once 'header.php';
 .project-info-cell { display: flex; flex-direction: column; gap: 6px; align-items: flex-start !important; padding: 0.75rem 1rem !important; }
 .project-title { font-weight: 700; color: var(--primary-color); font-size: 0.95rem; white-space: normal; line-height: 1.2; }
 .project-client { font-size: 0.75rem; color: var(--text-muted); font-weight: normal; margin-bottom: 4px; }
-.project-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.project-tags { display: flex; flex-wrap: wrap; gap: 6px; max-width: 320px; }
 .info-tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); white-space: nowrap; }
 .info-tag.ohsa-green { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); cursor: pointer; }
 .info-tag.ohsa-yellow { color: #f59e0b; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.1); cursor: pointer; }
@@ -379,7 +379,7 @@ require_once 'header.php';
 .sort-link:hover { color: var(--primary-color); }
 .sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 .normal-cell { padding: 0.75rem 1rem; height: 100%; display: flex; align-items: center; }
-.clickable-cell { cursor: pointer; padding: 0.75rem 1rem; height: 100%; width: 100%; display: flex; align-items: center; gap: 8px; transition: background 0.2s ease; }
+.clickable-cell { cursor: pointer; padding: 0.75rem 1rem; height: 100%; width: 100%; display: flex; align-items: center; gap: 8px; transition: background 0.2s ease; border-radius: 4px; }
 .clickable-cell:hover { background: rgba(99, 102, 241, 0.15); }
 .clickable-cell .edit-icon { font-size: 0.85rem; opacity: 0.2; color: var(--primary-color); transition: opacity 0.2s, transform 0.2s; flex-shrink: 0; }
 .clickable-cell:hover .edit-icon { opacity: 1; transform: scale(1.15); }
@@ -393,14 +393,17 @@ require_once 'header.php';
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
 .close-modal:hover { color: var(--text-primary); }
 
-/* MODERN TAG-SELECT FOR FINISHES CONTRACTORS */
-.tag-input-wrapper { border: 1px solid var(--border-glass); border-radius: 6px; padding: 6px; background: var(--bg-primary); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 42px; cursor: text; position: relative; }
+/* MODERN TAG SELECTOR */
+.tag-input-container { position: relative; width: 100%; }
+.tag-box { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; min-height: 42px; border: 1px solid var(--border-glass); border-radius: 6px; background: var(--bg-primary); cursor: text; }
 .tag-pill { background: var(--primary-color); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 6px; }
-.tag-pill .remove-tag { cursor: pointer; font-weight: bold; }
-.tag-search { flex: 1; min-width: 150px; border: none; background: transparent; color: var(--text-primary); font-size: 0.85rem; outline: none; padding: 4px; }
-.tag-dropdown { position: absolute; top: 100%; left: 0; width: 100%; max-height: 200px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 6px; z-index: 1001; box-shadow: 0 4px 12px rgba(0,0,0,0.5); display: none; margin-top: 4px;}
-.tag-option { padding: 8px 12px; font-size: 0.85rem; color: var(--text-primary); cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.02); }
+.tag-pill .remove-tag { cursor: pointer; font-weight: bold; opacity: 0.7; transition: 0.2s; }
+.tag-pill .remove-tag:hover { opacity: 1; }
+.tag-search-input { flex: 1; min-width: 150px; border: none; background: transparent; color: var(--text-primary); outline: none; font-size: 0.9rem; padding: 4px; }
+.tag-dropdown { position: absolute; top: 100%; left: 0; width: 100%; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1001; box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: none; margin-top: 4px; }
+.tag-option { padding: 10px 12px; font-size: 0.85rem; color: var(--text-primary); cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.02); }
 .tag-option:hover { background: rgba(99, 102, 241, 0.2); }
+.tag-empty { padding: 10px 12px; font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
 </style>
 
 <div class="main-container" style="max-width: 100%; padding: 1.5rem;">
@@ -432,7 +435,7 @@ require_once 'header.php';
         <table class="matrix-table">
             <thead>
                 <tr>
-                    <th><a href="<?= getSortUrl('name') ?>" class="sort-link">Project <span class="sort-indicator"><?= getSortIndicator('name') ?></span></a></th>
+                    <th><a href="<?= getSortUrl('name') ?>" class="sort-link">Project Detail <span class="sort-indicator"><?= getSortIndicator('name') ?></span></a></th>
                     <th style="border-left: 2px solid var(--border-glass); text-align: center;"><a href="<?= getSortUrl('demo_status') ?>" class="sort-link" style="justify-content:center;">Demolition <span class="sort-indicator"><?= getSortIndicator('demo_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('exc_status') ?>" class="sort-link" style="justify-content:center;">Excavation <span class="sort-indicator"><?= getSortIndicator('exc_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
@@ -453,13 +456,12 @@ require_once 'header.php';
                         $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
                         $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
                         
-                        // OHSA Styling
                         $ohsaClass = strtolower($p['safety_status'] ?? 'na');
                         $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
                     ?>
                         <tr>
-                            <td style="min-width: 300px;">
-                                <div class="clickable-cell project-info-cell" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Mobilisation Workspace">
+                            <td style="min-width: 320px;">
+                                <div class="clickable-cell project-info-cell" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
                                     <div class="project-title"><?= htmlspecialchars($p['name']) ?></div>
                                     <div class="project-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?></div>
                                     
@@ -518,7 +520,7 @@ require_once 'header.php';
         <span class="close-modal" onclick="closeModal('assignModal')">&times;</span>
         <h2 id="modalProjectName" style="margin-bottom: 1.5rem; color: var(--primary-color);">Assign Project Team</h2>
         
-        <form method="POST">
+        <form method="POST" id="assignTeamForm">
             <input type="hidden" name="action" value="assign_team">
             <input type="hidden" name="project_id" id="modalProjectId">
             
@@ -527,20 +529,21 @@ require_once 'header.php';
                 <div class="form-group"><label>Finishes PM</label><select name="pm_fin" id="modalPmFin"><option value="">-- Unassigned --</option><?php foreach($pms as $pm): ?><option value="<?= $pm['id'] ?>"><?= htmlspecialchars($pm['first_name'] . ' ' . $pm['last_name']) ?></option><?php endforeach; ?></select></div>
             </div>
 
-            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                 <div class="form-group"><label>Demolition</label><select name="sub_demo" id="modalSubDemo"><option value="">-- Unassigned --</option><?php foreach($subs as $sub): ?><option value="<?= $sub['id'] ?>"><?= htmlspecialchars($sub['name']) ?></option><?php endforeach; ?></select></div>
                 <div class="form-group"><label>Excavation</label><select name="sub_exc" id="modalSubExc"><option value="">-- Unassigned --</option><?php foreach($subs as $sub): ?><option value="<?= $sub['id'] ?>"><?= htmlspecialchars($sub['name']) ?></option><?php endforeach; ?></select></div>
                 <div class="form-group"><label>Construction</label><select name="sub_const" id="modalSubConst"><option value="">-- Unassigned --</option><?php foreach($subs as $sub): ?><option value="<?= $sub['id'] ?>"><?= htmlspecialchars($sub['name']) ?></option><?php endforeach; ?></select></div>
             </div>
             
-            <div class="form-group" style="margin-bottom: 2rem;">
+            <div class="form-group" style="margin-bottom: 2.5rem;">
                 <label>Finishes Contractors</label>
-                <div class="tag-input-wrapper" id="tagWrapper" onclick="document.getElementById('tagSearch').focus()">
-                    <div id="tagPills" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
-                    <input type="text" id="tagSearch" class="tag-search" placeholder="Type to search contractors..." autocomplete="off">
-                    <div class="tag-dropdown custom-scrollbar" id="tagDropdown"></div>
-                </div>
-                <div id="tagHiddenInputs"></div> </div>
+                <div class="tag-input-container">
+                    <div class="tag-box" id="tagBox" onclick="document.getElementById('tagSearch').focus()">
+                        <input type="text" id="tagSearch" class="tag-search-input" placeholder="Type to search contractors..." autocomplete="off">
+                    </div>
+                    <div id="tagDropdown" class="tag-dropdown custom-scrollbar"></div>
+                    <div id="tagHiddenInputs"></div> </div>
+            </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Save Assignments</button>
         </form>
@@ -599,14 +602,14 @@ function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 window.onclick = function(e) { if (e.target.classList.contains('modal')) e.target.style.display = "none"; }
 
 // =====================================
-// DYNAMIC IFRAME LOADER & HEADER HIDER
+// DYNAMIC IFRAME LOADER
 // =====================================
+// Fixed routing parameter: passed 'project_id=' instead of 'id=' so mobilisation_detail catches it properly!
 function openIframeModal(id, name, targetFile) {
-    let url = targetFile + '?id=' + id + '&modal=1';
-    let titlePrefix = targetFile.includes('mobilisation') ? 'Mobilisation: ' : 'Execution Workspace: ';
+    let url = targetFile + '?project_id=' + id + '&modal=1';
     
-    document.getElementById('iframeModalTitle').textContent = titlePrefix + name;
-    document.getElementById('iframeExternalLink').href = targetFile + '?id=' + id;
+    document.getElementById('iframeModalTitle').textContent = 'Execution Workspace: ' + name;
+    document.getElementById('iframeExternalLink').href = targetFile + '?project_id=' + id;
     
     const iframe = document.getElementById('mainIframe');
     const loader = document.getElementById('iframeLoader');
@@ -615,20 +618,9 @@ function openIframeModal(id, name, targetFile) {
     loader.style.display = 'block';
     iframe.src = url;
     
-    // Inject CSS into the loaded iframe to hide the sidebar and headers entirely!
     iframe.onload = function() {
         loader.style.display = 'none';
         iframe.style.display = 'block';
-        try {
-            const doc = iframe.contentWindow.document;
-            const style = doc.createElement('style');
-            style.textContent = `
-                .sidebar, .top-header, .page-title { display: none !important; }
-                .main-content { margin-left: 0 !important; padding: 1rem !important; }
-                .btn-secondary[href="projects.php"] { display: none !important; }
-            `;
-            doc.head.appendChild(style);
-        } catch(e) { console.log("Cross-origin frame or styling not applied."); }
     };
     
     document.getElementById('iframeModal').style.display = 'block';
@@ -692,7 +684,6 @@ function openConstFinModal(type, project) {
             html += `</div>`;
         });
     }
-    
     document.getElementById('sdModalBody').innerHTML = html;
     
     const btn = document.getElementById('sdEditBtn');
@@ -700,7 +691,7 @@ function openConstFinModal(type, project) {
         btn.style.display = 'inline-block';
         btn.onclick = function() {
             closeModal('statusDetailModal');
-            openIframeModal(project.id, project.name, 'project-status.php'); // CORRECT ROUTING TO EXECUTION
+            openIframeModal(project.id, project.name, 'mobilisation_detail.php'); // CORRECT ROUTING TO EXECUTION
         };
     } else { btn.style.display = 'none'; }
     document.getElementById('statusDetailModal').style.display = 'block';
@@ -709,39 +700,39 @@ function openConstFinModal(type, project) {
 // =====================================
 // MODERN FINISHES TAG SELECTOR
 // =====================================
-const allContractors = <?= json_encode($subs) ?>;
-let selectedFinishes = []; // Array of selected contractor IDs
+const allSubs = <?= json_encode($subs) ?>;
+let selectedTagIds = []; 
 
 function renderTags() {
-    const pillsContainer = document.getElementById('tagPills');
-    const hiddenInputs = document.getElementById('tagHiddenInputs');
-    if (!pillsContainer) return;
+    const box = document.getElementById('tagBox');
+    const searchInput = document.getElementById('tagSearch');
+    const hiddenContainer = document.getElementById('tagHiddenInputs');
+    if (!box || !hiddenContainer) return;
     
-    pillsContainer.innerHTML = '';
-    hiddenInputs.innerHTML = '';
+    // Remove existing pills
+    box.querySelectorAll('.tag-pill').forEach(el => el.remove());
+    hiddenContainer.innerHTML = '';
     
-    selectedFinishes.forEach(id => {
-        const sub = allContractors.find(c => c.id == id);
+    selectedTagIds.forEach(id => {
+        const sub = allSubs.find(c => c.id == id);
         if (sub) {
-            // Render visible pill
             const pill = document.createElement('div');
             pill.className = 'tag-pill';
             pill.innerHTML = `<span>${sub.name}</span><span class="remove-tag" onclick="removeTag(${sub.id}, event)">&times;</span>`;
-            pillsContainer.appendChild(pill);
+            box.insertBefore(pill, searchInput);
             
-            // Render hidden input for the form submit
             const input = document.createElement('input');
             input.type = 'hidden';
             input.name = 'sub_finishes[]';
             input.value = sub.id;
-            hiddenInputs.appendChild(input);
+            hiddenContainer.appendChild(input);
         }
     });
 }
 
 function removeTag(id, e) {
-    if(e) e.stopPropagation();
-    selectedFinishes = selectedFinishes.filter(tagId => tagId != id);
+    e.stopPropagation();
+    selectedTagIds = selectedTagIds.filter(tagId => tagId != id);
     renderTags();
     document.getElementById('tagSearch').focus();
 }
@@ -749,23 +740,23 @@ function removeTag(id, e) {
 function initTagSelector() {
     const searchInput = document.getElementById('tagSearch');
     const dropdown = document.getElementById('tagDropdown');
-    const wrapper = document.getElementById('tagWrapper');
+    const container = document.querySelector('.tag-input-container');
     if (!searchInput) return;
 
     function filterOptions() {
         const val = searchInput.value.toLowerCase();
         dropdown.innerHTML = '';
-        let hasResults = false;
+        let count = 0;
         
-        allContractors.forEach(sub => {
-            if (!selectedFinishes.includes(sub.id.toString()) && sub.name.toLowerCase().includes(val)) {
-                hasResults = true;
+        allSubs.forEach(sub => {
+            if (!selectedTagIds.includes(sub.id.toString()) && sub.name.toLowerCase().includes(val)) {
+                count++;
                 const opt = document.createElement('div');
                 opt.className = 'tag-option';
                 opt.textContent = sub.name;
                 opt.onclick = (e) => {
                     e.stopPropagation();
-                    selectedFinishes.push(sub.id.toString());
+                    selectedTagIds.push(sub.id.toString());
                     searchInput.value = '';
                     renderTags();
                     dropdown.style.display = 'none';
@@ -774,15 +765,19 @@ function initTagSelector() {
                 dropdown.appendChild(opt);
             }
         });
-        dropdown.style.display = hasResults ? 'block' : 'none';
+        
+        if (count === 0) {
+            dropdown.innerHTML = '<div class="tag-empty">No unselected contractors match your search.</div>';
+        }
+        dropdown.style.display = 'block';
     }
 
     searchInput.addEventListener('input', filterOptions);
     searchInput.addEventListener('focus', filterOptions);
     
-    // Close dropdown if clicking outside
+    // Close dropdown on outside click
     document.addEventListener('click', (e) => {
-        if (!wrapper.contains(e.target)) dropdown.style.display = 'none';
+        if (!container.contains(e.target)) dropdown.style.display = 'none';
     });
 }
 
@@ -795,8 +790,7 @@ function openAssignModal(data) {
     document.getElementById('modalSubExc').value = data.sub_excavation_id || '';
     document.getElementById('modalSubConst').value = data.sub_construction_id || '';
     
-    // Reset and load existing tags
-    selectedFinishes = data.sub_finishes_ids ? data.sub_finishes_ids.split(',') : [];
+    selectedTagIds = data.sub_finishes_ids ? data.sub_finishes_ids.split(',') : [];
     renderTags();
     
     document.getElementById('assignModal').style.display = 'block';
