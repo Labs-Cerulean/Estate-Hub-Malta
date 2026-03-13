@@ -55,11 +55,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// 1. Fetch available PMs and Subcontractors for the dropdowns
+// 1. Fetch available PMs and Subcontractors
 $pms = $pdo->query("SELECT id, first_name, last_name, username FROM users WHERE role = 'project_manager' AND is_active = 'Yes' ORDER BY first_name")->fetchAll();
 $subs = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name")->fetchAll();
 
-// 2. Define Allowed Stages (Stages 4 to 11)
+// 2. Define Allowed Stages
 $allowedStages = ['Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 // 3. GET FILTERS AND SORTS
@@ -81,8 +81,6 @@ if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
 
 // 4. Fetch Projects base data
 $projectsRaw = getAccessibleProjects($pdo, getCurrentUserId());
-
-// Extract data for Filter Dropdowns
 $cities = array_unique(array_filter(array_column($projectsRaw, 'city')));
 sort($cities);
 
@@ -104,48 +102,33 @@ $ohsaData = [];
 if (!empty($projectIds)) {
     $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
     
-    // Fetch Execution Clearances
     $mobStmt = $pdo->prepare("SELECT project_id, demo_status, excavation_status FROM project_mobilisation WHERE project_id IN ($placeholders)");
     $mobStmt->execute($projectIds);
     foreach ($mobStmt->fetchAll() as $row) { $mobData[$row['project_id']] = $row; }
     
-    // Fetch OHSA Safety Statuses
     $ohsaStmt = $pdo->prepare("SELECT project_id, safety_status, safety_comments FROM project_ohsa_setup WHERE project_id IN ($placeholders)");
     $ohsaStmt->execute($projectIds);
     foreach ($ohsaStmt->fetchAll() as $row) { $ohsaData[$row['project_id']] = $row; }
 
-    // Fetch Block & Floor Construction Statuses
     $blockStmt = $pdo->prepare("
         SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, 
                bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status, bl.construction_pct
-        FROM project_blocks pb 
-        LEFT JOIN block_levels bl ON pb.id = bl.block_id 
-        WHERE pb.project_id IN ($placeholders)
-        ORDER BY pb.id ASC, bl.level_number ASC
+        FROM project_blocks pb LEFT JOIN block_levels bl ON pb.id = bl.block_id 
+        WHERE pb.project_id IN ($placeholders) ORDER BY pb.id ASC, bl.level_number ASC
     ");
     $blockStmt->execute($projectIds);
-    $allBlocksAndLevels = $blockStmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($blockStmt->fetchAll(PDO::FETCH_ASSOC) as $row) { $blockAggData[$row['project_id']][] = $row; }
 
-    foreach ($allBlocksAndLevels as $row) {
-        $blockAggData[$row['project_id']][] = $row; 
-    }
-
-    // Fetch individual floor finishes statuses
     $finStmt = $pdo->prepare("
-        SELECT bls.project_id, bls.block_id, bls.level_id, bls.finish_type_id, bls.status
-        FROM block_levels_statuses bls
-        JOIN finish_types ft ON bls.finish_type_id = ft.id
+        SELECT bls.project_id, bls.block_id, bls.level_id, bls.status
+        FROM block_levels_statuses bls JOIN finish_types ft ON bls.finish_type_id = ft.id
         WHERE bls.project_id IN ($placeholders) AND ft.is_active = 1
     ");
     $finStmt->execute($projectIds);
-    $rawFloorFinishes = $finStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    foreach ($rawFloorFinishes as $fRow) {
-        $floorFinishesData[$fRow['project_id']][$fRow['block_id']][$fRow['level_id']][] = $fRow['status'];
-    }
+    foreach ($finStmt->fetchAll(PDO::FETCH_ASSOC) as $fRow) { $floorFinishesData[$fRow['project_id']][$fRow['block_id']][$fRow['level_id']][] = $fRow['status']; }
 }
 
-// 5. Build Final Matrix Array with derived statuses
+// 5. Build Final Matrix Array
 $matrixProjects = [];
 
 foreach ($projectsRaw as $p) {
@@ -172,9 +155,7 @@ foreach ($projectsRaw as $p) {
             foreach ($blockAggData[$p['id']] as $row) {
                 $blocksData[$row['block_id']]['name'] = $row['block_name'];
                 $blocksData[$row['block_id']]['master_finishes'] = $row['finishes_overall_status'];
-                if ($row['level_id']) {
-                    $blocksData[$row['block_id']]['levels'][] = $row;
-                }
+                if ($row['level_id']) { $blocksData[$row['block_id']]['levels'][] = $row; }
             }
 
             foreach ($blocksData as $bid => $b) {
@@ -190,9 +171,8 @@ foreach ($projectsRaw as $p) {
                         $floorStatus = 'NA';
                         if (!in_array($p['finishlevel'], ['Shell', null, ''])) {
                             $statuses = $floorFinishesData[$p['id']][$bid][$lvl['level_id']] ?? [];
-                            if (empty($statuses)) {
-                                $floorStatus = 'Pending';
-                            } else {
+                            if (empty($statuses)) { $floorStatus = 'Pending'; } 
+                            else {
                                 $uStatuses = array_unique($statuses);
                                 if (in_array('In Progress', $uStatuses)) { $floorStatus = 'In Progress'; }
                                 elseif (count($uStatuses) === 1 && end($uStatuses) === 'Complete') { $floorStatus = 'Complete'; }
@@ -202,12 +182,7 @@ foreach ($projectsRaw as $p) {
                         }
                         $blockFinStatuses[] = $floorStatus;
                         
-                        $levelDetails[] = [
-                            'name' => $lvl['level_name'],
-                            'const_status' => $lvl['construction_status'] ?? 'Pending',
-                            'const_pct' => $lvl['construction_pct'] ?? 0,
-                            'fin_status' => $floorStatus
-                        ];
+                        $levelDetails[] = ['name' => $lvl['level_name'], 'const_status' => $lvl['construction_status'] ?? 'Pending', 'const_pct' => $lvl['construction_pct'] ?? 0, 'fin_status' => $floorStatus];
                     }
                 }
 
@@ -222,12 +197,7 @@ foreach ($projectsRaw as $p) {
                     } else { $bFinStatus = 'Pending'; }
                 }
                 $projFinStatuses[] = $bFinStatus;
-
-                $p['detailed_blocks'][] = [
-                    'name' => $b['name'],
-                    'master_finishes' => $bFinStatus,
-                    'levels' => $levelDetails
-                ];
+                $p['detailed_blocks'][] = ['name' => $b['name'], 'master_finishes' => $bFinStatus, 'levels' => $levelDetails];
             }
         }
         
@@ -291,21 +261,11 @@ $safetyEnumMap = ['Green'=>3, 'Yellow'=>2, 'Red'=>1, 'N/A'=>0];
 usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageEnumMap, $statusEnumMap, $safetyEnumMap) {
     $valA = ''; $valB = '';
     
-    if ($sortBy === 'stage') {
-        $valA = $stageEnumMap[$a['stage']] ?? 0;
-        $valB = $stageEnumMap[$b['stage']] ?? 0;
-    } elseif ($sortBy === 'safety_status') {
-        $valA = $safetyEnumMap[$a['safety_status']] ?? 0;
-        $valB = $safetyEnumMap[$b['safety_status']] ?? 0;
-    } elseif (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) {
-        $valA = $statusEnumMap[$a[$sortBy]] ?? 0;
-        $valB = $statusEnumMap[$b[$sortBy]] ?? 0;
-    } elseif (in_array($sortBy, ['pm_const', 'pm_fin'])) {
-        $key = $sortBy . '_name';
-        $valA = $a[$key] ?? ''; $valB = $b[$key] ?? '';
-    } else {
-        $valA = $a[$sortBy] ?? ''; $valB = $b[$sortBy] ?? '';
-    }
+    if ($sortBy === 'stage') { $valA = $stageEnumMap[$a['stage']] ?? 0; $valB = $stageEnumMap[$b['stage']] ?? 0; } 
+    elseif ($sortBy === 'safety_status') { $valA = $safetyEnumMap[$a['safety_status']] ?? 0; $valB = $safetyEnumMap[$b['safety_status']] ?? 0; } 
+    elseif (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) { $valA = $statusEnumMap[$a[$sortBy]] ?? 0; $valB = $statusEnumMap[$b[$sortBy]] ?? 0; } 
+    elseif (in_array($sortBy, ['pm_const', 'pm_fin'])) { $key = $sortBy . '_name'; $valA = $a[$key] ?? ''; $valB = $b[$key] ?? ''; } 
+    else { $valA = $a[$sortBy] ?? ''; $valB = $b[$sortBy] ?? ''; }
 
     if ($valA == $valB) return 0;
     if (is_numeric($valA) && is_numeric($valB)) { $comp = $valA <=> $valB; } 
@@ -381,7 +341,6 @@ function renderTeamCell($text, $pJson, $canAssignTeam) {
     return "<div class='normal-cell' style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>$display</div>";
 }
 
-// NEW: Custom renderer for the Multi-Select Finishes Cell with an internal scrollbar
 function renderFinishesTeamCell($idsString, $subsArray, $pJson, $canAssignTeam) {
     $ids = empty($idsString) ? [] : explode(',', $idsString);
     $names = [];
@@ -390,10 +349,8 @@ function renderFinishesTeamCell($idsString, $subsArray, $pJson, $canAssignTeam) 
             if ($sub['id'] == $id) { $names[] = $sub['name']; break; }
         }
     }
-    
     $display = empty($names) ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : implode('<br>', array_map('htmlspecialchars', $names));
-    
-    $content = "<div class='custom-scrollbar' style='max-height: 45px; overflow-y: auto; width: 100%; font-size: 0.8rem; line-height: 1.3; padding-right: 4px;'>" . $display . "</div>";
+    $content = "<div class='custom-scrollbar' style='max-height: 40px; overflow-y: auto; width: 100%; font-size: 0.8rem; line-height: 1.3; padding-right: 4px;'>" . $display . "</div>";
 
     if ($canAssignTeam) {
         return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team'>
@@ -409,35 +366,42 @@ require_once 'header.php';
 ?>
 
 <style>
+/* MATRIX WRAPPER & SCROLLBAR */
 .matrix-wrapper { position: relative; width: 100%; max-height: calc(100vh - 180px); overflow: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
+.matrix-wrapper::-webkit-scrollbar { height: 12px; width: 12px; }
+.matrix-wrapper::-webkit-scrollbar-track { background: rgba(0,0,0,0.15); border-radius: 8px; }
+.matrix-wrapper::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.6); border-radius: 8px; border: 2px solid var(--bg-card); cursor: pointer; }
+.matrix-wrapper::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 1); }
+
+/* TABLE BASE */
 .matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.85rem; }
 .matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-
-/* Removed right-side sticky classes entirely to fix horizontal scroll crush */
 .matrix-table td { padding: 0; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; height: 50px; }
 
+/* FORCIBLY UNFREEZE ALL COLUMNS EXCEPT THE FIRST */
+.matrix-table th, .matrix-table td { position: static !important; right: auto !important; }
+.matrix-table thead th:first-child { position: sticky !important; left: 0 !important; z-index: 20 !important; border-right: 2px solid var(--border-glass) !important; }
+.matrix-table tbody tr td:first-child { position: sticky !important; left: 0 !important; background: #1e1e2d !important; z-index: 5 !important; border-right: 2px solid var(--border-glass) !important; }
+.matrix-table tbody tr:hover td:first-child { background: #2a2a3b !important; }
+.matrix-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
+
+/* SORTS & INTERACTIONS */
 .sort-link { color: inherit; text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .sort-link:hover { color: var(--primary-color); }
 .sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 
-/* Keep Left Column Sticky */
-.matrix-table thead th:first-child { position: sticky; left: 0; z-index: 20; border-right: 2px solid var(--border-glass); }
-.matrix-table tbody tr td:first-child { position: sticky; left: 0; background: #1e1e2d; z-index: 5; border-right: 2px solid var(--border-glass); }
-.matrix-table tbody tr:hover td:first-child { background: #2a2a3b; }
-.matrix-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
-
-/* Unified Cell Interactions */
 .normal-cell { padding: 0.75rem 1rem; height: 100%; display: flex; align-items: center; }
-.clickable-cell { cursor: pointer; padding: 0.75rem 1rem; height: 100%; width: 100%; display: flex; align-items: center; gap: 8px; transition: background 0.2s ease; }
-.clickable-cell:hover { background: rgba(99, 102, 241, 0.1); }
+.clickable-cell { cursor: pointer; padding: 0.75rem 1rem; height: 100%; width: 100%; display: flex; align-items: center; gap: 8px; transition: background 0.2s ease; border-radius: 4px; margin: 2px 0; }
+.clickable-cell:hover { background: rgba(99, 102, 241, 0.15); }
 .clickable-cell .edit-icon { font-size: 0.85rem; opacity: 0.2; color: var(--primary-color); transition: opacity 0.2s, transform 0.2s; flex-shrink: 0; }
 .clickable-cell:hover .edit-icon { opacity: 1; transform: scale(1.15); }
 
-/* Custom Thin Scrollbar for nested elements */
+/* INTERNAL SCROLLBAR FOR CELL LISTS */
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 4px; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--primary-color); border-radius: 4px; }
 
+/* MODALS */
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .close-modal { color: var(--text-muted); float: right; font-size: 1.5rem; font-weight: bold; cursor: pointer; line-height: 1; }
@@ -582,7 +546,7 @@ require_once 'header.php';
                     ?>
                         <tr>
                             <td>
-                                <div onclick="openWorkspaceModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>')" class="clickable-cell" style="align-items: flex-start; justify-content: space-between;" title="Open Execution Dashboard">
+                                <div onclick="openMobilisationWorkspace(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>')" class="clickable-cell" style="align-items: flex-start; justify-content: space-between;" title="Open Mobilisation Details">
                                     <div>
                                         <div style="font-weight: 700; color: var(--primary-color); font-size: 0.95rem; margin-bottom: 2px; white-space: normal; line-height: 1.2;"><?= htmlspecialchars($p['name']) ?></div>
                                         <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($p['client_name'] ?? '') ?></span>
@@ -881,7 +845,7 @@ function openConstFinModal(type, project) {
         btn.style.display = 'inline-block';
         btn.onclick = function() {
             closeModal('statusDetailModal');
-            openWorkspaceModal(project.id, project.name);
+            openExecutionWorkspace(project.id, project.name); // Route to Full Execution Editor
         };
     } else {
         btn.style.display = 'none';
@@ -890,11 +854,19 @@ function openConstFinModal(type, project) {
     document.getElementById('statusDetailModal').style.display = 'block';
 }
 
-// 4. Full Execution Workspace Iframe (Renamed to avoid conflicts)
-function openWorkspaceModal(id, name) {
-    document.getElementById('workspaceModalTitle').textContent = 'Execution Workspace: ' + name;
+// 4. Iframe Workspace Controllers (Separated correctly!)
+function openMobilisationWorkspace(id, name) {
+    document.getElementById('workspaceModalTitle').textContent = 'Mobilisation Details: ' + name;
     document.getElementById('workspaceExternalLink').href = 'mobilisation_detail.php?id=' + id;
     document.getElementById('workspaceIframe').src = 'mobilisation_detail.php?id=' + id + '&modal=1';
+    document.getElementById('workspaceModal').style.display = 'block';
+    document.body.style.overflow = 'hidden'; 
+}
+
+function openExecutionWorkspace(id, name) {
+    document.getElementById('workspaceModalTitle').textContent = 'Project Execution: ' + name;
+    document.getElementById('workspaceExternalLink').href = 'project-status.php?id=' + id;
+    document.getElementById('workspaceIframe').src = 'project-status.php?id=' + id + '&modal=1';
     document.getElementById('workspaceModal').style.display = 'block';
     document.body.style.overflow = 'hidden'; 
 }
