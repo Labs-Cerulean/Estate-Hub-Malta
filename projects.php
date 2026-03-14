@@ -16,7 +16,6 @@ $canUpdateStatus = hasPermission('update_project_status') || isAdmin();
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
-    // ACTION: Assign Team
     if ($_POST['action'] === 'assign_team' && $canAssignTeam) {
         try {
             $pId = $_POST['project_id'];
@@ -36,7 +35,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } catch (PDOException $e) { $error = "Error updating team: " . $e->getMessage(); }
     }
 
-    // ACTION: Quick Update Mobilisation
     if ($_POST['action'] === 'update_mobilisation' && $canUpdateStatus) {
         try {
             $pId = (int)$_POST['project_id'];
@@ -98,31 +96,26 @@ $mobData = []; $blockAggData = []; $floorFinishesData = []; $ohsaData = []; $paD
 if (!empty($projectIds)) {
     $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
     
-    // Mobilisation
     $mobStmt = $pdo->prepare("SELECT project_id, demo_status, excavation_status FROM project_mobilisation WHERE project_id IN ($placeholders)");
     $mobStmt->execute($projectIds);
     foreach ($mobStmt->fetchAll() as $row) { $mobData[$row['project_id']] = $row; }
     
-    // OHSA
     $ohsaStmt = $pdo->prepare("SELECT project_id, safety_status, safety_comments FROM project_ohsa_setup WHERE project_id IN ($placeholders)");
     $ohsaStmt->execute($projectIds);
     foreach ($ohsaStmt->fetchAll() as $row) { $ohsaData[$row['project_id']] = $row; }
 
-    // PA Numbers
     $paStmt = $pdo->prepare("SELECT project_id, pa_number FROM project_pa_numbers WHERE project_id IN ($placeholders)");
     $paStmt->execute($projectIds);
     foreach ($paStmt->fetchAll() as $row) { $paData[$row['project_id']][] = $row['pa_number']; }
 
-    // Blocks & Levels
     $blockStmt = $pdo->prepare("
-        SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status, bl.construction_pct
+        SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, pb.finish_level, pb.progress, bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status, bl.construction_pct
         FROM project_blocks pb LEFT JOIN block_levels bl ON pb.id = bl.block_id 
         WHERE pb.project_id IN ($placeholders) ORDER BY pb.id ASC, bl.level_number ASC
     ");
     $blockStmt->execute($projectIds);
     foreach ($blockStmt->fetchAll(PDO::FETCH_ASSOC) as $row) { $blockAggData[$row['project_id']][] = $row; }
 
-    // Finishes
     $finStmt = $pdo->prepare("
         SELECT bls.project_id, bls.block_id, bls.level_id, bls.status
         FROM block_levels_statuses bls JOIN finish_types ft ON bls.finish_type_id = ft.id
@@ -157,6 +150,8 @@ foreach ($projectsRaw as $p) {
             foreach ($blockAggData[$p['id']] as $row) {
                 $blocksData[$row['block_id']]['name'] = $row['block_name'];
                 $blocksData[$row['block_id']]['master_finishes'] = $row['finishes_overall_status'];
+                $blocksData[$row['block_id']]['finish_level'] = $row['finish_level'];
+                $blocksData[$row['block_id']]['progress'] = $row['progress'];
                 if ($row['level_id']) { $blocksData[$row['block_id']]['levels'][] = $row; }
             }
 
@@ -187,13 +182,20 @@ foreach ($projectsRaw as $p) {
 
                 $bFinStatus = $b['master_finishes'];
                 if (empty($bFinStatus) || $bFinStatus === 'Pending') {
-                    if (in_array($p['finishlevel'], ['Shell', null, ''])) { $bFinStatus = 'NA'; }
-                    elseif (!empty($blockFinStatuses)) {
+                    $bFinGoal = !empty($b['finish_level']) ? $b['finish_level'] : $p['finishlevel'];
+                    
+                    if (in_array($bFinGoal, ['Shell', 'Shell (No Finishes)', null, ''])) { 
+                        $bFinStatus = 'NA'; 
+                    } elseif (isset($b['progress']) && $b['progress'] >= 100) {
+                        $bFinStatus = 'Complete';
+                    } elseif (!empty($blockFinStatuses)) {
                         if (in_array('In Progress', $blockFinStatuses)) { $bFinStatus = 'In Progress'; }
                         elseif (count(array_unique($blockFinStatuses)) === 1 && end($blockFinStatuses) === 'Complete') { $bFinStatus = 'Complete'; }
                         elseif (in_array('Complete', $blockFinStatuses)) { $bFinStatus = 'In Progress'; }
                         else { $bFinStatus = 'Pending'; }
-                    } else { $bFinStatus = 'Pending'; }
+                    } else { 
+                        $bFinStatus = 'Pending'; 
+                    }
                 }
                 $projFinStatuses[] = $bFinStatus;
                 $p['detailed_blocks'][] = ['name' => $b['name'], 'master_finishes' => $bFinStatus, 'levels' => $levelDetails];
@@ -260,9 +262,9 @@ usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $statusEnumMap
     if (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) {
         $valA = $statusEnumMap[$a[$sortBy]] ?? 0;
         $valB = $statusEnumMap[$b[$sortBy]] ?? 0;
-    } elseif ($sortBy === 'pm_const') {
-        $valA = $a['pm_const_name'] ?? ''; 
-        $valB = $b['pm_const_name'] ?? '';
+    } elseif (in_array($sortBy, ['pm_const', 'pm_fin'])) {
+        $key = $sortBy . '_name';
+        $valA = $a[$key] ?? ''; $valB = $b[$key] ?? '';
     } else {
         $valA = $a[$sortBy] ?? ''; $valB = $b[$sortBy] ?? '';
     }
@@ -320,38 +322,40 @@ function renderPMsCell($pmConst, $pmFin, $pJson, $canAssignTeam) {
     $cDisplay = $pmConst === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($pmConst);
     $fDisplay = $pmFin === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($pmFin);
     
-    $content = "<div style='display:flex; flex-direction:column; gap:4px; font-size: 0.8rem; flex:1;'>
-                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Construction PM'><span style='color:var(--text-muted); font-size:0.7rem; text-transform:uppercase;'>Const:</span> $cDisplay</div>
-                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Finishes PM'><span style='color:var(--text-muted); font-size:0.7rem; text-transform:uppercase;'>Fin:</span> $fDisplay</div>
+    $content = "<div style='display:flex; flex-direction:column; gap:6px; font-size: 0.8rem; flex:1;'>
+                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Construction PM'><span style='color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; width: 45px; display:inline-block;'>Const:</span> $cDisplay</div>
+                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Finishes PM'><span style='color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; width: 45px; display:inline-block;'>Fin:</span> $fDisplay</div>
                 </div>";
 
     if ($canAssignTeam) {
-        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team'>$content<span class='edit-icon'>✎</span></div>";
+        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team' style='align-items:flex-start;'>$content<span class='edit-icon' style='margin-top:2px;'>✎</span></div>";
     }
-    return "<div class='normal-cell'>$content</div>";
+    return "<div class='normal-cell' style='align-items:flex-start;'>$content</div>";
 }
 
-function renderTeamCell($text, $pJson, $canAssignTeam) {
-    $display = $text === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($text);
-    if ($canAssignTeam) {
-        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team'><span style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;'>$display</span><span class='edit-icon'>✎</span></div>";
-    }
-    return "<div class='normal-cell' style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>$display</div>";
-}
+function renderAllSubsCell($demo, $exc, $const, $finIds, $subsArray, $pJson, $canAssignTeam) {
+    $dDisp = $demo === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($demo);
+    $eDisp = $exc === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($exc);
+    $cDisp = $const === 'Unassigned' ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : htmlspecialchars($const);
 
-function renderFinishesTeamCell($idsString, $subsArray, $pJson, $canAssignTeam) {
-    $ids = empty($idsString) ? [] : explode(',', $idsString);
-    $names = [];
-    foreach ($ids as $id) {
-        foreach ($subsArray as $sub) { if ($sub['id'] == $id) { $names[] = $sub['name']; break; } }
+    $fIds = empty($finIds) ? [] : explode(',', $finIds);
+    $fNames = [];
+    foreach ($fIds as $id) {
+        foreach ($subsArray as $sub) { if ($sub['id'] == $id) { $fNames[] = htmlspecialchars($sub['name']); break; } }
     }
-    $display = empty($names) ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : implode('<br>', array_map('htmlspecialchars', $names));
-    $content = "<div class='custom-scrollbar' style='max-height: 40px; overflow-y: auto; width: 100%; font-size: 0.8rem; line-height: 1.3; padding-right: 4px;'>" . $display . "</div>";
+    $fDisp = empty($fNames) ? "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>" : implode(', ', $fNames);
+
+    $content = "<div class='custom-scrollbar' style='display:flex; flex-direction:column; gap:4px; font-size: 0.75rem; flex:1; max-height: 85px; overflow-y: auto; padding-right: 4px;'>
+                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Demolition Contractor'><span style='color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; width: 45px; display:inline-block;'>Demo:</span> $dDisp</div>
+                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Excavation Contractor'><span style='color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; width: 45px; display:inline-block;'>Exc:</span> $eDisp</div>
+                    <div style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='Construction Contractor'><span style='color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; width: 45px; display:inline-block;'>Const:</span> $cDisp</div>
+                    <div title='Finishes Contractors'><span style='color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; width: 45px; display:inline-block; vertical-align:top;'>Fin:</span> <span style='display:inline-block; width:calc(100% - 50px); white-space:normal; line-height:1.2;'>$fDisp</span></div>
+                </div>";
 
     if ($canAssignTeam) {
-        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team'>$content<span class='edit-icon'>✎</span></div>";
+        return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team' style='align-items:flex-start;'>$content<span class='edit-icon' style='margin-top:2px;'>✎</span></div>";
     }
-    return "<div class='normal-cell'>$content</div>";
+    return "<div class='normal-cell' style='align-items:flex-start;'>$content</div>";
 }
 
 $pageTitle = 'Project Execution Matrix';
@@ -456,15 +460,12 @@ require_once 'header.php';
                     <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('fin_status') ?>" class="sort-link" style="justify-content:center;">Finishes <span class="sort-indicator"><?= getSortIndicator('fin_status') ?></span></a></th>
                     <th style="border-left: 2px solid var(--border-glass);"><a href="<?= getSortUrl('pm_const') ?>" class="sort-link">Project Managers <span class="sort-indicator"><?= getSortIndicator('pm_const') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass);">Sub (Demolition)</th>
-                    <th>Sub (Excavation)</th>
-                    <th>Sub (Construction)</th>
-                    <th>Sub (Finishes)</th>
+                    <th style="border-left: 2px solid var(--border-glass);">Lead Subcontractors</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="10" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
+                    <tr><td colspan="7" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): 
                         $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
@@ -474,7 +475,7 @@ require_once 'header.php';
                         $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
                     ?>
                         <tr>
-                            <td style="min-width: 320px;">
+                            <td style="min-width: 320px; max-width: 380px;">
                                 <div class="clickable-cell project-info-cell" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
                                     <div class="project-title"><?= htmlspecialchars($p['name']) ?></div>
                                     <div class="project-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?></div>
@@ -483,7 +484,7 @@ require_once 'header.php';
                                         <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
                                         <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
                                         <?php if($p['pa_numbers']): ?>
-                                            <span class="info-tag">PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
+                                            <span class="info-tag" style="white-space:normal;">PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
                                         <?php endif; ?>
                                         <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments">
                                             <?= $ohsaIcon ?> OHSA
@@ -502,10 +503,9 @@ require_once 'header.php';
                             <td style="border-left: 2px solid var(--border-glass);">
                                 <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
                             </td>
-                            <td style="border-left: 2px solid var(--border-glass);"><?= renderTeamCell($p['sub_demo_name'], $pJson, $canAssignTeam) ?></td>
-                            <td><?= renderTeamCell($p['sub_exc_name'], $pJson, $canAssignTeam) ?></td>
-                            <td><?= renderTeamCell($p['sub_const_name'], $pJson, $canAssignTeam) ?></td>
-                            <td><?= renderFinishesTeamCell($p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?></td>
+                            <td style="border-left: 2px solid var(--border-glass); min-width: 250px;">
+                                <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 <?php endif; ?>
