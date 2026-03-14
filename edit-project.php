@@ -121,7 +121,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $message = 'Project updated successfully!';
         $project = getProjectWithClient($pdo, $projectId); 
         
-        // THE FIX: If loaded in modal, wait 1.2 seconds so user sees success, then tell Dashboard to refresh!
         if ($isModal) {
             $message .= "<script>setTimeout(() => { window.parent.postMessage('projectUpdated', '*'); }, 1200);</script>";
         }
@@ -171,7 +170,7 @@ require_once 'header.php';
     </div>
     <?php endif; ?>
 
-    <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= $message; /* Intentionally not HTML escaped to allow script injection */ ?></div><?php endif; ?>
+    <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= $message; ?></div><?php endif; ?>
     <?php if ($error): ?><div class="message error" style="padding:1rem; background:rgba(239,68,68,0.1); color:var(--danger); border:1px solid var(--danger); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($error); ?></div><?php endif; ?>
 
     <section class="form-section">
@@ -203,7 +202,13 @@ require_once 'header.php';
                             <option value="Active" <?= ($project['project_status'] ?? 'Active') == 'Active' ? 'selected' : '' ?>>🟢 Active</option>
                             <option value="On-Hold" <?= ($project['project_status'] ?? '') == 'On-Hold' ? 'selected' : '' ?>>🟡 On-Hold</option>
                             <option value="Withdrawn" <?= ($project['project_status'] ?? '') == 'Withdrawn' ? 'selected' : '' ?>>⚫ Withdrawn / Cancelled</option>
+                            <?php if (isAdmin()): ?>
+                                <option value="Completed" <?= ($project['project_status'] ?? '') == 'Completed' ? 'selected' : '' ?>>🔵 Completed (Legacy / Handed Over)</option>
+                            <?php endif; ?>
                         </select>
+                        <?php if (isAdmin()): ?>
+                            <div style="font-size: 0.75rem; color: #0ea5e9; margin-top: 4px;">* 'Completed' instantly bypasses all logic and locks project as 'Handed Over'.</div>
+                        <?php endif; ?>
                     </div>
 
                     <div class="form-group">
@@ -301,7 +306,6 @@ require_once 'header.php';
 
 <script src="localities.js"></script>
 <script>
-// --- Map & Location Picker Logic ---
 let map = null;
 let marker = null;
 
@@ -343,11 +347,9 @@ function initMap() {
         }
     });
 
-    // Fix for map loading properly inside a modal (needs resize event trigger)
     setTimeout(() => { map.invalidateSize(); }, 500);
 }
 
-// Auto-zoom map when city changes
 document.getElementById('city-select').addEventListener('change', async function() {
     const city = this.value;
     if (!city || !map) return;
@@ -360,7 +362,6 @@ document.getElementById('city-select').addEventListener('change', async function
     } catch (e) { console.error("Could not fly to city"); }
 });
 
-// --- Form Element Logic ---
 let paEntryCount = 0;
 const architects = <?= json_encode($architects) ?>;
 const engineers = <?= json_encode($engineers) ?>;
