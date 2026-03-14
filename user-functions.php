@@ -1,478 +1,371 @@
 <?php
-require_once 'init.php';
-require_once 'session-check.php';
+/**
+ * user-functions.php - Rev 2.5 Enterprise Logic
+ * Contains capability, access, and accurate stage engine.
+ */
 
-// Detect if we are loading inside the overlay modal
-$isModal = isset($_REQUEST['modal']) && $_REQUEST['modal'] == 1;
+// ==========================================
+// 1. CAPABILITY ENGINE
+// ==========================================
 
-$projectId = $_GET['id'] ?? null;
-if (!$projectId) { 
-    if ($isModal) { echo "<script>window.parent.postMessage('closeModal', '*');</script>"; exit; }
-    header('Location: dashboard.php'); exit; 
-}
+function hasPermission($capability) {
+    global $pdo;
+    $userId = $_SESSION['user_id'] ?? null;
+    $role = $_SESSION['role'] ?? null;
 
-if (!canEditProjectDetails($pdo, $projectId)) {
-    if ($isModal) { echo "<script>window.parent.postMessage('closeModal', '*');</script>"; exit; }
-    header('Location: dashboard.php?error=unauthorized'); exit;
-}
+    if (!$userId) return false;
+    if ($role === 'admin') return true; 
 
-$project = getProjectWithClient($pdo, $projectId);
-if (!$project) { 
-    if ($isModal) { echo "<script>window.parent.postMessage('closeModal', '*');</script>"; exit; }
-    header('Location: dashboard.php'); exit; 
-}
-
-$message = ''; $error = '';
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'update') {
-    try {
-        $clientId = !empty($_POST['clientid']) ? $_POST['clientid'] : null;
-        $name = trim($_POST['name'] ?? '');
-        $city = trim($_POST['city'] ?? '');
-        $island = $_POST['island'] ?? '';
-        $type = $_POST['type'] ?? '';
-        $finishLevel = ($_POST['finishlevel'] ?? '') ?: null;
-        $isTracking = isset($_POST['is_tracking']) ? 1 : 0;
-        $summerBreak = isset($_POST['summer_break_flag']) ? 1 : 0;
-        $projectStatus = $_POST['project_status'] ?? 'Active'; 
-        
-        $latitude = !empty($_POST['latitude']) ? $_POST['latitude'] : null;
-        $longitude = !empty($_POST['longitude']) ? $_POST['longitude'] : null;
-        $streetName = trim($_POST['street_name'] ?? '');
-
-        if (empty($clientId)) throw new Exception("A Developer/Client must be selected.");
-        if (empty($name)) throw new Exception("Project Name is required.");
-        if (empty($city)) throw new Exception("City / Locality is required.");
-        if (empty($island)) throw new Exception("Island is required.");
-        if (empty($type)) throw new Exception("Project Type is required.");
-
-        $pdo->beginTransaction();
-
-        $stmt = $pdo->prepare("
-            UPDATE projects 
-            SET clientid = ?, name = ?, city = ?, island = ?, type = ?, 
-                finishlevel = ?, is_tracking = ?, summer_break_flag = ?, 
-                project_status = ?, latitude = ?, longitude = ?, street_name = ? 
-            WHERE id = ?
-        ");
-        
-        $stmt->execute([$clientId, $name, $city, $island, $type, $finishLevel, $isTracking, $summerBreak, $projectStatus, $latitude, $longitude, $streetName, $projectId]);
-
-        if (isset($_POST['paentries']) && is_array($_POST['paentries'])) {
-            $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?")->execute([$projectId]);
-            $paStmt = $pdo->prepare("INSERT INTO project_pa_numbers (project_id, pa_number, pa_status, architect_id, structural_engineer_id) VALUES (?, ?, ?, ?, ?)");
-            foreach ($_POST['paentries'] as $paEntry) {
-                if (!empty($paEntry['pa_number'])) {
-                    $paStmt->execute([
-                        $projectId, trim($paEntry['pa_number']), $paEntry['pa_status'] ?? 'Tracking',
-                        !empty($paEntry['architect_id']) ? $paEntry['architect_id'] : null,
-                        !empty($paEntry['structural_engineer_id']) ? $paEntry['structural_engineer_id'] : null
-                    ]);
-                }
-            }
-        } else {
-            $pdo->prepare("DELETE FROM project_pa_numbers WHERE project_id = ?")->execute([$projectId]);
-        }
-
-        $submittedBlockIds = [];
-        if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
-            foreach ($_POST['blocks'] as $b) {
-                $bId = !empty($b['id']) ? (int)$b['id'] : null;
-                $bName = trim($b['name'] ?? '');
-                $bType = $b['type'] ?? 'Block';
-                $bLow = isset($b['lowest']) && $b['lowest'] !== '' ? (int)$b['lowest'] : 0;
-                $bHigh = isset($b['highest']) && $b['highest'] !== '' ? (int)$b['highest'] : 0;
-
-                if (empty($bName)) continue;
-                if ($bLow > $bHigh) { $temp = $bLow; $bLow = $bHigh; $bHigh = $temp; }
-
-                if ($bId) {
-                    $pdo->prepare("UPDATE project_blocks SET block_name=?, block_type=?, lowest_level=?, highest_level=? WHERE id=? AND project_id=?")
-                        ->execute([$bName, $bType, $bLow, $bHigh, $bId, $projectId]);
-                    $submittedBlockIds[] = $bId;
-                } else {
-                    $pdo->prepare("INSERT INTO project_blocks (project_id, block_name, block_type, lowest_level, highest_level) VALUES (?, ?, ?, ?, ?)")
-                        ->execute([$projectId, $bName, $bType, $bLow, $bHigh]);
-                    $bId = $pdo->lastInsertId();
-                    $submittedBlockIds[] = $bId;
-                }
-
-                $levelStmt = $pdo->prepare("INSERT IGNORE INTO block_levels (block_id, level_number, level_name) VALUES (?, ?, ?)");
-                for ($lvl = $bLow; $lvl <= $bHigh; $lvl++) {
-                    $lvlName = ($lvl === 0) ? "Level 0 (Ground)" : "Level " . $lvl;
-                    $levelStmt->execute([$bId, $lvl, $lvlName]);
-                }
-                
-                $pdo->prepare("DELETE FROM block_levels WHERE block_id=? AND (level_number < ? OR level_number > ?)")
-                    ->execute([$bId, $bLow, $bHigh]);
-            }
-        }
-
-        if (!empty($submittedBlockIds)) {
-            $placeholders = implode(',', array_fill(0, count($submittedBlockIds), '?'));
-            $params = $submittedBlockIds;
-            $params[] = $projectId;
-            $pdo->prepare("DELETE FROM project_blocks WHERE id NOT IN ($placeholders) AND project_id=?")->execute($params);
-        } else {
-            $pdo->prepare("DELETE FROM project_blocks WHERE project_id=?")->execute([$projectId]);
-        }
-
-        $pdo->commit();
-        $message = 'Project updated successfully!';
-        $project = getProjectWithClient($pdo, $projectId); 
-        
-        if ($isModal) {
-            $message .= "<script>setTimeout(() => { window.parent.postMessage('projectUpdated', '*'); }, 1200);</script>";
-        }
-
-    } catch (PDOException $e) {
-        if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
-        $error = 'Database Error: ' . $e->getMessage();
-    } catch (Exception $e) {
-        if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
-        $error = $e->getMessage();
+    $editCapabilities = ['add_project', 'edit_project_details', 'update_project_status', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors'];
+    if ($role === 'viewer' && in_array($capability, $editCapabilities)) {
+        return false;
     }
-}
 
-$clients = isAdmin() ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, getCurrentUserId());
-$architects = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type IN ('architect', 'both') ORDER BY name")->fetchAll();
-$engineers = $pdo->query("SELECT id, name, firm_name FROM professionals WHERE role_type IN ('structural_engineer', 'both') ORDER BY name")->fetchAll();
-
-$paNumbers = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id = ? ORDER BY created_at ASC");
-$paNumbers->execute([$projectId]);
-$paNumbers = $paNumbers->fetchAll();
-
-$blocks = $pdo->prepare("SELECT * FROM project_blocks WHERE project_id = ? ORDER BY id ASC");
-$blocks->execute([$projectId]);
-$projectBlocks = $blocks->fetchAll();
-
-$pageTitle = 'Edit Project - ' . $project['name'];
-require_once 'header.php';
-?>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<?php if ($isModal): ?>
-<style>
-    header, nav, footer, .sidebar { display: none !important; }
-    .main-container { padding: 1.5rem !important; margin: 0 auto !important; max-width: 100% !important; box-shadow: none !important; border: none !important; }
-    body, html { background: transparent !important; padding: 0 !important; margin: 0 !important; }
-</style>
-<?php endif; ?>
-
-<div class="main-container">
-    
-    <?php if (!$isModal): ?>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-        <h1 class="page-title" style="margin: 0;">Edit Project: <?= htmlspecialchars($project['name']); ?></h1>
-        <a href="dashboard.php" class="btn btn-secondary">Back to Dashboard</a>
-    </div>
-    <?php endif; ?>
-
-    <?php if ($message): ?><div class="message success" style="padding:1rem; background:rgba(34,197,94,0.1); color:var(--success); border:1px solid var(--success); border-radius:8px; margin-bottom:1rem;"><?= $message; ?></div><?php endif; ?>
-    <?php if ($error): ?><div class="message error" style="padding:1rem; background:rgba(239,68,68,0.1); color:var(--danger); border:1px solid var(--danger); border-radius:8px; margin-bottom:1rem;"><?= htmlspecialchars($error); ?></div><?php endif; ?>
-
-    <section class="form-section">
-        <form method="POST">
-            <input type="hidden" name="action" value="update">
-            <input type="hidden" name="modal" value="<?= $isModal ? 1 : 0 ?>">
-
-            <div style="margin-bottom: 2rem;">
-                <h3 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Core Details</h3>
-                
-                <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
-                    <div class="form-group">
-                        <label>Developer / Client <span style="color: #ef4444;">*</span></label>
-                        <select name="clientid" required>
-                            <option value="">-- Select Client --</option>
-                            <?php foreach ($clients as $c): ?>
-                                <option value="<?= $c['id'] ?>" <?= ($c['id'] == $project['clientid']) ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Project Name <span style="color: #ef4444;">*</span></label>
-                        <input type="text" name="name" value="<?= htmlspecialchars($project['name']) ?>" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Operational Status</label>
-                        <select name="project_status" required style="border: 2px solid var(--primary-color);">
-                            <option value="Active" <?= ($project['project_status'] ?? 'Active') == 'Active' ? 'selected' : '' ?>>🟢 Active</option>
-                            <option value="On-Hold" <?= ($project['project_status'] ?? '') == 'On-Hold' ? 'selected' : '' ?>>🟡 On-Hold</option>
-                            <option value="Withdrawn" <?= ($project['project_status'] ?? '') == 'Withdrawn' ? 'selected' : '' ?>>⚫ Withdrawn / Cancelled</option>
-                            <?php if (isAdmin()): ?>
-                                <option value="Completed" <?= ($project['project_status'] ?? '') == 'Completed' ? 'selected' : '' ?>>🔵 Completed (Legacy / Handed Over)</option>
-                            <?php endif; ?>
-                        </select>
-                        <?php if (isAdmin()): ?>
-                            <div style="font-size: 0.75rem; color: #0ea5e9; margin-top: 4px;">* 'Completed' instantly bypasses all logic and locks project as 'Handed Over'.</div>
-                        <?php endif; ?>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Island <span style="color: #ef4444;">*</span></label>
-                        <select name="island" id="island" onchange="updateCities()" required>
-                            <option value="">-- Select Island --</option>
-                            <option value="Malta" <?= $project['island'] === 'Malta' ? 'selected' : '' ?>>Malta</option>
-                            <option value="Gozo" <?= $project['island'] === 'Gozo' ? 'selected' : '' ?>>Gozo</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>City / Locality <span style="color: #ef4444;">*</span></label>
-                        <select name="city" id="city-select" data-selected="<?= htmlspecialchars($project['city']) ?>" required>
-                            <option value="<?= htmlspecialchars($project['city']) ?>" selected><?= htmlspecialchars($project['city']) ?></option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Project Type <span style="color: #ef4444;">*</span></label>
-                        <select name="type" id="project-type" onchange="toggleFinishLevel()" required>
-                            <option value="in-house" <?= $project['type'] == 'in-house' ? 'selected' : '' ?>>In-House</option>
-                            <option value="3rd-party" <?= $project['type'] == '3rd-party' ? 'selected' : '' ?>>3rd Party</option>
-                        </select>
-                    </div>
-                
-                    <div class="form-group" id="finish-level-group" style="display: <?= $project['type'] == 'in-house' ? 'block' : 'none' ?>;">
-                        <label>Finish Level</label>
-                        <select name="finishlevel" id="finish-level">
-                            <option value="">-- Select Finish Requirement --</option>
-                            <option value="Shell" <?= $project['finishlevel'] == 'Shell' ? 'selected' : '' ?>>Shell</option>
-                            <option value="Common Parts Only" <?= $project['finishlevel'] == 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option>
-                            <option value="Semi Finished" <?= $project['finishlevel'] == 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option>
-                            <option value="Finished" <?= $project['finishlevel'] == 'Finished' ? 'selected' : '' ?>>Finished</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div style="display: flex; flex-wrap: wrap; gap: 2rem; margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.02); border-radius: 8px;">
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #0ea5e9;">
-                        <input type="checkbox" name="is_tracking" value="1" <?= $project['is_tracking'] ? 'checked' : '' ?> style="width: 18px; height: 18px;">
-                        <strong>Pre-Execution Phase (Tracking/Feasibility)</strong>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #f59e0b;">
-                        <input type="checkbox" name="summer_break_flag" value="1" <?= $project['summer_break_flag'] ? 'checked' : '' ?> style="width: 18px; height: 18px;">
-                        <strong>Summer Break Area (Tourism Zone)</strong>
-                    </label>
-                </div>
-            </div>
-
-            <div style="margin-bottom: 2rem;">
-                <h3 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Location & Map Pin</h3>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Click on the map to change the exact location. The street name will be auto-detected.</p>
-                
-                <div id="map-picker" style="height: 300px; width: 100%; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 1rem; cursor: crosshair; z-index: 1;"></div>
-                
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr 2fr; gap: 1.5rem;">
-                    <div class="form-group" style="margin:0;">
-                        <label>Latitude</label>
-                        <input type="text" name="latitude" id="lat_input" value="<?= htmlspecialchars($project['latitude'] ?? '') ?>" readonly style="background: rgba(255,255,255,0.05); color: var(--text-muted);">
-                    </div>
-                    <div class="form-group" style="margin:0;">
-                        <label>Longitude</label>
-                        <input type="text" name="longitude" id="lon_input" value="<?= htmlspecialchars($project['longitude'] ?? '') ?>" readonly style="background: rgba(255,255,255,0.05); color: var(--text-muted);">
-                    </div>
-                    <div class="form-group" style="margin:0;">
-                        <label>Street Name</label>
-                        <input type="text" name="street_name" id="street_input" value="<?= htmlspecialchars($project['street_name'] ?? '') ?>" placeholder="Auto-detected or enter manually...">
-                    </div>
-                </div>
-            </div>
-
-            <div style="margin-bottom: 3rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
-                    <h3>PA Numbers & Permits</h3>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="addPAEntry()">+ Add PA Number</button>
-                </div>
-                <div id="pa-entries-container" style="display: grid; gap: 1rem;"></div>
-            </div>
-
-            <div style="margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
-                    <div>
-                        <h3 style="margin: 0; color: var(--primary-color);">Building Blocks & Levels</h3>
-                        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Define the physical blocks and their level ranges for execution tracking.</p>
-                    </div>
-                    <button type="button" class="btn btn-sm" onclick="addBlockEntry()" style="background: var(--primary-color);">+ Add Block</button>
-                </div>
-                <div id="block-entries-container" style="display: grid; gap: 1rem;"></div>
-            </div>
-
-            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1.25rem; font-size: 1.1rem;">Save Project Details</button>
-        </form>
-    </section>
-</div>
-
-<script src="localities.js"></script>
-<script>
-let map = null;
-let marker = null;
-
-function initMap() {
-    map = L.map('map-picker').setView([35.91, 14.45], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
-
-    <?php if (!empty($project['latitude']) && !empty($project['longitude'])): ?>
-        const existingLat = <?= $project['latitude'] ?>;
-        const existingLon = <?= $project['longitude'] ?>;
-        marker = L.marker([existingLat, existingLon]).addTo(map);
-        map.setView([existingLat, existingLon], 16);
-    <?php endif; ?>
-
-    map.on('click', async function(e) {
-        const lat = e.latlng.lat.toFixed(6);
-        const lon = e.latlng.lng.toFixed(6);
-        
-        document.getElementById('lat_input').value = lat;
-        document.getElementById('lon_input').value = lon;
-        
-        if (marker) map.removeLayer(marker);
-        marker = L.marker([lat, lon]).addTo(map);
-
-        document.getElementById('street_input').value = "Detecting...";
-        try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`);
-            const data = await res.json();
-            if (data && data.address) {
-                const road = data.address.road || data.address.pedestrian || data.address.path || data.name || data.address.suburb || data.address.village || '';
-                document.getElementById('street_input').value = road;
-            } else {
-                document.getElementById('street_input').value = '';
-            }
-        } catch (err) {
-            document.getElementById('street_input').value = '';
-        }
-    });
-
-    setTimeout(() => { map.invalidateSize(); }, 500);
-}
-
-document.getElementById('city-select').addEventListener('change', async function() {
-    const city = this.value;
-    if (!city || !map) return;
     try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&city=${encodeURIComponent(city)}&country=Malta`);
-        const data = await res.json();
-        if (data && data.length > 0) {
-            map.flyTo([data[0].lat, data[0].lon], 15);
+        $stmt = $pdo->prepare("SELECT $capability FROM user_capabilities WHERE user_id = ?");
+        $stmt->execute([$userId]);
+        $val = $stmt->fetchColumn();
+        return $val !== false ? (bool)$val : false;
+    } catch (PDOException $e) { return false; }
+}
+
+function canEditProjectDetails($pdo, $projectId) {
+    return hasPermission('edit_project_details') && hasProjectAccess($pdo, $projectId);
+}
+
+function canUpdateStatus($pdo, $projectId) {
+    return hasPermission('update_project_status') && hasProjectAccess($pdo, $projectId);
+}
+
+// ==========================================
+// 2. STAGE ENGINE (EXCEL LOGIC MAP APPLIED)
+// ==========================================
+
+function getAccurateProjectStage($pdo, $projectId) {
+    // Fetch base project data
+    $stmt = $pdo->prepare("SELECT type, finishlevel, project_status, is_tracking FROM projects WHERE id = ?");
+    $stmt->execute([$projectId]);
+    $proj = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$proj) return 'Feasibility';
+
+    if (($proj['project_status'] ?? '') === 'Completed') return 'Handed Over';
+
+    $isCapital = in_array(strtolower($proj['type'] ?? ''), ['3rd-party', 'capital', '3rd party']);
+    $finishGoal = trim($proj['finishlevel'] ?? 'Shell');
+    $isTracking = (int)($proj['is_tracking'] ?? 0) === 1;
+
+    // Fetch PA Numbers (FIXED COLUMN NAME)
+    $paStmt = $pdo->prepare("SELECT pa_number, pa_status FROM project_pa_numbers WHERE project_id = ?");
+    $paStmt->execute([$projectId]);
+    $paData = $paStmt->fetchAll(PDO::FETCH_ASSOC);
+    $hasPaNumbers = count($paData) > 0;
+
+    $allTracking = true;
+    $hasDecidedEndorsed = false;
+    if ($hasPaNumbers) {
+        foreach ($paData as $pa) {
+            $status = strtolower(trim($pa['pa_status'] ?? ''));
+            if ($status !== 'tracking') $allTracking = false;
+            // Evaluates to true if Decided, Endorsed, or Approved
+            if (strpos($status, 'decided') !== false || strpos($status, 'endorsed') !== false || strpos($status, 'approved') !== false) {
+                $hasDecidedEndorsed = true;
+            }
         }
-    } catch (e) { console.error("Could not fly to city"); }
-});
-
-let paEntryCount = 0;
-const architects = <?= json_encode($architects) ?>;
-const engineers = <?= json_encode($engineers) ?>;
-const existingPANumbers = <?= json_encode($paNumbers) ?>;
-
-const paStatuses = [
-    "Tracking", "Pending/Awaiting Decision", "Recommended for Approval", 
-    "Recommended for Refusal", "Decided", "Endorsed", "Fee Payment", 
-    "Under Appeal", "Refused", "Revoked/Annulled", "Withdrawn"
-];
-
-function addPAEntry(paData = null) {
-    const container = document.getElementById('pa-entries-container');
-    const div = document.createElement('div');
-    div.id = `pa-entry-${paEntryCount}`;
-    div.style.cssText = "background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; position: relative;";
-
-    const paNum = paData ? paData.pa_number : '';
-    const paStat = paData ? paData.pa_status : 'Tracking';
-    const aId = paData ? paData.architect_id : '';
-    const eId = paData ? paData.structural_engineer_id : '';
-
-    const statusOptions = paStatuses.map(status => {
-        return `<option value="${status}" ${paStat === status ? 'selected' : ''}>${status}</option>`;
-    }).join('');
-
-    div.innerHTML = `
-        <div class="form-group" style="margin:0;"><label>PA Number</label><input type="text" name="paentries[${paEntryCount}][pa_number]" value="${escapeHtml(paNum)}" placeholder="e.g. PA/1234/24" required></div>
-        <div class="form-group" style="margin:0;"><label>Status</label><select name="paentries[${paEntryCount}][pa_status]">${statusOptions}</select></div>
-        <div class="form-group" style="margin:0;"><label>Architect</label><select name="paentries[${paEntryCount}][architect_id]">
-            <option value="">-- Select Architect --</option>
-            ${architects.map(a => `<option value="${a.id}" ${a.id==aId?'selected':''}>${escapeHtml(a.name)}</option>`).join('')}
-        </select></div>
-        <div class="form-group" style="margin:0;"><label>Engineer</label><select name="paentries[${paEntryCount}][structural_engineer_id]">
-            <option value="">-- Select Engineer --</option>
-            ${engineers.map(e => `<option value="${e.id}" ${e.id==eId?'selected':''}>${escapeHtml(e.name)}</option>`).join('')}
-        </select></div>
-        <button type="button" onclick="document.getElementById('pa-entry-${paEntryCount}').remove()" class="btn btn-sm btn-danger" style="position: absolute; top: -10px; right: -10px; border-radius: 50%; width: 30px; height: 30px; padding: 0;">X</button>
-    `;
-    container.appendChild(div);
-    paEntryCount++;
-}
-
-let blockEntryCount = 0;
-const existingBlocks = <?= json_encode($projectBlocks) ?>;
-
-function addBlockEntry(blockData = null) {
-    const container = document.getElementById('block-entries-container');
-    const div = document.createElement('div');
-    div.id = `block-entry-${blockEntryCount}`;
-    div.style.cssText = "background: rgba(99, 102, 241, 0.05); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--primary-color); display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 1rem; align-items: end; position: relative;";
-
-    const bId = blockData ? blockData.id : '';
-    const bName = blockData ? blockData.block_name : '';
-    const bType = blockData ? blockData.block_type : 'Block';
-    const bLow = blockData ? blockData.lowest_level : 0;
-    const bHigh = blockData ? blockData.highest_level : 0;
-
-    div.innerHTML = `
-        <input type="hidden" name="blocks[${blockEntryCount}][id]" value="${bId}">
-        <div class="form-group" style="margin:0;"><label>Block Name</label><input type="text" name="blocks[${blockEntryCount}][name]" value="${escapeHtml(bName)}" required></div>
-        <div class="form-group" style="margin:0;"><label>Type</label><select name="blocks[${blockEntryCount}][type]">
-            <option value="Block" ${bType==='Block'?'selected':''}>Block</option>
-            <option value="Garage Complex" ${bType==='Garage Complex'?'selected':''}>Garage Complex</option>
-            <option value="Villa" ${bType==='Villa'?'selected':''}>Villa</option>
-            <option value="Commercial" ${bType==='Commercial'?'selected':''}>Commercial</option>
-            <option value="House" ${bType==='House'?'selected':''}>House</option>
-            <option value="Other" ${bType==='Other'?'selected':''}>Other</option>
-        </select></div>
-        <div class="form-group" style="margin:0;"><label>Lowest Level (-2)</label><input type="number" name="blocks[${blockEntryCount}][lowest]" value="${bLow}" required></div>
-        <div class="form-group" style="margin:0;"><label>Highest Level (5)</label><input type="number" name="blocks[${blockEntryCount}][highest]" value="${bHigh}" required></div>
-        <button type="button" onclick="if(confirm('Remove this block and all its floor progress?')) document.getElementById('block-entry-${blockEntryCount}').remove()" class="btn btn-sm btn-danger" style="position: absolute; top: -10px; right: -10px; border-radius: 50%; width: 30px; height: 30px; padding: 0;">X</button>
-    `;
-    container.appendChild(div);
-    blockEntryCount++;
-}
-
-function escapeHtml(text) { return text ? String(text).replace(/[&<>"'`=\/]/g, function(s){return entityMap[s];}) : ''; }
-const entityMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'};
-
-function updateCities() {
-    const islandSelect = document.getElementById('island');
-    const citySelect = document.getElementById('city-select');
-    const currentCity = citySelect.getAttribute('data-selected') || citySelect.value;
-    
-    citySelect.innerHTML = '<option value="">-- Select City --</option>';
-    
-    if (islandSelect.value && typeof locations !== 'undefined' && locations[islandSelect.value]) {
-        citySelect.disabled = false;
-        locations[islandSelect.value].forEach(city => {
-            const opt = document.createElement('option'); 
-            opt.value = city; 
-            opt.textContent = city;
-            if (city === currentCity) opt.selected = true;
-            citySelect.appendChild(opt);
-        });
     } else {
-        citySelect.innerHTML = '<option value="">-- Select Island First --</option>';
-        citySelect.disabled = true;
+        $allTracking = false;
     }
+
+    // Fetch Mobilisation & Clearances Data
+    $mobStmt = $pdo->prepare("SELECT demo_status, excavation_status, mob_demolition, mob_excavation, mob_construction FROM project_mobilisation WHERE project_id = ?");
+    $mobStmt->execute([$projectId]);
+    $mob = $mobStmt->fetch(PDO::FETCH_ASSOC);
+    
+    $demoClearance = ($mob['mob_demolition'] ?? 'No') === 'Yes';
+    $excClearance = ($mob['mob_excavation'] ?? 'No') === 'Yes';
+    $constClearance = ($mob['mob_construction'] ?? 'No') === 'Yes';
+    
+    $demoStatus = $mob['demo_status'] ?? 'Pending';
+    $excStatus = $mob['excavation_status'] ?? 'Pending';
+
+    $demoComplete = in_array($demoStatus, ['Complete', 'NA']);
+    $excComplete = in_array($excStatus, ['Complete', 'NA']);
+
+    // Fetch Blocks & Levels Data
+    $bStmt = $pdo->prepare("SELECT id, block_type, finish_level, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed, finishes_overall_status, progress FROM project_blocks WHERE project_id = ?");
+    $bStmt->execute([$projectId]);
+    $blocks = $bStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $allConstComplete = true; $anyConstInProgress = false;
+    $allFinComplete = true; 
+    $allCompSubmitted = true; $allCompCertified = true;
+    $allCondoFormed = true; $allCpMeters = true;
+    $needsFinishes = false;
+
+    if (empty($blocks)) {
+        $allConstComplete = false;
+    } else {
+        foreach ($blocks as $b) {
+            // Construction Eval
+            $lStmt = $pdo->prepare("SELECT construction_status FROM block_levels WHERE block_id = ?");
+            $lStmt->execute([$b['id']]);
+            $levels = $lStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($levels)) {
+                $allConstComplete = false;
+            } else {
+                foreach ($levels as $l) {
+                    if ($l['construction_status'] === 'In Progress') $anyConstInProgress = true;
+                    if (!in_array($l['construction_status'], ['Complete', 'NA'])) $allConstComplete = false;
+                }
+            }
+
+            // Finishes Eval
+            $bFinGoal = trim(!empty($b['finish_level']) ? $b['finish_level'] : $finishGoal);
+            if ($bFinGoal === 'Semi-Finished') $bFinGoal = 'Semi Finished';
+            $isBlockShell = in_array($bFinGoal, ['Shell', 'Shell (No Finishes)', 'NA', '']);
+            
+            if (!$isBlockShell) {
+                $needsFinishes = true;
+                $bFinComplete = false;
+                if (in_array($b['finishes_overall_status'], ['Complete', 'NA'])) {
+                    $bFinComplete = true;
+                } elseif (isset($b['progress']) && $b['progress'] >= 100) {
+                    $bFinComplete = true;
+                }
+                if (!$bFinComplete) $allFinComplete = false;
+            }
+
+            // Post-Const Eval
+            if (!in_array($b['compliance_submitted'], ['Yes', 'NA'])) $allCompSubmitted = false;
+            if (!in_array($b['compliance_certified'], ['Yes', 'NA'])) $allCompCertified = false;
+            if (!in_array($b['condominium_formed'], ['Yes', 'NA'])) $allCondoFormed = false;
+            if (!in_array($b['cp_meters_installed'], ['Yes', 'NA'])) $allCpMeters = false;
+        }
+    }
+
+    // Capital Projects automatically bypass Compliance & Condo logic
+    if ($isCapital) {
+        $allCompSubmitted = true; $allCompCertified = true;
+        $allCondoFormed = true; $allCpMeters = true;
+    }
+
+    // ==========================================
+    // EXCEL WATERFALL STAGE DETERMINATION
+    // ==========================================
+    
+    // Safety Override: If a PM manually started execution despite a pending permit.
+    $hasPhysicalOverride = $anyConstInProgress || (!empty($blocks) && $allConstComplete) || $constClearance ||
+                           $demoStatus === 'In Progress' || $demoStatus === 'Complete' || $demoClearance ||
+                           $excStatus === 'In Progress' || $excStatus === 'Complete' || $excClearance;
+
+    // 1. PRE-EXECUTION (If no decided permit, and physical execution hasn't somehow started)
+    if (!$hasDecidedEndorsed && !$hasPhysicalOverride) {
+        if ($hasPaNumbers) {
+            return ($isTracking || $allTracking) ? 'Tracking' : 'Permit';
+        }
+        return ($isTracking) ? 'Tracking' : 'Feasibility';
+    }
+
+    // 2. POST-CONSTRUCTION
+    if (!empty($blocks) && $allConstComplete && $hasPhysicalOverride) {
+        if ($needsFinishes && !$allFinComplete) return 'Finishes';
+        if (!$allCompSubmitted) return $needsFinishes ? 'Finishes' : 'Construction';
+        if (!$allCompCertified) return 'Compliance';
+        if (!$allCondoFormed || !$allCpMeters) return 'Condominium';
+        return 'Handed Over';
+    }
+
+    // 3. ACTIVE EXECUTION
+    if ($anyConstInProgress || $constClearance) {
+        return 'Construction';
+    }
+
+    if ($excStatus === 'In Progress' || $excClearance) {
+        return $excComplete ? 'Construction' : 'Excavation';
+    }
+
+    if ($demoStatus === 'In Progress' || $demoClearance) {
+        return $demoComplete ? 'Excavation' : 'Demolition';
+    }
+
+    // 4. FALLBACK: MOBILISATION
+    // Reaches here if Permit is Decided, but NO clearances or progress are active yet.
+    if ($hasDecidedEndorsed) return 'Mobilisation';
+
+    return 'Permit';
 }
 
-function toggleFinishLevel() { document.getElementById('finish-level-group').style.display = document.getElementById('project-type').value === 'in-house' ? 'block' : 'none'; }
+// ==========================================
+// 3. PROJECT ACCESS ENGINE
+// ==========================================
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (existingPANumbers && existingPANumbers.length > 0) { existingPANumbers.forEach(pa => addPAEntry(pa)); } 
-    if (existingBlocks && existingBlocks.length > 0) { existingBlocks.forEach(b => addBlockEntry(b)); } 
+function getAccessibleProjects($pdo, $userId = null) {
+    if ($userId === null) $userId = getCurrentUserId();
     
-    updateCities();
-    initMap(); // Start map
-});
-</script>
+    $trackingFilter = "";
+    if (!isAdmin() && !hasPermission('view_tracking')) { $trackingFilter = " AND p.is_tracking = 0 "; }
 
-<?php require_once 'footer.php'; ?>
+    if (isAdmin()) {
+        $stmt = $pdo->prepare("SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id ORDER BY p.created_at DESC");
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+    
+    $user = getUserById($pdo, $userId);
+    if (!$user) return [];
+    
+    $level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
+    if (in_array($user['role'], $level1Roles)) {
+        $stmt = $pdo->prepare("SELECT DISTINCT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id WHERE ((? IS NOT NULL AND ppn.architect_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) AND role_type = 'architect')) OR (? IS NOT NULL AND ppn.structural_engineer_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) AND role_type = 'structural_engineer'))) AND p.id NOT IN (SELECT project_id FROM user_project_exclusions WHERE user_id = ?) $trackingFilter ORDER BY p.created_at DESC");
+        $stmt->execute([$user['assigned_architect_firm_id'], $user['assigned_architect_firm_id'], $user['assigned_structural_firm_id'], $user['assigned_structural_firm_id'], $userId]);
+        return $stmt->fetchAll();
+    }
+    
+    $stmt = $pdo->prepare("SELECT DISTINCT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id LEFT JOIN user_client_access uca ON p.clientid = uca.client_id AND uca.user_id = ? LEFT JOIN user_project_access upa ON p.id = upa.project_id AND upa.user_id = ? WHERE (uca.id IS NOT NULL OR upa.id IS NOT NULL) AND p.id NOT IN (SELECT project_id FROM user_project_exclusions WHERE user_id = ?) $trackingFilter ORDER BY p.created_at DESC");
+    $stmt->execute([$userId, $userId, $userId]);
+    return $stmt->fetchAll();
+}
+
+function hasProjectAccess($pdo, $projectId) {
+    $userId = getCurrentUserId();
+    if (isAdmin()) return true;
+    
+    $stmt = $pdo->prepare("SELECT id FROM user_project_exclusions WHERE user_id = ? AND project_id = ?");
+    $stmt->execute([$userId, $projectId]);
+    if ($stmt->fetch()) return false;
+
+    $user = getUserById($pdo, $userId);
+    $level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
+    
+    if (in_array($user['role'], $level1Roles)) {
+        $stmt = $pdo->prepare("SELECT p.id FROM projects p LEFT JOIN project_pa_numbers ppn ON p.id = ppn.project_id WHERE p.id = ? AND (ppn.architect_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?)))");
+        $stmt->execute([$projectId, $user['assigned_architect_firm_id']]);
+        return $stmt->fetch() !== false;
+    }
+    
+    $stmt = $pdo->prepare("SELECT p.id FROM projects p LEFT JOIN user_client_access uca ON p.clientid = uca.client_id AND uca.user_id = ? LEFT JOIN user_project_access upa ON p.id = upa.project_id AND upa.user_id = ? WHERE p.id = ? AND (uca.id IS NOT NULL OR upa.id IS NOT NULL)");
+    $stmt->execute([$userId, $userId, $projectId]);
+    return $stmt->fetch() !== false;
+}
+
+// ==========================================
+// 4. USER MANAGEMENT UTILITIES
+// ==========================================
+
+function getUserById($pdo, $userId) {
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    return $stmt->fetch();
+}
+
+function getAllUsers($pdo) { return $pdo->query("SELECT * FROM users ORDER BY username ASC")->fetchAll(); }
+
+function getUserClients($pdo, $userId) {
+    $stmt = $pdo->prepare("SELECT c.*, uca.assigned_at FROM clients c INNER JOIN user_client_access uca ON c.id = uca.client_id WHERE uca.user_id = ? ORDER BY c.name ASC");
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function assignUserToClient($pdo, $userId, $clientId) {
+    try {
+        $check = $pdo->prepare("SELECT id FROM user_client_access WHERE user_id = ? AND client_id = ?");
+        $check->execute([$userId, $clientId]);
+        if ($check->fetch()) return true;
+        
+        $stmt = $pdo->prepare("INSERT INTO user_client_access (user_id, client_id, assigned_by) VALUES (?, ?, ?)");
+        return $stmt->execute([$userId, $clientId, getCurrentUserId()]);
+    } catch (PDOException $e) { return false; }
+}
+
+function removeUserFromClient($pdo, $userId, $clientId) {
+    try { return $pdo->prepare("DELETE FROM user_client_access WHERE user_id = ? AND client_id = ?")->execute([$userId, $clientId]); } catch (PDOException $e) { return false; }
+}
+
+function excludeProjectFromUser($pdo, $userId, $projectId) {
+    try {
+        $check = $pdo->prepare("SELECT id FROM user_project_exclusions WHERE user_id = ? AND project_id = ?");
+        $check->execute([$userId, $projectId]);
+        if ($check->fetch()) return true;
+        
+        return $pdo->prepare("INSERT INTO user_project_exclusions (user_id, project_id, excluded_by) VALUES (?, ?, ?)")->execute([$userId, $projectId, getCurrentUserId()]);
+    } catch (PDOException $e) { return false; }
+}
+
+function removeProjectExclusion($pdo, $userId, $projectId) {
+    try { return $pdo->prepare("DELETE FROM user_project_exclusions WHERE user_id = ? AND project_id = ?")->execute([$userId, $projectId]); } catch (PDOException $e) { return false; }
+}
+
+function getUserExcludedProjects($pdo, $userId) {
+    $stmt = $pdo->prepare("SELECT p.*, c.name as client_name, upe.excluded_at FROM projects p LEFT JOIN clients c ON p.clientid = c.id INNER JOIN user_project_exclusions upe ON p.id = upe.project_id WHERE upe.user_id = ? ORDER BY p.name ASC");
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function getUserAssignedProjects($pdo, $userId) {
+    $stmt = $pdo->prepare("SELECT p.*, c.name as client_name, upa.assigned_at FROM projects p LEFT JOIN clients c ON p.clientid = c.id INNER JOIN user_project_access upa ON p.id = upa.project_id WHERE upa.user_id = ? ORDER BY p.name ASC");
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function assignUserToProject($pdo, $userId, $projectId) {
+    try {
+        $check = $pdo->prepare("SELECT id FROM user_project_access WHERE user_id = ? AND project_id = ?");
+        $check->execute([$userId, $projectId]);
+        if ($check->fetch()) return true;
+        return $pdo->prepare("INSERT INTO user_project_access (user_id, project_id, assigned_by) VALUES (?, ?, ?)")->execute([$userId, $projectId, getCurrentUserId()]);
+    } catch (PDOException $e) { return false; }
+}
+
+function removeUserFromProject($pdo, $userId, $projectId) {
+    try { return $pdo->prepare("DELETE FROM user_project_access WHERE user_id = ? AND project_id = ?")->execute([$userId, $projectId]); } catch (PDOException $e) { return false; }
+}
+
+function changePassword($pdo, $userId, $newPassword) {
+    try {
+        $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        return $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?")->execute([$passwordHash, $userId]);
+    } catch (PDOException $e) { return false; }
+}
+
+function deleteUser($pdo, $userId) {
+    try { return $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$userId]); } catch (PDOException $e) { return false; }
+}
+
+// ==========================================
+// 5. FIRM / PROFESSIONAL UTILITIES
+// ==========================================
+
+function getAllFirms($pdo) {
+    $stmt = $pdo->query("SELECT DISTINCT firm_name, role_type FROM professionals ORDER BY firm_name ASC, role_type ASC");
+    $allFirms = $stmt->fetchAll();
+    
+    $firms = ['architects' => [], 'structural_engineers' => []];
+    foreach ($allFirms as $firm) {
+        if ($firm['role_type'] === 'architect' && !in_array($firm['firm_name'], $firms['architects'])) {
+            $firms['architects'][] = $firm['firm_name'];
+        }
+        if ($firm['role_type'] === 'structural_engineer' && !in_array($firm['firm_name'], $firms['structural_engineers'])) {
+            $firms['structural_engineers'][] = $firm['firm_name'];
+        }
+    }
+    return $firms;
+}
+
+function getProfessionalIdByFirm($pdo, $firmName, $roleType) {
+    $stmt = $pdo->prepare("SELECT id FROM professionals WHERE firm_name = ? AND role_type = ? LIMIT 1");
+    $stmt->execute([$firmName, $roleType]);
+    $result = $stmt->fetch();
+    return $result ? $result['id'] : null;
+}
+
+function formatPANumber($pa) {
+    $clean = str_replace(['/', ' '], '', $pa);
+    if (preg_match('/^([A-Z]{2})(\d{4})(\d{2})$/', $clean, $matches)) { return "{$matches[1]}/{$matches[2]}/{$matches[3]}"; }
+    return $pa;
+}
+
+function getEAppsUrl($pa) {
+    $rawPa = str_replace(['/', ' '], '', $pa);
+    if (preg_match('/(PA|PC|DN)(\d+)(\d{2})/', $rawPa, $m)) { return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
+    return "#";
+}
