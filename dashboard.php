@@ -365,6 +365,7 @@ tr:last-child td { border-bottom: none; }
                                 <option value="Active" <?= $filterDbStatus === 'Active' ? 'selected' : '' ?>>🟢 Active Projects</option>
                                 <option value="On-Hold" <?= $filterDbStatus === 'On-Hold' ? 'selected' : '' ?>>🟡 On-Hold Projects</option>
                                 <option value="Withdrawn" <?= $filterDbStatus === 'Withdrawn' ? 'selected' : '' ?>>⚫ Withdrawn Projects</option>
+                                <option value="Completed" <?= $filterDbStatus === 'Completed' ? 'selected' : '' ?>>🔵 Completed (Handed Over)</option>
                                 <option value="All" <?= $filterDbStatus === 'All' ? 'selected' : '' ?>>All Projects</option>
                             </select>
                         </div>
@@ -382,19 +383,19 @@ tr:last-child td { border-bottom: none; }
                                 <?php if (!empty($preExecOpts)): ?>
                                     <option value="group_pre" <?= $filterStatus === 'group_pre' ? 'selected' : '' ?> style="font-weight: bold; color: var(--primary-color);">▼ PRE-EXECUTION (All)</option>
                                     <?php foreach($preExecOpts as $st): ?>
-                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>&nbsp;&nbsp;• <?= $stageEnum[$st] ?>. <?= $st ?></option>
+                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>  • <?= $stageEnum[$st] ?>. <?= $st ?></option>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
                                 <?php if (!empty($execOpts)): ?>
                                     <option value="group_exec" <?= $filterStatus === 'group_exec' ? 'selected' : '' ?> style="font-weight: bold; color: var(--primary-color);">▼ EXECUTION (All)</option>
                                     <?php foreach($execOpts as $st): ?>
-                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>&nbsp;&nbsp;• <?= $stageEnum[$st] ?>. <?= $st ?></option>
+                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>  • <?= $stageEnum[$st] ?>. <?= $st ?></option>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
                                 <?php if (!empty($finalOpts)): ?>
                                     <option value="group_final" <?= $filterStatus === 'group_final' ? 'selected' : '' ?> style="font-weight: bold; color: var(--primary-color);">▼ FINALIZATION (All)</option>
                                     <?php foreach($finalOpts as $st): ?>
-                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>&nbsp;&nbsp;• <?= $stageEnum[$st] ?>. <?= $st ?></option>
+                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>  • <?= $stageEnum[$st] ?>. <?= $st ?></option>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
                             </select>
@@ -719,7 +720,6 @@ function initMap() {
         const pinColor = getClientColor(clientName);
         visibleClients.add(clientName);
 
-        // SHRUNK PIN SIZE FROM 26x26 down to 16x16
         const customIcon = L.divIcon({ className: 'custom-pin', html: `<div class="custom-pin-inner" style="background-color: ${pinColor};"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] });
         const marker = L.marker(coords, { icon: customIcon });
         
