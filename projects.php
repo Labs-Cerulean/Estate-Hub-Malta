@@ -136,7 +136,7 @@ if (!empty($projectIds)) {
 $matrixProjects = [];
 foreach ($projectsRaw as $p) {
     if (($p['project_status'] ?? 'Active') !== 'Active') continue;
-    $stage = deriveProjectStage($pdo, $p['id']);
+    $stage = getAccurateProjectStage($pdo, $p['id']);
     
     if (in_array($stage, $allowedStages)) {
         if ($filterStage !== 'all' && $stage !== $filterStage) continue;
