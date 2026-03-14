@@ -1,6 +1,6 @@
 <?php
 /**
- * user-functions.php - Rev 2.4 Enterprise Logic
+ * user-functions.php - Rev 2.5 Enterprise Logic
  * Contains capability, access, and accurate stage engine.
  */
 
@@ -54,11 +54,26 @@ function getAccurateProjectStage($pdo, $projectId) {
     $finishGoal = trim($proj['finishlevel'] ?? 'Shell');
     $isTracking = (int)($proj['is_tracking'] ?? 0) === 1;
 
-    // Fetch PA Numbers
-    $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ?");
+    // Fetch PA Numbers (FIXED COLUMN NAME)
+    $paStmt = $pdo->prepare("SELECT pa_number, pa_status FROM project_pa_numbers WHERE project_id = ?");
     $paStmt->execute([$projectId]);
     $paData = $paStmt->fetchAll(PDO::FETCH_ASSOC);
     $hasPaNumbers = count($paData) > 0;
+
+    $allTracking = true;
+    $hasDecidedEndorsed = false;
+    if ($hasPaNumbers) {
+        foreach ($paData as $pa) {
+            $status = strtolower(trim($pa['pa_status'] ?? ''));
+            if ($status !== 'tracking') $allTracking = false;
+            // Evaluates to true if Decided, Endorsed, or Approved
+            if (strpos($status, 'decided') !== false || strpos($status, 'endorsed') !== false || strpos($status, 'approved') !== false) {
+                $hasDecidedEndorsed = true;
+            }
+        }
+    } else {
+        $allTracking = false;
+    }
 
     // Fetch Mobilisation & Clearances Data
     $mobStmt = $pdo->prepare("SELECT demo_status, excavation_status, mob_demolition, mob_excavation, mob_construction FROM project_mobilisation WHERE project_id = ?");
@@ -68,22 +83,22 @@ function getAccurateProjectStage($pdo, $projectId) {
     $demoClearance = ($mob['mob_demolition'] ?? 'No') === 'Yes';
     $excClearance = ($mob['mob_excavation'] ?? 'No') === 'Yes';
     $constClearance = ($mob['mob_construction'] ?? 'No') === 'Yes';
-    $hasAnyClearance = $demoClearance || $excClearance || $constClearance;
+    
+    $demoStatus = $mob['demo_status'] ?? 'Pending';
+    $excStatus = $mob['excavation_status'] ?? 'Pending';
 
-    $demoComplete = in_array($mob['demo_status'] ?? 'Pending', ['Complete', 'NA']);
-    $excComplete = in_array($mob['excavation_status'] ?? 'Pending', ['Complete', 'NA']);
+    $demoComplete = in_array($demoStatus, ['Complete', 'NA']);
+    $excComplete = in_array($excStatus, ['Complete', 'NA']);
 
     // Fetch Blocks & Levels Data
     $bStmt = $pdo->prepare("SELECT id, block_type, finish_level, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed, finishes_overall_status, progress FROM project_blocks WHERE project_id = ?");
     $bStmt->execute([$projectId]);
     $blocks = $bStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $allConstComplete = true; 
+    $allConstComplete = true; $anyConstInProgress = false;
     $allFinComplete = true; 
-    $allCompSubmitted = true;
-    $allCompCertified = true;
-    $allCondoFormed = true;
-    $allCpMeters = true;
+    $allCompSubmitted = true; $allCompCertified = true;
+    $allCondoFormed = true; $allCpMeters = true;
     $needsFinishes = false;
 
     if (empty($blocks)) {
@@ -99,6 +114,7 @@ function getAccurateProjectStage($pdo, $projectId) {
                 $allConstComplete = false;
             } else {
                 foreach ($levels as $l) {
+                    if ($l['construction_status'] === 'In Progress') $anyConstInProgress = true;
                     if (!in_array($l['construction_status'], ['Complete', 'NA'])) $allConstComplete = false;
                 }
             }
@@ -129,30 +145,29 @@ function getAccurateProjectStage($pdo, $projectId) {
 
     // Capital Projects automatically bypass Compliance & Condo logic
     if ($isCapital) {
-        $allCompSubmitted = true;
-        $allCompCertified = true;
-        $allCondoFormed = true;
-        $allCpMeters = true;
+        $allCompSubmitted = true; $allCompCertified = true;
+        $allCondoFormed = true; $allCpMeters = true;
     }
 
     // ==========================================
     // EXCEL WATERFALL STAGE DETERMINATION
-    // (Evaluates worst/earliest stage first)
     // ==========================================
+    
+    // Safety Override: If a PM manually started execution despite a pending permit.
+    $hasPhysicalOverride = $anyConstInProgress || (!empty($blocks) && $allConstComplete) || $constClearance ||
+                           $demoStatus === 'In Progress' || $demoStatus === 'Complete' || $demoClearance ||
+                           $excStatus === 'In Progress' || $excStatus === 'Complete' || $excClearance;
 
-    // Rule 5, 6, 7: Active Execution
-    if (!$demoComplete) {
-        return $demoClearance ? 'Demolition' : 'Mobilisation';
-    }
-    if (!$excComplete) {
-        return $excClearance ? 'Excavation' : 'Mobilisation';
-    }
-    if (!$allConstComplete) {
-        return $constClearance ? 'Construction' : 'Mobilisation';
+    // 1. PRE-EXECUTION (If no decided permit, and physical execution hasn't somehow started)
+    if (!$hasDecidedEndorsed && !$hasPhysicalOverride) {
+        if ($hasPaNumbers) {
+            return ($isTracking || $allTracking) ? 'Tracking' : 'Permit';
+        }
+        return ($isTracking) ? 'Tracking' : 'Feasibility';
     }
 
-    // Rule 8, 9, 10, 11: Post-Construction
-    if (!empty($blocks) && $allConstComplete) {
+    // 2. POST-CONSTRUCTION
+    if (!empty($blocks) && $allConstComplete && $hasPhysicalOverride) {
         if ($needsFinishes && !$allFinComplete) return 'Finishes';
         if (!$allCompSubmitted) return $needsFinishes ? 'Finishes' : 'Construction';
         if (!$allCompCertified) return 'Compliance';
@@ -160,16 +175,24 @@ function getAccurateProjectStage($pdo, $projectId) {
         return 'Handed Over';
     }
 
-    // Rule 4: Mobilisation Fallback
-    if ($hasAnyClearance) return 'Mobilisation';
-
-    // Rule 2 & 3: Tracking & Permit
-    if ($hasPaNumbers) {
-        return $isTracking ? 'Tracking' : 'Permit';
+    // 3. ACTIVE EXECUTION
+    if ($anyConstInProgress || $constClearance) {
+        return 'Construction';
     }
 
-    // Rule 1: Feasibility
-    return $isTracking ? 'Tracking' : 'Feasibility';
+    if ($excStatus === 'In Progress' || $excClearance) {
+        return $excComplete ? 'Construction' : 'Excavation';
+    }
+
+    if ($demoStatus === 'In Progress' || $demoClearance) {
+        return $demoComplete ? 'Excavation' : 'Demolition';
+    }
+
+    // 4. FALLBACK: MOBILISATION
+    // Reaches here if Permit is Decided, but NO clearances or progress are active yet.
+    if ($hasDecidedEndorsed) return 'Mobilisation';
+
+    return 'Permit';
 }
 
 // ==========================================
