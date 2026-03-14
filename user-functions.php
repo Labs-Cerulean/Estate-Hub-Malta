@@ -42,7 +42,89 @@ function canUpdateStatus($pdo, $projectId) {
 }
 
 // ==========================================
-// 2. PROJECT ACCESS ENGINE (Level 1, 2, 3)
+// 2. STAGE ENGINE (ACCURATE)
+// ==========================================
+
+function getAccurateProjectStage($pdo, $projectId) {
+    $stmt = $pdo->prepare("SELECT type, finishlevel, project_status FROM projects WHERE id = ?");
+    $stmt->execute([$projectId]);
+    $proj = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$proj) return 'Feasibility';
+
+    if (($proj['project_status'] ?? '') === 'Completed') return 'Handed Over';
+
+    $isCapital = (($proj['type'] ?? '') === '3rd-party');
+    $finishGoal = $proj['finishlevel'] ?? 'Shell';
+
+    $mobStmt = $pdo->prepare("SELECT demo_status, excavation_status, mob_demolition, mob_excavation, mob_construction FROM project_mobilisation WHERE project_id = ?");
+    $mobStmt->execute([$projectId]);
+    $mob = $mobStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$mob) return 'Mobilisation';
+
+    $bStmt = $pdo->prepare("SELECT id, finish_level, compliance_certified, condominium_formed, finishes_overall_status FROM project_blocks WHERE project_id = ?");
+    $bStmt->execute([$projectId]);
+    $blocks = $bStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($blocks)) {
+        if (($mob['excavation_status'] ?? '') === 'In Progress' || ($mob['mob_construction'] ?? '') === 'Yes') return 'Excavation';
+        if (($mob['demo_status'] ?? '') === 'In Progress' || ($mob['mob_excavation'] ?? '') === 'Yes') return 'Demolition';
+        return 'Mobilisation';
+    }
+
+    $allConstComplete = true; $anyConstInProgress = false;
+    $allFinComplete = true; $anyFinInProgress = false;
+    $allCompComplete = true; $allCondoComplete = true;
+    $needsFinishes = false;
+
+    foreach ($blocks as $b) {
+        $bFinGoal = !empty($b['finish_level']) ? $b['finish_level'] : $finishGoal;
+        if (!in_array($bFinGoal, ['Shell', '', 'NA'])) { $needsFinishes = true; }
+
+        // Construction Eval
+        $lStmt = $pdo->prepare("SELECT construction_status FROM block_levels WHERE block_id = ?");
+        $lStmt->execute([$b['id']]);
+        $levels = $lStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($levels)) {
+            $allConstComplete = false;
+        } else {
+            foreach ($levels as $l) {
+                if ($l['construction_status'] === 'In Progress') $anyConstInProgress = true;
+                if (!in_array($l['construction_status'], ['Complete', 'NA'])) $allConstComplete = false;
+            }
+        }
+
+        // Finishes Eval
+        if (!in_array($bFinGoal, ['Shell', '', 'NA'])) {
+            if ($b['finishes_overall_status'] === 'In Progress') $anyFinInProgress = true;
+            if (!in_array($b['finishes_overall_status'], ['Complete', 'NA'])) $allFinComplete = false;
+        }
+
+        // Post-Const Eval
+        if (!in_array($b['compliance_certified'], ['Yes', 'NA'])) $allCompComplete = false;
+        if (!in_array($b['condominium_formed'], ['Yes', 'NA'])) $allCondoComplete = false;
+    }
+
+    // Top-Down Calculation
+    if ($allConstComplete) {
+        if ($needsFinishes && !$allFinComplete) return 'Finishes';
+        
+        if (!$isCapital) {
+            if (!$allCompComplete) return 'Compliance';
+            if (!$allCondoComplete) return 'Condominium';
+        }
+        return 'Handed Over';
+    }
+
+    if ($anyConstInProgress || ($mob['mob_construction'] ?? '') === 'Yes') return 'Construction';
+    if (($mob['excavation_status'] ?? '') === 'In Progress' || ($mob['excavation_status'] ?? '') === 'Complete' || ($mob['mob_excavation'] ?? '') === 'Yes') return 'Excavation';
+    if (($mob['demo_status'] ?? '') === 'In Progress' || ($mob['demo_status'] ?? '') === 'Complete' || ($mob['mob_demolition'] ?? '') === 'Yes') return 'Demolition';
+
+    return 'Mobilisation';
+}
+
+// ==========================================
+// 3. PROJECT ACCESS ENGINE (Level 1, 2, 3)
 // ==========================================
 
 function getAccessibleProjects($pdo, $userId = null) {
@@ -127,7 +209,7 @@ function hasProjectAccess($pdo, $projectId) {
 }
 
 // ==========================================
-// 3. USER MANAGEMENT UTILITIES
+// 4. USER MANAGEMENT UTILITIES
 // ==========================================
 
 function getUserById($pdo, $userId) {
@@ -241,7 +323,7 @@ function deleteUser($pdo, $userId) {
 }
 
 // ==========================================
-// 4. FIRM / PROFESSIONAL UTILITIES
+// 5. FIRM / PROFESSIONAL UTILITIES
 // ==========================================
 
 function getAllFirms($pdo) {
@@ -268,7 +350,7 @@ function getProfessionalIdByFirm($pdo, $firmName, $roleType) {
 }
 
 // ==========================================
-// 5. FORMATTING HELPERS
+// 6. FORMATTING HELPERS
 // ==========================================
 
 function formatPANumber($pa) {
