@@ -10,17 +10,14 @@ if (!hasProjectAccess($pdo, $projectId)) { header('Location: dashboard.php?error
 $project = getProjectWithClient($pdo, $projectId);
 if (!$project) { header('Location: dashboard.php'); exit; }
 
-// Check if Capital Project (Hides Compliance/Condominium UI)
-$isCapital = (($project['type'] ?? '') === '3rd-party');
+// CAPITAL PROJECT FLAG
+$isCapital = in_array(strtolower($project['type'] ?? ''), ['3rd-party', 'capital', '3rd party']);
 
-// Explicitly fetch all PA Numbers for this specific project
 try {
     $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ?");
     $paStmt->execute([$projectId]);
     $fetchedPas = $paStmt->fetchAll(PDO::FETCH_COLUMN);
-    if ($fetchedPas) {
-        $project['pa_numbers'] = $fetchedPas;
-    }
+    if ($fetchedPas) { $project['pa_numbers'] = $fetchedPas; }
 } catch(PDOException $e) {}
 
 if ($project['is_tracking'] == 1 && !hasPermission('view_tracking') && !isAdmin()) {
@@ -34,17 +31,13 @@ $servicesDisabledAttr = $canEditServices ? '' : 'disabled';
 
 $message = ''; $error = '';
 
-// Helper for UI colors based on Finish Level
 function getFinishLevelColor($level) {
-    if ($level === 'Finished') return '#22c55e'; // Green
-    if ($level === 'Semi Finished') return '#f59e0b'; // Orange
-    if ($level === 'Common Parts Only') return '#0ea5e9'; // Blue
-    return '#9ca3af'; // Shell or default Gray
+    if ($level === 'Finished') return '#22c55e'; 
+    if ($level === 'Semi Finished') return '#f59e0b'; 
+    if ($level === 'Common Parts Only') return '#0ea5e9'; 
+    return '#9ca3af'; 
 }
 
-// ---------------------------------------------------------
-// REUSABLE UI RENDERERS (Placed safely outside loops)
-// ---------------------------------------------------------
 function rSel($n, $opts, $v, $dis, $cls='') {
     $h = "<select name=\"$n\" $dis class=\"$cls\" style=\"padding:0.4rem; font-size:0.8rem; width:100%; border:1px solid var(--border-glass); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary);\">";
     foreach ($opts as $ov => $ol) {
@@ -60,7 +53,6 @@ function renderScopeMatrix($blockData, $groupSet, $disabledAttr, $isGarage) {
     $typeMatch = $isGarage ? 'Garage Complex' : 'Residential Block';
     
     foreach ($groupSet as $gName => $group) {
-        // Only render this group if it matches the current block's type
         if (!in_array($typeMatch, $group['types'])) continue;
         
         $html .= '<div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border-left: 3px solid '.$group['color'].';">';
@@ -91,7 +83,6 @@ function renderScopeMatrix($blockData, $groupSet, $disabledAttr, $isGarage) {
     return $html;
 }
 
-// Scope Group Definitions
 $sectionA_groups = [
     'Engineering Works' => ['icon' => '⚙️', 'color' => '#0ea5e9', 'types' => ['Residential Block', 'Garage Complex'], 'fields' => ['fin_electrical'=>'Electrical Work', 'fin_plumbing'=>'Plumbing Work', 'fin_pumps'=>'Pumps: Lifts & Reservoirs', 'fin_lifts'=>'Lifts', 'fin_substation'=>'Substation', 'fin_septic'=>'Septic Tanks', 'fin_sewer'=>'Main Sewer Conn.']],
     'Fire and ELV' => ['icon' => '🔥', 'color' => '#ef4444', 'types' => ['Residential Block', 'Garage Complex'], 'fields' => ['fin_fire_detection'=>'Fire Detection', 'fin_fire_fighting'=>'Fire Fighting', 'fin_fire_doors'=>'Metal Fire Doors', 'fin_intercoms'=>'Intercoms']],
@@ -108,12 +99,8 @@ $sectionB_groups = [
     'Garage Semi-Finished Additions' => ['icon' => '🚘', 'color' => '#475569', 'types' => ['Garage Complex'], 'fields' => ['fin_gar_ind_doors'=>'Individual Garage Doors', 'fin_gar_win'=>'Garage Windows']]
 ];
 
-// ==========================================
-// HANDLE POST REQUESTS
-// ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // --- LOG & ACTION MANAGEMENT ---
     if (isset($_POST['add_log'])) {
         $logMsg = trim($_POST['log_message'] ?? '');
         $assignedTo = !empty($_POST['assigned_to']) ? $_POST['assigned_to'] : null;
@@ -133,7 +120,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: mobilisation_detail.php?project_id=$projectId#project-log"); exit;
     }
     
-    // 1. Update Mobilisation (BCA & Site Clearances)
     if (($_POST['action'] ?? null) === 'update_mobilisation' && $canUpdateStatus) {
         try {
             $updates = []; $values = [];
@@ -158,13 +144,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) { $error = 'Error: ' . $e->getMessage(); }
     }
 
-    // 2. Update Blocks & Finishes (The Core Engine)
     if (($_POST['action'] ?? null) === 'update_blocks' && $canUpdateStatus) {
         try {
             $pdo->beginTransaction();
 
             if (isset($_POST['blocks']) && is_array($_POST['blocks'])) {
-                // Strictly mapped to DB columns
                 $allowedFinishesFields = [
                     'finish_level', 'progress', 'finishes_overall_status', 
                     'compliance_submitted', 'compliance_certified', 'condominium_formed', 'cp_meters_installed',
@@ -183,25 +167,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($_POST['blocks'] as $bId => $bData) {
                     $updates = []; 
                     $params = [];
-                    
                     foreach ($allowedFinishesFields as $f) {
                         if (isset($bData[$f])) {
                             $updates[] = "$f = ?";
                             $params[] = $bData[$f];
                         }
                     }
-                    
                     if (!empty($updates)) {
                         $params[] = $bId;
                         $params[] = $projectId;
                         $sql = "UPDATE project_blocks SET " . implode(', ', $updates) . " WHERE id = ? AND project_id = ?";
-                        $updateBlock = $pdo->prepare($sql);
-                        $updateBlock->execute($params);
+                        $pdo->prepare($sql)->execute($params);
                     }
                 }
             }
             
-            // Save Structural Levels
             if (isset($_POST['levels']) && is_array($_POST['levels'])) {
                 $lStmt = $pdo->prepare("UPDATE block_levels SET construction_status=? WHERE id=?");
                 foreach ($_POST['levels'] as $lId => $lData) {
@@ -209,18 +189,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             
-            // Save Interior Floor Finishes
             if (isset($_POST['floor_finishes']) && is_array($_POST['floor_finishes'])) {
-                $stmtFloorFin = $pdo->prepare("INSERT INTO block_levels_statuses (project_id, block_id, level_id, finish_type_id, status, updated_by)
-                                               VALUES (?, ?, ?, ?, ?, ?)
-                                               ON DUPLICATE KEY UPDATE status = VALUES(status), updated_by = VALUES(updated_by)");
+                $stmtFloorFin = $pdo->prepare("INSERT INTO block_levels_statuses (project_id, block_id, level_id, finish_type_id, status, updated_by) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status), updated_by = VALUES(updated_by)");
                 foreach ($_POST['floor_finishes'] as $bId => $levelsArray) {
                     foreach ($levelsArray as $lvlId => $types) {
                         foreach ($types as $tId => $status) {
-                            
-                            // DATABASE PROTECTION FIX: The DB Enum only accepts NA. It does not accept 'Not Required'.
                             $dbStatus = ($status === 'Not Required') ? 'NA' : $status;
-                            
                             $stmtFloorFin->execute([$projectId, $bId, $lvlId, $tId, $dbStatus, getCurrentUserId()]);
                         }
                     }
@@ -232,7 +206,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) { $pdo->rollBack(); $error = 'Error: ' . $e->getMessage(); }
     }
 
-    // 3. Update Engineer Services
     if (($_POST['action'] ?? null) === 'update_services' && $canEditServices) {
         try {
             $pdo->prepare("INSERT INTO project_services (project_id, existing_meters_required, existing_meters_complete, enemalta_deviation_required, enemalta_deviation_complete, go_deviation_required, go_deviation_complete, melita_deviation_required, melita_deviation_complete, lc_lamps_required, lc_lamps_complete, temp_elec_meter_required, temp_elec_meter_complete, temp_wsc_meter_required, temp_wsc_meter_complete) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE existing_meters_required=VALUES(existing_meters_required), existing_meters_complete=VALUES(existing_meters_complete), enemalta_deviation_required=VALUES(enemalta_deviation_required), enemalta_deviation_complete=VALUES(enemalta_deviation_complete), go_deviation_required=VALUES(go_deviation_required), go_deviation_complete=VALUES(go_deviation_complete), melita_deviation_required=VALUES(melita_deviation_required), melita_deviation_complete=VALUES(melita_deviation_complete), lc_lamps_required=VALUES(lc_lamps_required), lc_lamps_complete=VALUES(lc_lamps_complete), temp_elec_meter_required=VALUES(temp_elec_meter_required), temp_elec_meter_complete=VALUES(temp_elec_meter_complete), temp_wsc_meter_required=VALUES(temp_wsc_meter_required), temp_wsc_meter_complete=VALUES(temp_wsc_meter_complete)")->execute([$projectId, $_POST['existing_meters_required'] ?? 'Not Required', $_POST['existing_meters_complete'] ?? 'Not Complete', $_POST['enemalta_deviation_required'] ?? 'Not Required', $_POST['enemalta_deviation_complete'] ?? 'Not Complete', $_POST['go_deviation_required'] ?? 'Not Required', $_POST['go_deviation_complete'] ?? 'Not Complete', $_POST['melita_deviation_required'] ?? 'Not Required', $_POST['melita_deviation_complete'] ?? 'Not Complete', $_POST['lc_lamps_required'] ?? 'Not Required', $_POST['lc_lamps_complete'] ?? 'Not Complete', $_POST['temp_elec_meter_required'] ?? 'Not Required', $_POST['temp_elec_meter_complete'] ?? 'Not Complete', $_POST['temp_wsc_meter_required'] ?? 'Not Required', $_POST['temp_wsc_meter_complete'] ?? 'Not Complete']);
@@ -244,13 +217,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ==========================================
 // FETCH DATA FOR UI
 // ==========================================
-
-// 1. Fetch Advanced Logs
 $logsStmt = $pdo->prepare("SELECT pl.*, u.username as author_username, au.username as assignee_username, cu.username as closer_username FROM project_logs pl JOIN users u ON pl.user_id = u.id LEFT JOIN users au ON pl.assigned_to = au.id LEFT JOIN users cu ON pl.closed_by = cu.id WHERE pl.project_id = ? ORDER BY pl.created_at DESC LIMIT 100");
 $logsStmt->execute([$projectId]);
 $projectLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 2. Fetch Assignable Users
 $clientId = $project['clientid'] ?? 0;
 $assignUsersStmt = $pdo->prepare("SELECT DISTINCT u.id, u.first_name, u.last_name, u.username, u.role FROM users u LEFT JOIN user_client_access uca ON u.id = uca.user_id AND uca.client_id = ? LEFT JOIN user_project_access upa ON u.id = upa.user_id AND upa.project_id = ? LEFT JOIN user_project_exclusions upe ON u.id = upe.user_id AND upe.project_id = ? WHERE u.is_active = 'Yes' AND (u.role IN ('admin', 'director', 'system_manager', 'project_manager', 'accountant') OR upa.project_id IS NOT NULL OR (uca.client_id IS NOT NULL AND upe.project_id IS NULL)) ORDER BY u.role ASC, u.first_name ASC");
 $assignUsersStmt->execute([$clientId, $projectId, $projectId]);
@@ -282,11 +252,9 @@ if (!empty($projectBlocks)) {
 
 $services = getProjectServices($pdo, $projectId);
 
-// Fetch Master Finish Types
 $stmtFinTypes = $pdo->query("SELECT * FROM finish_types WHERE is_active=1 ORDER BY name ASC");
 $finishTypes = $stmtFinTypes->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch Floor Finishes Data
 $stmtAllStatuses = $pdo->prepare("SELECT level_id, finish_type_id, status FROM block_levels_statuses WHERE project_id = ?");
 $stmtAllStatuses->execute([$projectId]);
 $floorStatusesRaw = $stmtAllStatuses->fetchAll(PDO::FETCH_ASSOC);
@@ -294,9 +262,8 @@ $floorStatuses = [];
 foreach ($floorStatusesRaw as $r) { $floorStatuses[$r['level_id']][$r['finish_type_id']] = $r['status']; }
 
 // ==========================================
-// STAGE LOGIC & HELPERS
+// CALCULATE 100% ACCURATE STAGE LOGIC
 // ==========================================
-// FIX: Use Accurate Stage Engine
 $currentStageName = getAccurateProjectStage($pdo, $projectId);
 $stagesEnum = ['Feasibility'=>1, 'Tracking'=>2, 'Permit'=>3, 'Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $stageNum = $stagesEnum[$currentStageName] ?? 1;
@@ -318,23 +285,17 @@ $isModal = isset($_GET['modal']) && $_GET['modal'] == '1';
 
 require_once 'header.php';
 
-// If loaded inside the Dashboard iframe modal, hide the global navigation UI
-if (isset($_GET['modal']) && $_GET['modal'] == '1') {
+if ($isModal) {
     echo '<style>
-        /* Hide global navigation elements */
         .sidebar, .top-header, .navbar, nav, header { display: none !important; }
-        
-        /* Reset margins so the modal takes up the full width */
         .main-content, .content-wrapper, body { margin-left: 0 !important; margin-top: 0 !important; padding-top: 0 !important; }
-        
-        /* Hide the back button since they are already in the dashboard */
         .btn-secondary { display: none !important; }
     </style>';
 }
 ?>
 
 <style>
-.status-select { font-weight: bold; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass); padding: 5px; border-radius: 4px; width: 100%; }
+.status-select { font-weight: bold; background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass); padding: 5px; border-radius: 4px; width: 100%; cursor: pointer;}
 .status-select option[value="Pending"], .status-select option[value="No"], .status-select option[value="Not Started"] { color: #ef4444; }
 .status-select option[value="In Progress"], .status-select option[value="Ongoing CP"] { color: #f59e0b; }
 .status-select option[value="Complete"], .status-select option[value="Yes"], .status-select option[value="Connected"] { color: #22c55e; }
@@ -347,24 +308,8 @@ if (isset($_GET['modal']) && $_GET['modal'] == '1') {
 .finishes-table th, .finishes-table td { border: 1px solid var(--border-glass); padding: 8px; text-align: left; }
 .finishes-table th { background: rgba(0,0,0,0.2); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; }
 
-/* MASTER ACCORDIONS (Highly Visible) */
 details.custom-accordion { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-details.custom-accordion > summary { 
-    padding: 1.5rem; 
-    font-size: 1.3rem; 
-    font-weight: 800; 
-    color: #fff; 
-    cursor: pointer; 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    list-style: none; 
-    user-select: none; 
-    transition: background 0.2s; 
-    border-radius: 8px; 
-    background: rgba(14, 165, 233, 0.1); 
-    border-left: 5px solid #0ea5e9; 
-}
+details.custom-accordion > summary { padding: 1.5rem; font-size: 1.3rem; font-weight: 800; color: #fff; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none; user-select: none; transition: background 0.2s; border-radius: 8px; background: rgba(14, 165, 233, 0.1); border-left: 5px solid #0ea5e9; }
 details.custom-accordion > summary:hover { background: rgba(14, 165, 233, 0.15); }
 details.custom-accordion > summary::-webkit-details-marker { display: none; }
 details.custom-accordion > summary::after { content: '▼'; font-size: 1.2rem; color: #0ea5e9; transition: transform 0.3s ease; }
@@ -372,7 +317,6 @@ details.custom-accordion[open] > summary::after { transform: rotate(180deg); }
 details.custom-accordion[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid var(--border-glass); background: rgba(14, 165, 233, 0.15); }
 .accordion-content { padding: 1.5rem; }
 
-/* BLOCK ACCORDIONS (Standard) */
 details.block-accordion { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
 details.block-accordion > summary { padding: 1.25rem 1.5rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none; user-select: none; transition: background 0.2s; border-radius: 8px; }
 details.block-accordion > summary:hover { background: rgba(255,255,255,0.02); }
@@ -384,7 +328,6 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
 .stage-tracker { display: flex; align-items: center; justify-content: space-between; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 2rem; }
 .stage-badge { display: inline-block; padding: 0.5rem 1rem; border-radius: 20px; background: rgba(99, 102, 241, 0.15); color: var(--primary-color); font-weight: 700; font-size: 1.1rem; border: 1px solid rgba(99, 102, 241, 0.3); }
 
-/* Sticky Save Bar */
 .sticky-save-bar { position: sticky; bottom: 0; background: rgba(30, 30, 45, 0.95); backdrop-filter: blur(10px); padding: 15px 30px; border-top: 1px solid var(--border-glass); z-index: 1000; display: flex; justify-content: space-between; align-items: center; gap: 15px; box-shadow: 0 -10px 25px rgba(0,0,0,0.5); border-radius: 12px 12px 0 0; margin-top: 2rem; }
 </style>
 
@@ -392,7 +335,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
     
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <h1 class="page-title" style="margin: 0;"><?= htmlspecialchars($project['name']) ?></h1>
-        <a href="projects.php" class="btn btn-secondary">← Back to Projects</a>
+        <?php if(!$isModal): ?><a href="projects.php" class="btn btn-secondary">← Back to Projects</a><?php endif; ?>
     </div>
 
     <div class="stage-tracker">
@@ -555,21 +498,16 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
             <?php 
             foreach ($projectBlocks as $block): 
                 $bId = $block['id'];
-                
-                // Inherit or fetch block specific finish level
                 $bFinishLvl = !empty($block['finish_level']) ? $block['finish_level'] : ($project['finishlevel'] ?? 'Shell');
-                if ($bFinishLvl === 'Semi-Finished') { $bFinishLvl = 'Semi Finished'; } // normalize
+                if ($bFinishLvl === 'Semi-Finished') { $bFinishLvl = 'Semi Finished'; } 
                 
                 $finLevelColor = getFinishLevelColor($bFinishLvl);
-                
-                // Determine if it is a Garage vs Residential for scope exclusion logic
                 $rawType = $block['block_type'] ?? 'Residential Block'; 
                 $isGarage = (stripos($rawType, 'garage') !== false || stripos($rawType, 'basement') !== false || stripos($rawType, 'parking') !== false);
                 
-                // PHP Level Display Logic based on selected Finish Level state
                 $showA = in_array($bFinishLvl, ['Common Parts Only', 'Semi Finished', 'Finished']) ? 'block' : 'none';
                 $showB = in_array($bFinishLvl, ['Semi Finished', 'Finished']) ? 'block' : 'none';
-                $showC = ($bFinishLvl === 'Finished' && !$isGarage) ? 'block' : 'none'; // Garages don't get Section C
+                $showC = ($bFinishLvl === 'Finished' && !$isGarage) ? 'block' : 'none';
             ?>
                 <details class="block-accordion" id="block-content-<?= $bId ?>">
                     <summary>
@@ -596,6 +534,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                     <div style="padding: 1.5rem;">
                         
                         <div style="display: flex; flex-wrap: wrap; gap: 1rem; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 1.5rem;">
+                            
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase;">Finish Level Goal:</label>
                                 <select name="blocks[<?= $bId ?>][finish_level]" class="block-finish-level" data-block-id="<?= $bId ?>" data-is-garage="<?= $isGarage ? 'true' : 'false' ?>" style="background: #1e1e2d; color: #fff; border: 1px solid var(--border-glass); padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer;">
@@ -679,7 +618,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                                                 <td style="font-weight: bold; color: #fff;"><?= htmlspecialchars($lvl['level_name']) ?></td>
                                                 <?php foreach($finishTypes as $ft): 
                                                     $currStatus = $floorStatuses[$lvl['id']][$ft['id']] ?? 'Not Required';
-                                                    if ($currStatus === 'NA') $currStatus = 'Not Required'; // Mapped back for UI
+                                                    if ($currStatus === 'NA') $currStatus = 'Not Required';
                                                 ?>
                                                     <td>
                                                         <select name="floor_finishes[<?= $bId ?>][<?= $lvl['id'] ?>][<?= $ft['id'] ?>]" class="status-select floor-fin-status" style="font-size: 0.75rem;" <?= $disabledAttr ?>>
@@ -773,7 +712,6 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
 <script>
 const canEditStatus = <?= $canUpdateStatus ? 'true' : 'false' ?>;
 
-// Toggle for Services section
 document.querySelectorAll('select.req-toggle').forEach(function(select) {
     select.addEventListener('change', function() {
         const compSelect = this.parentElement.querySelector('select.comp-status');
@@ -782,7 +720,6 @@ document.querySelectorAll('select.req-toggle').forEach(function(select) {
     });
 });
 
-// --- Progress Auto-Calculation Engine ---
 function recalculateProgress(blockId) {
     const blockDiv = document.getElementById('block-content-' + blockId);
     if (!blockDiv) return;
@@ -791,11 +728,9 @@ function recalculateProgress(blockId) {
     let completeCount = 0;
     let inProgressCount = 0;
     
-    // FIX: Scanner now grabs structural levels alongside finishes!
     const selects = blockDiv.querySelectorAll('select.fin-status, select.floor-fin-status, select.const-status');
     selects.forEach(sel => {
         const section = sel.closest('.scope-section');
-        // Do not count inputs that are hidden by the Finish Level Logic!
         if (section && section.style.display === 'none') return;
         
         const val = sel.value;
@@ -823,7 +758,6 @@ function recalculateProgress(blockId) {
     if (progressLabel) progressLabel.innerText = progress + '%';
 }
 
-// --- Finish Level Toggle Logic ---
 function updateBlockVisibility(blockId, level, isGarage, runRecalc = true) {
     const cp = document.getElementById('cp-section-' + blockId);
     const semi = document.getElementById('semi-section-' + blockId);
@@ -855,7 +789,6 @@ function updateBlockVisibility(blockId, level, isGarage, runRecalc = true) {
     if (runRecalc) recalculateProgress(blockId);
 }
 
-// --- Quick Bulk Actions ---
 function quickFillBlock(blockId, status) {
     if (!canEditStatus) return;
     const blockDiv = document.getElementById('block-content-' + blockId);
@@ -868,16 +801,13 @@ function quickFillBlock(blockId, status) {
             let optionExists = Array.from(sel.options).some(opt => opt.value === status);
             if (optionExists) {
                 sel.value = status;
-                // Update color styling instantly
                 sel.style.color = (status === 'Complete') ? '#22c55e' : '#9ca3af';
             }
         }
     });
-    
     recalculateProgress(blockId);
 }
 
-// --- Sequential Construction Lock ---
 function enforceSequentialConstruction() {
     if (!canEditStatus) return; 
 
@@ -911,15 +841,22 @@ function enforceSequentialConstruction() {
     });
 }
 
-// --- Init Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
     
-    // Attach change listeners to finishes to drive progress bar
+    // FORCE UPDATE ON LOAD TO FIX DATABASE BUGS
+    document.querySelectorAll('.block-accordion').forEach(block => {
+        const bId = block.id.replace('block-content-', '');
+        const lvlSelect = block.querySelector('.block-finish-level');
+        if (lvlSelect) {
+            updateBlockVisibility(bId, lvlSelect.value, lvlSelect.dataset.isGarage, true);
+        } else {
+            recalculateProgress(bId);
+        }
+    });
+    
     document.querySelectorAll('select.fin-status, select.floor-fin-status, select.const-status').forEach(sel => {
         sel.addEventListener('change', function() {
             const blockId = this.closest('.block-accordion').id.replace('block-content-', '');
-            
-            // Adjust Select Color Instantly
             const val = this.value;
             if (val === 'Complete') this.style.color = '#22c55e';
             else if (['In Progress','Ongoing CP','First Call','Second Call'].includes(val)) this.style.color = '#f59e0b';
@@ -930,15 +867,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     
-    // Init block visibility based on currently saved dropdowns
     document.querySelectorAll('.block-finish-level').forEach(select => {
         const blockId = select.dataset.blockId;
         const isGarage = select.dataset.isGarage;
         
         select.addEventListener('change', function() {
             updateBlockVisibility(blockId, this.value, isGarage, true);
-            
-            // Change badge color instantly
             const summaryBadge = document.getElementById('block-content-' + blockId).querySelector('.badge-dynamic');
             if (summaryBadge) {
                 summaryBadge.innerText = this.value;
@@ -952,7 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
-
+    
     document.querySelectorAll('.fin-master-status').forEach(sel => {
         sel.addEventListener('change', function() {
             const val = this.value;
