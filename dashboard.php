@@ -18,6 +18,9 @@ elseif ($userRole === 'director') $dashboardType = 'Company Dashboard';
 elseif (in_array($userRole, ['sales_manager', 'sales_agent'])) $dashboardType = 'Sales Dashboard';
 elseif ($userRole === 'condominium_agent') $dashboardType = 'None'; 
 
+// Fetch Firms for the Professional Filter
+$firms = getAllFirms($pdo); 
+
 // Define Visible Stages based on Role
 $visibleStages = [];
 if ($canViewTracking) $visibleStages = ['Feasibility', 'Tracking'];
@@ -59,6 +62,7 @@ $filterCity = $_GET['filter_city'] ?? 'all';
 $filterClient = $_GET['filter_client'] ?? 'all';
 $filterIsland = $_GET['filter_island'] ?? 'all';
 $filterStatus = $_GET['filter_status'] ?? 'all';
+$filterProf = $_GET['filter_prof'] ?? 'all'; 
 $filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; // Active, On-Hold, Completed, Withdrawn, All
 $currentView = $_GET['view'] ?? 'table';
 $sortBy = $_GET['sort'] ?? 'name';
@@ -84,15 +88,25 @@ try {
 
     $projectIds = array_column($projects, 'id');
     $paByProject = [];
+    $profData = [];
     if (!empty($projectIds)) {
         $placeholders = implode(',', array_fill(0, count($projectIds), '?'));
-        $paStmt = $pdo->prepare("SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.name AS architect_name, se.name AS structural_engineer_name FROM project_pa_numbers pan LEFT JOIN professionals arch ON arch.id = pan.architect_id LEFT JOIN professionals se ON se.id = pan.structural_engineer_id WHERE pan.project_id IN ($placeholders)");
+        $paStmt = $pdo->prepare("SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.name AS architect_name, arch.firm_name AS arch_firm, se.name AS structural_engineer_name, se.firm_name AS struct_firm FROM project_pa_numbers pan LEFT JOIN professionals arch ON arch.id = pan.architect_id LEFT JOIN professionals se ON se.id = pan.structural_engineer_id WHERE pan.project_id IN ($placeholders)");
         $paStmt->execute($projectIds);
-        foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $pa) $paByProject[$pa['project_id']][] = $pa;
+        foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $pa) {
+            $paByProject[$pa['project_id']][] = $pa;
+            if (!empty($pa['arch_firm'])) $profData[$pa['project_id']][] = $pa['arch_firm'];
+            if (!empty($pa['struct_firm'])) $profData[$pa['project_id']][] = $pa['struct_firm'];
+        }
     }
 } catch (PDOException $e) {
     die("Database error: " . htmlspecialchars($e->getMessage()));
 }
+
+// Define Macro Stages for Group Filtering
+$preExecStages = ['Feasibility', 'Tracking', 'Permit', 'Mobilisation'];
+$execStages = ['Demolition', 'Excavation', 'Construction', 'Finishes'];
+$finalStages = ['Compliance', 'Condominium', 'Handed Over'];
 
 // Client filtering and tracking
 $preExecCount = 0; $execCount = 0; $finalCount = 0;
@@ -106,17 +120,24 @@ foreach ($projects as $project) {
     // Apply DB Status filter FIRST
     if ($filterDbStatus !== 'All') {
         $pStatus = $project['project_status'] ?? 'Active';
-        if ($pStatus === '') $pStatus = 'Active'; // Normalize empty to active
+        if ($pStatus === '') $pStatus = 'Active'; 
         if ($pStatus !== $filterDbStatus) continue;
     }
 
     if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
         
-        // Filter out based on GET params
+        // Stage Filter (Including Group Handlers)
+        if ($filterStatus !== 'all') {
+            if ($filterStatus === 'group_pre' && !in_array($project['stage'], $preExecStages)) continue;
+            elseif ($filterStatus === 'group_exec' && !in_array($project['stage'], $execStages)) continue;
+            elseif ($filterStatus === 'group_final' && !in_array($project['stage'], $finalStages)) continue;
+            elseif (!in_array($filterStatus, ['group_pre', 'group_exec', 'group_final']) && $project['stage'] !== $filterStatus) continue;
+        }
+
+        // Standard Filters
         if ($filterType !== 'all' && $project['type'] !== $filterType) continue;
         if ($filterCity !== 'all' && $project['city'] !== $filterCity) continue;
         if ($filterIsland !== 'all' && $project['island'] !== $filterIsland) continue;
-        if ($filterStatus !== 'all' && $project['stage'] !== $filterStatus) continue;
         
         if ($filterClient !== 'all') {
             if ($filterClient === 'group_excel') {
@@ -126,6 +147,12 @@ foreach ($projects as $project) {
             } elseif ($project['clientid'] != $filterClient) {
                 continue;
             }
+        }
+
+        // Professional Filter
+        if ($filterProf !== 'all') {
+            $frms = $profData[$project['id']] ?? [];
+            if (!in_array($filterProf, $frms)) continue;
         }
 
         $filteredProjects[] = $project;
@@ -159,7 +186,7 @@ usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
     return $sortOrder === 'ASC' ? $cmp : -$cmp;
 });
 
-function getSortUrl($column) { global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView; $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC'; return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&sort=$column&order=$newOrder"; }
+function getSortUrl($column) { global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView, $filterProf; $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC'; return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&filter_prof=".urlencode($filterProf)."&sort=$column&order=$newOrder"; }
 function getSortIndicator($column) { global $sortBy, $sortOrder; if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼'; return ''; }
 if (!function_exists('buildPaUrl')) {
     function buildPaUrl(?string $paNumber): ?string { if (empty($paNumber)) return null; if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null; return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
@@ -238,7 +265,9 @@ tr:last-child td { border-bottom: none; }
 .leaflet-popup-tip { background: var(--bg-card); border: 1px solid var(--border-glass); }
 .popup-title { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); margin-bottom: 0.25rem; }
 .popup-meta { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
-.custom-pin { border-radius: 50%; border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.5); background: #fff; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+
+/* REDUCED PIN SIZE CSS */
+.custom-pin { border-radius: 50%; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.5); background: #fff; overflow: hidden; display: flex; justify-content: center; align-items: center; }
 .custom-pin-inner { width: 100%; height: 100%; border-radius: 50%; }
 
 /* Fixed Map Legend */
@@ -350,11 +379,40 @@ tr:last-child td { border-bottom: none; }
                                 $execOpts = array_intersect(['Demolition', 'Excavation', 'Construction', 'Finishes'], $visibleStages);
                                 $finalOpts = array_intersect(['Compliance', 'Condominium', 'Handed Over'], $visibleStages);
                                 ?>
-                                <?php if (!empty($preExecOpts)): ?><optgroup label="Pre-Execution"><?php foreach($preExecOpts as $st): ?><option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option><?php endforeach; ?></optgroup><?php endif; ?>
-                                <?php if (!empty($execOpts)): ?><optgroup label="Execution"><?php foreach($execOpts as $st): ?><option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option><?php endforeach; ?></optgroup><?php endif; ?>
-                                <?php if (!empty($finalOpts)): ?><optgroup label="Finalization"><?php foreach($finalOpts as $st): ?><option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= $stageEnum[$st] ?>. <?= $st ?></option><?php endforeach; ?></optgroup><?php endif; ?>
+                                <?php if (!empty($preExecOpts)): ?>
+                                    <option value="group_pre" <?= $filterStatus === 'group_pre' ? 'selected' : '' ?> style="font-weight: bold; color: var(--primary-color);">▼ PRE-EXECUTION (All)</option>
+                                    <?php foreach($preExecOpts as $st): ?>
+                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>&nbsp;&nbsp;• <?= $stageEnum[$st] ?>. <?= $st ?></option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                                <?php if (!empty($execOpts)): ?>
+                                    <option value="group_exec" <?= $filterStatus === 'group_exec' ? 'selected' : '' ?> style="font-weight: bold; color: var(--primary-color);">▼ EXECUTION (All)</option>
+                                    <?php foreach($execOpts as $st): ?>
+                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>&nbsp;&nbsp;• <?= $stageEnum[$st] ?>. <?= $st ?></option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                                <?php if (!empty($finalOpts)): ?>
+                                    <option value="group_final" <?= $filterStatus === 'group_final' ? 'selected' : '' ?> style="font-weight: bold; color: var(--primary-color);">▼ FINALIZATION (All)</option>
+                                    <?php foreach($finalOpts as $st): ?>
+                                        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>&nbsp;&nbsp;• <?= $stageEnum[$st] ?>. <?= $st ?></option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                             </select>
                         </div>
+
+                        <div class="filter-group">
+                            <label>Architect/Engineer</label>
+                            <select name="filter_prof">
+                                <option value="all">All Professionals</option>
+                                <?php 
+                                $allFirmsList = array_unique(array_merge($firms['architects'], $firms['structural_engineers']));
+                                sort($allFirmsList);
+                                foreach ($allFirmsList as $firm): ?>
+                                    <option value="<?= htmlspecialchars($firm) ?>" <?= $filterProf === $firm ? 'selected' : '' ?>><?= htmlspecialchars($firm) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
                         <div class="filter-group">
                             <label>Project Type</label>
                             <select name="filter_type">
@@ -518,8 +576,7 @@ tr:last-child td { border-bottom: none; }
                             <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: var(--text-muted);"><span id="mapProjCount">0</span> projects shown</p>
                             <input type="text" id="mapSearchInput" placeholder="Search map list..." style="width: 100%; margin-top: 10px; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-glass); background: #1e1e2d; color: #fff; font-size: 0.8rem; box-sizing: border-box;">
                         </div>
-                        <div class="map-sidebar-list" id="mapSidebarList">
-                            </div>
+                        <div class="map-sidebar-list" id="mapSidebarList"></div>
                     </div>
                     
                     <div class="map-container">
@@ -550,7 +607,6 @@ tr:last-child td { border-bottom: none; }
 </div>
 
 <script>
-// --- Iframe Modal Logic ---
 function openEditModal(projectId, projectName) {
     document.getElementById('genericModalTitle').innerText = 'Edit Project: ' + projectName;
     document.getElementById('genericIframe').src = 'edit-project.php?id=' + projectId + '&modal=1';
@@ -568,7 +624,6 @@ function closeGenericModal() {
     document.getElementById('genericIframe').src = '';
 }
 
-// When dashboard loads, immediately jump back to exact scroll position if saved
 document.addEventListener("DOMContentLoaded", function() {
     let savedScroll = sessionStorage.getItem('dashboard_scrollpos');
     if (savedScroll) {
@@ -578,7 +633,6 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 });
 
-// Listen for messages from the iframe (Success Save or Invalid Project)
 window.addEventListener('message', function(event) {
     if (event.data === 'projectUpdated') {
         let wrapper = document.querySelector('.dashboard-wrapper');
@@ -589,7 +643,6 @@ window.addEventListener('message', function(event) {
     }
 });
 
-// --- Island Filter Logic ---
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('dashboardFilters');
     if (!form) return;
@@ -609,7 +662,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// --- View Toggle Logic ---
 let mapInitialized = false;
 
 function switchView(view) {
@@ -633,7 +685,6 @@ function switchView(view) {
     }
 }
 
-// --- Map Logic ---
 const projectsData = <?= json_encode($projects ?? [], JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const localityCoords = { "Attard": [35.8914, 14.4431], "Balzan": [35.8983, 14.4533], "Birkirkara": [35.8972, 14.4611], "Birżebbuġa": [35.8258, 14.5269], "Bormla (Cospicua)": [35.8814, 14.5219], "Dingli": [35.8961, 14.4000], "Fgura": [35.8711, 14.5161], "Floriana": [35.8925, 14.5031], "Għargħur": [35.9031, 14.4525], "Gżira": [35.9228, 14.4650], "Ħamrun": [35.8847, 14.4844], "Iklin": [35.9081, 14.4542], "Isla (Senglea)": [35.8872, 14.5169], "Kalkara": [35.8889, 14.5222], "Kirkop": [35.9042, 14.4608], "Lija": [35.9008, 14.4464], "Luqa": [35.8436, 14.4883], "Marsa": [35.8672, 14.4947], "Marsaskala": [35.8272, 14.5447], "Marsaxlokk": [35.8617, 14.5683], "Mdina": [35.8833, 14.4022], "Mellieħa": [35.9564, 14.3631], "Mġarr": [35.9214, 14.4467], "Mosta": [35.9014, 14.4256], "Mqabba": [35.8425, 14.4756], "Msida": [35.9022, 14.4889], "Mtarfa": [35.8906, 14.3986], "Naxxar": [35.9133, 14.4444], "Paola": [35.8728, 14.5081], "Pembroke": [35.9325, 14.4853], "Pietà": [35.8933, 14.4939], "Qormi": [35.8789, 14.4694], "Qrendi": [35.8372, 14.4586], "Rabat": [35.8817, 14.3989], "Safi": [35.8331, 14.4850], "San Ġiljan (St. Julian's)": [35.9184, 14.4885], "San Ġwann": [35.9094, 14.4775], "San Pawl il-Baħar": [35.9483, 14.4014], "Santa Luċija": [35.8239, 14.4944], "Santa Venera": [35.8683, 14.4775], "Siġġiewi": [35.8336, 14.4372], "Sliema": [35.9122, 14.5042], "Swieqi": [35.9222, 14.4789], "Ta' Xbiex": [35.8992, 14.4936], "Tarxien": [35.8653, 14.5125], "Valletta": [35.8989, 14.5146], "Xgħajra": [35.8864, 14.5317], "Żabbar": [35.8678, 14.5367], "Żebbuġ": [35.8722, 14.4431], "Żejtun": [35.8683, 14.5333], "Żurrieq": [35.8306, 14.4744], "Fontana": [36.0353, 14.2383], "Għajnsielem": [36.0275, 14.2886], "Għarb": [36.0403, 14.2017], "Għasri": [36.0583, 14.2153], "Kerċem": [36.0522, 14.2253], "Munxar": [36.0306, 14.2333], "Nadur": [36.0378, 14.2944], "Qala": [36.0392, 14.3083], "San Lawrenz": [36.0544, 14.2044], "Sannat": [36.0244, 14.2436], "Victoria (Rabat)": [36.0436, 14.2361], "Xagħra": [36.05, 14.2667], "Xewkija": [36.0322, 14.2583], "Żebbuġ (Gozo)": [36.0717, 14.2369] };
 
@@ -647,7 +698,7 @@ function initMap() {
     const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap', subdomains: 'abcd', maxZoom: 19 });
     const satMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles © Esri', maxZoom: 19 });
     
-    satMap.addTo(window.map); // Satellite default
+    satMap.addTo(window.map); 
     L.control.layers({ "Satellite View": satMap, "Dark Street View": darkMap }, null, { position: 'topright' }).addTo(window.map);
 
     let markersGroup = L.markerClusterGroup({ maxClusterRadius: 35, spiderfyOnMaxZoom: true, showCoverageOnHover: false, zoomToBoundsOnClick: true });
@@ -668,7 +719,8 @@ function initMap() {
         const pinColor = getClientColor(clientName);
         visibleClients.add(clientName);
 
-        const customIcon = L.divIcon({ className: 'custom-pin', html: `<div class="custom-pin-inner" style="background-color: ${pinColor};"></div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+        // SHRUNK PIN SIZE FROM 26x26 down to 16x16
+        const customIcon = L.divIcon({ className: 'custom-pin', html: `<div class="custom-pin-inner" style="background-color: ${pinColor};"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] });
         const marker = L.marker(coords, { icon: customIcon });
         
         let mapLinksHtml = '';
