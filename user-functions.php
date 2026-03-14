@@ -1,6 +1,6 @@
 <?php
 /**
- * user-functions.php - Rev 2.3 Enterprise Logic
+ * user-functions.php - Rev 2.4 Enterprise Logic
  * Contains capability, access, and accurate stage engine.
  */
 
@@ -42,7 +42,8 @@ function canUpdateStatus($pdo, $projectId) {
 // ==========================================
 
 function getAccurateProjectStage($pdo, $projectId) {
-    $stmt = $pdo->prepare("SELECT type, finishlevel, project_status FROM projects WHERE id = ?");
+    // Fetch base project data
+    $stmt = $pdo->prepare("SELECT type, finishlevel, project_status, is_tracking FROM projects WHERE id = ?");
     $stmt->execute([$projectId]);
     $proj = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$proj) return 'Feasibility';
@@ -51,37 +52,28 @@ function getAccurateProjectStage($pdo, $projectId) {
 
     $isCapital = in_array(strtolower($proj['type'] ?? ''), ['3rd-party', 'capital', '3rd party']);
     $finishGoal = trim($proj['finishlevel'] ?? 'Shell');
+    $isTracking = (int)($proj['is_tracking'] ?? 0) === 1;
 
-    // 1. PA Numbers Check (Feasibility, Tracking, Permit)
-    $paStmt = $pdo->prepare("SELECT status FROM project_pa_numbers WHERE project_id = ?");
+    // Fetch PA Numbers
+    $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ?");
     $paStmt->execute([$projectId]);
     $paData = $paStmt->fetchAll(PDO::FETCH_ASSOC);
+    $hasPaNumbers = count($paData) > 0;
 
-    if (empty($paData)) return 'Feasibility';
-
-    $allTracking = true;
-    $hasDecidedEndorsed = false;
-    foreach ($paData as $pa) {
-        if ($pa['status'] !== 'Tracking') $allTracking = false;
-        if (in_array($pa['status'], ['Decided', 'Endorsed'])) $hasDecidedEndorsed = true;
-    }
-    if ($allTracking) return 'Tracking';
-    if (!$hasDecidedEndorsed) return 'Permit';
-
-    // 2. Mobilisation & Clearances Data
+    // Fetch Mobilisation & Clearances Data
     $mobStmt = $pdo->prepare("SELECT demo_status, excavation_status, mob_demolition, mob_excavation, mob_construction FROM project_mobilisation WHERE project_id = ?");
     $mobStmt->execute([$projectId]);
     $mob = $mobStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$mob) return 'Mobilisation';
-
+    
     $demoClearance = ($mob['mob_demolition'] ?? 'No') === 'Yes';
     $excClearance = ($mob['mob_excavation'] ?? 'No') === 'Yes';
     $constClearance = ($mob['mob_construction'] ?? 'No') === 'Yes';
+    $hasAnyClearance = $demoClearance || $excClearance || $constClearance;
 
     $demoComplete = in_array($mob['demo_status'] ?? 'Pending', ['Complete', 'NA']);
     $excComplete = in_array($mob['excavation_status'] ?? 'Pending', ['Complete', 'NA']);
 
-    // 3. Blocks & Levels Data
+    // Fetch Blocks & Levels Data
     $bStmt = $pdo->prepare("SELECT id, block_type, finish_level, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed, finishes_overall_status, progress FROM project_blocks WHERE project_id = ?");
     $bStmt->execute([$projectId]);
     $blocks = $bStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -135,7 +127,7 @@ function getAccurateProjectStage($pdo, $projectId) {
         }
     }
 
-    // Capital Projects bypass Compliance & Condo
+    // Capital Projects automatically bypass Compliance & Condo logic
     if ($isCapital) {
         $allCompSubmitted = true;
         $allCompCertified = true;
@@ -143,36 +135,41 @@ function getAccurateProjectStage($pdo, $projectId) {
         $allCpMeters = true;
     }
 
-    // 4. Waterfall Stage Determination (Evaluates Worst First)
+    // ==========================================
+    // EXCEL WATERFALL STAGE DETERMINATION
+    // (Evaluates worst/earliest stage first)
+    // ==========================================
+
+    // Rule 5, 6, 7: Active Execution
     if (!$demoComplete) {
         return $demoClearance ? 'Demolition' : 'Mobilisation';
     }
-
     if (!$excComplete) {
         return $excClearance ? 'Excavation' : 'Mobilisation';
     }
-
     if (!$allConstComplete) {
         return $constClearance ? 'Construction' : 'Mobilisation';
     }
 
-    if ($needsFinishes && !$allFinComplete) {
-        return 'Finishes';
+    // Rule 8, 9, 10, 11: Post-Construction
+    if (!empty($blocks) && $allConstComplete) {
+        if ($needsFinishes && !$allFinComplete) return 'Finishes';
+        if (!$allCompSubmitted) return $needsFinishes ? 'Finishes' : 'Construction';
+        if (!$allCompCertified) return 'Compliance';
+        if (!$allCondoFormed || !$allCpMeters) return 'Condominium';
+        return 'Handed Over';
     }
 
-    if (!$allCompSubmitted) {
-        return $needsFinishes ? 'Finishes' : 'Construction';
+    // Rule 4: Mobilisation Fallback
+    if ($hasAnyClearance) return 'Mobilisation';
+
+    // Rule 2 & 3: Tracking & Permit
+    if ($hasPaNumbers) {
+        return $isTracking ? 'Tracking' : 'Permit';
     }
 
-    if (!$allCompCertified) {
-        return 'Compliance';
-    }
-
-    if (!$allCondoFormed || !$allCpMeters) {
-        return 'Condominium';
-    }
-
-    return 'Handed Over';
+    // Rule 1: Feasibility
+    return $isTracking ? 'Tracking' : 'Feasibility';
 }
 
 // ==========================================
