@@ -10,6 +10,9 @@ if (!hasProjectAccess($pdo, $projectId)) { header('Location: dashboard.php?error
 $project = getProjectWithClient($pdo, $projectId);
 if (!$project) { header('Location: dashboard.php'); exit; }
 
+// Check if Capital Project (Hides Compliance/Condominium UI)
+$isCapital = (($project['type'] ?? '') === '3rd-party');
+
 // Explicitly fetch all PA Numbers for this specific project
 try {
     $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ?");
@@ -206,7 +209,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             
-            // Save Interior Floor Finishes (FIXED TRUNCATION ERROR HERE)
+            // Save Interior Floor Finishes
             if (isset($_POST['floor_finishes']) && is_array($_POST['floor_finishes'])) {
                 $stmtFloorFin = $pdo->prepare("INSERT INTO block_levels_statuses (project_id, block_id, level_id, finish_type_id, status, updated_by)
                                                VALUES (?, ?, ?, ?, ?, ?)
@@ -293,7 +296,8 @@ foreach ($floorStatusesRaw as $r) { $floorStatuses[$r['level_id']][$r['finish_ty
 // ==========================================
 // STAGE LOGIC & HELPERS
 // ==========================================
-$currentStageName = deriveProjectStage($pdo, $projectId);
+// FIX: Use Accurate Stage Engine
+$currentStageName = getAccurateProjectStage($pdo, $projectId);
 $stagesEnum = ['Feasibility'=>1, 'Tracking'=>2, 'Permit'=>3, 'Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $stageNum = $stagesEnum[$currentStageName] ?? 1;
 $progressPercent = min(100, round(($stageNum / 11) * 100));
@@ -312,7 +316,6 @@ $canClearance = ($mob['responsibility_form'] ?? 'Not Complete') === 'Complete';
 $pageTitle = 'Execution - ' . $project['name'];
 $isModal = isset($_GET['modal']) && $_GET['modal'] == '1';
 
-$pageTitle = 'Execution - ' . $project['name'];
 require_once 'header.php';
 
 // If loaded inside the Dashboard iframe modal, hide the global navigation UI
@@ -602,7 +605,20 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                                     <option value="Finished" <?= $bFinishLvl === 'Finished' ? 'selected' : '' ?>>Finished (Turnkey)</option>
                                 </select>
                             </div>
+                            
                             <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 5px;"></div>
+                            
+                            <div id="overall-fin-container-<?= $bId ?>" style="display: flex; align-items: center; gap: 8px; <?= $bFinishLvl === 'Shell' ? 'display:none;' : '' ?>">
+                                <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase;">Overall Finishes Status:</label>
+                                <select name="blocks[<?= $bId ?>][finishes_overall_status]" class="status-select fin-master-status" style="width: auto; padding: 6px; cursor: pointer;" <?= $disabledAttr ?>>
+                                    <?php $mfs = $block['finishes_overall_status'] ?? 'Pending'; ?>
+                                    <option value="Pending" <?= $mfs === 'Pending' ? 'selected' : '' ?> style="color:#ef4444;">Pending</option>
+                                    <option value="In Progress" <?= $mfs === 'In Progress' ? 'selected' : '' ?> style="color:#f59e0b;">In Progress</option>
+                                    <option value="Complete" <?= $mfs === 'Complete' ? 'selected' : '' ?> style="color:#22c55e;">Complete</option>
+                                    <option value="NA" <?= $mfs === 'NA' ? 'selected' : '' ?> style="color:#9ca3af;">N/A</option>
+                                </select>
+                            </div>
+
                             <input type="hidden" name="blocks[<?= $bId ?>][progress]" class="progress-input" value="<?= $block['progress'] ?>">
                         </div>
 
@@ -681,6 +697,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                             </div>
                         </div>
 
+                        <?php if (!$isCapital): ?>
                         <h4 style="margin-top: 2rem; color: #10b981; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">3. Post-Construction Milestones</h4>
                         <div class="grid-container" style="background: rgba(16, 185, 129, 0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);">
                             <?php $optYNN = ['No','Yes','NA']; ?>
@@ -689,6 +706,14 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
                             <div class="form-group"><label>Condominium Formed</label><?= rSel("blocks[{$bId}][condominium_formed]", $optYNN, $block['condominium_formed'] ?? 'No', $disabledAttr) ?></div>
                             <div class="form-group"><label>CP Meters Installed</label><?= rSel("blocks[{$bId}][cp_meters_installed]", $optYNN, $block['cp_meters_installed'] ?? 'No', $disabledAttr) ?></div>
                         </div>
+                        <?php else: ?>
+                            <div style="display: none;">
+                                <input type="hidden" name="blocks[<?= $bId ?>][compliance_submitted]" value="<?= $block['compliance_submitted'] ?? 'NA' ?>">
+                                <input type="hidden" name="blocks[<?= $bId ?>][compliance_certified]" value="<?= $block['compliance_certified'] ?? 'NA' ?>">
+                                <input type="hidden" name="blocks[<?= $bId ?>][condominium_formed]" value="<?= $block['condominium_formed'] ?? 'NA' ?>">
+                                <input type="hidden" name="blocks[<?= $bId ?>][cp_meters_installed]" value="<?= $block['cp_meters_installed'] ?? 'NA' ?>">
+                            </div>
+                        <?php endif; ?>
 
                     </div>
                 </details>
@@ -766,7 +791,8 @@ function recalculateProgress(blockId) {
     let completeCount = 0;
     let inProgressCount = 0;
     
-    const selects = blockDiv.querySelectorAll('select.fin-status, select.floor-fin-status');
+    // FIX: Scanner now grabs structural levels alongside finishes!
+    const selects = blockDiv.querySelectorAll('select.fin-status, select.floor-fin-status, select.const-status');
     selects.forEach(sel => {
         const section = sel.closest('.scope-section');
         // Do not count inputs that are hidden by the Finish Level Logic!
@@ -802,23 +828,28 @@ function updateBlockVisibility(blockId, level, isGarage, runRecalc = true) {
     const cp = document.getElementById('cp-section-' + blockId);
     const semi = document.getElementById('semi-section-' + blockId);
     const fin = document.getElementById('finished-section-' + blockId);
+    const mstr = document.getElementById('overall-fin-container-' + blockId);
     
     if (level === 'Shell') {
         if(cp) cp.style.display = 'none';
         if(semi) semi.style.display = 'none';
         if(fin) fin.style.display = 'none';
+        if(mstr) mstr.style.display = 'none';
     } else if (level === 'Common Parts Only') {
         if(cp) cp.style.display = 'block';
         if(semi) semi.style.display = 'none';
         if(fin) fin.style.display = 'none';
+        if(mstr) mstr.style.display = 'flex';
     } else if (level === 'Semi Finished') {
         if(cp) cp.style.display = 'block';
         if(semi) semi.style.display = 'block';
         if(fin) fin.style.display = 'none';
+        if(mstr) mstr.style.display = 'flex';
     } else if (level === 'Finished') {
         if(cp) cp.style.display = 'block';
         if(semi) semi.style.display = 'block';
         if(fin) fin.style.display = (isGarage === 'true') ? 'none' : 'block';
+        if(mstr) mstr.style.display = 'flex';
     }
     
     if (runRecalc) recalculateProgress(blockId);
@@ -884,7 +915,7 @@ function enforceSequentialConstruction() {
 document.addEventListener('DOMContentLoaded', () => {
     
     // Attach change listeners to finishes to drive progress bar
-    document.querySelectorAll('select.fin-status, select.floor-fin-status').forEach(sel => {
+    document.querySelectorAll('select.fin-status, select.floor-fin-status, select.const-status').forEach(sel => {
         sel.addEventListener('change', function() {
             const blockId = this.closest('.block-accordion').id.replace('block-content-', '');
             
@@ -892,7 +923,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const val = this.value;
             if (val === 'Complete') this.style.color = '#22c55e';
             else if (['In Progress','Ongoing CP','First Call','Second Call'].includes(val)) this.style.color = '#f59e0b';
-            else if (val === 'Not Required') this.style.color = '#9ca3af';
+            else if (val === 'Not Required' || val === 'NA') this.style.color = '#9ca3af';
             else this.style.color = '#ef4444';
             
             recalculateProgress(blockId);
@@ -919,6 +950,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 summaryBadge.style.borderColor = color + '50';
                 summaryBadge.style.background = color + '15';
             }
+        });
+    });
+
+    document.querySelectorAll('.fin-master-status').forEach(sel => {
+        sel.addEventListener('change', function() {
+            const val = this.value;
+            if (val === 'Complete') this.style.color = '#22c55e';
+            else if (val === 'In Progress') this.style.color = '#f59e0b';
+            else if (val === 'NA') this.style.color = '#9ca3af';
+            else this.style.color = '#ef4444';
         });
     });
 
