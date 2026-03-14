@@ -100,7 +100,7 @@ $companyKpis = [];
 
 $filteredProjects = [];
 foreach ($projects as $project) {
-    $project['stage'] = deriveProjectStage($pdo, $project['id']);
+    $project['stage'] = getAccurateProjectStage($pdo, $project['id']);
     $stageNum = $stageEnum[$project['stage']] ?? 1;
 
     // Apply DB Status filter FIRST
