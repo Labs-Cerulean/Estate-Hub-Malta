@@ -1,31 +1,40 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
-require_once 'S3FileManager.php'; 
 
 $quoteId = isset($_GET['quote_id']) ? (int)$_GET['quote_id'] : null;
 if (!$quoteId) die("Quote ID is missing.");
 
-$s3 = new S3FileManager();
-
-$stmt = $pdo->prepare("SELECT sq.*, c.name as client_name, c.logo_path, c.city as client_city, p.name as project_name FROM sales_quotes sq LEFT JOIN clients c ON sq.client_id = c.id LEFT JOIN projects p ON sq.project_id = p.id WHERE sq.id = ?");
+// Fetch Quote along with Author and Approver details
+$stmt = $pdo->prepare("
+    SELECT sq.*, c.name as client_name, c.city as client_city, p.name as project_name, 
+           u1.first_name as author_fname, u1.last_name as author_lname, 
+           u2.first_name as approver_fname, u2.last_name as approver_lname 
+    FROM sales_quotes sq 
+    LEFT JOIN clients c ON sq.client_id = c.id 
+    LEFT JOIN projects p ON sq.project_id = p.id 
+    LEFT JOIN users u1 ON sq.created_by = u1.id 
+    LEFT JOIN users u2 ON sq.approver_id = u2.id 
+    WHERE sq.id = ?
+");
 $stmt->execute([$quoteId]);
 $quote = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$quote) die("Quote not found.");
 
-$itemsStmt = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ? ORDER BY category ASC, sort_order ASC, id ASC");
+// Hard Block for Unapproved Quotes
+if (in_array($quote['status'], ['Draft', 'Pending Approval', 'Rejected'])) {
+    die("<div style='font-family: sans-serif; text-align: center; padding: 50px;'>
+            <h2 style='color: #ef4444;'>Security Block: Quote Not Approved</h2>
+            <p>This quote is currently in <b>" . $quote['status'] . "</b> status.</p>
+            <p>It must be authorized by an Approver before it can be printed or dispatched to a client.</p>
+            <a href='work_sales.php?quote_id=$quoteId' style='display: inline-block; padding: 10px 20px; background: #3b82f6; color: white; text-decoration: none; border-radius: 4px; margin-top: 20px;'>Return to Quote</a>
+         </div>");
+}
+
+// Fetch sorted items
+$itemsStmt = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ? ORDER BY sort_order ASC, category ASC, id ASC");
 $itemsStmt->execute([$quoteId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Secure Cloudflare R2 Logo retrieval
-$logoSrc = '';
-if (!empty($quote['logo_path'])) {
-    if (strpos($quote['logo_path'], 'http') === false) {
-        $logoSrc = $s3->getPresignedUrl($quote['logo_path'], '+60 minutes');
-    } else {
-        $logoSrc = $quote['logo_path'];
-    }
-}
 
 function displayUnit($u) {
     $m = ['lump_sum'=>'Lump Sum', 'sqm'=>'sq.m', 'lm'=>'lm', 'cum'=>'cu.m', 'cu.yd'=>'cu.yd', 'hrs'=>'Hours', 'qty'=>'Qty / Pcs'];
@@ -67,6 +76,10 @@ function displayUnit($u) {
         
         .terms-box { clear: both; margin-top: 40px; padding: 15px; border: 1px solid #e5e7eb; background: #f9fafb; font-size: 10px; color: #4b5563; border-radius: 6px; }
 
+        .signatures-grid { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+        .signature-block { width: 30%; text-align: center; }
+        .signature-line { border-bottom: 1px solid #111827; height: 40px; margin-bottom: 10px; }
+
         .footer { margin-top: 40px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #9ca3af; }
 
         @media print {
@@ -77,17 +90,21 @@ function displayUnit($u) {
         }
     </style>
 </head>
-<body onload="window.print()">
+<body>
 
 <div class="page-container">
 
+    <div class="no-print" style="margin-bottom: 20px; padding: 15px; background: #f3f4f6; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #d1d5db;">
+        <div>
+            <h3 style="margin: 0; color: #1f2937;">PDF Print Preview</h3>
+            <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 12px;">Review the document below. Click 'Print' when ready to generate the PDF.</p>
+        </div>
+        <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Print / Save as PDF</button>
+    </div>
+
     <div class="header-section">
         <div class="logo-box">
-            <?php if (!empty($logoSrc)): ?>
-                <img src="<?= htmlspecialchars($logoSrc) ?>" alt="Logo">
-            <?php else: ?>
-                <h2 style="margin:0; color:#374151; font-size: 20px;">Estate Hub</h2>
-            <?php endif; ?>
+            <img src="/logo.png" alt="Contractor Logo">
         </div>
         <div class="title-box">
             <h1>Estimate / Quotation</h1>
@@ -104,7 +121,7 @@ function displayUnit($u) {
         <div class="info-block" style="text-align: right;">
             <h3>Quote Reference</h3>
             <p><?= htmlspecialchars($quote['reference_number']) ?></p>
-            <span>Project: <?= htmlspecialchars($quote['project_name'] ?? 'General Specification') ?></span><br>
+            <span>Project: <?= htmlspecialchars($quote['project_name']) ?></span><br>
             <span>Scope: <?= str_replace('_', ' & ', $quote['quote_type']) ?></span>
         </div>
     </div>
@@ -163,12 +180,30 @@ function displayUnit($u) {
     </div>
     <?php endif; ?>
 
-    <div class="footer">
-        Estate Hub Commercial Management
+    <div class="signatures-grid">
+        <div class="signature-block">
+            <div class="signature-line"></div>
+            <strong>Prepared By</strong><br>
+            <?= htmlspecialchars($quote['author_fname'] . ' ' . $quote['author_lname']) ?>
+        </div>
+        <div class="signature-block">
+            <div class="signature-line"></div>
+            <strong>Approved By</strong><br>
+            <?php if (!empty($quote['approver_fname'])): ?>
+                <?= htmlspecialchars($quote['approver_fname'] . ' ' . $quote['approver_lname']) ?>
+            <?php else: ?>
+                <span style="color: #ef4444;">System Approved</span>
+            <?php endif; ?>
+        </div>
+        <div class="signature-block">
+            <div class="signature-line"></div>
+            <strong>Accepted By (Client)</strong><br>
+            Signature & Date
+        </div>
     </div>
 
-    <div class="no-print" style="text-align: center; margin-top: 30px;">
-        <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">Print / Save to PDF</button>
+    <div class="footer">
+        Estate Hub Commercial Management
     </div>
 
 </div>
