@@ -11,7 +11,7 @@ $pdo->exec("INSERT IGNORE INTO user_capabilities (user_id) SELECT id FROM users"
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
-    // Core Capabilities + Module Access
+    // Core Capabilities + Module Access + Commercial Sales Access
     $caps = [
         'view_tracking' => isset($_POST['view_tracking']) ? 1 : 0,
         'add_project' => isset($_POST['add_project']) ? 1 : 0,
@@ -34,6 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'view_property_sales' => isset($_POST['view_property_sales']) ? 1 : 0,
         'view_capital_projects' => isset($_POST['view_capital_projects']) ? 1 : 0,
         'view_nav_subcontractors' => isset($_POST['view_nav_subcontractors']) ? 1 : 0,
+        
+        // NEW: Commercial Sales Granular Access
+        'view_sales_demo_exc' => isset($_POST['view_sales_demo_exc']) ? 1 : 0,
+        'manage_sales_demo_exc' => isset($_POST['manage_sales_demo_exc']) ? 1 : 0,
+        'view_sales_const' => isset($_POST['view_sales_const']) ? 1 : 0,
+        'manage_sales_const' => isset($_POST['manage_sales_const']) ? 1 : 0,
+        'view_sales_finishes' => isset($_POST['view_sales_finishes']) ? 1 : 0,
+        'manage_sales_finishes' => isset($_POST['manage_sales_finishes']) ? 1 : 0,
     ];
 
     if ($action === 'create_user') {
@@ -59,8 +67,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         user_id, view_tracking, add_project, edit_project_details, update_project_status, 
                         edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
                         view_subcontractor_accounts, manage_subcontractor_accounts,
-                        view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
+                        view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $params = array_values($caps);
                 array_unshift($params, $newId);
@@ -78,7 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
         $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
 
-        // 4-Tier Document Vault Permissions (Now including Engineering)
+        // 4-Tier Document Vault Permissions
         $doc_bca = isset($_POST['doc_bca']) ? (int)$_POST['doc_bca'] : 0;
         $doc_ohsa = isset($_POST['doc_ohsa']) ? (int)$_POST['doc_ohsa'] : 0;
         $doc_drawings = isset($_POST['doc_drawings']) ? (int)$_POST['doc_drawings'] : 0;
@@ -101,8 +110,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     user_id, view_tracking, add_project, edit_project_details, update_project_status, 
                     edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
                     view_subcontractor_accounts, manage_subcontractor_accounts,
-                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
+                    view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                     view_tracking=VALUES(view_tracking), add_project=VALUES(add_project), edit_project_details=VALUES(edit_project_details), 
                     update_project_status=VALUES(update_project_status), edit_services=VALUES(edit_services), assign_actions=VALUES(assign_actions), 
@@ -112,7 +122,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     view_mobilisation=VALUES(view_mobilisation), view_projects=VALUES(view_projects), 
                     view_ohsa=VALUES(view_ohsa), view_works_sales=VALUES(view_works_sales), view_documentation=VALUES(view_documentation), 
                     view_drawings=VALUES(view_drawings), view_property_sales=VALUES(view_property_sales), view_capital_projects=VALUES(view_capital_projects),
-                    view_nav_subcontractors=VALUES(view_nav_subcontractors)
+                    view_nav_subcontractors=VALUES(view_nav_subcontractors),
+                    view_sales_demo_exc=VALUES(view_sales_demo_exc), manage_sales_demo_exc=VALUES(manage_sales_demo_exc),
+                    view_sales_const=VALUES(view_sales_const), manage_sales_const=VALUES(manage_sales_const),
+                    view_sales_finishes=VALUES(view_sales_finishes), manage_sales_finishes=VALUES(manage_sales_finishes)
             ");
             $params = array_values($caps);
             array_unshift($params, $userId);
@@ -223,6 +236,7 @@ require_once 'header.php';
                     </div>
 
                     <div style="background: rgba(99,102,241,0.1); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--primary-color); margin-bottom: 1.5rem;">
+                        
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Action Permissions</h4>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1.5rem;">
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_tracking" id="edit_cap_view_tracking" <?= !empty($selectedUser['view_tracking']) ? 'checked' : '' ?>> View Tracking Stage</label>
@@ -237,6 +251,18 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_users" id="edit_cap_manage_users" <?= !empty($selectedUser['manage_users']) ? 'checked' : '' ?>> Manage Users</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_subcontractor_accounts" id="edit_cap_view_subcontractor_accounts" <?= !empty($selectedUser['view_subcontractor_accounts']) ? 'checked' : '' ?>> View Subcon. Accounts</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_subcontractor_accounts" id="edit_cap_manage_subcontractor_accounts" <?= !empty($selectedUser['manage_subcontractor_accounts']) ? 'checked' : '' ?>> Manage Subcon. Accounts</label>
+                        </div>
+
+                        <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Work Sales & Commercial Access</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 6px;">
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_sales_demo_exc" id="edit_cap_view_sales_demo_exc" <?= !empty($selectedUser['view_sales_demo_exc']) ? 'checked' : '' ?>> View Demo & Exc Quotes</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_sales_demo_exc" id="edit_cap_manage_sales_demo_exc" <?= !empty($selectedUser['manage_sales_demo_exc']) ? 'checked' : '' ?>> <span style="color: #f59e0b;">Manage</span> Demo & Exc Quotes</label>
+
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_sales_const" id="edit_cap_view_sales_const" <?= !empty($selectedUser['view_sales_const']) ? 'checked' : '' ?>> View Construction Quotes</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_sales_const" id="edit_cap_manage_sales_const" <?= !empty($selectedUser['manage_sales_const']) ? 'checked' : '' ?>> <span style="color: #f59e0b;">Manage</span> Construction Quotes</label>
+
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_sales_finishes" id="edit_cap_view_sales_finishes" <?= !empty($selectedUser['view_sales_finishes']) ? 'checked' : '' ?>> View Finishes Quotes</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_sales_finishes" id="edit_cap_manage_sales_finishes" <?= !empty($selectedUser['manage_sales_finishes']) ? 'checked' : '' ?>> <span style="color: #f59e0b;">Manage</span> Finishes Quotes</label>
                         </div>
 
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Menu Navigation Visibility</h4>
@@ -254,7 +280,6 @@ require_once 'header.php';
 
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Document Vault Access Levels</h4>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            
                             <div class="form-group" style="margin: 0;">
                                 <label style="font-size: 0.8rem; margin-bottom: 2px;">BCA Documents</label>
                                 <select name="doc_bca" id="edit_cap_doc_bca" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px;">
@@ -460,12 +485,13 @@ function openCreateModal() { document.getElementById('createModal').style.displa
 function closeCreateModal() { document.getElementById('createModal').style.display = 'none'; }
 window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
 
+// UPDATED DEFAULTS: Added the new view_sales and manage_sales arrays
 const roleDefaults = {
-    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors'],
-    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects'],
+    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes'],
+    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes'],
     'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
     'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors'],
+    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors', 'view_sales_demo_exc', 'view_sales_const', 'view_sales_finishes'],
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
