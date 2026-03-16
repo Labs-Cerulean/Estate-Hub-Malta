@@ -1,6 +1,7 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
+require_once 'S3FileManager.php'; // Include Cloudflare R2
 
 if (!hasPermission('can_manage_clients') && !isAdmin()) {
     header('Location: dashboard.php?error=unauthorized');
@@ -8,22 +9,22 @@ if (!hasPermission('can_manage_clients') && !isAdmin()) {
 }
 
 $message = '';
+$s3 = new S3FileManager(); // Initialize R2
 
-// Handle Image Upload Logic
-function handleLogoUpload($fileInputName) {
+// Handle Image Upload Logic directly to Cloudflare R2
+function handleLogoUpload($fileInputName, $s3) {
     if (isset($_FILES[$fileInputName]) && $_FILES[$fileInputName]['error'] === UPLOAD_ERR_OK) {
-        $uploadDir = 'uploads/logos/';
-        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+        $fileTmpPath = $_FILES[$fileInputName]['tmp_name'];
+        $originalName = $_FILES[$fileInputName]['name'];
+        $mimeType = $_FILES[$fileInputName]['type'];
         
-        $fileExt = strtolower(pathinfo($_FILES[$fileInputName]['name'], PATHINFO_EXTENSION));
+        $fileExt = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
         $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'];
         
         if (in_array($fileExt, $allowedExts)) {
-            $fileName = uniqid() . '_' . preg_replace('/[^a-zA-Z0-9.-]/', '', basename($_FILES[$fileInputName]['name']));
-            $destPath = $uploadDir . $fileName;
-            if (move_uploaded_file($_FILES[$fileInputName]['tmp_name'], $destPath)) {
-                return '/' . $destPath; // Return absolute path for display
-            }
+            // Upload directly to Cloudflare R2 in the 'logos' folder
+            $r2Key = $s3->uploadFile($fileTmpPath, $originalName, $mimeType, 'logos');
+            return $r2Key; // Returns something like: documents/logos/2026/03/12345_logo.png
         }
     }
     return null;
@@ -35,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Create Client
     if ($action === 'create_client') {
         try {
-            $logoPath = handleLogoUpload('client_logo');
+            $logoPath = handleLogoUpload('client_logo', $s3);
             $stmt = $pdo->prepare("INSERT INTO clients (name, city, contact, type, logo_path) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([ $_POST['name'], $_POST['city'] ?? null, $_POST['contact'] ?? null, $_POST['type'], $logoPath ]);
             $clientId = $pdo->lastInsertId();
@@ -43,11 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'Client created successfully!';
         } catch (PDOException $e) { $message = 'Error: Client name may already exist!'; }
     }
-    // Edit Client (Added so you can upload logos to existing clients)
+    // Edit Client 
     elseif ($action === 'edit_client') {
         try {
             $clientId = $_POST['client_id'];
-            $logoPath = handleLogoUpload('edit_client_logo');
+            $logoPath = handleLogoUpload('edit_client_logo', $s3);
             
             if ($logoPath) {
                 $stmt = $pdo->prepare("UPDATE clients SET name=?, city=?, contact=?, type=?, logo_path=? WHERE id=?");
@@ -106,7 +107,14 @@ require_once 'header.php';
                 <?php foreach ($clients as $client): ?>
                     <div class="client-card" style="position: relative; overflow: hidden;">
                         <?php if(!empty($client['logo_path'])): ?>
-                            <img src="<?= htmlspecialchars($client['logo_path']) ?>" alt="Logo" style="position: absolute; top: 15px; right: 15px; max-height: 40px; max-width: 80px; opacity: 0.8; border-radius: 4px;">
+                            <?php 
+                            // Safely generate secure Cloudflare link if it's an R2 Key
+                            $logoUrl = $client['logo_path'];
+                            if (strpos($logoUrl, 'http') === false) {
+                                $logoUrl = $s3->getPresignedUrl($client['logo_path'], '+60 minutes');
+                            }
+                            ?>
+                            <img src="<?= htmlspecialchars($logoUrl) ?>" alt="Logo" style="position: absolute; top: 15px; right: 15px; max-height: 40px; max-width: 80px; opacity: 0.8; border-radius: 4px;">
                         <?php endif; ?>
                         
                         <h3 class="project-title"><?= htmlspecialchars($client['name']) ?></h3>
@@ -142,6 +150,7 @@ require_once 'header.php';
             <div class="form-group">
                 <label>Company Logo (Optional)</label>
                 <input type="file" name="client_logo" accept="image/*" style="padding: 10px; border: 1px dashed var(--primary-color); width: 100%; border-radius: 6px;">
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">Logo will be saved securely to Cloudflare R2.</p>
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%;">Create Client</button>
         </form>
@@ -165,7 +174,7 @@ require_once 'header.php';
             <div class="form-group">
                 <label>Upload New Logo</label>
                 <input type="file" name="edit_client_logo" accept="image/*" style="padding: 10px; border: 1px dashed var(--primary-color); width: 100%; border-radius: 6px;">
-                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">Leave blank to keep existing logo.</p>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">Leave blank to keep existing logo. New logos are saved securely to Cloudflare R2.</p>
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%;">Save Changes</button>
         </form>
