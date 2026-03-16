@@ -42,6 +42,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $userId
             ]);
             $newQuoteId = $pdo->lastInsertId();
+            
+            // --- DYNAMIC PRE-POPULATION ---
+            $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC");
+            $stmtStd->execute([$type]);
+            $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!empty($stdItems)) {
+                $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate) VALUES (?, ?, ?, ?, 1.00, ?)");
+                foreach ($stdItems as $item) {
+                    $stmtItem->execute([$newQuoteId, $item['category'], $item['description'], $item['unit'], $item['default_rate']]);
+                }
+                $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $newQuoteId) WHERE id = $newQuoteId");
+                $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $newQuoteId");
+            }
+            
             $pdo->commit();
             header("Location: work_sales.php?quote_id=" . $newQuoteId . "&msg=created");
             exit;
@@ -57,7 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$_POST['status'], $_POST['terms_conditions'], $_POST['vat_rate'], $qId]);
             $message = "Quote updated successfully.";
             
-            // Recalculate Totals
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
         }
         
@@ -79,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$qId, $_POST['category'], $_POST['description'], $_POST['unit'], $qty, $rate]);
             }
             
-            // Recalculate Master Quote Totals
             $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
             $message = "Item saved and quote totals recalculated.";
@@ -130,15 +143,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-if (isset($_GET['msg']) && $_GET['msg'] === 'created') $message = "Quote created successfully! You can now add items.";
+if (isset($_GET['msg']) && $_GET['msg'] === 'created') $message = "Quote created successfully! The Standard BoQ has been loaded automatically.";
 
 // ==========================================
-// DETERMINE VIEW (Master List vs Details)
+// DETERMINE VIEW
 // ==========================================
 $viewQuoteId = isset($_GET['quote_id']) ? (int)$_GET['quote_id'] : null;
 
 if ($viewQuoteId) {
-    // --- DETAILS VIEW ---
     $stmt = $pdo->prepare("SELECT sq.*, c.name as client_name, p.name as project_name FROM sales_quotes sq LEFT JOIN clients c ON sq.client_id = c.id LEFT JOIN projects p ON sq.project_id = p.id WHERE sq.id = ?");
     $stmt->execute([$viewQuoteId]);
     $quote = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -159,7 +171,6 @@ if ($viewQuoteId) {
     $pageTitle = "Quote: " . $quote['reference_number'];
     
 } else {
-    // --- MASTER LIST VIEW ---
     $currentTab = $_GET['tab'] ?? '';
     if (!isset($access[$currentTab]) || !$access[$currentTab]['view']) {
         foreach ($access as $k => $v) { if ($v['view']) { $currentTab = $k; break; } }
@@ -179,11 +190,15 @@ if ($viewQuoteId) {
     $stmt->execute([$currentTab]);
     $quotesList = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Fetch Dropdowns for Create Modal
     $clientsDb = $isAdmin ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, $userId);
     $projectsDb = getAccessibleProjects($pdo, $userId);
     
     $pageTitle = "Work Sales - Commercial";
+}
+
+function displayUnit($u) {
+    $m = ['lump_sum'=>'Lump Sum', 'sqm'=>'sq.m', 'lm'=>'lm', 'cum'=>'cu.m', 'cu.yd'=>'cu.yd', 'hrs'=>'Hours', 'qty'=>'Qty / Pcs'];
+    return $m[$u] ?? $u;
 }
 
 require_once 'header.php';
@@ -229,9 +244,14 @@ require_once 'header.php';
                 <h1 class="page-title" style="margin: 0;">Work Sales & Commercial</h1>
                 <p style="color: var(--text-secondary); margin-top: 0.25rem;">Manage commercial quotes, standard packages, and interim claims.</p>
             </div>
-            <?php if ($access[$currentTab]['manage']): ?>
-                <button class="btn btn-primary" onclick="document.getElementById('createQuoteModal').style.display='block'">+ Create New Quote</button>
-            <?php endif; ?>
+            <div style="display: flex; gap: 10px;">
+                <?php if ($isAdmin): ?>
+                    <a href="admin_standard_rates.php" class="btn btn-secondary">⚙️ Standard Rates</a>
+                <?php endif; ?>
+                <?php if ($access[$currentTab]['manage']): ?>
+                    <button class="btn btn-primary" onclick="document.getElementById('createQuoteModal').style.display='block'">+ Create New Quote</button>
+                <?php endif; ?>
+            </div>
         </div>
 
         <div class="tab-nav">
@@ -315,13 +335,15 @@ require_once 'header.php';
                             <select name="vat_rate"><option value="18.00">18%</option><option value="0.00">0%</option></select>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create Quote Shell</button>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create Quote</button>
+                    <p style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 10px;">Standard BoQ rates will be auto-populated upon creation.</p>
                 </form>
             </div>
         </div>
         <?php endif; ?>
 
     <?php else: ?>
+        
         <?php 
         $tPaid = 0; $tPend = 0; 
         foreach($claims as $c) { if($c['status']==='Paid') $tPaid += $c['amount_inc_vat']; else $tPend += $c['amount_inc_vat']; }
@@ -339,7 +361,7 @@ require_once 'header.php';
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <span class="status-badge status-<?= $quote['status'] ?>" style="font-size: 1rem; padding: 6px 15px;"><?= $quote['status'] ?></span>
-                <button class="btn btn-secondary" onclick="alert('PDF Generator module will be connected here.')">📄 Print PDF</button>
+                <a href="print_quote.php?quote_id=<?= $quote['id'] ?>" target="_blank" class="btn btn-secondary">📄 Print PDF</a>
             </div>
         </div>
 
@@ -403,7 +425,7 @@ require_once 'header.php';
                             <tr>
                                 <td></td>
                                 <td><?= nl2br(htmlspecialchars($i['description'])) ?></td>
-                                <td><?= htmlspecialchars($i['unit']) ?></td>
+                                <td><?= displayUnit($i['unit']) ?></td>
                                 <td style="text-align: right;"><?= (float)$i['estimated_qty'] ?></td>
                                 <td style="text-align: right;">€<?= number_format($i['unit_rate'], 2) ?></td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
@@ -493,8 +515,8 @@ require_once 'header.php';
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Standard Terms & Conditions</label>
-                            <textarea name="terms_conditions" rows="4" style="font-size: 0.8rem;"><?= htmlspecialchars($quote['terms_conditions'] ?? '') ?></textarea>
+                            <label>Terms & Conditions</label>
+                            <textarea name="terms_conditions" rows="4" style="font-size: 0.8rem;" placeholder="Standard terms text..."><?= htmlspecialchars($quote['terms_conditions'] ?? '') ?></textarea>
                         </div>
                         <button type="submit" class="btn btn-secondary" style="width: 100%;">Save Settings</button>
                     </form>
@@ -515,7 +537,7 @@ require_once 'header.php';
                     <input type="hidden" name="item_id" id="mod_item_id">
                     
                     <div class="form-group">
-                        <label>Category (e.g. Earthworks, Tiles, General)</label>
+                        <label>Category</label>
                         <input type="text" name="category" id="mod_item_cat" value="General" required>
                     </div>
                     <div class="form-group">
@@ -530,6 +552,7 @@ require_once 'header.php';
                                 <option value="sqm">sq.m (Area)</option>
                                 <option value="lm">lm (Linear)</option>
                                 <option value="cum">cu.m (Volume)</option>
+                                <option value="cu.yd">cu.yd (Excavation)</option>
                                 <option value="hrs">Hours</option>
                                 <option value="qty">Qty / Pcs</option>
                             </select>
