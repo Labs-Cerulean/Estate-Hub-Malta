@@ -29,69 +29,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'create_quote') {
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
+            if (empty($_POST['project_id'])) throw new Exception("A project MUST be selected for this quote.");
+            
+            // Fetch default terms
+            $termStmt = $pdo->prepare("SELECT terms_text FROM sales_default_terms WHERE quote_type = ?");
+            $termStmt->execute([$type]);
+            $defTerms = $termStmt->fetchColumn();
             
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("INSERT INTO sales_quotes (client_id, project_id, quote_type, reference_number, vat_rate, created_by) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt = $pdo->prepare("INSERT INTO sales_quotes (client_id, project_id, quote_type, reference_number, vat_rate, created_by, terms_conditions) VALUES (?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 $_POST['client_id'], 
-                !empty($_POST['project_id']) ? $_POST['project_id'] : null, 
+                $_POST['project_id'], 
                 $type, 
                 trim($_POST['reference_number']), 
                 $_POST['vat_rate'] ?? 18.00, 
-                $userId
+                $userId,
+                $defTerms ?: ''
             ]);
             $newQuoteId = $pdo->lastInsertId();
             
-            // --- DYNAMIC PRE-POPULATION (WITH SORT ORDER) ---
+            // --- DYNAMIC PRE-POPULATION ---
             $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC");
             $stmtStd->execute([$type]);
             $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
 
             if (!empty($stdItems)) {
-                $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 1.00, ?, ?)");
+                // DEFAULT QUANTITY IS NOW 0.00
+                $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
                 foreach ($stdItems as $item) {
                     $stmtItem->execute([$newQuoteId, $item['category'], $item['description'], $item['unit'], $item['default_rate'], $item['sort_order']]);
                 }
-                $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $newQuoteId) WHERE id = $newQuoteId");
-                $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $newQuoteId");
             }
             
             $pdo->commit();
             header("Location: work_sales.php?quote_id=" . $newQuoteId . "&msg=created");
             exit;
         }
+
+        // 2. Change Status (Workflow)
+        if ($action === 'change_status') {
+            $qId = (int)$_POST['quote_id'];
+            $newStatus = $_POST['new_status'];
+            
+            if ($newStatus === 'Pending Approval') {
+                $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Pending Approval' WHERE id = ?");
+                $stmt->execute([$qId]);
+                $message = "Quote submitted for approval.";
+            } elseif (in_array($newStatus, ['Approved', 'Rejected'])) {
+                if (!$canApproveQuotes) throw new Exception("You are not authorized to approve quotes.");
+                if ($newStatus === 'Approved') {
+                    $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Approved', approver_id = ?, approved_at = NOW() WHERE id = ?");
+                    $stmt->execute([$userId, $qId]);
+                    $message = "Quote Approved! It can now be printed and sent.";
+                } else {
+                    $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Rejected' WHERE id = ?");
+                    $stmt->execute([$qId]);
+                    $message = "Quote Rejected.";
+                }
+            } elseif (in_array($newStatus, ['Sent', 'Accepted', 'Completed'])) {
+                $stmt = $pdo->prepare("UPDATE sales_quotes SET status = ? WHERE id = ?");
+                $stmt->execute([$newStatus, $qId]);
+                $message = "Status updated to $newStatus.";
+            }
+        }
         
-        // 2. Update Quote Status & Settings
-        if ($action === 'update_quote') {
+        // 3. Update Quote Settings
+        if ($action === 'update_quote_settings') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
             
-            $newStatus = $_POST['status'];
-            
-            // Security Check for Approvals
-            $oldStatusStmt = $pdo->prepare("SELECT status FROM sales_quotes WHERE id = ?");
-            $oldStatusStmt->execute([$qId]);
-            $oldQuote = $oldStatusStmt->fetch();
-            
-            $approvalStatuses = ['Approved', 'Sent', 'Accepted', 'Completed'];
-            if (in_array($newStatus, $approvalStatuses) && !in_array($oldQuote['status'], $approvalStatuses)) {
-                if (!$canApproveQuotes) {
-                    throw new Exception("You do not have permission to approve quotes. Please set status to 'Pending Approval'.");
-                }
-                // Approve the quote
-                $stmt = $pdo->prepare("UPDATE sales_quotes SET status = ?, terms_conditions = ?, vat_rate = ?, approver_id = ?, approved_at = NOW() WHERE id = ?");
-                $stmt->execute([$newStatus, $_POST['terms_conditions'], $_POST['vat_rate'], $userId, $qId]);
-            } else {
-                $stmt = $pdo->prepare("UPDATE sales_quotes SET status = ?, terms_conditions = ?, vat_rate = ? WHERE id = ?");
-                $stmt->execute([$newStatus, $_POST['terms_conditions'], $_POST['vat_rate'], $qId]);
-            }
-            
-            $message = "Quote updated successfully.";
+            $stmt = $pdo->prepare("UPDATE sales_quotes SET terms_conditions = ?, vat_rate = ? WHERE id = ?");
+            $stmt->execute([$_POST['terms_conditions'], $_POST['vat_rate'], $qId]);
+            $message = "Quote settings updated.";
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
         }
         
-        // 3. Save BoQ Item
+        // 4. Save BoQ Item
         if ($action === 'save_item') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
@@ -115,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Item saved and quote totals recalculated.";
         }
         
-        // 4. Delete BoQ Item
+        // 5. Delete BoQ Item
         if ($action === 'delete_item') {
             $qId = (int)$_POST['quote_id'];
             $pdo->prepare("DELETE FROM sales_quote_items WHERE id=?")->execute([$_POST['item_id']]);
@@ -123,8 +138,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
             $message = "Item deleted.";
         }
-
-        // 5. Save Claim
+        
+        // 6. Save Claim
         if ($action === 'save_claim') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
@@ -139,12 +154,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Claim issued successfully.";
         }
         
-        // 6. Update Claim Status
+        // 7. Update Claim Status
         if ($action === 'update_claim_status') {
             $qId = (int)$_POST['quote_id'];
-            $type = $_POST['quote_type'];
-            if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
-            
             $date = $_POST['status'] === 'Paid' ? date('Y-m-d') : null;
             $stmt = $pdo->prepare("UPDATE sales_claims SET status = ?, paid_on = ? WHERE id = ?");
             $stmt->execute([$_POST['status'], $date, $_POST['claim_id']]);
@@ -157,7 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-if (isset($_GET['msg']) && $_GET['msg'] === 'created') $message = "Quote created! The Standard BoQ has been loaded automatically.";
+if (isset($_GET['msg']) && $_GET['msg'] === 'created') $message = "Quote created! Standard items and terms have been loaded.";
 
 // ==========================================
 // DETERMINE VIEW
@@ -174,7 +186,6 @@ if ($viewQuoteId) {
         header('Location: work_sales.php?error=unauthorized_quote'); exit;
     }
     
-    // Sort logic applied here correctly for display
     $items = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ? ORDER BY sort_order ASC, category ASC, id ASC");
     $items->execute([$viewQuoteId]);
     $items = $items->fetchAll(PDO::FETCH_ASSOC);
@@ -184,6 +195,10 @@ if ($viewQuoteId) {
     $claims = $claims->fetchAll(PDO::FETCH_ASSOC);
     
     $canManageQuote = $access[$quote['quote_type']]['manage'];
+    
+    // Determine if quote is locked (only editable in Draft or Rejected)
+    $isQuoteLocked = !in_array($quote['status'], ['Draft', 'Rejected']);
+    
     $pageTitle = "Quote: " . $quote['reference_number'];
     
 } else {
@@ -265,7 +280,7 @@ require_once 'header.php';
             </div>
             <div style="display: flex; gap: 10px;">
                 <?php if ($isAdmin): ?>
-                    <a href="admin_standard_rates.php" class="btn btn-secondary">⚙️ Standard Rates</a>
+                    <a href="admin_standard_rates.php" class="btn btn-secondary">⚙️ Standard Rates & Terms</a>
                 <?php endif; ?>
                 <?php if ($access[$currentTab]['manage']): ?>
                     <button class="btn btn-primary" onclick="document.getElementById('createQuoteModal').style.display='block'">+ Create New Quote</button>
@@ -309,7 +324,7 @@ require_once 'header.php';
                             </td>
                             <td style="font-weight: bold; color: var(--text-primary);"><?= htmlspecialchars($q['reference_number']) ?></td>
                             <td>
-                                <div><?= htmlspecialchars($q['project_name'] ?? 'General Scope') ?></div>
+                                <div><?= htmlspecialchars($q['project_name']) ?></div>
                                 <div style="font-size: 0.75rem; color: var(--text-muted);"><?= htmlspecialchars($q['client_name'] ?? '') ?></div>
                             </td>
                             <td style="text-align: right; font-weight: bold;">€<?= number_format($q['total_inc_vat'], 2) ?></td>
@@ -341,9 +356,9 @@ require_once 'header.php';
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Link to Project (Optional)</label>
-                        <select name="project_id">
-                            <option value="">-- General / Non-Project Specific --</option>
+                        <label>Project (Required) *</label>
+                        <select name="project_id" required>
+                            <option value="">-- Select Project --</option>
                             <?php foreach($projectsDb as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['client_name']) ?>)</option><?php endforeach; ?>
                         </select>
                     </div>
@@ -358,7 +373,7 @@ require_once 'header.php';
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create Quote</button>
-                    <p style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 10px;">Standard BoQ rates will be auto-populated upon creation.</p>
+                    <p style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 10px;">Standard BoQ rates & Terms will be auto-populated upon creation.</p>
                 </form>
             </div>
         </div>
@@ -381,14 +396,14 @@ require_once 'header.php';
                 <h1 class="page-title" style="margin-bottom: 0.25rem; margin-top: 0.5rem;"><?= htmlspecialchars($quote['reference_number']) ?></h1>
                 <div style="color: var(--text-secondary); font-size: 0.9rem;">
                     <strong>Client:</strong> <?= htmlspecialchars($quote['client_name'] ?? 'Unknown') ?> | 
-                    <strong>Project:</strong> <?= htmlspecialchars($quote['project_name'] ?? 'General') ?>
+                    <strong>Project:</strong> <?= htmlspecialchars($quote['project_name'] ?? 'Unknown') ?>
                 </div>
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <span class="status-badge status-<?= $dispStat ?>" style="font-size: 1rem; padding: 6px 15px;"><?= $quote['status'] ?></span>
                 
                 <?php if ($canPrint): ?>
-                    <a href="print_quote.php?quote_id=<?= $quote['id'] ?>" target="_blank" class="btn btn-secondary">📄 Print PDF</a>
+                    <a href="print_quote.php?quote_id=<?= $quote['id'] ?>" target="_blank" class="btn btn-secondary">📄 View & Print PDF</a>
                 <?php else: ?>
                     <button class="btn btn-secondary" style="opacity: 0.5; cursor: not-allowed;" title="Quote must be Approved before printing.">🔒 Print PDF</button>
                 <?php endif; ?>
@@ -419,7 +434,7 @@ require_once 'header.php';
             <div class="section-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
                     <h2 style="margin: 0;">Bill of Quantities (BoQ)</h2>
-                    <?php if ($canManageQuote && $quote['status'] !== 'Completed'): ?>
+                    <?php if ($canManageQuote && !$isQuoteLocked): ?>
                         <div style="display: flex; gap: 5px;">
                             <?php if ($quote['quote_type'] === 'Finishes'): ?>
                                 <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid #8b5cf6;" onclick="alert('Excel Calculator Interface will open here.')">⚡ Launch Finishes Calculator</button>
@@ -438,17 +453,17 @@ require_once 'header.php';
                             <th style="text-align: right;">Qty</th>
                             <th style="text-align: right;">Rate</th>
                             <th style="text-align: right;">Total (€)</th>
-                            <?php if($canManageQuote): ?><th></th><?php endif; ?>
+                            <?php if($canManageQuote && !$isQuoteLocked): ?><th></th><?php endif; ?>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if(empty($items)): ?>
-                            <tr><td colspan="<?= $canManageQuote ? 7 : 6 ?>" style="text-align: center; color: var(--text-muted);">No items added yet.</td></tr>
+                            <tr><td colspan="<?= ($canManageQuote && !$isQuoteLocked) ? 7 : 6 ?>" style="text-align: center; color: var(--text-muted);">No items added yet.</td></tr>
                         <?php else: 
                             $currentCat = '';
                             foreach($items as $i): 
                                 if ($i['category'] !== $currentCat) {
-                                    echo "<tr><td colspan='".($canManageQuote ? 7 : 6)."' style='background: rgba(255,255,255,0.02); color: var(--primary-color); font-weight: bold;'>".htmlspecialchars($i['category'])."</td></tr>";
+                                    echo "<tr><td colspan='".(($canManageQuote && !$isQuoteLocked) ? 7 : 6)."' style='background: rgba(255,255,255,0.02); color: var(--primary-color); font-weight: bold;'>".htmlspecialchars($i['category'])."</td></tr>";
                                     $currentCat = $i['category'];
                                 }
                         ?>
@@ -459,8 +474,8 @@ require_once 'header.php';
                                 <td style="text-align: right;"><?= (float)$i['estimated_qty'] ?></td>
                                 <td style="text-align: right;">€<?= number_format($i['unit_rate'], 2) ?></td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
-                                <?php if($canManageQuote && $quote['status'] !== 'Completed'): ?>
-                                    <td style="text-align: right;">
+                                <?php if($canManageQuote && !$isQuoteLocked): ?>
+                                    <td style="text-align: right; min-width: 75px;">
                                         <button class="btn btn-sm btn-secondary" style="padding: 2px 6px;" onclick='openItemModal(<?= json_encode($i, JSON_HEX_APOS) ?>)'>✎</button>
                                         <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this line item?');">
                                             <input type="hidden" name="action" value="delete_item"><input type="hidden" name="quote_id" value="<?= $quote['id'] ?>"><input type="hidden" name="quote_type" value="<?= $quote['quote_type'] ?>"><input type="hidden" name="item_id" value="<?= $i['id'] ?>">
@@ -475,16 +490,64 @@ require_once 'header.php';
             </div>
 
             <div>
+                <?php if ($canManageQuote): ?>
+                <div class="section-card" style="margin-bottom: 1.5rem; border: 1px solid var(--primary-color);">
+                    <h2 style="margin-top: 0; margin-bottom: 1rem; color: var(--primary-color);">Quote Workflow</h2>
+                    
+                    <?php if ($quote['status'] === 'Draft' || $quote['status'] === 'Rejected'): ?>
+                        <form method="POST">
+                            <input type="hidden" name="action" value="change_status">
+                            <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                            <input type="hidden" name="new_status" value="Pending Approval">
+                            <button type="submit" class="btn btn-primary" style="width:100%;">Submit for Approval</button>
+                        </form>
+                    
+                    <?php elseif ($quote['status'] === 'Pending Approval'): ?>
+                        <?php if ($canApproveQuotes): ?>
+                            <div style="display: flex; gap: 10px;">
+                                <form method="POST" style="flex:1;">
+                                    <input type="hidden" name="action" value="change_status">
+                                    <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                                    <input type="hidden" name="new_status" value="Approved">
+                                    <button type="submit" class="btn" style="background:#10b981; color:white; width:100%; border:none;">Approve</button>
+                                </form>
+                                <form method="POST" style="flex:1;">
+                                    <input type="hidden" name="action" value="change_status">
+                                    <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                                    <input type="hidden" name="new_status" value="Rejected">
+                                    <button type="submit" class="btn btn-danger" style="width:100%;">Reject</button>
+                                </form>
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-info" style="margin:0; text-align:center;">Waiting for manager authorization...</div>
+                        <?php endif; ?>
+
+                    <?php else: ?>
+                        <form method="POST" style="display:flex; gap:10px;">
+                            <input type="hidden" name="action" value="change_status">
+                            <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                            <select name="new_status" style="flex:1;">
+                                <option value="Approved" <?= $quote['status']=='Approved'?'selected':'' ?>>Approved (Unsent)</option>
+                                <option value="Sent" <?= $quote['status']=='Sent'?'selected':'' ?>>Sent to Client</option>
+                                <option value="Accepted" <?= $quote['status']=='Accepted'?'selected':'' ?>>Accepted by Client</option>
+                                <option value="Completed" <?= $quote['status']=='Completed'?'selected':'' ?>>Completed / Billed</option>
+                            </select>
+                            <button type="submit" class="btn btn-secondary">Update</button>
+                        </form>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
                 <div class="section-card" style="margin-bottom: 1.5rem; background: rgba(59, 130, 246, 0.02); border-color: rgba(59, 130, 246, 0.2);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
                         <h2 style="margin: 0; color: #3b82f6;">Claims & Invoicing</h2>
-                        <?php if ($canManageQuote && in_array($quote['status'], ['Accepted', 'Sent'])): ?>
+                        <?php if ($canManageQuote && in_array($quote['status'], ['Accepted', 'Completed'])): ?>
                             <button class="btn btn-sm" style="background: #3b82f6; color: white; border: none;" onclick="openClaimModal()">+ Issue Claim</button>
                         <?php endif; ?>
                     </div>
                     
-                    <?php if (!in_array($quote['status'], ['Sent', 'Accepted', 'Completed'])): ?>
-                        <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">Quote must be 'Sent' or 'Accepted' to issue claims.</div>
+                    <?php if (!in_array($quote['status'], ['Accepted', 'Completed'])): ?>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">Quote must be 'Accepted' to issue claims.</div>
                     <?php elseif (empty($claims)): ?>
                         <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">No claims issued yet.</div>
                     <?php else: ?>
@@ -521,32 +584,12 @@ require_once 'header.php';
 
                 <?php if ($canManageQuote): ?>
                 <div class="section-card">
-                    <h2 style="margin-top: 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Quote Settings & Approvals</h2>
+                    <h2 style="margin-top: 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Settings & Terms</h2>
                     <form method="POST">
-                        <input type="hidden" name="action" value="update_quote">
+                        <input type="hidden" name="action" value="update_quote_settings">
                         <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
                         <input type="hidden" name="quote_type" value="<?= $quote['quote_type'] ?>">
                         
-                        <div class="form-group">
-                            <label>Approval Workflow Status</label>
-                            <select name="status" style="border: 1px solid var(--primary-color);">
-                                <option value="Draft" <?= $quote['status'] === 'Draft' ? 'selected' : '' ?>>Draft</option>
-                                <option value="Pending Approval" <?= $quote['status'] === 'Pending Approval' ? 'selected' : '' ?>>Pending Approval</option>
-                                
-                                <?php if ($canApproveQuotes || in_array($quote['status'], ['Approved', 'Sent', 'Accepted', 'Completed'])): ?>
-                                    <option value="Approved" <?= $quote['status'] === 'Approved' ? 'selected' : '' ?>>Approved (Ready to Print)</option>
-                                    <option value="Sent" <?= $quote['status'] === 'Sent' ? 'selected' : '' ?>>Sent to Client</option>
-                                    <option value="Accepted" <?= $quote['status'] === 'Accepted' ? 'selected' : '' ?>>Accepted (Active Project)</option>
-                                    <option value="Rejected" <?= $quote['status'] === 'Rejected' ? 'selected' : '' ?>>Rejected</option>
-                                    <option value="Completed" <?= $quote['status'] === 'Completed' ? 'selected' : '' ?>>Completed (Billed)</option>
-                                <?php endif; ?>
-                            </select>
-                            
-                            <?php if (!$canApproveQuotes && !in_array($quote['status'], ['Approved', 'Sent', 'Accepted', 'Completed'])): ?>
-                                <p style="font-size: 0.75rem; color: #f59e0b; margin-top: 5px;">Set to 'Pending Approval' and notify a manager to authorize this quote for printing.</p>
-                            <?php endif; ?>
-                        </div>
-
                         <div class="form-group">
                             <label>VAT Rate %</label>
                             <select name="vat_rate">
@@ -556,7 +599,7 @@ require_once 'header.php';
                         </div>
                         <div class="form-group">
                             <label>Terms & Conditions</label>
-                            <textarea name="terms_conditions" rows="4" style="font-size: 0.8rem;" placeholder="Standard terms text..."><?= htmlspecialchars($quote['terms_conditions'] ?? '') ?></textarea>
+                            <textarea name="terms_conditions" rows="6" style="font-size: 0.8rem;"><?= htmlspecialchars($quote['terms_conditions'] ?? '') ?></textarea>
                         </div>
                         <button type="submit" class="btn btn-secondary" style="width: 100%;">Save Settings</button>
                     </form>
@@ -565,7 +608,7 @@ require_once 'header.php';
             </div>
         </div>
 
-        <?php if ($canManageQuote): ?>
+        <?php if ($canManageQuote && !$isQuoteLocked): ?>
         <div id="itemModal" class="modal">
             <div class="modal-content" style="max-width: 500px;">
                 <span class="close-modal" onclick="document.getElementById('itemModal').style.display='none'">&times;</span>
@@ -599,7 +642,7 @@ require_once 'header.php';
                         </div>
                         <div class="form-group">
                             <label>Estimated Qty</label>
-                            <input type="number" step="0.01" name="estimated_qty" id="mod_item_qty" value="1.00" required>
+                            <input type="number" step="0.01" name="estimated_qty" id="mod_item_qty" value="0.00" required>
                         </div>
                         <div class="form-group">
                             <label>Unit Rate (€)</label>
@@ -616,7 +659,9 @@ require_once 'header.php';
                 </form>
             </div>
         </div>
+        <?php endif; ?>
 
+        <?php if ($canManageQuote): ?>
         <div id="claimModal" class="modal">
             <div class="modal-content" style="max-width: 400px;">
                 <span class="close-modal" onclick="document.getElementById('claimModal').style.display='none'">&times;</span>
@@ -655,6 +700,7 @@ require_once 'header.php';
                 </form>
             </div>
         </div>
+        <?php endif; ?>
         
         <script>
         function openItemModal(data = null) {
@@ -671,7 +717,7 @@ require_once 'header.php';
                 document.getElementById('itemModalTitle').innerText = 'Add Line Item';
                 document.getElementById('mod_item_id').value = '';
                 document.getElementById('mod_item_desc').value = '';
-                document.getElementById('mod_item_qty').value = '1.00';
+                document.getElementById('mod_item_qty').value = '0.00';
                 document.getElementById('mod_item_rate').value = '';
                 document.getElementById('mod_item_sort').value = '99';
             }
@@ -679,7 +725,6 @@ require_once 'header.php';
         }
         function openClaimModal() { document.getElementById('claimModal').style.display = 'block'; }
         </script>
-        <?php endif; ?>
 
     <?php endif; ?>
 </div>
