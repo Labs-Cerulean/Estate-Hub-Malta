@@ -1,6 +1,7 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
+require_once 'S3FileManager.php'; // Include the R2 Cloudflare Manager
 
 // Verification
 $client_id = isset($_GET['client_id']) ? (int)$_GET['client_id'] : null;
@@ -8,11 +9,26 @@ $sub_id = isset($_GET['sub_id']) ? (int)$_GET['sub_id'] : null;
 
 if (!$client_id || !$sub_id) die("Missing required parameters.");
 
+// Initialize Cloudflare R2
+$s3 = new S3FileManager();
+
 // 1. Fetch Client details (and Logo)
 $stmt = $pdo->prepare("SELECT * FROM clients WHERE id = ?");
 $stmt->execute([$client_id]);
 $client = $stmt->fetch();
 if (!$client) die("Client not found.");
+
+// Generate a fresh, unexpired Cloudflare R2 link for the logo if it exists
+$logoSrc = '';
+if (!empty($client['logo_path'])) {
+    // If it looks like an R2 Key (doesn't start with http), generate a fresh 60-minute presigned URL
+    if (strpos($client['logo_path'], 'http') === false) {
+        $logoSrc = $s3->getPresignedUrl($client['logo_path'], '+60 minutes');
+    } else {
+        // Fallback in case it's an old local file or external link
+        $logoSrc = $client['logo_path'];
+    }
+}
 
 // 2. Fetch Subcontractor Details
 $stmt = $pdo->prepare("SELECT * FROM subcontractors WHERE id = ?");
@@ -106,8 +122,8 @@ $due_inv_global = $tot_inv - $tot_paid;
 
     <div class="header-section">
         <div class="logo-box">
-            <?php if (!empty($client['logo_path'])): ?>
-                <img src="<?= htmlspecialchars($client['logo_path']) ?>" alt="Client Logo">
+            <?php if (!empty($logoSrc)): ?>
+                <img src="<?= htmlspecialchars($logoSrc) ?>" alt="Client Logo">
             <?php else: ?>
                 <h2 style="margin:0; color:#374151; font-size: 20px;"><?= htmlspecialchars($client['name']) ?></h2>
             <?php endif; ?>
