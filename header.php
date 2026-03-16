@@ -12,7 +12,11 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 // Define visibility for Dropdowns based on user capabilities
 $showProjects = hasPermission('view_projects') || hasPermission('view_mobilisation') || hasPermission('edit_services') || isAdmin();
 $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation') || hasPermission('view_drawings') || isAdmin();
-$showCommercial = hasPermission('view_works_sales') || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || hasPermission('view_nav_subcontractors') || isAdmin();
+
+// Check if user has ANY Work Sales access (Generic or Granular)
+$hasWorkSalesAccess = hasPermission('view_works_sales') || hasPermission('view_sales_demo_exc') || hasPermission('view_sales_const') || hasPermission('view_sales_finishes');
+
+$showCommercial = $hasWorkSalesAccess || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || hasPermission('view_nav_subcontractors') || isAdmin();
 $showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || isAdmin();
 
 // Fetch Pending Actions Count
@@ -89,12 +93,12 @@ if (isLoggedIn() && isset($pdo)) {
 
                     <?php if ($showCommercial): ?>
                     <div class="nav-dropdown">
-                        <span class="nav-link <?= in_array($currentPage, ['works_sales', 'property_sales', 'capital_projects', 'subcontractor_accounts']) ? 'active' : '' ?>">
+                        <span class="nav-link <?= in_array($currentPage, ['work_sales', 'works_sales', 'property_sales', 'capital_projects', 'subcontractor_accounts']) ? 'active' : '' ?>">
                             Commercial ▾
                         </span>
                         <div class="dropdown-content">
-                            <?php if (hasPermission('view_works_sales') || isAdmin()): ?>
-                                <a href="works_sales.php" class="<?= $currentPage === 'works_sales' ? 'active' : '' ?>">Works Sales</a>
+                            <?php if ($hasWorkSalesAccess || isAdmin()): ?>
+                                <a href="work_sales.php" class="<?= in_array($currentPage, ['work_sales', 'works_sales']) ? 'active' : '' ?>">Works Sales</a>
                             <?php endif; ?>
                             <?php if (hasPermission('view_property_sales') || isAdmin()): ?>
                                 <a href="property_sales.php" class="<?= $currentPage === 'property_sales' ? 'active' : '' ?>">Property Sales</a>
