@@ -34,12 +34,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("DELETE FROM sales_standard_items WHERE id=?")->execute([$_POST['item_id']]);
             $message = "Item deleted.";
         }
+
+        if ($action === 'save_terms') {
+            $type = $_POST['quote_type'];
+            $terms = $_POST['terms_text'];
+            
+            $stmt = $pdo->prepare("INSERT INTO sales_default_terms (quote_type, terms_text) VALUES (?, ?) ON DUPLICATE KEY UPDATE terms_text = VALUES(terms_text)");
+            $stmt->execute([$type, $terms]);
+            $message = "Standard terms updated for $type.";
+        }
     } catch (Exception $e) { $error = $e->getMessage(); }
 }
 
 $items = $pdo->query("SELECT * FROM sales_standard_items ORDER BY quote_type ASC, sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-$pageTitle = 'Manage Standard Quote Rates';
+// Fetch current terms
+$termsData = $pdo->query("SELECT * FROM sales_default_terms")->fetchAll(PDO::FETCH_ASSOC);
+$termsMap = [];
+foreach ($termsData as $t) { $termsMap[$t['quote_type']] = $t['terms_text']; }
+
+$pageTitle = 'Manage Standard Quote Rates & Terms';
 require_once 'header.php';
 ?>
 
@@ -52,14 +66,30 @@ require_once 'header.php';
 <div class="main-container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
-            <h1 class="page-title" style="margin: 0;">Standard Quote Rates & Templates</h1>
-            <p style="color: var(--text-secondary); margin-top: 0.25rem;">Manage the boilerplate text and default unit rates that auto-populate when a quote is created.</p>
+            <h1 class="page-title" style="margin: 0;">Standard Quote Rates & Terms</h1>
+            <p style="color: var(--text-secondary); margin-top: 0.25rem;">Manage the boilerplate text, terms, and default unit rates that auto-populate when a quote is created.</p>
         </div>
         <a href="work_sales.php" class="btn btn-secondary">← Back to Commercial Hub</a>
     </div>
 
     <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+
+    <div class="section-card" style="margin-bottom: 2rem;">
+        <h3>Default Terms & Conditions</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">These terms will automatically be appended to the bottom of any newly created quote of the respective type.</p>
+        <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+            <?php foreach(['Demolition_Excavation', 'Construction', 'Finishes'] as $qt): ?>
+            <form method="POST" style="background: rgba(255,255,255,0.02); padding: 1rem; border: 1px solid var(--border-glass); border-radius: 8px;">
+                <input type="hidden" name="action" value="save_terms">
+                <input type="hidden" name="quote_type" value="<?= $qt ?>">
+                <h4 style="margin-top: 0; color: var(--primary-color);"><?= str_replace('_', ' & ', $qt) ?></h4>
+                <textarea name="terms_text" rows="6" style="width: 100%; margin-bottom: 10px; font-size: 0.8rem; padding: 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: #1e1e2d; color: #fff;"><?= htmlspecialchars($termsMap[$qt] ?? '') ?></textarea>
+                <button type="submit" class="btn btn-sm btn-primary" style="width: 100%;">Save Terms</button>
+            </form>
+            <?php endforeach; ?>
+        </div>
+    </div>
 
     <div class="two-column-layout" style="grid-template-columns: 1fr 2fr;">
         <div class="section-card">
@@ -93,7 +123,7 @@ require_once 'header.php';
                     </div>
                     <div class="form-group"><label>Default Rate (€)</label><input type="number" step="0.01" name="default_rate" id="form_rate" value="0.00" required></div>
                 </div>
-                <div class="form-group"><label>Sort Order</label><input type="number" name="sort_order" id="form_sort" value="10"></div>
+                <div class="form-group"><label>Sort Order (1 = Top)</label><input type="number" name="sort_order" id="form_sort" value="10"></div>
                 
                 <div style="display: flex; gap: 10px;">
                     <button type="submit" class="btn btn-primary" style="flex: 1;" id="form_submit_btn">Save Item</button>
