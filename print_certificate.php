@@ -45,16 +45,22 @@ $sub = $sStmt->fetch(PDO::FETCH_ASSOC);
 // POINT-IN-TIME HISTORICAL CALCULATIONS
 // ==========================================
 
-// Previous Certified (Sum of all Certs on this Work Order strictly BEFORE this transaction)
-$prevStmt = $pdo->prepare("
-    SELECT COALESCE(SUM(amount), 0) 
+// Fetch Historical Certificates for the Audit Trail AND Sum
+$historyStmt = $pdo->prepare("
+    SELECT id, transaction_date, reference, description, amount as amount_inc_vat 
     FROM subcontractor_transactions 
     WHERE work_id = ? 
       AND transaction_type = 'Certification' 
       AND (transaction_date < ? OR (transaction_date = ? AND id < ?))
+    ORDER BY transaction_date ASC, id ASC
 ");
-$prevStmt->execute([$work['id'], $tx['transaction_date'], $tx['transaction_date'], $txId]);
-$prev_cert = (float)$prevStmt->fetchColumn();
+$historyStmt->execute([$work['id'], $tx['transaction_date'], $tx['transaction_date'], $txId]);
+$historicalCerts = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$prev_cert = 0;
+foreach ($historicalCerts as $hc) {
+    $prev_cert += (float)$hc['amount_inc_vat'];
+}
 
 $this_cert = (float)$tx['amount'];
 $total_to_date = $prev_cert + $this_cert;
@@ -106,6 +112,10 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
         .print-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
         .print-table .num { text-align: right; }
         .print-table .strong { font-weight: bold; }
+
+        .history-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 10px; }
+        .history-table th { background: #f9fafb; padding: 8px; text-align: left; border-bottom: 1px solid #d1d5db; color: #4b5563; }
+        .history-table td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; color: #4b5563; }
 
         .signatures-grid { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
         .signature-block { width: 30%; text-align: center; }
@@ -250,7 +260,7 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
             <tbody>
                 <tr>
                     <td style="padding: 20px 10px;">
-                        <?= htmlspecialchars($tx['notes'] ?: 'Interim certification against lump sum contract.') ?>
+                        <?= nl2br(htmlspecialchars($tx['notes'] ?: 'Interim certification against lump sum contract.')) ?>
                     </td>
                     <td class="num strong" style="color: #3b82f6; vertical-align: top; padding: 20px 10px;">
                         €<?= number_format($this_cert, 2) ?>
@@ -259,6 +269,38 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
             </tbody>
         </table>
     <?php endif; ?>
+
+    <h3 style="margin: 30px 0 10px 0; font-size: 12px; color: #4b5563; text-transform: uppercase;">Certification History</h3>
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th style="width: 15%;">Date</th>
+                <th style="width: 20%;">Reference</th>
+                <th style="width: 45%;">Description</th>
+                <th style="text-align: right; width: 20%;">Amount (Inc VAT)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if (empty($historicalCerts)): ?>
+                <tr>
+                    <td colspan="4" style="text-align: center; font-style: italic;">This is the first certification issued for this Work Order.</td>
+                </tr>
+            <?php else: ?>
+                <?php foreach ($historicalCerts as $hc): ?>
+                <tr>
+                    <td><?= date('d M Y', strtotime($hc['transaction_date'])) ?></td>
+                    <td style="font-weight: bold;"><?= htmlspecialchars($hc['reference'] ?: 'C-'.$hc['id']) ?></td>
+                    <td><?= htmlspecialchars($hc['description'] ?: 'Interim Certification') ?></td>
+                    <td style="text-align: right;">€<?= number_format($hc['amount_inc_vat'], 2) ?></td>
+                </tr>
+                <?php endforeach; ?>
+                <tr style="background: #f9fafb; font-weight: bold;">
+                    <td colspan="3" style="text-align: right;">Total Prior Certifications:</td>
+                    <td style="text-align: right;">€<?= number_format($prev_cert, 2) ?></td>
+                </tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
 
     <div class="signatures-grid">
         <div class="signature-block">
