@@ -65,13 +65,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
 
             if (empty($_POST['work_id'])) {
                 $stmt = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, is_measured, work_reference, po_reference, vat_rate, responsible, total_exc_vat, total_inc_vat, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([ $post_sub_id, $selected_client_id, $project_id, $is_measured, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), $vat_rate, trim($_POST['responsible']), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes']) ]);
+                $stmt->execute([ $post_sub_id, $selected_client_id, $project_id, $is_measured, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), $vat_rate, trim($_POST['responsible'] ?? ''), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes'] ?? '') ]);
                 $work_id = $pdo->lastInsertId();
                 $message = "Work Order added successfully!";
             } else {
                 $work_id = $_POST['work_id'];
                 $stmt = $pdo->prepare("UPDATE subcontractor_works SET project_id=?, is_measured=?, work_reference=?, po_reference=?, vat_rate=?, responsible=?, total_exc_vat=?, total_inc_vat=?, notes=? WHERE id=? AND subcontractor_id=? AND client_id=?");
-                $stmt->execute([ $project_id, $is_measured, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), $vat_rate, trim($_POST['responsible']), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes']), $work_id, $post_sub_id, $selected_client_id ]);
+                $stmt->execute([ $project_id, $is_measured, trim($_POST['work_reference']), trim($_POST['po_reference'] ?? ''), $vat_rate, trim($_POST['responsible'] ?? ''), $_POST['total_exc_vat'] ?: 0, $_POST['total_inc_vat'] ?: 0, trim($_POST['notes'] ?? ''), $work_id, $post_sub_id, $selected_client_id ]);
                 $message = "Work Order updated successfully!";
             }
 
@@ -136,10 +136,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                     $pid = $chkP->fetchColumn();
                     if ($pid) {
                         try {
-                            $pdo->prepare("INSERT INTO project_documents (project_id, document_type, title, file_path, uploaded_by) VALUES (?, 'Commercial', ?, ?, ?)")->execute([$pid, 'Invoice: ' . trim($_POST['reference']), $docPath, getCurrentUserId()]);
-                        } catch (Exception $e) {
-                            try { $pdo->prepare("INSERT INTO project_documents (project_id, folder_name, file_name, file_path, uploaded_by) VALUES (?, 'Commercial', ?, ?, ?)")->execute([$pid, 'Invoice: ' . trim($_POST['reference']), $docPath, getCurrentUserId()]); } catch (Exception $e2) {}
-                        }
+                            $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, uploaded_by) VALUES (?, 'Commercial', 'Invoice', ?, ?, ?)")->execute([$pid, 'Invoice: ' . trim($_POST['reference']), $docPath, getCurrentUserId()]);
+                        } catch (Exception $e) { }
                     }
                 }
             }
@@ -278,9 +276,13 @@ require_once 'header.php';
 .badge-pay { background: rgba(16, 185, 129, 0.2); color: #10B981; }
 .badge-boq { background: rgba(139, 92, 246, 0.2); color: #8B5CF6; border: 1px solid rgba(139,92,246,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-top: 4px; display: inline-block;}
 .data-table th.col-divider, .data-table td.col-divider { border-left: 2px solid rgba(255,255,255,0.05); }
+
+/* Progress Bar Styles */
 .progress-wrapper { width: 100%; background-color: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; height: 6px; margin-top: 6px; }
 .progress-fill { background-color: #3B82F6; height: 100%; transition: width 0.3s ease; }
 .progress-fill.over { background-color: #EF4444; } 
+
+/* BoQ Builder Table */
 .boq-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
 .boq-table th { background: rgba(0,0,0,0.2); padding: 8px; text-align: left; color: var(--text-secondary); }
 .boq-table td { padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); }
@@ -409,10 +411,12 @@ require_once 'header.php';
             $sub = $stmt->fetch();
             if (!$sub) die("Subcontractor not found.");
 
+            // Fetch Available Invoices for the "Match Invoice" feature
             $invStmt = $pdo->prepare("SELECT id, reference, amount FROM subcontractor_transactions WHERE subcontractor_id = ? AND client_id = ? AND transaction_type = 'Invoice' ORDER BY transaction_date DESC");
             $invStmt->execute([$sub_id, $selected_client_id]); 
             $availableInvoices = $invStmt->fetchAll();
 
+            // Fetch Works & Calculate iteratively from transactions
             $wStmt = $pdo->prepare("
                 SELECT w.*, p.name as project_name, c.name as project_client_name,
                 (SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = w.id AND transaction_type = 'Certification') as cert_total,
@@ -427,6 +431,7 @@ require_once 'header.php';
             $wStmt->execute([$sub_id, $selected_client_id]); 
             $works = $wStmt->fetchAll();
 
+            // Fetch All Transactions
             $tStmt = $pdo->prepare("
                 SELECT t.*, w.work_reference 
                 FROM subcontractor_transactions t
@@ -437,6 +442,7 @@ require_once 'header.php';
             $tStmt->execute([$sub_id, $selected_client_id]); 
             $transactions = $tStmt->fetchAll();
 
+            // Global Calculations
             $tot_cert = 0; $tot_paid = 0; $tot_inv = 0;
             foreach ($transactions as $t) {
                 if ($t['transaction_type'] === 'Certification') $tot_cert += $t['amount'];
@@ -514,15 +520,20 @@ require_once 'header.php';
                                 $due_c = $c_tot - $p_tot;
                                 $due_i = $i_tot - $p_tot;
 
+                                // Progress Calculation
                                 $prog_pct = $w['total_inc_vat'] > 0 ? ($c_tot / $w['total_inc_vat']) * 100 : 0;
                                 $prog_class = $prog_pct > 100 ? 'over' : '';
                                 
-                                $statsPayload = json_encode([
+                                // Payload for specific modal stats (Using htmlspecialchars to prevent any HTML breakage)
+                                $statsPayload = htmlspecialchars(json_encode([
                                     'tot' => $w['total_inc_vat'],
                                     'cert' => $c_tot,
                                     'inv' => $i_tot,
                                     'pay' => $p_tot
-                                ]);
+                                ]), ENT_QUOTES, 'UTF-8');
+                                
+                                // JSON Payload for the Edit button
+                                $wJson = htmlspecialchars(json_encode($w), ENT_QUOTES, 'UTF-8');
                             ?>
                             <tr>
                                 <td>
@@ -562,10 +573,10 @@ require_once 'header.php';
                                 <?php if($canManage): ?>
                                 <td style="text-align: center; vertical-align: middle;">
                                     <div style="display: flex; gap: 4px; justify-content: center; align-items: center;">
-                                        <button onclick='openTxModal(null, <?= $w['id'] ?>, "Certification", <?= $w['is_measured'] ? "true" : "false" ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)' class="btn btn-sm" style="background: rgba(59,130,246,0.1); color: #3B82F6; border: 1px solid #3B82F6; padding: 2px 6px;" title="Add Certificate">Cert</button>
-                                        <button onclick='openTxModal(null, <?= $w['id'] ?>, "Invoice", <?= $w['is_measured'] ? "true" : "false" ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)' class="btn btn-sm" style="background: rgba(245,158,11,0.1); color: #F59E0B; border: 1px solid #F59E0B; padding: 2px 6px;" title="Add Invoice">Inv</button>
-                                        <button onclick='openTxModal(null, <?= $w['id'] ?>, "Payment", <?= $w['is_measured'] ? "true" : "false" ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)' class="btn btn-sm" style="background: rgba(16,185,129,0.1); color: #10B981; border: 1px solid #10B981; padding: 2px 6px;" title="Add Payment">Pay</button>
-                                        <button onclick='openWorkModal(<?= json_encode($w, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" title="Edit Work Order" style="padding: 2px 6px;">✎</button>
+                                        <button onclick="openTxModal(null, <?= $w['id'] ?>, 'Certification', <?= $w['is_measured'] ? 'true' : 'false' ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)" class="btn btn-sm" style="background: rgba(59,130,246,0.1); color: #3B82F6; border: 1px solid #3B82F6; padding: 2px 6px;" title="Add Certificate">Cert</button>
+                                        <button onclick="openTxModal(null, <?= $w['id'] ?>, 'Invoice', <?= $w['is_measured'] ? 'true' : 'false' ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)" class="btn btn-sm" style="background: rgba(245,158,11,0.1); color: #F59E0B; border: 1px solid #F59E0B; padding: 2px 6px;" title="Add Invoice">Inv</button>
+                                        <button onclick="openTxModal(null, <?= $w['id'] ?>, 'Payment', <?= $w['is_measured'] ? 'true' : 'false' ?>, <?= $w['vat_rate'] ?>, <?= $statsPayload ?>)" class="btn btn-sm" style="background: rgba(16,185,129,0.1); color: #10B981; border: 1px solid #10B981; padding: 2px 6px;" title="Add Payment">Pay</button>
+                                        <button onclick="openWorkModal(<?= $wJson ?>)" class="btn btn-sm btn-secondary" title="Edit Work Order" style="padding: 2px 6px;">✎</button>
                                     </div>
                                 </td>
                                 <?php endif; ?>
@@ -592,17 +603,20 @@ require_once 'header.php';
                     </thead>
                     <tbody>
                         <?php if (empty($transactions)): ?>
-                            <tr><td colspan="7" style="text-align: center;">No activity logged yet.</td></tr>
+                            <tr><td colspan="<?= $canManage ? '7' : '6' ?>" style="text-align: center;">No activity logged yet.</td></tr>
                         <?php else: ?>
                             <?php foreach($transactions as $t): 
                                 $badgeClass = 'badge-pay';
                                 if ($t['transaction_type'] === 'Certification') $badgeClass = 'badge-cert';
                                 if ($t['transaction_type'] === 'Invoice') $badgeClass = 'badge-inv';
                                 
+                                // Fetch Work Data for the Edit Button to maintain IsMeasured state
                                 $t_work = null;
                                 foreach($works as $w) { if ($w['id'] == $t['work_id']) { $t_work = $w; break; } }
                                 $t_is_measured = $t_work ? ($t_work['is_measured'] ? 'true' : 'false') : 'false';
                                 $t_vat_rate = $t_work ? $t_work['vat_rate'] : 18.00;
+                                
+                                $tJson = htmlspecialchars(json_encode($t), ENT_QUOTES, 'UTF-8');
                             ?>
                             <tr>
                                 <td><?= date('d M Y', strtotime($t['transaction_date'])) ?></td>
@@ -629,7 +643,7 @@ require_once 'header.php';
                                     <?php endif; ?>
 
                                     <?php if($canManage): ?>
-                                        <button onclick='openTxModal(<?= json_encode($t, JSON_HEX_APOS) ?>, <?= $t['work_id'] ?: 'null' ?>, "<?= $t['transaction_type'] ?>", <?= $t_is_measured ?>, <?= $t_vat_rate ?>)' class="btn btn-sm btn-secondary" style="margin-right: 5px;">Edit</button>
+                                        <button onclick="openTxModal(<?= $tJson ?>, <?= $t['work_id'] ?: 'null' ?>, '<?= $t['transaction_type'] ?>', <?= $t_is_measured ?>, <?= $t_vat_rate ?>)" class="btn btn-sm btn-secondary" style="margin-right: 5px;">Edit</button>
                                         <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure? If this is a Certification, the floors will be rolled back to their previous completion %.');">
                                             <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
                                             <input type="hidden" name="action" value="delete_transaction"><input type="hidden" name="transaction_id" value="<?= $t['id'] ?>">
@@ -819,6 +833,33 @@ require_once 'header.php';
         </div>
 
         <script>
+        // --- SAFE WRAPPERS ---
+        function openWorkModal(data = null) {
+            try {
+                document.getElementById('wModalTitle').textContent = data ? 'Edit Work Order' : 'Create Work Order';
+                
+                document.getElementById('w_id').value = data ? data.id : '';
+                document.getElementById('w_project_id').value = (data && data.project_id) ? data.project_id : '';
+                document.getElementById('w_ref').value = data ? data.work_reference : '';
+                document.getElementById('w_po').value = (data && data.po_reference) ? data.po_reference : '';
+                document.getElementById('w_resp').value = (data && data.responsible) ? data.responsible : '';
+                
+                let vat = (data && data.vat_rate) ? parseFloat(data.vat_rate).toFixed(2) : '18.00';
+                document.getElementById('w_vat_rate').value = vat;
+                
+                document.getElementById('w_exc').value = (data && data.total_exc_vat) ? data.total_exc_vat : '';
+                document.getElementById('w_inc').value = (data && data.total_inc_vat) ? data.total_inc_vat : '';
+                document.getElementById('w_is_measured').value = (data && data.is_measured) ? data.is_measured : '0';
+                document.getElementById('w_notes').value = (data && data.notes) ? data.notes : '';
+                
+                checkMeasuredSetup(data ? data.id : null); 
+                document.getElementById('workModal').style.display = 'block';
+            } catch (e) {
+                console.error("Error opening Work Modal:", e);
+                alert("An error occurred opening the Work Order form. Check console.");
+            }
+        }
+
         // --- BOQ BUILDER LOGIC ---
         function calcVAT() {
             let exc = parseFloat(document.getElementById('w_exc').value) || 0;
@@ -827,61 +868,65 @@ require_once 'header.php';
         }
 
         async function checkMeasuredSetup(work_id = null) {
-            const isMeasured = document.getElementById('w_is_measured').value === '1';
-            const pid = document.getElementById('w_project_id').value;
-            
-            document.getElementById('lumpSumFields').style.display = isMeasured ? 'none' : 'grid';
-            document.getElementById('measuredFields').style.display = isMeasured ? 'block' : 'none';
-            
-            if (isMeasured) {
-                document.getElementById('w_exc').readOnly = true; 
+            try {
+                const isMeasured = document.getElementById('w_is_measured').value === '1';
+                const pid = document.getElementById('w_project_id').value;
                 
-                if (work_id) {
-                    const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
-                    const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
-                    const boq = await res.json();
+                document.getElementById('lumpSumFields').style.display = isMeasured ? 'none' : 'grid';
+                document.getElementById('measuredFields').style.display = isMeasured ? 'block' : 'none';
+                
+                if (isMeasured) {
+                    document.getElementById('w_exc').readOnly = true; 
                     
-                    let html = '';
-                    boq.forEach(b => {
-                        html += `<tr>
-                            <td>
-                                <input type="hidden" name="boq_item_id[]" value="${b.id}">
-                                <input type="hidden" name="boq_level_id[]" value="${b.block_level_id || ''}">
-                                <input type="text" name="boq_desc[]" value="${b.description}" class="boq-input" ${b.block_level_id ? 'readonly' : ''}>
-                            </td>
-                            <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" value="${b.qty}" oninput="calcBoq()"></td>
-                            <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" value="${b.rate}" oninput="calcBoq()"></td>
-                            <td class="b-total">€${b.total_exc}</td>
-                        </tr>`;
-                    });
-                    document.getElementById('boqBody').innerHTML = html;
-                    calcBoq(); 
-                } 
-                else if (pid) {
-                    const formData = new URLSearchParams({ ajax_action: 'get_project_levels', project_id: pid });
-                    const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
-                    const levels = await res.json();
-                    
-                    let html = '';
-                    levels.forEach(l => {
-                        html += `<tr>
-                            <td>
-                                <input type="hidden" name="boq_item_id[]" value="">
-                                <input type="hidden" name="boq_level_id[]" value="${l.id}">
-                                <input type="text" name="boq_desc[]" value="${l.block_name} - ${l.level_name}" class="boq-input" readonly>
-                            </td>
-                            <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" oninput="calcBoq()"></td>
-                            <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" oninput="calcBoq()"></td>
-                            <td class="b-total">€0.00</td>
-                        </tr>`;
-                    });
-                    document.getElementById('boqBody').innerHTML = html;
-                    calcBoq(); 
+                    if (work_id) {
+                        const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
+                        const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
+                        const boq = await res.json();
+                        
+                        let html = '';
+                        boq.forEach(b => {
+                            html += `<tr>
+                                <td>
+                                    <input type="hidden" name="boq_item_id[]" value="${b.id}">
+                                    <input type="hidden" name="boq_level_id[]" value="${b.block_level_id || ''}">
+                                    <input type="text" name="boq_desc[]" value="${b.description}" class="boq-input" ${b.block_level_id ? 'readonly' : ''}>
+                                </td>
+                                <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" value="${b.qty}" oninput="calcBoq()"></td>
+                                <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" value="${b.rate}" oninput="calcBoq()"></td>
+                                <td class="b-total">€${b.total_exc}</td>
+                            </tr>`;
+                        });
+                        document.getElementById('boqBody').innerHTML = html;
+                        calcBoq(); 
+                    } 
+                    else if (pid) {
+                        const formData = new URLSearchParams({ ajax_action: 'get_project_levels', project_id: pid });
+                        const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
+                        const levels = await res.json();
+                        
+                        let html = '';
+                        levels.forEach(l => {
+                            html += `<tr>
+                                <td>
+                                    <input type="hidden" name="boq_item_id[]" value="">
+                                    <input type="hidden" name="boq_level_id[]" value="${l.id}">
+                                    <input type="text" name="boq_desc[]" value="${l.block_name} - ${l.level_name}" class="boq-input" readonly>
+                                </td>
+                                <td><input type="number" step="0.01" name="boq_qty[]" class="boq-input b-qty" oninput="calcBoq()"></td>
+                                <td><input type="number" step="0.01" name="boq_rate[]" class="boq-input b-rate" oninput="calcBoq()"></td>
+                                <td class="b-total">€0.00</td>
+                            </tr>`;
+                        });
+                        document.getElementById('boqBody').innerHTML = html;
+                        calcBoq(); 
+                    } else {
+                        document.getElementById('boqBody').innerHTML = '<tr><td colspan="4">Please select a project first.</td></tr>';
+                    }
                 } else {
-                    document.getElementById('boqBody').innerHTML = '<tr><td colspan="4">Please select a project first.</td></tr>';
+                    document.getElementById('w_exc').readOnly = false;
                 }
-            } else {
-                document.getElementById('w_exc').readOnly = false;
+            } catch(e) {
+                console.error("Error in checkMeasuredSetup:", e);
             }
         }
 
@@ -912,7 +957,7 @@ require_once 'header.php';
             });
             document.getElementById('boqGrandTotal').innerText = '€' + totalExc.toFixed(2);
             document.getElementById('w_exc').value = totalExc.toFixed(2);
-            calcVAT();
+            calcVAT(); // Trigger VAT sync
         }
 
         // --- CERTIFICATION PROGRESS LOGIC ---
@@ -927,117 +972,127 @@ require_once 'header.php';
         }
 
         async function openTxModal(data, work_id, type, isMeasured, vatRate, stats = null) {
-            currentModalIsMeasured = isMeasured === true || isMeasured === 'true' || isMeasured === 1;
-            isEditMode = (data !== null);
-            
-            document.getElementById('t_work_id').value = work_id || '';
-            document.getElementById('t_type').value = type || 'Certification';
-            document.getElementById('t_vat_rate').value = vatRate || 18;
-            
-            // Clear the file input
-            const fileInput = document.getElementById('t_invoice_file');
-            if(fileInput) fileInput.value = '';
-
-            const statsContainer = document.getElementById('t_work_stats');
-            if (stats && stats.tot > 0) {
-                const c_pct = ((stats.cert / stats.tot) * 100).toFixed(1);
-                const i_pct = ((stats.inv / stats.tot) * 100).toFixed(1);
-                const p_pct = ((stats.pay / stats.tot) * 100).toFixed(1);
+            try {
+                currentModalIsMeasured = isMeasured === true || isMeasured === 'true' || isMeasured === 1;
+                isEditMode = (data !== null);
                 
-                statsContainer.innerHTML = `
-                    <div style="display:flex; justify-content: space-between; text-align: center; font-size: 0.8rem; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px solid var(--border-glass);">
-                        <div><span style="color:var(--text-muted)">Order Value</span><br><strong>€${parseFloat(stats.tot).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</strong></div>
-                        <div><span style="color:#3B82F6">Certified</span><br><strong>€${parseFloat(stats.cert).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${c_pct}%)</strong></div>
-                        <div><span style="color:#F59E0B">Invoiced</span><br><strong>€${parseFloat(stats.inv).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${i_pct}%)</strong></div>
-                        <div><span style="color:#10B981">Paid</span><br><strong>€${parseFloat(stats.pay).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${p_pct}%)</strong></div>
-                    </div>
-                `;
-                statsContainer.style.display = 'block';
-            } else {
-                statsContainer.style.display = 'none';
-            }
+                document.getElementById('t_work_id').value = work_id || '';
+                document.getElementById('t_type').value = type || 'Certification';
+                document.getElementById('t_vat_rate').value = vatRate || 18;
+                
+                const fileInput = document.getElementById('t_invoice_file');
+                if(fileInput) fileInput.value = '';
 
-            if (data) {
-                document.getElementById('tModalTitle').textContent = 'Edit Activity';
-                document.getElementById('t_id').value = data.id;
-                document.getElementById('t_date').value = data.transaction_date;
-                document.getElementById('t_amount').value = data.amount;
-                document.getElementById('t_ref').value = data.reference;
-                document.getElementById('t_notes').value = data.notes;
-            } else {
-                document.getElementById('tModalTitle').textContent = 'Log ' + (type || 'Activity');
-                document.getElementById('t_id').value = '';
-                document.getElementById('t_amount').value = '';
-                document.getElementById('t_ref').value = '';
-            }
+                const statsContainer = document.getElementById('t_work_stats');
+                if (stats && stats.tot > 0) {
+                    const c_pct = ((stats.cert / stats.tot) * 100).toFixed(1);
+                    const i_pct = ((stats.inv / stats.tot) * 100).toFixed(1);
+                    const p_pct = ((stats.pay / stats.tot) * 100).toFixed(1);
+                    
+                    statsContainer.innerHTML = `
+                        <div style="display:flex; justify-content: space-between; text-align: center; font-size: 0.8rem; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px solid var(--border-glass);">
+                            <div><span style="color:var(--text-muted)">Order Value</span><br><strong>€${parseFloat(stats.tot).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</strong></div>
+                            <div><span style="color:#3B82F6">Certified</span><br><strong>€${parseFloat(stats.cert).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${c_pct}%)</strong></div>
+                            <div><span style="color:#F59E0B">Invoiced</span><br><strong>€${parseFloat(stats.inv).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${i_pct}%)</strong></div>
+                            <div><span style="color:#10B981">Paid</span><br><strong>€${parseFloat(stats.pay).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}<br>(${p_pct}%)</strong></div>
+                        </div>
+                    `;
+                    statsContainer.style.display = 'block';
+                } else {
+                    statsContainer.style.display = 'none';
+                }
 
-            toggleInvoiceMatch();
-            checkMeasuredCert();
-            
-            document.getElementById('txModal').style.display = 'block';
+                if (data) {
+                    document.getElementById('tModalTitle').textContent = 'Edit Activity';
+                    document.getElementById('t_id').value = data.id;
+                    document.getElementById('t_date').value = data.transaction_date;
+                    document.getElementById('t_amount').value = data.amount;
+                    document.getElementById('t_ref').value = data.reference || '';
+                    document.getElementById('t_notes').value = data.notes || '';
+                } else {
+                    document.getElementById('tModalTitle').textContent = 'Log ' + (type || 'Activity');
+                    document.getElementById('t_id').value = '';
+                    document.getElementById('t_amount').value = '';
+                    document.getElementById('t_ref').value = '';
+                    document.getElementById('t_notes').value = '';
+                }
+
+                toggleInvoiceMatch();
+                await checkMeasuredCert();
+                
+                document.getElementById('txModal').style.display = 'block';
+            } catch(e) {
+                console.error("Error opening TX Modal:", e);
+                alert("An error occurred opening the Activity form. Check console.");
+            }
         }
 
         async function checkMeasuredCert() {
-            const type = document.getElementById('t_type').value;
-            const work_id = document.getElementById('t_work_id').value;
+            try {
+                const type = document.getElementById('t_type').value;
+                const work_id = document.getElementById('t_work_id').value;
 
-            const existingWarn = document.getElementById('edit_cert_warning');
-            if (existingWarn) existingWarn.remove();
+                const existingWarn = document.getElementById('edit_cert_warning');
+                if (existingWarn) existingWarn.remove();
 
-            if (currentModalIsMeasured && type === 'Certification' && work_id) {
-                if (isEditMode) {
-                    document.getElementById('t_amount_group').style.display = 'block';
-                    document.getElementById('t_amount').setAttribute('readonly', 'true');
-                    document.getElementById('measuredCertGrid').style.display = 'none';
+                if (currentModalIsMeasured && type === 'Certification' && work_id) {
                     
-                    let warn = document.createElement('div');
-                    warn.id = 'edit_cert_warning';
-                    warn.style.cssText = 'color: #f59e0b; font-size: 0.8rem; margin-top: 5px; padding: 10px; background: rgba(245,158,11,0.1); border-radius:6px; border: 1px solid rgba(245,158,11,0.3);';
-                    warn.innerText = '⚠️ Quantities cannot be modified during an edit to preserve historical integrity. To alter the certified %, please delete this log (which will instantly restore the previous %) and create a new log.';
-                    document.getElementById('t_amount_group').appendChild(warn);
+                    if (isEditMode) {
+                        document.getElementById('t_amount_group').style.display = 'block';
+                        document.getElementById('t_amount').setAttribute('readonly', 'true');
+                        document.getElementById('measuredCertGrid').style.display = 'none';
+                        
+                        let warn = document.createElement('div');
+                        warn.id = 'edit_cert_warning';
+                        warn.style.cssText = 'color: #f59e0b; font-size: 0.8rem; margin-top: 5px; padding: 10px; background: rgba(245,158,11,0.1); border-radius:6px; border: 1px solid rgba(245,158,11,0.3);';
+                        warn.innerText = '⚠️ Quantities cannot be modified during an edit to preserve historical integrity. To alter the certified %, please delete this log (which will instantly restore the previous %) and create a new log.';
+                        document.getElementById('t_amount_group').appendChild(warn);
 
+                    } else {
+                        document.getElementById('t_amount_group').style.display = 'none';
+                        document.getElementById('t_amount').removeAttribute('required'); 
+                        document.getElementById('t_amount').removeAttribute('readonly'); 
+                        document.getElementById('measuredCertGrid').style.display = 'block';
+                        
+                        const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
+                        const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
+                        const boq = await res.json();
+                        
+                        let html = '';
+                        boq.forEach(b => {
+                            const prevPct = parseFloat(b.pct_complete) || 0;
+                            const totalExc = parseFloat(b.total_exc) || 0;
+
+                            html += `<tr>
+                                <td>
+                                    <input type="hidden" name="cert_boq_id[]" value="${b.id}">
+                                    <input type="hidden" name="cert_level_id[]" value="${b.block_level_id || ''}">
+                                    <input type="hidden" name="cert_prev_pct[]" class="c-prev" value="${prevPct}">
+                                    <input type="hidden" class="c-total" value="${totalExc}">
+                                    ${b.description}
+                                </td>
+                                <td>€${totalExc.toFixed(2)}</td>
+                                <td style="font-weight: bold; color: var(--text-secondary);">${prevPct.toFixed(1)}%</td>
+                                <td>
+                                    <input type="number" step="0.01" name="cert_new_pct[]" class="boq-input c-new" value="${prevPct}" oninput="calcCert()" onblur="enforceCertRules(this, ${prevPct})">
+                                </td>
+                                <td>
+                                    <input type="hidden" name="cert_val_added[]" class="c-added-val" value="0">
+                                    <span class="c-val-text" style="color: var(--primary-color); font-weight: bold;">€0.00</span>
+                                </td>
+                            </tr>`;
+                        });
+                        document.getElementById('certBody').innerHTML = html;
+                        calcCert(); 
+                    }
                 } else {
-                    document.getElementById('t_amount_group').style.display = 'none';
-                    document.getElementById('t_amount').removeAttribute('required'); 
-                    document.getElementById('t_amount').removeAttribute('readonly'); 
-                    document.getElementById('measuredCertGrid').style.display = 'block';
-                    
-                    const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
-                    const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
-                    const boq = await res.json();
-                    
-                    let html = '';
-                    boq.forEach(b => {
-                        const prevPct = parseFloat(b.pct_complete) || 0;
-                        const totalExc = parseFloat(b.total_exc) || 0;
-
-                        html += `<tr>
-                            <td>
-                                <input type="hidden" name="cert_boq_id[]" value="${b.id}">
-                                <input type="hidden" name="cert_level_id[]" value="${b.block_level_id || ''}">
-                                <input type="hidden" name="cert_prev_pct[]" class="c-prev" value="${prevPct}">
-                                <input type="hidden" class="c-total" value="${totalExc}">
-                                ${b.description}
-                            </td>
-                            <td>€${totalExc.toFixed(2)}</td>
-                            <td style="font-weight: bold; color: var(--text-secondary);">${prevPct.toFixed(1)}%</td>
-                            <td>
-                                <input type="number" step="0.01" name="cert_new_pct[]" class="boq-input c-new" value="${prevPct}" oninput="calcCert()" onblur="enforceCertRules(this, ${prevPct})">
-                            </td>
-                            <td>
-                                <input type="hidden" name="cert_val_added[]" class="c-added-val" value="0">
-                                <span class="c-val-text" style="color: var(--primary-color); font-weight: bold;">€0.00</span>
-                            </td>
-                        </tr>`;
-                    });
-                    document.getElementById('certBody').innerHTML = html;
-                    calcCert(); 
+                    document.getElementById('t_amount_group').style.display = 'block';
+                    document.getElementById('t_amount').setAttribute('required', 'true');
+                    document.getElementById('t_amount').removeAttribute('readonly');
+                    document.getElementById('measuredCertGrid').style.display = 'none';
                 }
-            } else {
-                document.getElementById('t_amount_group').style.display = 'block';
-                document.getElementById('t_amount').setAttribute('required', 'true');
-                document.getElementById('t_amount').removeAttribute('readonly');
-                document.getElementById('measuredCertGrid').style.display = 'none';
+            } catch(e) {
+                console.error("Error in checkMeasuredCert:", e);
             }
         }
 
@@ -1084,15 +1139,19 @@ require_once 'header.php';
         }
 
         function toggleInvoiceMatch() {
-            var matchGroup = document.getElementById('t_invoice_match_group');
-            var fileGroup = document.getElementById('t_file_group');
-            var typeSelect = document.getElementById('t_type');
-            
-            if(matchGroup && typeSelect) {
-                matchGroup.style.display = typeSelect.value === 'Payment' ? 'block' : 'none';
-            }
-            if(fileGroup && typeSelect) {
-                fileGroup.style.display = typeSelect.value === 'Invoice' ? 'block' : 'none';
+            try {
+                var matchGroup = document.getElementById('t_invoice_match_group');
+                var typeSelect = document.getElementById('t_type');
+                var fileGroup = document.getElementById('t_file_group');
+                
+                if(matchGroup && typeSelect) {
+                    matchGroup.style.display = typeSelect.value === 'Payment' ? 'block' : 'none';
+                }
+                if(fileGroup && typeSelect) {
+                    fileGroup.style.display = typeSelect.value === 'Invoice' ? 'block' : 'none';
+                }
+            } catch(e) {
+                console.error("Error in toggleInvoiceMatch:", e);
             }
         }
 
