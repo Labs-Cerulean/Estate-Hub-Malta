@@ -392,7 +392,9 @@ require_once 'header.php';
 <?php 
 // Helper function to render a beautiful file row
 function renderFileCard($d, $docPerms) {
-    $ext = strtolower($d['file_type']);
+    // FIX: Properly handle null file_type from older documents to prevent strtolower deprecation warning
+    $ext = strtolower((string)($d['file_type'] ?? ''));
+    
     $icon = '📄';
     if ($ext === 'pdf') $icon = '📕';
     if (in_array($ext, ['dwg', 'dxf', 'cad'])) $icon = '📐';
