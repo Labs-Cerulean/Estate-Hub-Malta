@@ -122,8 +122,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action']) && $_
             
             if ($doc) {
                 if (!isset($docPerms[$doc['category']]) || $docPerms[$doc['category']] < 4) throw new Exception("Permission denied.");
+                
+                // 1. Physically delete from Cloudflare R2
                 $s3->deleteFile($doc['file_path']);
+                
+                // 2. Erase the "Ghost Link" from Subcontractor Accounts to prevent dead buttons
+                $pdo->prepare("UPDATE subcontractor_transactions SET document_path = NULL WHERE document_path = ?")->execute([$doc['file_path']]);
+                
+                // 3. Delete from the Document Vault
                 $pdo->prepare("DELETE FROM project_documents WHERE id = ?")->execute([$docId]);
+                
                 $message = "Document deleted successfully!";
             }
         } catch (Exception $e) { $error = $e->getMessage(); }
@@ -392,9 +400,7 @@ require_once 'header.php';
 <?php 
 // Helper function to render a beautiful file row
 function renderFileCard($d, $docPerms) {
-    // FIX: Properly handle null file_type from older documents to prevent strtolower deprecation warning
     $ext = strtolower((string)($d['file_type'] ?? ''));
-    
     $icon = '📄';
     if ($ext === 'pdf') $icon = '📕';
     if (in_array($ext, ['dwg', 'dxf', 'cad'])) $icon = '📐';
@@ -405,7 +411,7 @@ function renderFileCard($d, $docPerms) {
     if ($d['expiry_date']) {
         $dateStr = date('d M Y', strtotime($d['expiry_date']));
         if ($d['alarm_dismissed']) {
-            $tooltip = "Dismissed by " . htmlspecialchars($d['dis_fn']) . ": " . htmlspecialchars($d['alarm_dismissed_reason']);
+            $tooltip = "Dismissed by " . htmlspecialchars($d['dis_fn'] ?? '') . ": " . htmlspecialchars($d['alarm_dismissed_reason'] ?? '');
             $expText = "<span class='badge-dismissed' title='$tooltip'>Alarm Off ($dateStr)</span>";
         } elseif (strtotime($d['expiry_date']) < time()) {
             $expText = "<span class='badge-expired'>Expired: $dateStr</span>";
