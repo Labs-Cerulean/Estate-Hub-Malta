@@ -611,7 +611,7 @@ require_once 'header.php';
                                 <td><?= htmlspecialchars($t['reference']) ?></td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($t['amount'], 2) ?></td>
                                 <td><span style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($t['notes']) ?></span></td>
-                                <td style="text-align: right;">
+                                <td style="text-align: right; min-width: 150px;">
                                     <?php if ($t['transaction_type'] === 'Certification' && $t['work_id']): ?>
                                         <a href="print_certificate.php?tx_id=<?= $t['id'] ?>" target="_blank" class="btn btn-sm" style="background: #3B82F6; color: white; margin-right: 5px;">PDF Cert</a>
                                     <?php endif; ?>
@@ -933,7 +933,10 @@ require_once 'header.php';
             document.getElementById('t_work_id').value = work_id || '';
             document.getElementById('t_type').value = type || 'Certification';
             document.getElementById('t_vat_rate').value = vatRate || 18;
-            document.getElementById('t_invoice_file').value = ''; // Reset file input
+            
+            // Clear the file input
+            const fileInput = document.getElementById('t_invoice_file');
+            if(fileInput) fileInput.value = '';
 
             const statsContainer = document.getElementById('t_work_stats');
             if (stats && stats.tot > 0) {
@@ -1080,40 +1083,11 @@ require_once 'header.php';
             calcCert();
         }
 
-        function openWorkModal(data = null) {
-            if (data) {
-                document.getElementById('wModalTitle').textContent = 'Edit Work Order';
-                document.getElementById('w_id').value = data.id;
-                document.getElementById('w_project_id').value = data.project_id || '';
-                document.getElementById('w_ref').value = data.work_reference;
-                document.getElementById('w_po').value = data.po_reference || '';
-                document.getElementById('w_resp').value = data.responsible;
-                document.getElementById('w_vat_rate').value = data.vat_rate || '18.00';
-                document.getElementById('w_exc').value = data.total_exc_vat;
-                document.getElementById('w_inc').value = data.total_inc_vat;
-                document.getElementById('w_is_measured').value = data.is_measured;
-                document.getElementById('w_notes').value = data.notes;
-                
-                checkMeasuredSetup(data.id); 
-            } else {
-                document.getElementById('wModalTitle').textContent = 'Create Work Order';
-                document.getElementById('w_id').value = '';
-                document.getElementById('w_ref').value = '';
-                document.getElementById('w_po').value = '';
-                document.getElementById('w_vat_rate').value = '18.00';
-                document.getElementById('w_exc').value = '';
-                document.getElementById('w_inc').value = '';
-                document.getElementById('w_is_measured').value = '0';
-                
-                checkMeasuredSetup(); 
-            }
-            document.getElementById('workModal').style.display = 'block';
-        }
-
         function toggleInvoiceMatch() {
             var matchGroup = document.getElementById('t_invoice_match_group');
             var fileGroup = document.getElementById('t_file_group');
             var typeSelect = document.getElementById('t_type');
+            
             if(matchGroup && typeSelect) {
                 matchGroup.style.display = typeSelect.value === 'Payment' ? 'block' : 'none';
             }
