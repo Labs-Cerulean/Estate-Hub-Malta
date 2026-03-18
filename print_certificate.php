@@ -45,9 +45,9 @@ $sub = $sStmt->fetch(PDO::FETCH_ASSOC);
 // POINT-IN-TIME HISTORICAL CALCULATIONS
 // ==========================================
 
-// Fetch Historical Certificates for the Audit Trail AND Sum
+// Fetch Historical Certificates for the Audit Trail AND Sum (FIXED: Using 'notes' instead of 'description')
 $historyStmt = $pdo->prepare("
-    SELECT id, transaction_date, reference, description, amount as amount_inc_vat 
+    SELECT id, transaction_date, reference, notes, amount as amount_inc_vat 
     FROM subcontractor_transactions 
     WHERE work_id = ? 
       AND transaction_type = 'Certification' 
@@ -290,7 +290,7 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
                 <tr>
                     <td><?= date('d M Y', strtotime($hc['transaction_date'])) ?></td>
                     <td style="font-weight: bold;"><?= htmlspecialchars($hc['reference'] ?: 'C-'.$hc['id']) ?></td>
-                    <td><?= htmlspecialchars($hc['description'] ?: 'Interim Certification') ?></td>
+                    <td><?= htmlspecialchars($hc['notes'] ?: 'Interim Certification') ?></td>
                     <td style="text-align: right;">€<?= number_format($hc['amount_inc_vat'], 2) ?></td>
                 </tr>
                 <?php endforeach; ?>
