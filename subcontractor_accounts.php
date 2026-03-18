@@ -9,6 +9,11 @@ if (!hasPermission('view_subcontractor_accounts') && !isAdmin()) {
 }
 $canManage = hasPermission('manage_subcontractor_accounts') || isAdmin();
 
+// Ensure the transactions table supports document paths safely
+try {
+    $pdo->exec("ALTER TABLE subcontractor_transactions ADD COLUMN document_path VARCHAR(255) DEFAULT NULL");
+} catch (PDOException $e) { /* Column already exists */ }
+
 // ==========================================
 // AJAX ENDPOINTS for BoQ / Levels
 // ==========================================
@@ -117,6 +122,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
 
             $amount = $_POST['amount'] ?: 0;
             $boqDataJson = null;
+            $docPath = null;
+
+            // Handle Secure Invoice Upload to R2 and Project Documentation
+            if ($type === 'Invoice' && !empty($_FILES['invoice_file']['tmp_name'])) {
+                require_once 'S3FileManager.php';
+                $s3 = new S3FileManager();
+                $docPath = $s3->uploadFile($_FILES['invoice_file']['tmp_name'], $_FILES['invoice_file']['name'], $_FILES['invoice_file']['type'], 'invoices');
+                
+                if ($docPath && $work_id) {
+                    $chkP = $pdo->prepare("SELECT project_id FROM subcontractor_works WHERE id = ?");
+                    $chkP->execute([$work_id]);
+                    $pid = $chkP->fetchColumn();
+                    if ($pid) {
+                        try {
+                            $pdo->prepare("INSERT INTO project_documents (project_id, document_type, title, file_path, uploaded_by) VALUES (?, 'Commercial', ?, ?, ?)")->execute([$pid, 'Invoice: ' . trim($_POST['reference']), $docPath, getCurrentUserId()]);
+                        } catch (Exception $e) {
+                            try { $pdo->prepare("INSERT INTO project_documents (project_id, folder_name, file_name, file_path, uploaded_by) VALUES (?, 'Commercial', ?, ?, ?)")->execute([$pid, 'Invoice: ' . trim($_POST['reference']), $docPath, getCurrentUserId()]); } catch (Exception $e2) {}
+                        }
+                    }
+                }
+            }
 
             // Certification Sync Logic (With Rollback Storage)
             if ($type === 'Certification' && isset($_POST['cert_boq_id'])) {
@@ -136,7 +162,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                         $amountExc += $valAdded;
                         $updateBoq->execute([$newPct, $bId]);
                         
-                        // Store rollback info
                         $boqDataArr[] = ['boq_id' => $bId, 'old_pct' => $prevPct, 'new_pct' => $newPct, 'level_id' => $lvlId];
                         
                         if ($lvlId) {
@@ -156,13 +181,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
             }
 
             if (empty($_POST['transaction_id'])) {
-                $stmt = $pdo->prepare("INSERT INTO subcontractor_transactions (subcontractor_id, client_id, work_id, transaction_date, transaction_type, amount, reference, notes, boq_data, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([ $post_sub_id, $selected_client_id, $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), $boqDataJson, getCurrentUserId() ]);
+                $stmt = $pdo->prepare("INSERT INTO subcontractor_transactions (subcontractor_id, client_id, work_id, transaction_date, transaction_type, amount, reference, notes, boq_data, document_path, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([ $post_sub_id, $selected_client_id, $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), $boqDataJson, $docPath, getCurrentUserId() ]);
                 $message = "Activity logged successfully!";
             } else {
-                // If Editing an existing record, we do NOT overwrite boq_data. We just update the text fields.
-                $stmt = $pdo->prepare("UPDATE subcontractor_transactions SET work_id=?, transaction_date=?, transaction_type=?, amount=?, reference=?, notes=? WHERE id=? AND subcontractor_id=? AND client_id=?");
-                $stmt->execute([ $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), $_POST['transaction_id'], $post_sub_id, $selected_client_id ]);
+                if ($docPath) {
+                    $stmt = $pdo->prepare("UPDATE subcontractor_transactions SET work_id=?, transaction_date=?, transaction_type=?, amount=?, reference=?, notes=?, document_path=? WHERE id=? AND subcontractor_id=? AND client_id=?");
+                    $stmt->execute([ $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), $docPath, $_POST['transaction_id'], $post_sub_id, $selected_client_id ]);
+                } else {
+                    $stmt = $pdo->prepare("UPDATE subcontractor_transactions SET work_id=?, transaction_date=?, transaction_type=?, amount=?, reference=?, notes=? WHERE id=? AND subcontractor_id=? AND client_id=?");
+                    $stmt->execute([ $work_id, $_POST['transaction_date'], $type, $amount, trim($_POST['reference']), trim($_POST['notes']), $_POST['transaction_id'], $post_sub_id, $selected_client_id ]);
+                }
                 $message = "Activity updated successfully!";
             }
             
@@ -171,7 +200,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
         elseif ($action === 'delete_transaction') {
             $pdo->beginTransaction();
             
-            // 1. Check if we need to Rollback BOQ/Levels
             $stmt = $pdo->prepare("SELECT * FROM subcontractor_transactions WHERE id=? AND client_id=?");
             $stmt->execute([$_POST['transaction_id'], $selected_client_id]);
             $txn = $stmt->fetch();
@@ -196,7 +224,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                 }
             }
             
-            // 2. Delete the record
             $pdo->prepare("DELETE FROM subcontractor_transactions WHERE id=? AND client_id=?")->execute([$_POST['transaction_id'], $selected_client_id]);
             $message = "Activity deleted. Any related project progress was rolled back.";
             $pdo->commit();
@@ -207,7 +234,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
     }
 }
 
-// Fetch global lists
 $allSubcontractors = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name ASC")->fetchAll();
 $clientProjects = [];
 
@@ -252,13 +278,9 @@ require_once 'header.php';
 .badge-pay { background: rgba(16, 185, 129, 0.2); color: #10B981; }
 .badge-boq { background: rgba(139, 92, 246, 0.2); color: #8B5CF6; border: 1px solid rgba(139,92,246,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-top: 4px; display: inline-block;}
 .data-table th.col-divider, .data-table td.col-divider { border-left: 2px solid rgba(255,255,255,0.05); }
-
-/* Progress Bar Styles */
 .progress-wrapper { width: 100%; background-color: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; height: 6px; margin-top: 6px; }
 .progress-fill { background-color: #3B82F6; height: 100%; transition: width 0.3s ease; }
 .progress-fill.over { background-color: #EF4444; } 
-
-/* BoQ Builder Table */
 .boq-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
 .boq-table th { background: rgba(0,0,0,0.2); padding: 8px; text-align: left; color: var(--text-secondary); }
 .boq-table td { padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); }
@@ -387,12 +409,10 @@ require_once 'header.php';
             $sub = $stmt->fetch();
             if (!$sub) die("Subcontractor not found.");
 
-            // Fetch Available Invoices for the "Match Invoice" feature
             $invStmt = $pdo->prepare("SELECT id, reference, amount FROM subcontractor_transactions WHERE subcontractor_id = ? AND client_id = ? AND transaction_type = 'Invoice' ORDER BY transaction_date DESC");
             $invStmt->execute([$sub_id, $selected_client_id]); 
             $availableInvoices = $invStmt->fetchAll();
 
-            // Fetch Works & Calculate iteratively from transactions
             $wStmt = $pdo->prepare("
                 SELECT w.*, p.name as project_name, c.name as project_client_name,
                 (SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = w.id AND transaction_type = 'Certification') as cert_total,
@@ -407,7 +427,6 @@ require_once 'header.php';
             $wStmt->execute([$sub_id, $selected_client_id]); 
             $works = $wStmt->fetchAll();
 
-            // Fetch All Transactions
             $tStmt = $pdo->prepare("
                 SELECT t.*, w.work_reference 
                 FROM subcontractor_transactions t
@@ -418,7 +437,6 @@ require_once 'header.php';
             $tStmt->execute([$sub_id, $selected_client_id]); 
             $transactions = $tStmt->fetchAll();
 
-            // Global Calculations
             $tot_cert = 0; $tot_paid = 0; $tot_inv = 0;
             foreach ($transactions as $t) {
                 if ($t['transaction_type'] === 'Certification') $tot_cert += $t['amount'];
@@ -496,11 +514,9 @@ require_once 'header.php';
                                 $due_c = $c_tot - $p_tot;
                                 $due_i = $i_tot - $p_tot;
 
-                                // Progress Calculation
                                 $prog_pct = $w['total_inc_vat'] > 0 ? ($c_tot / $w['total_inc_vat']) * 100 : 0;
                                 $prog_class = $prog_pct > 100 ? 'over' : '';
                                 
-                                // Payload for specific modal stats
                                 $statsPayload = json_encode([
                                     'tot' => $w['total_inc_vat'],
                                     'cert' => $c_tot,
@@ -571,19 +587,18 @@ require_once 'header.php';
                             <th>Reference</th>
                             <th style="text-align: right;">Amount</th>
                             <th>Notes</th>
-                            <?php if($canManage): ?><th style="text-align: right;">Actions</th><?php endif; ?>
+                            <th style="text-align: right;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($transactions)): ?>
-                            <tr><td colspan="<?= $canManage ? '7' : '6' ?>" style="text-align: center;">No activity logged yet.</td></tr>
+                            <tr><td colspan="7" style="text-align: center;">No activity logged yet.</td></tr>
                         <?php else: ?>
                             <?php foreach($transactions as $t): 
                                 $badgeClass = 'badge-pay';
                                 if ($t['transaction_type'] === 'Certification') $badgeClass = 'badge-cert';
                                 if ($t['transaction_type'] === 'Invoice') $badgeClass = 'badge-inv';
                                 
-                                // Fetch Work Data for the Edit Button to maintain IsMeasured state
                                 $t_work = null;
                                 foreach($works as $w) { if ($w['id'] == $t['work_id']) { $t_work = $w; break; } }
                                 $t_is_measured = $t_work ? ($t_work['is_measured'] ? 'true' : 'false') : 'false';
@@ -596,16 +611,32 @@ require_once 'header.php';
                                 <td><?= htmlspecialchars($t['reference']) ?></td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($t['amount'], 2) ?></td>
                                 <td><span style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($t['notes']) ?></span></td>
-                                <?php if($canManage): ?>
                                 <td style="text-align: right;">
-                                    <button onclick='openTxModal(<?= json_encode($t, JSON_HEX_APOS) ?>, <?= $t['work_id'] ?: 'null' ?>, "<?= $t['transaction_type'] ?>", <?= $t_is_measured ?>, <?= $t_vat_rate ?>)' class="btn btn-sm btn-secondary">Edit</button>
-                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure? If this is a Certification, the floors will be rolled back to their previous completion %.');">
-                                        <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
-                                        <input type="hidden" name="action" value="delete_transaction"><input type="hidden" name="transaction_id" value="<?= $t['id'] ?>">
-                                        <button type="submit" class="btn btn-sm btn-danger">X</button>
-                                    </form>
+                                    <?php if ($t['transaction_type'] === 'Certification' && $t['work_id']): ?>
+                                        <a href="print_certificate.php?tx_id=<?= $t['id'] ?>" target="_blank" class="btn btn-sm" style="background: #3B82F6; color: white; margin-right: 5px;">PDF Cert</a>
+                                    <?php endif; ?>
+                                    
+                                    <?php if (!empty($t['document_path'])): ?>
+                                        <?php 
+                                        $docUrl = $t['document_path'];
+                                        if (strpos($docUrl, 'http') === false) {
+                                            require_once 'S3FileManager.php';
+                                            $s3Temp = new S3FileManager();
+                                            $docUrl = $s3Temp->getPresignedUrl($t['document_path'], '+60 minutes');
+                                        }
+                                        ?>
+                                        <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-sm" style="background: #8b5cf6; color: white; margin-right: 5px;">View Invoice</a>
+                                    <?php endif; ?>
+
+                                    <?php if($canManage): ?>
+                                        <button onclick='openTxModal(<?= json_encode($t, JSON_HEX_APOS) ?>, <?= $t['work_id'] ?: 'null' ?>, "<?= $t['transaction_type'] ?>", <?= $t_is_measured ?>, <?= $t_vat_rate ?>)' class="btn btn-sm btn-secondary" style="margin-right: 5px;">Edit</button>
+                                        <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure? If this is a Certification, the floors will be rolled back to their previous completion %.');">
+                                            <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
+                                            <input type="hidden" name="action" value="delete_transaction"><input type="hidden" name="transaction_id" value="<?= $t['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-danger">X</button>
+                                        </form>
+                                    <?php endif; ?>
                                 </td>
-                                <?php endif; ?>
                             </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -696,7 +727,7 @@ require_once 'header.php';
             <div class="modal-content">
                 <span class="close-modal" onclick="closeModal('txModal')">&times;</span>
                 <h2 id="tModalTitle" style="color: var(--primary-color);">Log Activity</h2>
-                <form method="POST">
+                <form method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
                     <input type="hidden" name="action" value="save_transaction">
                     <input type="hidden" name="transaction_id" id="t_id">
@@ -738,6 +769,12 @@ require_once 'header.php';
                                 <option value="Adjustment">Adjustment</option>
                             </select>
                         </div>
+                    </div>
+
+                    <div class="form-group" id="t_file_group" style="display:none; background: rgba(139, 92, 246, 0.1); padding: 15px; border-radius: 8px; border: 1px dashed var(--border-glass); margin-bottom: 15px;">
+                        <label style="color: #8B5CF6;">📎 Upload Invoice Document</label>
+                        <input type="file" name="invoice_file" id="t_invoice_file" accept="application/pdf,image/*" style="width: 100%; color: var(--text-primary); margin-top: 5px;">
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">This file will be attached to the transaction and automatically saved to the Project Documentation vault.</p>
                     </div>
 
                     <?php if ($sub_id && !empty($availableInvoices)): ?>
@@ -797,10 +834,9 @@ require_once 'header.php';
             document.getElementById('measuredFields').style.display = isMeasured ? 'block' : 'none';
             
             if (isMeasured) {
-                document.getElementById('w_exc').readOnly = true; // Lock manual entry
+                document.getElementById('w_exc').readOnly = true; 
                 
                 if (work_id) {
-                    // EDIT MODE: Fetch the saved BoQ items
                     const formData = new URLSearchParams({ ajax_action: 'get_boq_progress', work_id: work_id });
                     const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
                     const boq = await res.json();
@@ -819,10 +855,9 @@ require_once 'header.php';
                         </tr>`;
                     });
                     document.getElementById('boqBody').innerHTML = html;
-                    calcBoq(); // Recalculate totals immediately
+                    calcBoq(); 
                 } 
                 else if (pid) {
-                    // NEW MODE (or Project changed): Fetch fresh, empty project levels
                     const formData = new URLSearchParams({ ajax_action: 'get_project_levels', project_id: pid });
                     const res = await fetch('subcontractor_accounts.php', { method: 'POST', body: formData });
                     const levels = await res.json();
@@ -841,7 +876,7 @@ require_once 'header.php';
                         </tr>`;
                     });
                     document.getElementById('boqBody').innerHTML = html;
-                    calcBoq(); // Reset totals to 0
+                    calcBoq(); 
                 } else {
                     document.getElementById('boqBody').innerHTML = '<tr><td colspan="4">Please select a project first.</td></tr>';
                 }
@@ -877,14 +912,13 @@ require_once 'header.php';
             });
             document.getElementById('boqGrandTotal').innerText = '€' + totalExc.toFixed(2);
             document.getElementById('w_exc').value = totalExc.toFixed(2);
-            calcVAT(); // Trigger VAT sync
+            calcVAT();
         }
 
         // --- CERTIFICATION PROGRESS LOGIC ---
         let currentModalIsMeasured = false;
         let isEditMode = false;
 
-        // If the user manually changes the Work Order link in the modal, hide the snapshot to prevent confusion
         const workDropdown = document.getElementById('t_work_id');
         if (workDropdown) {
             workDropdown.addEventListener('change', function() {
@@ -899,8 +933,8 @@ require_once 'header.php';
             document.getElementById('t_work_id').value = work_id || '';
             document.getElementById('t_type').value = type || 'Certification';
             document.getElementById('t_vat_rate').value = vatRate || 18;
+            document.getElementById('t_invoice_file').value = ''; // Reset file input
 
-            // Generate Top Header Snapshot if stats are passed
             const statsContainer = document.getElementById('t_work_stats');
             if (stats && stats.tot > 0) {
                 const c_pct = ((stats.cert / stats.tot) * 100).toFixed(1);
@@ -928,7 +962,7 @@ require_once 'header.php';
                 document.getElementById('t_ref').value = data.reference;
                 document.getElementById('t_notes').value = data.notes;
             } else {
-                document.getElementById('tModalTitle').textContent = 'Log ' + type;
+                document.getElementById('tModalTitle').textContent = 'Log ' + (type || 'Activity');
                 document.getElementById('t_id').value = '';
                 document.getElementById('t_amount').value = '';
                 document.getElementById('t_ref').value = '';
@@ -944,14 +978,11 @@ require_once 'header.php';
             const type = document.getElementById('t_type').value;
             const work_id = document.getElementById('t_work_id').value;
 
-            // Remove any existing warning messages first
             const existingWarn = document.getElementById('edit_cert_warning');
             if (existingWarn) existingWarn.remove();
 
             if (currentModalIsMeasured && type === 'Certification' && work_id) {
-                
                 if (isEditMode) {
-                    // EDIT MODE: Hide grid, show static amount, show warning
                     document.getElementById('t_amount_group').style.display = 'block';
                     document.getElementById('t_amount').setAttribute('readonly', 'true');
                     document.getElementById('measuredCertGrid').style.display = 'none';
@@ -963,7 +994,6 @@ require_once 'header.php';
                     document.getElementById('t_amount_group').appendChild(warn);
 
                 } else {
-                    // NEW MODE: Show Grid, hide static amount box
                     document.getElementById('t_amount_group').style.display = 'none';
                     document.getElementById('t_amount').removeAttribute('required'); 
                     document.getElementById('t_amount').removeAttribute('readonly'); 
@@ -975,7 +1005,6 @@ require_once 'header.php';
                     
                     let html = '';
                     boq.forEach(b => {
-                        // Parse numbers safely from database
                         const prevPct = parseFloat(b.pct_complete) || 0;
                         const totalExc = parseFloat(b.total_exc) || 0;
 
@@ -999,10 +1028,9 @@ require_once 'header.php';
                         </tr>`;
                     });
                     document.getElementById('certBody').innerHTML = html;
-                    calcCert(); // Initialize totals
+                    calcCert(); 
                 }
             } else {
-                // Standard un-measured mode (or Invoices/Payments)
                 document.getElementById('t_amount_group').style.display = 'block';
                 document.getElementById('t_amount').setAttribute('required', 'true');
                 document.getElementById('t_amount').removeAttribute('readonly');
@@ -1010,7 +1038,6 @@ require_once 'header.php';
             }
         }
 
-        // Calculates visually while user types freely
         function calcCert() {
             let certExc = 0;
             const vatRate = parseFloat(document.getElementById('t_vat_rate').value) || 0;
@@ -1024,7 +1051,6 @@ require_once 'header.php';
                 let current = parseFloat(newPctInput.value);
                 if (isNaN(current)) current = 0;
 
-                // Don't snap the input box itself yet, just calculate effective constraints
                 let effectivePct = current;
                 if (effectivePct > 100) effectivePct = 100;
                 if (effectivePct < prev) effectivePct = prev;
@@ -1044,16 +1070,14 @@ require_once 'header.php';
             document.getElementById('certExcTotal').innerText = '€' + certExc.toFixed(2);
             document.getElementById('certIncTotal').innerText = '€' + certInc.toFixed(2);
             
-            // Sync to the hidden standard amount field
             document.getElementById('t_amount').value = certInc.toFixed(2);
         }
 
-        // Only enforce limits when user clicks away
         function enforceCertRules(el, prev) {
             let val = parseFloat(el.value);
             if (isNaN(val) || val < prev) el.value = prev;
             if (val > 100) el.value = 100;
-            calcCert(); // Recalculate one final time
+            calcCert();
         }
 
         function openWorkModal(data = null) {
@@ -1088,9 +1112,13 @@ require_once 'header.php';
 
         function toggleInvoiceMatch() {
             var matchGroup = document.getElementById('t_invoice_match_group');
+            var fileGroup = document.getElementById('t_file_group');
             var typeSelect = document.getElementById('t_type');
             if(matchGroup && typeSelect) {
                 matchGroup.style.display = typeSelect.value === 'Payment' ? 'block' : 'none';
+            }
+            if(fileGroup && typeSelect) {
+                fileGroup.style.display = typeSelect.value === 'Invoice' ? 'block' : 'none';
             }
         }
 
