@@ -191,7 +191,7 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $docStmt->execute($params);
     $documents = $docStmt->fetchAll();
 
-    // Correctly build the Tree Array 
+    // Build the Tree Array 
     // [Project] -> [Category] -> ['subcats' => [SubCatName => Files], 'loose' => [Files]]
     foreach ($documents as $d) {
         $pName = $d['project_name'];
@@ -215,7 +215,6 @@ require_once 'header.php';
 ?>
 
 <style>
-
 .cat-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; overflow-x: auto; }
 .cat-tab { padding: 0.5rem 1rem; border-radius: 6px; color: var(--text-secondary); text-decoration: none; font-weight: 600; font-size: 0.85rem; white-space: nowrap; transition: 0.2s; }
 .cat-tab:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
@@ -316,7 +315,7 @@ require_once 'header.php';
             <p style="color: var(--text-secondary); margin-top: 0.25rem;">Organized, secure, and fully encrypted cloud storage.</p>
         </div>
         <?php if ($canUploadAnything): ?>
-            <button onclick="openUploadModal()" class="btn btn-primary">+ Upload Document</button>
+            <button onclick="openUploadModal()" class="btn btn-primary">+ Upload Document(s)</button>
         <?php endif; ?>
     </div>
 
@@ -486,22 +485,23 @@ function renderFileCard($d, $docPerms) {
                 </div>
                 <div class="form-group">
                     <label>Sub Category / Type</label>
-                    <input type="text" name="sub_category" placeholder="e.g. CAR Insurance" list="subcat_suggestions">
+                    <input type="text" name="sub_category" placeholder="e.g. Condition Report" list="subcat_suggestions">
                     <datalist id="subcat_suggestions"></datalist>
                 </div>
             </div>
 
             <div class="form-group">
-                <label>Document Title *</label>
-                <input type="text" name="title" required>
+                <label>Base Document Title *</label>
+                <input type="text" name="title" required placeholder="e.g. Condition Report Block A">
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">If multiple files are selected, the original filename will be appended to this title to distinguish them.</p>
             </div>
 
             <div class="form-group">
-                <label>File to Upload *</label>
+                <label>File(s) to Upload *</label>
                 <div class="drop-zone" id="drop_zone">
-                    <input type="file" id="document_file" required>
-                    <div class="drop-zone-text" id="drop_zone_text">📁 Click to browse or Drag & Drop here</div>
-                    <div class="drop-zone-subtext" id="drop_zone_subtext">Maximum Size: 500MB (Direct to Cloudflare R2)</div>
+                    <input type="file" id="document_file" multiple required>
+                    <div class="drop-zone-text" id="drop_zone_text">📁 Click to browse or Drag & Drop multiple files here</div>
+                    <div class="drop-zone-subtext" id="drop_zone_subtext">Maximum Size per file: 500MB (Direct to Cloudflare R2)</div>
                 </div>
                 <div class="progress-container" id="uploadProgress">
                     <div class="progress-fill" id="uploadProgressFill"></div>
@@ -686,7 +686,7 @@ function toggleReasonField() {
 }
 
 // ==========================================
-// DIRECT-TO-CLOUD UPLOAD ENGINE
+// DIRECT-TO-CLOUD BATCH UPLOAD ENGINE
 // ==========================================
 const dropZone = document.getElementById('drop_zone');
 const dropZoneText = document.getElementById('drop_zone_text');
@@ -720,18 +720,31 @@ function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
 
 function updateFileName(files) {
     if (files.length > 0) {
-        const file = files[0];
-        if (file.size > MAX_SIZE_BYTES) {
+        let totalSize = 0;
+        let oversized = false;
+        
+        for (let i = 0; i < files.length; i++) {
+            totalSize += files[i].size;
+            if (files[i].size > MAX_SIZE_BYTES) oversized = true;
+        }
+
+        if (oversized) {
             dropZone.classList.add('error');
-            dropZoneText.innerHTML = '❌ File is too large!';
-            dropZoneSubtext.innerHTML = `Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB. Limit is ${MAX_SIZE_MB}MB.`;
+            dropZoneText.innerHTML = '❌ One or more files are too large!';
+            dropZoneSubtext.innerHTML = `Individual limit per file is ${MAX_SIZE_MB}MB.`;
             fileInput.value = '';
             submitBtn.disabled = true;
             return;
         }
+
         dropZone.classList.remove('error');
-        dropZoneText.innerHTML = '✅ ' + file.name;
-        dropZoneSubtext.innerHTML = (file.size / 1024 / 1024).toFixed(2) + ' MB ready to upload';
+        if (files.length === 1) {
+            dropZoneText.innerHTML = '✅ ' + files[0].name;
+        } else {
+            dropZoneText.innerHTML = '✅ ' + files.length + ' files selected';
+        }
+        
+        dropZoneSubtext.innerHTML = (totalSize / 1024 / 1024).toFixed(2) + ' MB total ready to upload';
         dropZone.style.borderColor = '#10B981';
         submitBtn.disabled = false;
     } else { resetDropZoneText(); }
@@ -739,8 +752,8 @@ function updateFileName(files) {
 
 function resetDropZoneText() { 
     dropZone.classList.remove('error');
-    dropZoneText.innerHTML = '📁 Click to browse or Drag & Drop here'; 
-    dropZoneSubtext.innerHTML = `Maximum Size: ${MAX_SIZE_MB}MB (Direct to Cloudflare)`; 
+    dropZoneText.innerHTML = '📁 Click to browse or Drag & Drop multiple files here'; 
+    dropZoneSubtext.innerHTML = `Maximum Size per file: ${MAX_SIZE_MB}MB (Direct to Cloudflare R2)`; 
     dropZone.style.borderColor = 'var(--primary-color)'; 
     submitBtn.disabled = false;
 }
@@ -749,61 +762,78 @@ if (uploadForm) {
     uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const file = fileInput.files[0];
-        if(!file) { alert("Please select a file first."); return; }
+        const files = fileInput.files;
+        if(files.length === 0) { alert("Please select files first."); return; }
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = 'Initiating Secure Link...';
+        progressBar.style.display = 'block';
         
-        const authData = new FormData();
-        authData.append('ajax_action', 'get_upload_url');
-        authData.append('category', uploadForm.category.value);
-        authData.append('filename', file.name);
-        authData.append('mime_type', file.type || 'application/octet-stream');
+        let uploadedCount = 0;
 
-        try {
-            let authRes = await fetch('documentation.php', { method: 'POST', body: authData });
-            let authJson = await authRes.json();
-            if(!authJson.success) throw new Error(authJson.error);
-
-            progressBar.style.display = 'block';
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
             
-            const xhr = new XMLHttpRequest();
-            xhr.open('PUT', authJson.url, true);
-            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-            
-            xhr.upload.onprogress = function(e) {
-                if (e.lengthComputable) {
-                    const percentComplete = (e.loaded / e.total) * 100;
-                    progressFill.style.width = percentComplete + '%';
-                    submitBtn.innerHTML = `Uploading... ${Math.round(percentComplete)}%`;
-                }
-            };
+            // Build title. If multiple files, append original filename to distinguish them.
+            let docTitle = uploadForm.title.value;
+            if (files.length > 1) {
+                docTitle = docTitle + ' - ' + file.name;
+            }
 
-            xhr.onload = async function() {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    submitBtn.innerHTML = 'Finalizing Record...';
+            const authData = new FormData();
+            authData.append('ajax_action', 'get_upload_url');
+            authData.append('category', uploadForm.category.value);
+            authData.append('filename', file.name);
+            authData.append('mime_type', file.type || 'application/octet-stream');
+
+            try {
+                let authRes = await fetch('documentation.php', { method: 'POST', body: authData });
+                let authJson = await authRes.json();
+                if(!authJson.success) throw new Error(authJson.error);
+
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', authJson.url, true);
+                    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
                     
-                    const dbData = new FormData(uploadForm);
-                    dbData.append('ajax_action', 'save_document_record');
-                    dbData.append('file_key', authJson.key);
-                    dbData.append('filename', file.name);
+                    xhr.upload.onprogress = function(e) {
+                        if (e.lengthComputable) {
+                            const filePercent = (e.loaded / e.total) * 100;
+                            const overallPercent = ((i + (filePercent/100)) / files.length) * 100;
+                            progressFill.style.width = overallPercent + '%';
+                            submitBtn.innerHTML = `Uploading file ${i+1} of ${files.length} (${Math.round(overallPercent)}%)`;
+                        }
+                    };
 
-                    let dbRes = await fetch('documentation.php', { method: 'POST', body: dbData });
-                    let dbJson = await dbRes.json();
-                    
-                    if(dbJson.success) { window.location.reload(); } 
-                    else { throw new Error(dbJson.error); }
-                } else {
-                    throw new Error('Cloudflare rejected the upload. Check CORS settings.');
-                }
-            };
+                    xhr.onload = async function() {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            const dbData = new FormData(uploadForm);
+                            dbData.append('ajax_action', 'save_document_record');
+                            dbData.append('file_key', authJson.key);
+                            dbData.append('filename', file.name);
+                            dbData.set('title', docTitle); // Overwrite title for this specific file
 
-            xhr.onerror = function() { throw new Error('Network Error during upload.'); };
-            xhr.send(file);
+                            let dbRes = await fetch('documentation.php', { method: 'POST', body: dbData });
+                            let dbJson = await dbRes.json();
+                            
+                            if(dbJson.success) { resolve(); } 
+                            else { reject(new Error(dbJson.error)); }
+                        } else {
+                            reject(new Error('Cloudflare rejected the upload. Check CORS settings.'));
+                        }
+                    };
+                    xhr.onerror = () => reject(new Error('Network Error during upload.'));
+                    xhr.send(file);
+                });
+                
+                uploadedCount++;
+            } catch (err) {
+                alert(`Error uploading ${file.name}: ${err.message}`);
+            }
+        }
 
-        } catch (err) {
-            alert("Error: " + err.message);
+        if (uploadedCount > 0) {
+            window.location.reload();
+        } else {
             submitBtn.disabled = false;
             submitBtn.innerHTML = 'Upload & Encrypt';
             progressBar.style.display = 'none';
@@ -820,11 +850,18 @@ const suggestions = {
     'Commercial': ['Quote', 'Contract', 'PO', 'Guarantee', 'Receipt'],
     'Sales': ['Price List', 'Marketing Plan', 'Render (Image)', 'Render (Video)', 'Brochure']
 };
+
 function updateSubCategories(category, listId) {
     const dataList = document.getElementById(listId);
     if(!dataList) return;
     dataList.innerHTML = '';
-    if (suggestions[category]) { suggestions[category].forEach(item => { const opt = document.createElement('option'); opt.value = item; dataList.appendChild(opt); }); }
+    if (suggestions[category]) { 
+        suggestions[category].forEach(item => { 
+            const opt = document.createElement('option'); 
+            opt.value = item; 
+            dataList.appendChild(opt); 
+        }); 
+    }
 }
 </script>
 
