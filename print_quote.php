@@ -1,16 +1,23 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
+require_once 'S3FileManager.php'; 
 
 $quoteId = isset($_GET['quote_id']) ? (int)$_GET['quote_id'] : null;
 if (!$quoteId) die("Quote ID is missing.");
 
-// Fetch Quote along with Author and Approver details
+$s3 = new S3FileManager();
+
+// Fetch Quote along with Author, Approver, Contractor, and Client details
 $stmt = $pdo->prepare("
-    SELECT sq.*, c.name as client_name, c.city as client_city, p.name as project_name, 
+    SELECT sq.*, 
+           con.name as contractor_name, con.logo_path as contractor_logo, con.city as contractor_city,
+           c.name as linked_client_name, c.city as linked_client_city, 
+           p.name as project_name, 
            u1.first_name as author_fname, u1.last_name as author_lname, 
            u2.first_name as approver_fname, u2.last_name as approver_lname 
     FROM sales_quotes sq 
+    LEFT JOIN clients con ON sq.contractor_id = con.id
     LEFT JOIN clients c ON sq.client_id = c.id 
     LEFT JOIN projects p ON sq.project_id = p.id 
     LEFT JOIN users u1 ON sq.created_by = u1.id 
@@ -27,7 +34,7 @@ if (in_array($quote['status'], ['Draft', 'Pending Approval', 'Rejected'])) {
             <h2 style='color: #ef4444;'>Security Block: Quote Not Approved</h2>
             <p>This quote is currently in <b>" . $quote['status'] . "</b> status.</p>
             <p>It must be authorized by an Approver before it can be printed or dispatched to a client.</p>
-            <a href='work_sales.php?quote_id=$quoteId' style='display: inline-block; padding: 10px 20px; background: #3b82f6; color: white; text-decoration: none; border-radius: 4px; margin-top: 20px;'>Return to Quote</a>
+            <a href='work_sales.php?contractor_id={$quote['contractor_id']}&quote_id=$quoteId' style='display: inline-block; padding: 10px 20px; background: #3b82f6; color: white; text-decoration: none; border-radius: 4px; margin-top: 20px;'>Return to Quote</a>
          </div>");
 }
 
@@ -35,6 +42,19 @@ if (in_array($quote['status'], ['Draft', 'Pending Approval', 'Rejected'])) {
 $itemsStmt = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ? ORDER BY sort_order ASC, category ASC, id ASC");
 $itemsStmt->execute([$quoteId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Secure Cloudflare R2 Logo retrieval for the CONTRACTOR
+$logoSrc = '';
+if (!empty($quote['contractor_logo'])) {
+    if (strpos($quote['contractor_logo'], 'http') === false) {
+        $logoSrc = $s3->getPresignedUrl($quote['contractor_logo'], '+60 minutes');
+    } else {
+        $logoSrc = $quote['contractor_logo'];
+    }
+}
+
+$effectiveClientName = !empty($quote['linked_client_name']) ? $quote['linked_client_name'] : $quote['client_name_free'];
+$effectiveClientCity = !empty($quote['linked_client_city']) ? $quote['linked_client_city'] : '';
 
 function displayUnit($u) {
     $m = ['lump_sum'=>'Lump Sum', 'sqm'=>'sq.m', 'lm'=>'lm', 'cum'=>'cu.m', 'cu.yd'=>'cu.yd', 'hrs'=>'Hours', 'qty'=>'Qty / Pcs'];
@@ -104,7 +124,11 @@ function displayUnit($u) {
 
     <div class="header-section">
         <div class="logo-box">
-            <img src="/logo.png" alt="Contractor Logo">
+            <?php if (!empty($logoSrc)): ?>
+                <img src="<?= htmlspecialchars($logoSrc) ?>" alt="Contractor Logo">
+            <?php else: ?>
+                <h2 style="margin:0; color:#374151; font-size: 20px;"><?= htmlspecialchars($quote['contractor_name']) ?></h2>
+            <?php endif; ?>
         </div>
         <div class="title-box">
             <h1>Estimate / Quotation</h1>
@@ -114,9 +138,9 @@ function displayUnit($u) {
 
     <div class="info-grid">
         <div class="info-block">
-            <h3>Client Details</h3>
-            <p><?= htmlspecialchars($quote['client_name']) ?></p>
-            <span><?= htmlspecialchars($quote['client_city'] ?? '') ?></span>
+            <h3>Billed To (Client)</h3>
+            <p><?= htmlspecialchars($effectiveClientName) ?></p>
+            <span><?= htmlspecialchars($effectiveClientCity) ?></span>
         </div>
         <div class="info-block" style="text-align: right;">
             <h3>Quote Reference</h3>
@@ -203,6 +227,7 @@ function displayUnit($u) {
     </div>
 
     <div class="footer">
+        Issued by <?= htmlspecialchars($quote['contractor_name']) ?> <br>
         Estate Hub Commercial Management
     </div>
 
