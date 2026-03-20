@@ -431,15 +431,37 @@ require_once 'header.php';
             $wStmt->execute([$sub_id, $selected_client_id]); 
             $works = $wStmt->fetchAll();
 
-            // Fetch All Transactions
-            $tStmt = $pdo->prepare("
+            // Setup Filters
+            $filter_work_id = isset($_GET['filter_work_id']) ? $_GET['filter_work_id'] : '';
+            $filter_type = isset($_GET['filter_type']) ? $_GET['filter_type'] : '';
+
+            // Fetch All Transactions (With Filters)
+            $tQuery = "
                 SELECT t.*, w.work_reference 
                 FROM subcontractor_transactions t
                 LEFT JOIN subcontractor_works w ON t.work_id = w.id
-                WHERE t.subcontractor_id = ? AND t.client_id = ? 
-                ORDER BY t.transaction_date DESC, t.id DESC
-            ");
-            $tStmt->execute([$sub_id, $selected_client_id]); 
+                WHERE t.subcontractor_id = ? AND t.client_id = ?
+            ";
+            $tParams = [$sub_id, $selected_client_id];
+
+            if ($filter_work_id !== '') {
+                if ($filter_work_id === 'global') {
+                    $tQuery .= " AND t.work_id IS NULL";
+                } else {
+                    $tQuery .= " AND t.work_id = ?";
+                    $tParams[] = $filter_work_id;
+                }
+            }
+
+            if ($filter_type !== '') {
+                $tQuery .= " AND t.transaction_type = ?";
+                $tParams[] = $filter_type;
+            }
+
+            $tQuery .= " ORDER BY t.transaction_date DESC, t.id DESC";
+
+            $tStmt = $pdo->prepare($tQuery);
+            $tStmt->execute($tParams); 
             $transactions = $tStmt->fetchAll();
 
             // Global Calculations
@@ -587,7 +609,36 @@ require_once 'header.php';
                 </table>
             </div>
 
-            <h3 style="margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Complete Activity Log</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
+                <h3 style="margin: 0; border: none; padding: 0;">Complete Activity Log</h3>
+                
+                <form method="GET" style="margin: 0; display: flex; gap: 10px; align-items: center; font-size: 0.85rem;">
+                    <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
+                    <input type="hidden" name="sub_id" value="<?= $sub_id ?>">
+                    
+                    <select name="filter_work_id" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); max-width: 200px;">
+                        <option value="">-- All Work Orders --</option>
+                        <option value="global" <?= $filter_work_id === 'global' ? 'selected' : '' ?>>Global / Unlinked Activity</option>
+                        <?php foreach($works as $w): ?>
+                            <option value="<?= $w['id'] ?>" <?= $filter_work_id == $w['id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($w['work_reference']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+
+                    <select name="filter_type" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary);">
+                        <option value="">-- All Types --</option>
+                        <option value="Certification" <?= $filter_type === 'Certification' ? 'selected' : '' ?>>Certifications</option>
+                        <option value="Invoice" <?= $filter_type === 'Invoice' ? 'selected' : '' ?>>Invoices</option>
+                        <option value="Payment" <?= $filter_type === 'Payment' ? 'selected' : '' ?>>Payments</option>
+                    </select>
+
+                    <button type="submit" class="btn btn-sm btn-secondary" style="padding: 4px 10px;">Filter</button>
+                    <?php if($filter_work_id !== '' || $filter_type !== ''): ?>
+                        <a href="?client_id=<?= $selected_client_id ?>&sub_id=<?= $sub_id ?>" class="btn btn-sm" style="background: rgba(255,255,255,0.1); color: var(--text-muted); text-decoration: none; padding: 4px 10px;">Clear</a>
+                    <?php endif; ?>
+                </form>
+            </div>
             <div class="table-container">
                 <table class="data-table">
                     <thead>
