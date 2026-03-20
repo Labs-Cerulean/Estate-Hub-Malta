@@ -336,8 +336,14 @@ require_once 'header.php';
                     <?php if ($isAdmin): ?>
                         <a href="admin_standard_rates.php" class="btn btn-secondary">⚙️ Standard Rates & Terms</a>
                     <?php endif; ?>
-                    <?php if ($access[$currentTab]['manage']): ?>
-                        <button class="btn btn-primary" onclick="document.getElementById('createQuoteModal').style.display='block'">+ Create New Quote</button>
+                    <?php if ($access['Demolition_Excavation']['manage']): ?>
+                        <button class="btn btn-primary" style="background: #3b82f6; border: none;" onclick="openCreateQuoteModal('Demolition_Excavation')">+ Demo/Exc Quote</button>
+                    <?php endif; ?>
+                    <?php if ($access['Construction']['manage']): ?>
+                        <button class="btn btn-primary" style="background: #f59e0b; border: none;" onclick="openCreateQuoteModal('Construction')">+ Const. Quote</button>
+                    <?php endif; ?>
+                    <?php if ($access['Finishes']['manage']): ?>
+                        <button class="btn btn-primary" style="background: #8b5cf6; border: none;" onclick="openCreateQuoteModal('Finishes')">+ Finishes Quote</button>
                     <?php endif; ?>
                 </div>
             </div>
@@ -395,14 +401,14 @@ require_once 'header.php';
                 </table>
             </div>
 
-            <?php if ($access[$currentTab]['manage']): ?>
+            <?php if ($access['Demolition_Excavation']['manage'] || $access['Construction']['manage'] || $access['Finishes']['manage']): ?>
             <div id="createQuoteModal" class="modal">
                 <div class="modal-content">
                     <span class="close-modal" onclick="document.getElementById('createQuoteModal').style.display='none'">&times;</span>
-                    <h2 style="margin-top: 0; color: var(--primary-color);">Create <?= str_replace('_', ' & ', $currentTab) ?> Quote</h2>
+                    <h2 id="createQuoteModalTitle" style="margin-top: 0; color: var(--primary-color);">Create Quote</h2>
                     <form method="POST">
                         <input type="hidden" name="action" value="create_quote">
-                        <input type="hidden" name="quote_type" value="<?= $currentTab ?>">
+                        <input type="hidden" name="quote_type" id="create_quote_type" value="">
                         <input type="hidden" name="contractor_id" value="<?= $selected_contractor_id ?>">
                         
                         <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px;">
@@ -446,6 +452,27 @@ require_once 'header.php';
                     </form>
                 </div>
             </div>
+            
+            <script>
+            function openCreateQuoteModal(type) {
+                let title = 'Create Quote';
+                if (type === 'Demolition_Excavation') title = 'Create Demolition & Excavation Quote';
+                if (type === 'Construction') title = 'Create Construction Quote';
+                if (type === 'Finishes') title = 'Create Turnkey & Finishes Quote';
+                
+                document.getElementById('createQuoteModalTitle').innerText = title;
+                document.getElementById('create_quote_type').value = type;
+                document.getElementById('createQuoteModal').style.display = 'block';
+            }
+            
+            // Close modal when clicking outside of it
+            window.addEventListener('click', function(event) {
+                let modal = document.getElementById('createQuoteModal');
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            });
+            </script>
             <?php endif; ?>
 
         <?php else: ?>
@@ -793,6 +820,18 @@ require_once 'header.php';
                 document.getElementById('itemModal').style.display = 'block';
             }
             function openClaimModal() { document.getElementById('claimModal').style.display = 'block'; }
+            
+            // Re-apply window.onclick to handle both modals safely
+            window.addEventListener('click', function(event) {
+                let iModal = document.getElementById('itemModal');
+                let cModal = document.getElementById('claimModal');
+                if (iModal && event.target == iModal) {
+                    iModal.style.display = "none";
+                }
+                if (cModal && event.target == cModal) {
+                    cModal.style.display = "none";
+                }
+            });
             </script>
 
         <?php endif; ?>
