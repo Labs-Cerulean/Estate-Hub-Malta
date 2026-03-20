@@ -306,7 +306,36 @@ require_once 'header.php';
             </div>
         </form>
     </div>
-
+    <?php if (!empty($expiringMeters)): ?>
+        <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.3); border-left: 4px solid #ef4444; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+            <h3 style="margin-top: 0; color: #ef4444; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">⚠️ Action Required: ARMS Meters Expiring Soon</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <?php foreach($expiringMeters as $em): 
+                    $now = new DateTime(); 
+                    $exp = new DateTime($em['exp_date']);
+                    $now->setTime(0,0,0); $exp->setTime(0,0,0);
+                    $days = (int)$now->diff($exp)->format('%r%a');
+                ?>
+                    <div style="background: #1e1e2d; padding: 1rem; border-radius: 6px; border: 1px solid var(--border-glass);">
+                        <div style="font-weight: 800; color: var(--primary-color); margin-bottom: 4px;"><?= htmlspecialchars($em['project_name']) ?></div>
+                        <div style="font-size: 0.85rem; color: #fff; margin-bottom: 4px;">
+                            <?= htmlspecialchars($em['meter_type']) ?> Meter
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">
+                            Account: <span style="color: #0ea5e9; font-weight: bold;"><?= !empty($em['account_no']) ? htmlspecialchars($em['account_no']) : 'N/A' ?></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <?php if($days < 0): ?><span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">Expired <?= abs($days) ?>d ago</span>
+                            <?php elseif($days === 0): ?><span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">Expires TODAY</span>
+                            <?php else: ?><span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">Expires in <?= $days ?>d</span><?php endif; ?>
+                            
+                            <a href="#project-<?= $em['project_id'] ?>" class="btn btn-sm btn-secondary" style="padding: 2px 8px; text-decoration: none; font-size: 0.75rem;">⬇️ Jump to Project</a>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
     <div class="dashboard-wrapper" style="width: 100%;">
         <table class="main-table">
             <thead>
