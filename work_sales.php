@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
 
             if (!empty($stdItems)) {
-                // DEFAULT QUANTITY IS NOW 0.00
+                // DEFAULT QUANTITY STRICTLY SET TO 0.00
                 $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
                 foreach ($stdItems as $item) {
                     $stmtItem->execute([$newQuoteId, $item['category'], $item['description'], $item['unit'], $item['default_rate'], $item['sort_order']]);
@@ -373,7 +373,7 @@ require_once 'header.php';
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create Quote</button>
-                    <p style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 10px;">Standard BoQ rates & Terms will be auto-populated upon creation.</p>
+                    <p style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 10px;">Standard BoQ rates & Terms will be auto-populated upon creation with a quantity of 0.</p>
                 </form>
             </div>
         </div>
