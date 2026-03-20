@@ -401,8 +401,20 @@ require_once 'header.php';
                                         <input type="text" class="live-input" value="<?= htmlspecialchars($m['account_no'] ?? '') ?>" onblur="updateRecord('update_arms', 'account_no', <?= $pId ?>, this.value, <?= $mId ?>)" placeholder="e.g. 411000...">
                                     </div>
                                     <div class="field-wrapper">
-                                        <span class="micro-label">Expiry Date</span>
-                                        <input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="color: #f59e0b;">
+                                        <span class="micro-label" style="display: flex; justify-content: space-between;">
+                                            Expiry Date
+                                            <?php 
+                                            if (!empty($m['exp_date']) && $m['status'] !== 'Removal Done') {
+                                                $daysLeft = (strtotime($m['exp_date']) - time()) / 86400;
+                                                if ($daysLeft < 0) {
+                                                    echo '<span style="color: #ef4444; font-weight: bold;">🚨 EXPIRED</span>';
+                                                } elseif ($daysLeft <= 30) {
+                                                    echo '<span style="color: #f59e0b; font-weight: bold; animation: pulse 2s infinite;">⚠️ ' . floor($daysLeft) . ' Days Left</span>';
+                                                }
+                                            }
+                                            ?>
+                                        </span>
+                                        <input type="date" class="live-input" value="<?= htmlspecialchars($m['exp_date'] ?? '') ?>" onchange="updateRecord('update_arms', 'exp_date', <?= $pId ?>, this.value, <?= $mId ?>)" style="<?= (isset($daysLeft) && $daysLeft <= 30 && $m['status'] !== 'Removal Done') ? 'border-color: #ef4444; color: #ef4444;' : 'color: #f59e0b;' ?>">
                                     </div>
                                 </div>
 
