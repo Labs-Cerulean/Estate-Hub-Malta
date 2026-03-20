@@ -149,6 +149,22 @@ if (!empty($projectIds)) {
     $armsStmt = $pdo->prepare("SELECT * FROM project_arms_meters WHERE project_id IN ($placeholders) ORDER BY id ASC");
     $armsStmt->execute($projectIds);
     while ($row = $armsStmt->fetch(PDO::FETCH_ASSOC)) { $armsData[$row['project_id']][] = $row; }
+
+    // --- ADD THIS NEW BLOCK: Fetch Expiring ARMS Meters for Top Alarms ---
+    $expiringMeters = [];
+    $expStmt = $pdo->prepare("
+        SELECT m.*, p.name as project_name 
+        FROM project_arms_meters m 
+        JOIN projects p ON m.project_id = p.id 
+        WHERE m.project_id IN ($placeholders) 
+        AND m.exp_date IS NOT NULL 
+        AND m.exp_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) 
+        AND m.status != 'Removal Done'
+        ORDER BY m.exp_date ASC
+    ");
+    $expStmt->execute($projectIds);
+    $expiringMeters = $expStmt->fetchAll(PDO::FETCH_ASSOC);
+    // ---------------------------------------------------------------------
 }
 
 $matrixFields = [
