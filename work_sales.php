@@ -104,6 +104,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("UPDATE sales_quotes SET status = ? WHERE id = ?");
                 $stmt->execute([$newStatus, $qId]);
                 $message = "Status updated to $newStatus.";
+                
+                // --- AUTO-LINK TO SUBCONTRACTOR ACCOUNTS UPON ACCEPTANCE ---
+                if ($newStatus === 'Accepted' && $oldQuote['status'] !== 'Accepted') {
+                    $qStmt = $pdo->prepare("SELECT * FROM sales_quotes WHERE id = ?");
+                    $qStmt->execute([$qId]);
+                    $quoteData = $qStmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    if (!empty($quoteData['client_id'])) {
+                        // 1. Get the Contractor Name (the issuer of the quote)
+                        $cStmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
+                        $cStmt->execute([$quoteData['contractor_id']]);
+                        $contractorName = $cStmt->fetchColumn();
+                        
+                        if ($contractorName) {
+                            // 2. Find or Create Subcontractor
+                            $subStmt = $pdo->prepare("SELECT id FROM subcontractors WHERE name = ?");
+                            $subStmt->execute([$contractorName]);
+                            $subId = $subStmt->fetchColumn();
+                            
+                            if (!$subId) {
+                                $pdo->prepare("INSERT INTO subcontractors (name) VALUES (?)")->execute([$contractorName]);
+                                $subId = $pdo->lastInsertId();
+                            }
+                            
+                            // 3. Check if Work Order already exists to prevent duplicates
+                            $checkWo = $pdo->prepare("SELECT id FROM subcontractor_works WHERE subcontractor_id = ? AND client_id = ? AND work_reference = ?");
+                            $checkWo->execute([$subId, $quoteData['client_id'], $quoteData['reference_number']]);
+                            if (!$checkWo->fetchColumn()) {
+                                // 4. Create Work Order
+                                $woStmt = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, is_measured, work_reference, po_reference, vat_rate, responsible, total_exc_vat, total_inc_vat, notes) VALUES (?, ?, ?, 1, ?, '', ?, 'System Auto-Link', ?, ?, 'Auto-generated from Accepted Sales Quote')");
+                                $woStmt->execute([
+                                    $subId, 
+                                    $quoteData['client_id'], 
+                                    $quoteData['project_id'], 
+                                    $quoteData['reference_number'],
+                                    $quoteData['vat_rate'],
+                                    $quoteData['total_exc_vat'],
+                                    $quoteData['total_inc_vat']
+                                ]);
+                                $newWoId = $pdo->lastInsertId();
+                                
+                                // 5. Copy Line Items
+                                $itemsStmt = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ?");
+                                $itemsStmt->execute([$qId]);
+                                $quoteItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+                                
+                                $boqStmt = $pdo->prepare("INSERT INTO subcontractor_boq (work_id, block_level_id, description, qty, rate, total_exc) VALUES (?, NULL, ?, ?, ?, ?)");
+                                foreach ($quoteItems as $qi) {
+                                    $desc = $qi['category'] . ' - ' . $qi['description'];
+                                    $totExc = $qi['estimated_qty'] * $qi['unit_rate'];
+                                    $boqStmt->execute([$newWoId, $desc, $qi['estimated_qty'], $qi['unit_rate'], $totExc]);
+                                }
+                                $message .= " Also auto-generated a Subcontractor Work Order for the receiving Client!";
+                            }
+                        }
+                    }
+                }
+                // -------------------------------------------------------------
+                
             } else {
                 $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Pending Approval' WHERE id = ?");
                 $stmt->execute([$qId]);
@@ -242,6 +301,7 @@ if ($viewQuoteId) {
             SELECT sq.*, 
                    c.name as linked_client_name, 
                    p.name as project_name,
+            (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id) as total_claimed,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id AND status = 'Paid') as total_paid,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id AND status = 'Pending') as total_pending
             FROM sales_quotes sq 
@@ -368,14 +428,15 @@ require_once 'header.php';
                             <th>Reference</th>
                             <th>Project & Billed Client</th>
                             <th style="text-align: right;">Total (Inc VAT)</th>
-                            <th style="text-align: right;">Claimed/Pending</th>
+                            <th style="text-align: right;">Claimed</th>
+                            <th style="text-align: right;">Pending</th>
                             <th style="text-align: right;">Paid</th>
                             <th style="text-align: center;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($quotesList)): ?>
-                            <tr><td colspan="7" style="text-align: center; padding: 2rem;">No quotes found for this contractor in this category.</td></tr>
+                            <tr><td colspan="8" style="text-align: center; padding: 2rem;">No quotes found for this contractor in this category.</td></tr>
                         <?php else: foreach ($quotesList as $q): 
                             $effName = !empty($q['linked_client_name']) ? $q['linked_client_name'] : $q['client_name_free'];
                         ?>
@@ -390,6 +451,7 @@ require_once 'header.php';
                                     <div style="font-size: 0.75rem; color: var(--text-muted);">Billed To: <?= htmlspecialchars($effName) ?></div>
                                 </td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($q['total_inc_vat'], 2) ?></td>
+                                <td style="text-align: right; color: #3b82f6;">€<?= number_format($q['total_claimed'], 2) ?></td>
                                 <td style="text-align: right; color: #f59e0b;">€<?= number_format($q['total_pending'], 2) ?></td>
                                 <td style="text-align: right; color: #10b981;">€<?= number_format($q['total_paid'], 2) ?></td>
                                 <td style="text-align: center;">
@@ -478,9 +540,12 @@ require_once 'header.php';
         <?php else: ?>
             
             <?php 
-            $tPaid = 0; $tPend = 0; 
-            foreach($claims as $c) { if($c['status']==='Paid') $tPaid += $c['amount_inc_vat']; else $tPend += $c['amount_inc_vat']; }
-            $balance = $quote['total_inc_vat'] - $tPaid;
+            $tClaimed = 0; $tPaid = 0; $tPend = 0; 
+            foreach($claims as $c) { 
+                $tClaimed += $c['amount_inc_vat'];
+                if($c['status']==='Paid') $tPaid += $c['amount_inc_vat']; 
+                else $tPend += $c['amount_inc_vat']; 
+            }
             
             $canPrint = in_array($quote['status'], ['Approved', 'Sent', 'Accepted', 'Completed']);
             $dispStat = str_replace(' Approval', '', $quote['status']);
@@ -507,21 +572,21 @@ require_once 'header.php';
             </div>
 
             <div class="summary-cards">
-                <div class="summary-card">
-                    <h4>Total Value (Exc VAT)</h4>
-                    <div class="value">€<?= number_format($quote['total_exc_vat'], 2) ?></div>
-                </div>
                 <div class="summary-card highlight">
-                    <h4 style="color: var(--primary-color);">Total Value (Inc VAT)</h4>
+                    <h4 style="color: var(--primary-color);">Total Order (Inc VAT)</h4>
                     <div class="value">€<?= number_format($quote['total_inc_vat'], 2) ?></div>
                 </div>
                 <div class="summary-card">
-                    <h4>Total Claimed / Paid</h4>
-                    <div class="value" style="color: #10b981;">€<?= number_format($tPaid, 2) ?></div>
+                    <h4>Total Claimed</h4>
+                    <div class="value" style="color: #3b82f6;">€<?= number_format($tClaimed, 2) ?></div>
                 </div>
                 <div class="summary-card">
-                    <h4>Balance Owed</h4>
-                    <div class="value" style="color: <?= $balance > 0 ? '#ef4444' : '#9ca3af' ?>;">€<?= number_format($balance, 2) ?></div>
+                    <h4>Pending Payment</h4>
+                    <div class="value" style="color: <?= $tPend > 0 ? '#f59e0b' : '#9ca3af' ?>;">€<?= number_format($tPend, 2) ?></div>
+                </div>
+                <div class="summary-card">
+                    <h4>Total Paid</h4>
+                    <div class="value" style="color: #10b981;">€<?= number_format($tPaid, 2) ?></div>
                 </div>
             </div>
 
