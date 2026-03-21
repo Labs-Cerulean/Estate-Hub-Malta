@@ -2,7 +2,7 @@
 // version.php - Update this file during deployment
 return [
     'branch' => 'main',  // or 'staging'
-    'commit' => 'abc1234',
-    'date' => '2026-01-09',
-    'version' => '1.0.0'
+    'commit' => '08b9759',
+    'date' => '2026-03-21',
+    'version' => '3.0.0'
 ];
