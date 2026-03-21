@@ -6,9 +6,10 @@ $userId = getCurrentUserId();
 $isAdmin = isAdmin();
 
 // ==========================================
-// AUTO-DEPLOY FINISHES RATES DATABASE
+// AUTO-DEPLOY DATABASE UPDATES
 // ==========================================
 try {
+    // 1. Create Finishes Rates Table
     $pdo->exec("CREATE TABLE IF NOT EXISTS `sales_finishes_rates` (
         `id` int NOT NULL AUTO_INCREMENT,
         `item_key` varchar(50) NOT NULL UNIQUE,
@@ -74,6 +75,9 @@ try {
         $s = $pdo->prepare("INSERT INTO sales_finishes_rates (item_key, category, description, unit, rate) VALUES (?, ?, ?, ?, ?)");
         foreach ($defaultRates as $r) { $s->execute($r); }
     }
+    
+    // 2. Add storage column for calculator memory
+    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN finishes_calc_data TEXT DEFAULT NULL");
 } catch(PDOException $e) {}
 
 
@@ -142,6 +146,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $pdo->beginTransaction();
             
+            // Save Memory Payload
+            $memoryPayload = [
+                'fc_state' => $_POST['fc_state'] ?? 'semi_finished',
+                'fc_garage' => isset($_POST['fc_garage']) ? 1 : 0,
+                'fc_area_int' => $_POST['fc_area_int'] ?? '',
+                'fc_area_ext' => $_POST['fc_area_ext'] ?? '',
+                'fc_height' => $_POST['fc_height'] ?? '2.65',
+                'fc_beds' => $_POST['fc_beds'] ?? '1',
+                'fc_skirting' => $_POST['fc_skirting'] ?? '',
+                'fc_balcony_perim' => $_POST['fc_balcony_perim'] ?? '',
+                'fc_bath_shower' => $_POST['fc_bath_shower'] ?? '1',
+                'fc_bath_bath' => $_POST['fc_bath_bath'] ?? '0',
+                'fc_bath_sqm' => $_POST['fc_bath_sqm'] ?? '',
+                'fc_bath_perim' => $_POST['fc_bath_perim'] ?? '',
+                'fc_door_hinged' => $_POST['fc_door_hinged'] ?? '2',
+                'fc_door_sliding' => $_POST['fc_door_sliding'] ?? '0',
+                'fc_door_pocket' => $_POST['fc_door_pocket'] ?? '0',
+                'fc_garage_sqm' => $_POST['fc_garage_sqm'] ?? '',
+                'fc_rail_alu' => $_POST['fc_rail_alu'] ?? '0',
+                'fc_rail_glass' => $_POST['fc_rail_glass'] ?? '0',
+                'fc_rail_iron' => $_POST['fc_rail_iron'] ?? '0',
+                'fc_pm_pct' => $_POST['fc_pm_pct'] ?? '10.00',
+                'fc_discount' => $_POST['fc_discount'] ?? '0.00',
+                'ap_type' => $_POST['ap_type'] ?? [],
+                'ap_w' => $_POST['ap_w'] ?? [],
+                'ap_h' => $_POST['ap_h'] ?? []
+            ];
+            
+            $pdo->prepare("UPDATE sales_quotes SET finishes_calc_data = ? WHERE id = ?")->execute([json_encode($memoryPayload), $qId]);
+
             // Fetch Quote VAT Rate to reverse engineer the Inc VAT contribution
             $qStmt = $pdo->prepare("SELECT vat_rate FROM sales_quotes WHERE id = ?");
             $qStmt->execute([$qId]);
@@ -155,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ratesDb = $pdo->query("SELECT item_key, rate FROM sales_finishes_rates")->fetchAll(PDO::FETCH_KEY_PAIR);
             
             // 3. Read Inputs
-            $state = $_POST['fc_state']; // 'semi_finished' or 'common_parts'
+            $state = $_POST['fc_state'];
             $hasGarage = isset($_POST['fc_garage']) ? true : false;
             $A = (float)$_POST['fc_area_int'];
             $B = (float)$_POST['fc_area_ext'];
@@ -473,12 +507,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-if (isset($_GET['msg']) && $_GET['msg'] === 'created') $message = "Quote created! Standard items and terms have been loaded.";
-
 // ==========================================
 // DETERMINE VIEW
 // ==========================================
 $viewQuoteId = isset($_GET['quote_id']) ? (int)$_GET['quote_id'] : null;
+
+// Prep Finishes Calculator Memory
+$fcData = []; 
+function fcv($key, $default = '') { global $fcData; return htmlspecialchars($fcData[$key] ?? $default); }
 
 if ($viewQuoteId) {
     // --- DETAILS VIEW ---
@@ -490,6 +526,11 @@ if ($viewQuoteId) {
     $quote = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$quote || !$access[$quote['quote_type']]['view']) { header('Location: work_sales.php?error=unauthorized_quote'); exit; }
+    
+    // Load Calculator Memory
+    if (!empty($quote['finishes_calc_data'])) {
+        $fcData = json_decode($quote['finishes_calc_data'], true) ?: [];
+    }
     
     $selected_contractor_id = $quote['contractor_id']; 
     $effectiveClientName = !empty($quote['linked_client_name']) ? $quote['linked_client_name'] : $quote['client_name_free'];
@@ -1058,68 +1099,79 @@ require_once 'header.php';
                             <div class="form-group">
                                 <label>Apartment State</label>
                                 <select name="fc_state" id="fc_state" onchange="toggleFcSections()">
-                                    <option value="semi_finished">Client Bought Semi-Finished (Internal Only)</option>
-                                    <option value="common_parts">Client Bought Common Parts Only (Includes Semi-Finishes)</option>
+                                    <option value="semi_finished" <?= fcv('fc_state') == 'semi_finished' ? 'selected' : '' ?>>Client Bought Semi-Finished (Internal Only)</option>
+                                    <option value="common_parts" <?= fcv('fc_state') == 'common_parts' ? 'selected' : '' ?>>Client Bought Common Parts Only (Includes Semi-Finishes)</option>
                                 </select>
                             </div>
                             <div class="form-group" style="display: flex; align-items: center; padding-top: 15px;">
                                 <label class="checkbox-item" style="font-weight: bold;">
-                                    <input type="checkbox" name="fc_garage" id="fc_garage" onchange="toggleFcSections()"> Include Garage Finishes
+                                    <input type="checkbox" name="fc_garage" id="fc_garage" onchange="toggleFcSections()" <?= !empty($fcData['fc_garage']) ? 'checked' : '' ?>> Include Garage Finishes
                                 </label>
                             </div>
                         </div>
 
                         <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">2. General Measurements</h4>
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                            <div class="form-group"><label>Internal Area [A] (sqm) *</label><input type="number" step="0.01" name="fc_area_int" required></div>
-                            <div class="form-group"><label>External Area [B] (sqm) *</label><input type="number" step="0.01" name="fc_area_ext" required></div>
-                            <div class="form-group"><label>Floor-to-Ceiling [C] (m) *</label><input type="number" step="0.01" name="fc_height" value="2.65" required></div>
-                            <div class="form-group"><label>Skirting Length [E] (lm) *</label><input type="number" step="0.01" name="fc_skirting" required></div>
-                            <div class="form-group" id="fc_balc_perim_group" style="display:none;"><label>Balcony Perimeter (lm) *</label><input type="number" step="0.01" name="fc_balcony_perim" id="fc_balcony_perim"></div>
+                            <div class="form-group"><label>Internal Area [A] (sqm) *</label><input type="number" step="0.01" name="fc_area_int" value="<?= fcv('fc_area_int') ?>" required></div>
+                            <div class="form-group"><label>External Area [B] (sqm) *</label><input type="number" step="0.01" name="fc_area_ext" value="<?= fcv('fc_area_ext') ?>" required></div>
+                            <div class="form-group"><label>Floor-to-Ceiling [C] (m) *</label><input type="number" step="0.01" name="fc_height" value="<?= fcv('fc_height', '2.65') ?>" required></div>
+                            <div class="form-group"><label>Skirting Length [E] (lm) *</label><input type="number" step="0.01" name="fc_skirting" value="<?= fcv('fc_skirting') ?>" required></div>
+                            <div class="form-group" id="fc_balc_perim_group"><label>Balcony Perimeter (lm) *</label><input type="number" step="0.01" name="fc_balcony_perim" id="fc_balcony_perim" value="<?= fcv('fc_balcony_perim') ?>"></div>
                         </div>
 
                         <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">3. Rooms & Wet Areas</h4>
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div class="form-group"><label>Total Bedrooms [D] (inc. study/gym) *</label><input type="number" name="fc_beds" id="fc_beds" value="1" required onchange="calcFcDoors()"></div>
-                            <div class="form-group"><label>Bathrooms WITH Shower [F] *</label><input type="number" name="fc_bath_shower" id="fc_bath_shower" value="1" required onchange="calcFcDoors()"></div>
-                            <div class="form-group"><label>Bathrooms WITH Bath [G] *</label><input type="number" name="fc_bath_bath" id="fc_bath_bath" value="0" required onchange="calcFcDoors()"></div>
-                            <div class="form-group"><label>Total Bathrooms Area [H] (sqm) *</label><input type="number" step="0.01" name="fc_bath_sqm" required></div>
-                            <div class="form-group"><label>Total Bath Walls Perimeter [I] (lm) *</label><input type="number" step="0.01" name="fc_bath_perim" required></div>
+                            <div class="form-group"><label>Total Bedrooms [D] (inc. study/gym) *</label><input type="number" name="fc_beds" id="fc_beds" value="<?= fcv('fc_beds', '1') ?>" required onchange="calcFcDoors()"></div>
+                            <div class="form-group"><label>Bathrooms WITH Shower [F] *</label><input type="number" name="fc_bath_shower" id="fc_bath_shower" value="<?= fcv('fc_bath_shower', '1') ?>" required onchange="calcFcDoors()"></div>
+                            <div class="form-group"><label>Bathrooms WITH Bath [G] *</label><input type="number" name="fc_bath_bath" id="fc_bath_bath" value="<?= fcv('fc_bath_bath', '0') ?>" required onchange="calcFcDoors()"></div>
+                            <div class="form-group"><label>Total Bathrooms Area [H] (sqm) *</label><input type="number" step="0.01" name="fc_bath_sqm" value="<?= fcv('fc_bath_sqm') ?>" required></div>
+                            <div class="form-group"><label>Total Bath Walls Perimeter [I] (lm) *</label><input type="number" step="0.01" name="fc_bath_perim" value="<?= fcv('fc_bath_perim') ?>" required></div>
                         </div>
 
                         <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">4. Doors Configuration</h4>
-                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">Total doors naturally required: <span id="fc_door_calc" style="font-weight:bold; color:var(--text-primary);">2</span>. Distribute them below, adding extras for box rooms if needed.</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">Total doors naturally required: <span id="fc_door_calc" style="font-weight:bold; color:var(--text-primary);">0</span>. Distribute them below, adding extras for box rooms if needed.</div>
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                            <div class="form-group"><label>Hinged Doors [X1]</label><input type="number" name="fc_door_hinged" id="fc_door_hinged" value="2" required></div>
-                            <div class="form-group"><label>Sliding Doors [X2]</label><input type="number" name="fc_door_sliding" id="fc_door_sliding" value="0" required></div>
-                            <div class="form-group"><label>Pocket Doors [X3]</label><input type="number" name="fc_door_pocket" id="fc_door_pocket" value="0" required></div>
+                            <div class="form-group"><label>Hinged Doors [X1]</label><input type="number" name="fc_door_hinged" id="fc_door_hinged" value="<?= fcv('fc_door_hinged', '2') ?>" required></div>
+                            <div class="form-group"><label>Sliding Doors [X2]</label><input type="number" name="fc_door_sliding" id="fc_door_sliding" value="<?= fcv('fc_door_sliding', '0') ?>" required></div>
+                            <div class="form-group"><label>Pocket Doors [X3]</label><input type="number" name="fc_door_pocket" id="fc_door_pocket" value="<?= fcv('fc_door_pocket', '0') ?>" required></div>
                         </div>
 
-                        <div id="fc_garage_section" style="display:none;">
+                        <div id="fc_garage_section">
                             <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">5. Garage Details</h4>
-                            <div class="form-group"><label>Garage Plaster/Paint Area (sqm) *</label><input type="number" step="0.01" name="fc_garage_sqm" id="fc_garage_sqm"></div>
+                            <div class="form-group"><label>Garage Plaster/Paint Area (sqm) *</label><input type="number" step="0.01" name="fc_garage_sqm" id="fc_garage_sqm" value="<?= fcv('fc_garage_sqm') ?>"></div>
                         </div>
 
-                        <div id="fc_cp_section" style="display:none;">
+                        <div id="fc_cp_section">
                             <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px; color: #10b981;">6. Semi-Finishes (External Envelope)</h4>
                             <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                                <div class="form-group"><label>Aluminium Railings (lm)</label><input type="number" step="0.01" name="fc_rail_alu" value="0"></div>
-                                <div class="form-group"><label>Glass Railings (lm)</label><input type="number" step="0.01" name="fc_rail_glass" value="0"></div>
-                                <div class="form-group"><label>Wrought Iron Railings (lm)</label><input type="number" step="0.01" name="fc_rail_iron" value="0"></div>
+                                <div class="form-group"><label>Aluminium Railings (lm)</label><input type="number" step="0.01" name="fc_rail_alu" value="<?= fcv('fc_rail_alu', '0') ?>"></div>
+                                <div class="form-group"><label>Glass Railings (lm)</label><input type="number" step="0.01" name="fc_rail_glass" value="<?= fcv('fc_rail_glass', '0') ?>"></div>
+                                <div class="form-group"><label>Wrought Iron Railings (lm)</label><input type="number" step="0.01" name="fc_rail_iron" value="<?= fcv('fc_rail_iron', '0') ?>"></div>
                             </div>
                             
                             <label style="margin-top: 10px; display: block; font-weight: bold;">External Apertures (Windows & Doors)</label>
                             <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" id="fc_ap_table">
                                 <thead><tr><th style="text-align:left; padding-bottom:5px;">Type</th><th style="text-align:left;">Width (m)</th><th style="text-align:left;">Height (m)</th><th></th></tr></thead>
-                                <tbody id="fc_ap_body"></tbody>
+                                <tbody id="fc_ap_body">
+                                    <?php if (!empty($fcData['ap_type'])): ?>
+                                        <?php for($i=0; $i < count($fcData['ap_type']); $i++): ?>
+                                            <tr>
+                                                <td style="padding: 4px 0;"><select name="ap_type[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);"><option value="ap_hinged_win" <?= $fcData['ap_type'][$i]=='ap_hinged_win'?'selected':'' ?>>Hinged Window</option><option value="ap_sliding_win" <?= $fcData['ap_type'][$i]=='ap_sliding_win'?'selected':'' ?>>Sliding Window</option><option value="ap_hinged_door" <?= $fcData['ap_type'][$i]=='ap_hinged_door'?'selected':'' ?>>Hinged Door</option><option value="ap_sliding_door" <?= $fcData['ap_type'][$i]=='ap_sliding_door'?'selected':'' ?>>Sliding Door</option></select></td>
+                                                <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_w[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" value="<?= htmlspecialchars($fcData['ap_w'][$i]) ?>" required></td>
+                                                <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_h[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" value="<?= htmlspecialchars($fcData['ap_h'][$i]) ?>" required></td>
+                                                <td style="padding: 4px 0; text-align:right;"><button type="button" class="btn btn-sm btn-danger" style="padding:4px 8px;" onclick="this.parentElement.parentElement.remove()">X</button></td>
+                                            </tr>
+                                        <?php endfor; ?>
+                                    <?php endif; ?>
+                                </tbody>
                             </table>
                             <button type="button" class="btn btn-sm" style="background: rgba(255,255,255,0.1);" onclick="addFcAperture()">+ Add Aperture</button>
                         </div>
 
                         <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">7. Management & Discounts</h4>
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div class="form-group"><label>Project Management Fee (%)</label><input type="number" step="0.01" name="fc_pm_pct" value="10.00" required></div>
-                            <div class="form-group"><label>Special Discount (€)</label><input type="number" step="0.01" name="fc_discount" value="0.00" <?= $canApproveQuotes ? '' : 'readonly title="Requires Approval Access"' ?>></div>
+                            <div class="form-group"><label>Project Management Fee (%)</label><input type="number" step="0.01" name="fc_pm_pct" value="<?= fcv('fc_pm_pct', '10.00') ?>" required></div>
+                            <div class="form-group"><label>Special Discount (€)</label><input type="number" step="0.01" name="fc_discount" value="<?= fcv('fc_discount', '0.00') ?>" <?= $canApproveQuotes ? '' : 'readonly title="Requires Approval Access"' ?>></div>
                         </div>
 
                         <button type="submit" class="btn" style="background: #8b5cf6; color: white; border: none; width: 100%; padding: 15px; font-size: 1.1rem; font-weight: bold; margin-top: 20px;">Generate Full BoQ</button>
@@ -1146,7 +1198,11 @@ require_once 'header.php';
                 const ba = parseInt(document.getElementById('fc_bath_bath').value) || 0;
                 const tot = b + s + ba;
                 document.getElementById('fc_door_calc').innerText = tot;
-                document.getElementById('fc_door_hinged').value = tot; 
+                
+                // Only auto-fill if the user hasn't explicitly entered doors yet, to avoid overwriting their manual input
+                if (document.getElementById('fc_door_hinged').value == '2' && document.getElementById('fc_door_sliding').value == '0' && document.getElementById('fc_door_pocket').value == '0') {
+                    document.getElementById('fc_door_hinged').value = tot; 
+                }
             }
             
             function addFcAperture() {
@@ -1160,6 +1216,9 @@ require_once 'header.php';
                 `;
                 tb.appendChild(tr);
             }
+            
+            // Initialize calculator UI state safely
+            setTimeout(() => { toggleFcSections(); calcFcDoors(); }, 100);
             </script>
             <?php endif; ?>
 
