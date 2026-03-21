@@ -217,12 +217,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             };
 
             // --- CATEGORY 1: TILING ---
-            $K = max(0, $A - $H);
-            $L = $H;
-            $M = $I * $C;
+            $K = max(0, $A - $H); // Net floor area
+            $L = $H; // Bath floor area
+            $M = $I * $C; // Bath wall area
+            
+            // Calculate Supply Quantities (Include 10% breakage contingency + Skirting material where 1lm = 0.1sqm)
+            $K_supply = ($K + ($E * 0.1)) * 1.10;
+            $L_supply = $L * 1.10;
+            $M_supply = $M * 1.10;
             
             // Calc Supply Lump Sum (Rounded down to nearest 250)
-            $rawSupVal = ($K * $ratesDb['sup_floor']) + ($L * $ratesDb['sup_bath_floor']) + ($M * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
+            $rawSupVal = ($K_supply * $ratesDb['sup_floor']) + ($L_supply * $ratesDb['sup_bath_floor']) + ($M_supply * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
             $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
             
             // The user requested the rate to literally be the Inc Vat rounded value.
