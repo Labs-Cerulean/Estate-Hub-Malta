@@ -112,13 +112,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $quoteData = $qStmt->fetch(PDO::FETCH_ASSOC);
                     
                     if (!empty($quoteData['client_id'])) {
-                        // 1. Get the Contractor Name (the issuer of the quote)
                         $cStmt = $pdo->prepare("SELECT name FROM clients WHERE id = ?");
                         $cStmt->execute([$quoteData['contractor_id']]);
                         $contractorName = $cStmt->fetchColumn();
                         
                         if ($contractorName) {
-                            // 2. Find or Create Subcontractor
                             $subStmt = $pdo->prepare("SELECT id FROM subcontractors WHERE name = ?");
                             $subStmt->execute([$contractorName]);
                             $subId = $subStmt->fetchColumn();
@@ -128,11 +126,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $subId = $pdo->lastInsertId();
                             }
                             
-                            // 3. Check if Work Order already exists to prevent duplicates
                             $checkWo = $pdo->prepare("SELECT id FROM subcontractor_works WHERE subcontractor_id = ? AND client_id = ? AND work_reference = ?");
                             $checkWo->execute([$subId, $quoteData['client_id'], $quoteData['reference_number']]);
                             if (!$checkWo->fetchColumn()) {
-                                // 4. Create Work Order
                                 $woStmt = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, is_measured, work_reference, po_reference, vat_rate, responsible, total_exc_vat, total_inc_vat, notes) VALUES (?, ?, ?, 1, ?, '', ?, 'System Auto-Link', ?, ?, 'Auto-generated from Accepted Sales Quote')");
                                 $woStmt->execute([
                                     $subId, 
@@ -145,7 +141,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 ]);
                                 $newWoId = $pdo->lastInsertId();
                                 
-                                // 5. Copy Line Items
                                 $itemsStmt = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ?");
                                 $itemsStmt->execute([$qId]);
                                 $quoteItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -345,7 +340,7 @@ require_once 'header.php';
 .status-Completed { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; border: 1px solid #7c3aed; }
 
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
-.modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
+.modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
 .close-modal { position: absolute; top: 15px; right: 20px; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
 
@@ -420,6 +415,35 @@ require_once 'header.php';
                 <?php endif; ?>
             </div>
 
+            <?php
+            // Calculate global totals for the Master List View
+            $global_order = 0; $global_claimed = 0; $global_pending = 0; $global_paid = 0;
+            foreach ($quotesList as $q) {
+                $global_order += $q['total_inc_vat'];
+                $global_claimed += $q['total_claimed'];
+                $global_pending += $q['total_pending'];
+                $global_paid += $q['total_paid'];
+            }
+            ?>
+            <div class="summary-cards">
+                <div class="summary-card highlight">
+                    <h4 style="color: var(--primary-color);">Total Pipeline (Inc VAT)</h4>
+                    <div class="value">€<?= number_format($global_order, 2) ?></div>
+                </div>
+                <div class="summary-card">
+                    <h4>Total Claimed</h4>
+                    <div class="value" style="color: #3b82f6;">€<?= number_format($global_claimed, 2) ?></div>
+                </div>
+                <div class="summary-card">
+                    <h4>Pending Payment</h4>
+                    <div class="value" style="color: <?= $global_pending > 0 ? '#f59e0b' : '#9ca3af' ?>;">€<?= number_format($global_pending, 2) ?></div>
+                </div>
+                <div class="summary-card">
+                    <h4>Total Paid</h4>
+                    <div class="value" style="color: #10b981;">€<?= number_format($global_paid, 2) ?></div>
+                </div>
+            </div>
+
             <div class="table-container">
                 <table class="data-table">
                     <thead>
@@ -460,6 +484,18 @@ require_once 'header.php';
                             </tr>
                         <?php endforeach; endif; ?>
                     </tbody>
+                    <?php if (!empty($quotesList)): ?>
+                    <tfoot>
+                        <tr style="background: rgba(255,255,255,0.05); font-weight: bold;">
+                            <td colspan="3">PIPELINE TOTALS</td>
+                            <td style="text-align: right;">€<?= number_format($global_order, 2) ?></td>
+                            <td style="text-align: right; color: #3b82f6;">€<?= number_format($global_claimed, 2) ?></td>
+                            <td style="text-align: right; color: <?= $global_pending > 0 ? '#f59e0b' : '#9ca3af' ?>;">€<?= number_format($global_pending, 2) ?></td>
+                            <td style="text-align: right; color: #10b981;">€<?= number_format($global_paid, 2) ?></td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                    <?php endif; ?>
                 </table>
             </div>
 
