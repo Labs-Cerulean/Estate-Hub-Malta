@@ -118,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([ $contractor_id, $client_id, $client_name_free, $_POST['project_id'], $type, trim($_POST['reference_number']), $_POST['vat_rate'] ?? 18.00, $userId, $defTerms ?: '' ]);
             $newQuoteId = $pdo->lastInsertId();
             
-            if ($type !== 'Finishes') { // Finishes uses the calculator, demo/const use standard prepopulation
+            if ($type !== 'Finishes') { 
                 $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC");
                 $stmtStd->execute([$type]);
                 $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
@@ -141,6 +141,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$access['Finishes']['manage']) throw new Exception("Unauthorized.");
             
             $pdo->beginTransaction();
+            
+            // Fetch Quote VAT Rate to reverse engineer the Inc VAT contribution
+            $qStmt = $pdo->prepare("SELECT vat_rate FROM sales_quotes WHERE id = ?");
+            $qStmt->execute([$qId]);
+            $qVatRate = (float)$qStmt->fetchColumn();
+            $vatMult = 1 + ($qVatRate / 100);
             
             // 1. Clear existing BoQ
             $pdo->prepare("DELETE FROM sales_quote_items WHERE quote_id = ?")->execute([$qId]);
@@ -185,10 +191,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $L = $H;
             $M = $I * $C;
             
-            // Calc Supply Lump Sum
-            $supVal = ($K * $ratesDb['sup_floor']) + ($L * $ratesDb['sup_bath_floor']) + ($M * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
-            $insertItem->execute([$qId, '1 - Tiling', 'Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware', 'lump_sum', 1, $supVal, $sortIdx]);
-            $sortIdx += 10; $runningTotalExc += $supVal;
+            // Calc Supply Lump Sum (Rounded down to nearest 250, treated as Inc VAT)
+            $rawSupVal = ($K * $ratesDb['sup_floor']) + ($L * $ratesDb['sup_bath_floor']) + ($M * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
+            
+            $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
+            $supValExcVat = $vatMult > 0 ? ($supValRoundedIncVat / $vatMult) : $supValRoundedIncVat;
+            
+            $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Value: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
+            
+            $insertItem->execute([$qId, '1 - Tiling', $supDesc, 'lump_sum', 1, $supValExcVat, $sortIdx]);
+            $sortIdx += 10; 
+            $runningTotalExc += $supValExcVat;
             
             $add('1 - Tiling', 'Installation of Floor tiles (Inc. sand/cement/grouting)', 'sqm', $K, 'inst_floor');
             $add('1 - Tiling', 'Installation of Bathroom Floor tiles (Inc. sand/cement/grouting)', 'sqm', $L, 'inst_bath_floor');
@@ -229,7 +242,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $add('5 - Garage', 'Electrical installation: 1x 8 module DB, 1x light switch, 1x neon tube...', 'lump_sum', 1, 'gar_elec');
                 if ($state === 'common_parts') { $add('5 - Garage', 'Manual up and over garage door', 'lump_sum', 1, 'gar_door'); }
                 
-                // Add Zero-Value Note
                 $insertItem->execute([$qId, '5 - Garage', 'Note: no flooring included in garage finishes.', 'lump_sum', 0, 0, $sortIdx]);
                 $sortIdx += 10;
             }
@@ -239,7 +251,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $balcPerim = (float)$_POST['fc_balcony_perim'];
                 $sills = $balcPerim;
                 
-                // Process dynamic apertures
                 if (isset($_POST['ap_type'])) {
                     for($i=0; $i < count($_POST['ap_type']); $i++) {
                         $apT = $_POST['ap_type'][$i];
@@ -313,7 +324,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$newStatus, $qId]);
                 $message = "Status updated to $newStatus.";
                 
-                // --- AUTO-LINK TO SUBCONTRACTOR ACCOUNTS UPON ACCEPTANCE ---
                 if ($newStatus === 'Accepted' && $oldQuote['status'] !== 'Accepted') {
                     $qStmt = $pdo->prepare("SELECT * FROM sales_quotes WHERE id = ?");
                     $qStmt->execute([$qId]);
@@ -364,7 +374,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                 }
-                
             } else {
                 $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Pending Approval' WHERE id = ?");
                 $stmt->execute([$qId]);
@@ -417,7 +426,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Item deleted.";
         }
         
-        // 6. Save Claim
+        // 6. Save or Update Claim
         if ($action === 'save_claim') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
@@ -463,6 +472,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = $e->getMessage();
     }
 }
+
+if (isset($_GET['msg']) && $_GET['msg'] === 'created') $message = "Quote created! Standard items and terms have been loaded.";
 
 // ==========================================
 // DETERMINE VIEW
@@ -721,7 +732,9 @@ require_once 'header.php';
                                     <?php foreach($allEntities as $c): ?><option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option><?php endforeach; ?>
                                 </select>
                             </div>
+                            
                             <div style="text-align: center; margin: 10px 0; color: var(--text-muted); font-size: 0.8rem;">--- OR ---</div>
+                            
                             <div>
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option B: External Client (Free Text)</label>
                                 <input type="text" name="client_name_free" placeholder="e.g. John Doe / External Ltd">
@@ -1133,7 +1146,7 @@ require_once 'header.php';
                 const ba = parseInt(document.getElementById('fc_bath_bath').value) || 0;
                 const tot = b + s + ba;
                 document.getElementById('fc_door_calc').innerText = tot;
-                document.getElementById('fc_door_hinged').value = tot; // Default all to hinged
+                document.getElementById('fc_door_hinged').value = tot; 
             }
             
             function addFcAperture() {
