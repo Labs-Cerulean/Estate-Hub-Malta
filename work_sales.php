@@ -99,10 +99,14 @@ $message = ''; $error = '';
 $allEntities = $isAdmin ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, $userId);
 $selected_contractor_id = isset($_GET['contractor_id']) ? (int)$_GET['contractor_id'] : null;
 
+// ==========================================
+// FORM ACTION HANDLING
+// ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     try {
+        // 1. Create New Quote
         if ($action === 'create_quote') {
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
@@ -137,10 +141,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        // ==========================================
-        // FINISHES CALCULATOR ENGINE
-        // ==========================================
-        if ($action === 'generate_finishes_boq') {
+        // 2. FINISHES CALCULATOR ENGINE
+        elseif ($action === 'generate_finishes_boq') {
             $qId = (int)$_POST['quote_id'];
             if (!$access['Finishes']['manage']) throw new Exception("Unauthorized.");
             
@@ -176,12 +178,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $pdo->prepare("UPDATE sales_quotes SET finishes_calc_data = ? WHERE id = ?")->execute([json_encode($memoryPayload), $qId]);
 
-            // Fetch Quote VAT Rate to reverse engineer the Inc VAT contribution
-            $qStmt = $pdo->prepare("SELECT vat_rate FROM sales_quotes WHERE id = ?");
-            $qStmt->execute([$qId]);
-            $qVatRate = (float)$qStmt->fetchColumn();
-            $vatMult = 1 + ($qVatRate / 100);
-            
             // 1. Clear existing BoQ
             $pdo->prepare("DELETE FROM sales_quote_items WHERE quote_id = ?")->execute([$qId]);
             
@@ -225,11 +221,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $L = $H;
             $M = $I * $C;
             
-            // Calc Supply Lump Sum (Rounded down to nearest 250, treated as Inc VAT)
+            // Calc Supply Lump Sum (Rounded down to nearest 250)
             $rawSupVal = ($K * $ratesDb['sup_floor']) + ($L * $ratesDb['sup_bath_floor']) + ($M * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
-            
             $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
-            $supValExcVat = $vatMult > 0 ? ($supValRoundedIncVat / $vatMult) : $supValRoundedIncVat;
+            
+            // The user requested the rate to literally be the Inc Vat rounded value.
+            // They use the VAT added to this line item internally as a hidden contingency.
+            $supValExcVat = $supValRoundedIncVat; 
             
             $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Value: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
             
@@ -313,12 +311,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $add('6 - Semi Finishes', 'Water tank supply, installation and connection', 'lump_sum', 1, 'water_tank');
             }
 
-            // --- CATEGORY 7: PM & DISCOUNT ---
-            if ($pmPct > 0) {
-                $pmFee = $runningTotalExc * ($pmPct / 100);
-                $insertItem->execute([$qId, '7 - Project Management', 'Project Management & Coordination', 'lump_sum', 1, $pmFee, $sortIdx]);
-                $sortIdx += 10; $runningTotalExc += $pmFee;
-            }
+            // --- CATEGORY 7: PM & LOGISTICS ---
+            $pmFee = $runningTotalExc * ($pmPct / 100);
+            
+            // Add the hidden €360 Cleaning/Logistics Fee
+            $pmFee += 360.00;
+            
+            $insertItem->execute([$qId, '7 - Project Management', 'Project Management, Coordination & Site Logistics', 'lump_sum', 1, $pmFee, $sortIdx]);
+            $sortIdx += 10; 
+            $runningTotalExc += $pmFee;
+            
             if ($discount > 0) {
                 $insertItem->execute([$qId, '8 - Discounts', 'Senior Management Discount', 'lump_sum', 1, -$discount, $sortIdx]);
                 $runningTotalExc -= $discount;
@@ -332,8 +334,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Finishes Calculator applied successfully! Review the BoQ below.";
         }
 
-        // 2. Change Status (Workflow)
-        if ($action === 'change_status') {
+        // 3. Change Status (Workflow)
+        elseif ($action === 'change_status') {
             $qId = (int)$_POST['quote_id'];
             $newStatus = $_POST['new_status'];
             
@@ -415,8 +417,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // 3. Update Quote Settings
-        if ($action === 'update_quote_settings') {
+        // 4. Update Quote Settings
+        elseif ($action === 'update_quote_settings') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
@@ -427,8 +429,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
         }
         
-        // 4. Save BoQ Item
-        if ($action === 'save_item') {
+        // 5. Save BoQ Item
+        elseif ($action === 'save_item') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
@@ -451,8 +453,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Item saved and quote totals recalculated.";
         }
         
-        // 5. Delete BoQ Item
-        if ($action === 'delete_item') {
+        // 6. Delete BoQ Item
+        elseif ($action === 'delete_item') {
             $qId = (int)$_POST['quote_id'];
             $pdo->prepare("DELETE FROM sales_quote_items WHERE id=?")->execute([$_POST['item_id']]);
             $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
@@ -460,8 +462,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Item deleted.";
         }
         
-        // 6. Save or Update Claim
-        if ($action === 'save_claim') {
+        // 7. Save or Update Claim
+        elseif ($action === 'save_claim') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
@@ -482,8 +484,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // 7. Update Claim Status Directly
-        if ($action === 'update_claim_status') {
+        // 8. Update Claim Status Directly
+        elseif ($action === 'update_claim_status') {
             $qId = (int)$_POST['quote_id'];
             $date = $_POST['status'] === 'Paid' ? date('Y-m-d') : null;
             $stmt = $pdo->prepare("UPDATE sales_claims SET status = ?, paid_on = ? WHERE id = ?");
@@ -491,8 +493,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Claim status updated.";
         }
 
-        // 8. Delete Claim
-        if ($action === 'delete_claim') {
+        // 9. Delete Claim
+        elseif ($action === 'delete_claim') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
