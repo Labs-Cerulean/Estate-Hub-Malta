@@ -5,6 +5,78 @@ require_once 'session-check.php';
 $userId = getCurrentUserId();
 $isAdmin = isAdmin();
 
+// ==========================================
+// AUTO-DEPLOY FINISHES RATES DATABASE
+// ==========================================
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `sales_finishes_rates` (
+        `id` int NOT NULL AUTO_INCREMENT,
+        `item_key` varchar(50) NOT NULL UNIQUE,
+        `category` varchar(100) NOT NULL,
+        `description` text NOT NULL,
+        `unit` varchar(20) NOT NULL,
+        `rate` decimal(10,2) DEFAULT '0.00',
+        PRIMARY KEY (`id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $count = $pdo->query("SELECT COUNT(*) FROM sales_finishes_rates")->fetchColumn();
+    if ($count == 0) {
+        $defaultRates = [
+            ['sup_floor', '1 - Tiling', 'Supply of floor tiles', 'sqm', 20.00],
+            ['sup_bath_floor', '1 - Tiling', 'Supply of bathroom floor tiles', 'sqm', 20.00],
+            ['sup_bath_wall', '1 - Tiling', 'Supply of bathroom wall tiles', 'sqm', 20.00],
+            ['sup_sanitary', '1 - Tiling', 'Supply of sanitaryware per bathroom', 'qty', 500.00],
+            ['inst_floor', '1 - Tiling', 'Installation of Floor tiles (Inc. sand/cement/grouting)', 'sqm', 25.00],
+            ['inst_bath_floor', '1 - Tiling', 'Installation of Bathroom Floor tiles (Inc. sand/cement/grouting)', 'sqm', 25.00],
+            ['inst_bath_wall', '1 - Tiling', 'Installation of Bathroom wall tiles (Inc. glue/grouting)', 'sqm', 25.00],
+            ['inst_skirt', '1 - Tiling', 'Installation of Skirting (Inc. sand/cement/grouting)', 'lm', 5.00],
+            
+            ['plast_mono', '2 - Plastering & Paint', 'Plastering Walls/Ceilings Monocote (Including Material)', 'sqm', 12.00],
+            ['paint_white', '2 - Plastering & Paint', 'Painting of Walls/Ceilings (white)', 'sqm', 6.00],
+            ['gyp_flat_n', '2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Normal Board)', 'sqm', 25.00],
+            ['gyp_flat_h', '2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Humidity Board)', 'sqm', 28.00],
+            ['bulk_n', '2 - Plastering & Paint', 'Bulkheads (Normal Board)', 'lm', 20.00],
+            ['bulk_h', '2 - Plastering & Paint', 'Bulkheads (Humidity Board)', 'lm', 22.00],
+            ['gyp_part', '2 - Plastering & Paint', 'Gypsum Partition Walls', 'sqm', 35.00],
+            ['gyp_pocket', '2 - Plastering & Paint', 'Gypsum Partition Walls (for pocket doors only)', 'qty', 150.00],
+            
+            ['door_hinged', '3 - Internal Doors', 'Internal doors hinged', 'qty', 350.00],
+            ['door_sliding', '3 - Internal Doors', 'Internal doors sliding', 'qty', 450.00],
+            ['door_pocket', '3 - Internal Doors', 'Internal doors pocket', 'qty', 500.00],
+            
+            ['elec_1b', '4 - Electrical & Plumbing', 'Electrical (1 Bed)', 'lump_sum', 3000.00],
+            ['elec_2b', '4 - Electrical & Plumbing', 'Electrical (2 Bed)', 'lump_sum', 4000.00],
+            ['elec_3b', '4 - Electrical & Plumbing', 'Electrical (3+ Bed)', 'lump_sum', 5000.00],
+            ['plumb_bath', '4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Bath/Shower room', 'qty', 800.00],
+            ['plumb_kitch', '4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Kitchen', 'qty', 400.00],
+            ['shower_inst', '4 - Electrical & Plumbing', '3rd Fix installation of shower cubicles/glass', 'qty', 150.00],
+            
+            ['gar_plast', '5 - Garage', 'Plaster of ceiling and walls', 'sqm', 10.00],
+            ['gar_paint', '5 - Garage', 'Paint of ceiling and walls (white)', 'sqm', 5.00],
+            ['gar_elec', '5 - Garage', 'Electrical installation: 1x 8 module DB, 1x switch, 1x tube...', 'lump_sum', 300.00],
+            ['gar_door', '5 - Garage', 'Manual up and over garage door', 'lump_sum', 800.00],
+            
+            ['ap_hinged_win', '6 - Semi Finishes', 'Hinged Window', 'sqm', 250.00],
+            ['ap_sliding_win', '6 - Semi Finishes', 'Sliding Window', 'sqm', 200.00],
+            ['ap_hinged_door', '6 - Semi Finishes', 'Hinged Door', 'sqm', 300.00],
+            ['ap_sliding_door', '6 - Semi Finishes', 'Sliding Door', 'sqm', 250.00],
+            ['fire_door', '6 - Semi Finishes', '30 Minute Fire rated door', 'qty', 600.00],
+            ['sills', '6 - Semi Finishes', 'Sills', 'lm', 40.00],
+            ['rail_alu', '6 - Semi Finishes', 'Railing (Aluminium vertical)', 'lm', 150.00],
+            ['rail_glass', '6 - Semi Finishes', 'Railing (Glass)', 'lm', 250.00],
+            ['rail_iron', '6 - Semi Finishes', 'Railing (Wrought iron)', 'lm', 180.00],
+            ['balc_tile', '6 - Semi Finishes', 'Balcony Tiling including waterproofing', 'sqm', 30.00],
+            ['balc_skirt', '6 - Semi Finishes', 'Balcony Skirting', 'lm', 8.00],
+            ['main_cable', '6 - Semi Finishes', 'Main cable to apartment and balcony light', 'lump_sum', 400.00],
+            ['water_tank', '6 - Semi Finishes', 'Water tank supply, installation and connection', 'lump_sum', 600.00]
+        ];
+        
+        $s = $pdo->prepare("INSERT INTO sales_finishes_rates (item_key, category, description, unit, rate) VALUES (?, ?, ?, ?, ?)");
+        foreach ($defaultRates as $r) { $s->execute($r); }
+    }
+} catch(PDOException $e) {}
+
+
 // Determine Access Levels
 $access = [
     'Demolition_Excavation' => ['view' => hasPermission('view_sales_demo_exc') || $isAdmin, 'manage' => hasPermission('manage_sales_demo_exc') || $isAdmin],
@@ -20,17 +92,13 @@ if (!$access['Demolition_Excavation']['view'] && !$access['Construction']['view'
 }
 
 $message = ''; $error = '';
-
-// Fetch all clients to use as Contractors and as internal Clients
 $allEntities = $isAdmin ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, $userId);
-
 $selected_contractor_id = isset($_GET['contractor_id']) ? (int)$_GET['contractor_id'] : null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     try {
-        // 1. Create New Quote
         if ($action === 'create_quote') {
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
@@ -39,44 +107,184 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $contractor_id = (int)$_POST['contractor_id'];
             $client_id = !empty($_POST['client_id']) ? (int)$_POST['client_id'] : null;
             $client_name_free = !empty($_POST['client_name_free']) ? trim($_POST['client_name_free']) : null;
-            
             if (!$client_id && !$client_name_free) throw new Exception("You must select an existing client OR enter a free-text client name.");
             
-            // Fetch default terms
             $termStmt = $pdo->prepare("SELECT terms_text FROM sales_default_terms WHERE quote_type = ?");
             $termStmt->execute([$type]);
             $defTerms = $termStmt->fetchColumn();
             
             $pdo->beginTransaction();
             $stmt = $pdo->prepare("INSERT INTO sales_quotes (contractor_id, client_id, client_name_free, project_id, quote_type, reference_number, vat_rate, created_by, terms_conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                $contractor_id,
-                $client_id, 
-                $client_name_free,
-                $_POST['project_id'], 
-                $type, 
-                trim($_POST['reference_number']), 
-                $_POST['vat_rate'] ?? 18.00, 
-                $userId,
-                $defTerms ?: ''
-            ]);
+            $stmt->execute([ $contractor_id, $client_id, $client_name_free, $_POST['project_id'], $type, trim($_POST['reference_number']), $_POST['vat_rate'] ?? 18.00, $userId, $defTerms ?: '' ]);
             $newQuoteId = $pdo->lastInsertId();
             
-            // --- DYNAMIC PRE-POPULATION ---
-            $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC");
-            $stmtStd->execute([$type]);
-            $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
-
-            if (!empty($stdItems)) {
-                $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
-                foreach ($stdItems as $item) {
-                    $stmtItem->execute([$newQuoteId, $item['category'], $item['description'], $item['unit'], $item['default_rate'], $item['sort_order']]);
+            if ($type !== 'Finishes') { // Finishes uses the calculator, demo/const use standard prepopulation
+                $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC");
+                $stmtStd->execute([$type]);
+                $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
+                if (!empty($stdItems)) {
+                    $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
+                    foreach ($stdItems as $item) { $stmtItem->execute([$newQuoteId, $item['category'], $item['description'], $item['unit'], $item['default_rate'], $item['sort_order']]); }
                 }
             }
             
             $pdo->commit();
             header("Location: work_sales.php?contractor_id=$contractor_id&quote_id=" . $newQuoteId . "&msg=created");
             exit;
+        }
+
+        // ==========================================
+        // FINISHES CALCULATOR ENGINE
+        // ==========================================
+        if ($action === 'generate_finishes_boq') {
+            $qId = (int)$_POST['quote_id'];
+            if (!$access['Finishes']['manage']) throw new Exception("Unauthorized.");
+            
+            $pdo->beginTransaction();
+            
+            // 1. Clear existing BoQ
+            $pdo->prepare("DELETE FROM sales_quote_items WHERE quote_id = ?")->execute([$qId]);
+            
+            // 2. Fetch Rates Dictionary
+            $ratesDb = $pdo->query("SELECT item_key, rate FROM sales_finishes_rates")->fetchAll(PDO::FETCH_KEY_PAIR);
+            
+            // 3. Read Inputs
+            $state = $_POST['fc_state']; // 'semi_finished' or 'common_parts'
+            $hasGarage = isset($_POST['fc_garage']) ? true : false;
+            $A = (float)$_POST['fc_area_int'];
+            $B = (float)$_POST['fc_area_ext'];
+            $C = (float)($_POST['fc_height'] ?: 2.65);
+            $D = (int)$_POST['fc_beds'];
+            $E = (float)$_POST['fc_skirting'];
+            $F = (int)$_POST['fc_bath_shower'];
+            $G = (int)$_POST['fc_bath_bath'];
+            $H = (float)$_POST['fc_bath_sqm'];
+            $I = (float)$_POST['fc_bath_perim'];
+            $X1 = (int)$_POST['fc_door_hinged'];
+            $X2 = (int)$_POST['fc_door_sliding'];
+            $X3 = (int)$_POST['fc_door_pocket'];
+            
+            $pmPct = (float)$_POST['fc_pm_pct'];
+            $discount = (float)$_POST['fc_discount'];
+            
+            $sortIdx = 10;
+            $runningTotalExc = 0;
+            
+            $insertItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            
+            $add = function($cat, $desc, $unit, $qty, $rateKey) use ($insertItem, $qId, &$sortIdx, &$runningTotalExc, $ratesDb) {
+                $rate = isset($ratesDb[$rateKey]) ? (float)$ratesDb[$rateKey] : 0;
+                if ($unit === 'lump_sum') { $qty = 1; }
+                $insertItem->execute([$qId, $cat, $desc, $unit, $qty, $rate, $sortIdx]);
+                $sortIdx += 10;
+                $runningTotalExc += ($qty * $rate);
+            };
+
+            // --- CATEGORY 1: TILING ---
+            $K = max(0, $A - $H);
+            $L = $H;
+            $M = $I * $C;
+            
+            // Calc Supply Lump Sum
+            $supVal = ($K * $ratesDb['sup_floor']) + ($L * $ratesDb['sup_bath_floor']) + ($M * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
+            $insertItem->execute([$qId, '1 - Tiling', 'Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware', 'lump_sum', 1, $supVal, $sortIdx]);
+            $sortIdx += 10; $runningTotalExc += $supVal;
+            
+            $add('1 - Tiling', 'Installation of Floor tiles (Inc. sand/cement/grouting)', 'sqm', $K, 'inst_floor');
+            $add('1 - Tiling', 'Installation of Bathroom Floor tiles (Inc. sand/cement/grouting)', 'sqm', $L, 'inst_bath_floor');
+            $add('1 - Tiling', 'Installation of Bathroom wall tiles (Inc. glue/grouting)', 'sqm', $M, 'inst_bath_wall');
+            $add('1 - Tiling', 'Installation of Skirting (Inc. sand/cement/grouting)', 'lm', $E, 'inst_skirt');
+
+            // --- CATEGORY 2: PLASTERING & PAINT ---
+            $plasterVol = $A + ($C * $E);
+            $add('2 - Plastering & Paint', 'Plastering Walls/Ceilings Monocote (Including Material)', 'sqm', $plasterVol, 'plast_mono');
+            $add('2 - Plastering & Paint', 'Painting of Walls/Ceilings (white)', 'sqm', $plasterVol, 'paint_white');
+            $add('2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Normal Board) - if needed', 'sqm', 0, 'gyp_flat_n');
+            $add('2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Humidity Board) - if needed', 'sqm', 0, 'gyp_flat_h');
+            $add('2 - Plastering & Paint', 'Bulkheads (Normal Board) - if needed', 'lm', 0, 'bulk_n');
+            $add('2 - Plastering & Paint', 'Bulkheads (Humidity Board) - if needed', 'lm', 0, 'bulk_h');
+            $add('2 - Plastering & Paint', 'Gypsum Partition Walls (if indicated on plan)', 'sqm', 0, 'gyp_part');
+            if ($X3 > 0) $add('2 - Plastering & Paint', 'Gypsum Partition Walls (for pocket doors only)', 'qty', $X3, 'gyp_pocket');
+
+            // --- CATEGORY 3: DOORS ---
+            $add('3 - Internal Doors', 'Internal doors hinged', 'qty', $X1, 'door_hinged');
+            $add('3 - Internal Doors', 'Internal doors sliding', 'qty', $X2, 'door_sliding');
+            $add('3 - Internal Doors', 'Internal doors pocket', 'qty', $X3, 'door_pocket');
+
+            // --- CATEGORY 4: ELEC & PLUMBING ---
+            if ($D == 1) { $eKey = 'elec_1b'; $eDesc = "Sub-DB with OVR, 1x 10 way consumer unit, 12x double sockets, 3 x 2 way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 1x TV point with draw wire and 1x Tel. Point with draw wire, 2x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
+            elseif ($D == 2) { $eKey = 'elec_2b'; $eDesc = "Sub-DB with OVR, 1x 12 way consumer unit, 16x double sockets, 4 x 2 way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point, 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 2x TV point with draw wire and 2x Tel. Point with draw wire, 3x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
+            else { $eKey = 'elec_3b'; $eDesc = "Sub-DB with OVR, 1x 12-way consumer unit, 20x double sockets, 4 x 2-way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point, 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 3x TV point with draw wire and 3x Tel. Point with draw wire, 4x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
+            
+            $add('4 - Electrical & Plumbing', $eDesc, 'lump_sum', 1, $eKey);
+            $add('4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Bath/Shower room: 7x wall plates plus 1/2" angle valves, 12 meters PB 15mm2 pipes, 6 meters of 50mm drain pipe and fittings... PER BATHROOM', 'qty', $F+$G, 'plumb_bath');
+            $add('4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Kitchen: 4x wall plates plus 1/2" angle valves, 12 meters of PB 15mm2 pipes, 6 meters of 50mm drain pipe... ', 'qty', 1, 'plumb_kitch');
+            $add('4 - Electrical & Plumbing', '3rd Fix installation of shower cubicles/glass', 'qty', $F, 'shower_inst');
+
+            // --- CATEGORY 5: GARAGE ---
+            if ($hasGarage) {
+                $gSqm = (float)$_POST['fc_garage_sqm'];
+                $add('5 - Garage', 'Plaster of ceiling and walls', 'sqm', $gSqm, 'gar_plast');
+                $add('5 - Garage', 'Paint of ceiling and walls (white)', 'sqm', $gSqm, 'gar_paint');
+                $add('5 - Garage', 'Electrical installation: 1x 8 module DB, 1x light switch, 1x neon tube...', 'lump_sum', 1, 'gar_elec');
+                if ($state === 'common_parts') { $add('5 - Garage', 'Manual up and over garage door', 'lump_sum', 1, 'gar_door'); }
+                
+                // Add Zero-Value Note
+                $insertItem->execute([$qId, '5 - Garage', 'Note: no flooring included in garage finishes.', 'lump_sum', 0, 0, $sortIdx]);
+                $sortIdx += 10;
+            }
+
+            // --- CATEGORY 6: SEMI FINISHES ---
+            if ($state === 'common_parts') {
+                $balcPerim = (float)$_POST['fc_balcony_perim'];
+                $sills = $balcPerim;
+                
+                // Process dynamic apertures
+                if (isset($_POST['ap_type'])) {
+                    for($i=0; $i < count($_POST['ap_type']); $i++) {
+                        $apT = $_POST['ap_type'][$i];
+                        $apW = (float)$_POST['ap_w'][$i];
+                        $apH = (float)$_POST['ap_h'][$i];
+                        $apSqm = $apW * $apH;
+                        
+                        if ($apSqm > 0) {
+                            $sills += $apW;
+                            $typeText = str_replace(['ap_', '_'], ['', ' '], $apT);
+                            $add('6 - Semi Finishes', "Aperture: ".ucwords($typeText)." ({$apW}m x {$apH}m)", 'sqm', $apSqm, $apT);
+                        }
+                    }
+                }
+                
+                $add('6 - Semi Finishes', '30 Minute Fire rated door', 'qty', 1, 'fire_door');
+                $add('6 - Semi Finishes', 'Sills', 'lm', $sills, 'sills');
+                
+                if ((float)$_POST['fc_rail_alu'] > 0) $add('6 - Semi Finishes', 'Railing (Aluminium vertical)', 'lm', (float)$_POST['fc_rail_alu'], 'rail_alu');
+                if ((float)$_POST['fc_rail_glass'] > 0) $add('6 - Semi Finishes', 'Railing (Glass)', 'lm', (float)$_POST['fc_rail_glass'], 'rail_glass');
+                if ((float)$_POST['fc_rail_iron'] > 0) $add('6 - Semi Finishes', 'Railing (Wrought iron)', 'lm', (float)$_POST['fc_rail_iron'], 'rail_iron');
+                
+                $add('6 - Semi Finishes', 'Balcony Tiling including waterproofing', 'sqm', $B, 'balc_tile');
+                $add('6 - Semi Finishes', 'Balcony Skirting', 'lm', $balcPerim, 'balc_skirt');
+                $add('6 - Semi Finishes', 'Main cable to apartment and balcony light', 'lump_sum', 1, 'main_cable');
+                $add('6 - Semi Finishes', 'Water tank supply, installation and connection', 'lump_sum', 1, 'water_tank');
+            }
+
+            // --- CATEGORY 7: PM & DISCOUNT ---
+            if ($pmPct > 0) {
+                $pmFee = $runningTotalExc * ($pmPct / 100);
+                $insertItem->execute([$qId, '7 - Project Management', 'Project Management & Coordination', 'lump_sum', 1, $pmFee, $sortIdx]);
+                $sortIdx += 10; $runningTotalExc += $pmFee;
+            }
+            if ($discount > 0) {
+                $insertItem->execute([$qId, '8 - Discounts', 'Senior Management Discount', 'lump_sum', 1, -$discount, $sortIdx]);
+                $runningTotalExc -= $discount;
+            }
+            
+            // Finalize Master Totals
+            $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
+            $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
+            
+            $pdo->commit();
+            $message = "Finishes Calculator applied successfully! Review the BoQ below.";
         }
 
         // 2. Change Status (Workflow)
@@ -156,7 +364,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                 }
-                // -------------------------------------------------------------
                 
             } else {
                 $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Pending Approval' WHERE id = ?");
@@ -210,7 +417,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Item deleted.";
         }
         
-        // 6. Save or Update Claim
+        // 6. Save Claim
         if ($action === 'save_claim') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
@@ -257,8 +464,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-if (isset($_GET['msg']) && $_GET['msg'] === 'created') $message = "Quote created! Standard items and terms have been loaded.";
-
 // ==========================================
 // DETERMINE VIEW
 // ==========================================
@@ -267,24 +472,15 @@ $viewQuoteId = isset($_GET['quote_id']) ? (int)$_GET['quote_id'] : null;
 if ($viewQuoteId) {
     // --- DETAILS VIEW ---
     $stmt = $pdo->prepare("
-        SELECT sq.*, 
-               con.name as contractor_name, 
-               c.name as linked_client_name, 
-               p.name as project_name 
-        FROM sales_quotes sq 
-        LEFT JOIN clients con ON sq.contractor_id = con.id
-        LEFT JOIN clients c ON sq.client_id = c.id 
-        LEFT JOIN projects p ON sq.project_id = p.id 
-        WHERE sq.id = ?
+        SELECT sq.*, con.name as contractor_name, c.name as linked_client_name, p.name as project_name 
+        FROM sales_quotes sq LEFT JOIN clients con ON sq.contractor_id = con.id LEFT JOIN clients c ON sq.client_id = c.id LEFT JOIN projects p ON sq.project_id = p.id WHERE sq.id = ?
     ");
     $stmt->execute([$viewQuoteId]);
     $quote = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$quote || !$access[$quote['quote_type']]['view']) {
-        header('Location: work_sales.php?error=unauthorized_quote'); exit;
-    }
+    if (!$quote || !$access[$quote['quote_type']]['view']) { header('Location: work_sales.php?error=unauthorized_quote'); exit; }
     
-    $selected_contractor_id = $quote['contractor_id']; // Enforce contractor context
+    $selected_contractor_id = $quote['contractor_id']; 
     $effectiveClientName = !empty($quote['linked_client_name']) ? $quote['linked_client_name'] : $quote['client_name_free'];
     
     $items = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ? ORDER BY sort_order ASC, category ASC, id ASC");
@@ -310,17 +506,12 @@ if ($viewQuoteId) {
     $quotesList = [];
     if ($selected_contractor_id) {
         $stmt = $pdo->prepare("
-            SELECT sq.*, 
-                   c.name as linked_client_name, 
-                   p.name as project_name,
+            SELECT sq.*, c.name as linked_client_name, p.name as project_name,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id) as total_claimed,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id AND status = 'Paid') as total_paid,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id AND status = 'Pending') as total_pending
-            FROM sales_quotes sq 
-            LEFT JOIN clients c ON sq.client_id = c.id 
-            LEFT JOIN projects p ON sq.project_id = p.id 
-            WHERE sq.quote_type = ? AND sq.contractor_id = ?
-            ORDER BY sq.created_at DESC
+            FROM sales_quotes sq LEFT JOIN clients c ON sq.client_id = c.id LEFT JOIN projects p ON sq.project_id = p.id 
+            WHERE sq.quote_type = ? AND sq.contractor_id = ? ORDER BY sq.created_at DESC
         ");
         $stmt->execute([$currentTab, $selected_contractor_id]);
         $quotesList = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -341,12 +532,10 @@ require_once 'header.php';
 <style>
 .client-bar { background: rgba(99, 102, 241, 0.1); border: 1px solid var(--primary-color); padding: 1rem 1.5rem; border-radius: 8px; display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }
 .client-bar select { padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); font-size: 1rem; min-width: 250px; }
-
 .tab-nav { display: flex; gap: 10px; border-bottom: 2px solid var(--border-glass); margin-bottom: 1.5rem; }
 .tab-btn { padding: 10px 20px; color: var(--text-muted); text-decoration: none; font-weight: bold; border-bottom: 3px solid transparent; transition: 0.2s; }
 .tab-btn:hover { color: var(--text-primary); }
 .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
-
 .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
 .status-Draft { background: rgba(107, 114, 128, 0.2); color: #9ca3af; border: 1px solid #4b5563; }
 .status-Pending { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #d97706; }
@@ -355,18 +544,15 @@ require_once 'header.php';
 .status-Accepted { background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid #16a34a; }
 .status-Rejected { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #dc2626; }
 .status-Completed { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; border: 1px solid #7c3aed; }
-
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
-.modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
+.modal-content { background-color: var(--bg-card); margin: 3% auto; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; max-height: 90vh; overflow-y: auto;}
 .close-modal { position: absolute; top: 15px; right: 20px; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
-
 .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
 .summary-card { background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-glass); text-align: center; }
 .summary-card.highlight { background: rgba(14, 165, 233, 0.1); border-color: #0ea5e9; }
 .summary-card h4 { margin: 0 0 0.5rem 0; color: var(--text-secondary); font-size: 0.85rem; text-transform: uppercase;}
 .summary-card .value { font-size: 1.5rem; font-weight: bold; color: var(--text-primary); }
-
 .boq-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .boq-table th { background: rgba(255,255,255,0.05); padding: 10px; text-align: left; color: var(--text-muted); font-weight: 600; }
 .boq-table td { padding: 10px; border-bottom: 1px solid var(--border-glass); }
@@ -433,7 +619,6 @@ require_once 'header.php';
             </div>
 
             <?php
-            // Calculate global totals for the Master List View
             $global_order = 0; $global_claimed = 0; $global_pending = 0; $global_paid = 0;
             foreach ($quotesList as $q) {
                 $global_order += $q['total_inc_vat'];
@@ -536,9 +721,7 @@ require_once 'header.php';
                                     <?php foreach($allEntities as $c): ?><option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option><?php endforeach; ?>
                                 </select>
                             </div>
-                            
                             <div style="text-align: center; margin: 10px 0; color: var(--text-muted); font-size: 0.8rem;">--- OR ---</div>
-                            
                             <div>
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option B: External Client (Free Text)</label>
                                 <input type="text" name="client_name_free" placeholder="e.g. John Doe / External Ltd">
@@ -579,13 +762,9 @@ require_once 'header.php';
                 document.getElementById('create_quote_type').value = type;
                 document.getElementById('createQuoteModal').style.display = 'block';
             }
-            
-            // Close modal when clicking outside of it
             window.addEventListener('click', function(event) {
                 let modal = document.getElementById('createQuoteModal');
-                if (event.target == modal) {
-                    modal.style.display = "none";
-                }
+                if (event.target == modal) modal.style.display = "none";
             });
             </script>
             <?php endif; ?>
@@ -651,7 +830,7 @@ require_once 'header.php';
                         <?php if ($canManageQuote && !$isQuoteLocked): ?>
                             <div style="display: flex; gap: 5px;">
                                 <?php if ($quote['quote_type'] === 'Finishes'): ?>
-                                    <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid #8b5cf6;" onclick="alert('Excel Calculator Interface will open here.')">⚡ Launch Finishes Calculator</button>
+                                    <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid #8b5cf6;" onclick="document.getElementById('fcModal').style.display='block'">⚡ Launch Finishes Calculator</button>
                                 <?php endif; ?>
                                 <button class="btn btn-sm btn-primary" onclick="openItemModal()">+ Add Line Item</button>
                             </div>
@@ -845,6 +1024,132 @@ require_once 'header.php';
                 </div>
             </div>
 
+            <?php if ($canManageQuote && !$isQuoteLocked && $quote['quote_type'] === 'Finishes'): ?>
+            <div id="fcModal" class="modal">
+                <div class="modal-content" style="max-width: 800px; padding: 0;">
+                    <div style="background: rgba(139, 92, 246, 0.1); border-bottom: 1px solid rgba(139, 92, 246, 0.3); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-radius: 12px 12px 0 0;">
+                        <h2 style="margin: 0; color: #8b5cf6;">⚡ Finishes Calculator Engine</h2>
+                        <span class="close-modal" onclick="document.getElementById('fcModal').style.display='none'" style="position: static;">&times;</span>
+                    </div>
+                    
+                    <form method="POST" style="padding: 1.5rem; max-height: 70vh; overflow-y: auto;" id="fcForm">
+                        <input type="hidden" name="action" value="generate_finishes_boq">
+                        <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                        
+                        <div style="background: rgba(239, 68, 68, 0.05); padding: 10px; border-left: 4px solid #ef4444; margin-bottom: 20px; font-size: 0.85rem;">
+                            <strong>Warning:</strong> Generating a calculated BoQ will completely overwrite and delete any existing items in this quote.
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px;">1. Project Scope</h4>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group">
+                                <label>Apartment State</label>
+                                <select name="fc_state" id="fc_state" onchange="toggleFcSections()">
+                                    <option value="semi_finished">Client Bought Semi-Finished (Internal Only)</option>
+                                    <option value="common_parts">Client Bought Common Parts Only (Includes Semi-Finishes)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="display: flex; align-items: center; padding-top: 15px;">
+                                <label class="checkbox-item" style="font-weight: bold;">
+                                    <input type="checkbox" name="fc_garage" id="fc_garage" onchange="toggleFcSections()"> Include Garage Finishes
+                                </label>
+                            </div>
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">2. General Measurements</h4>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                            <div class="form-group"><label>Internal Area [A] (sqm) *</label><input type="number" step="0.01" name="fc_area_int" required></div>
+                            <div class="form-group"><label>External Area [B] (sqm) *</label><input type="number" step="0.01" name="fc_area_ext" required></div>
+                            <div class="form-group"><label>Floor-to-Ceiling [C] (m) *</label><input type="number" step="0.01" name="fc_height" value="2.65" required></div>
+                            <div class="form-group"><label>Skirting Length [E] (lm) *</label><input type="number" step="0.01" name="fc_skirting" required></div>
+                            <div class="form-group" id="fc_balc_perim_group" style="display:none;"><label>Balcony Perimeter (lm) *</label><input type="number" step="0.01" name="fc_balcony_perim" id="fc_balcony_perim"></div>
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">3. Rooms & Wet Areas</h4>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group"><label>Total Bedrooms [D] (inc. study/gym) *</label><input type="number" name="fc_beds" id="fc_beds" value="1" required onchange="calcFcDoors()"></div>
+                            <div class="form-group"><label>Bathrooms WITH Shower [F] *</label><input type="number" name="fc_bath_shower" id="fc_bath_shower" value="1" required onchange="calcFcDoors()"></div>
+                            <div class="form-group"><label>Bathrooms WITH Bath [G] *</label><input type="number" name="fc_bath_bath" id="fc_bath_bath" value="0" required onchange="calcFcDoors()"></div>
+                            <div class="form-group"><label>Total Bathrooms Area [H] (sqm) *</label><input type="number" step="0.01" name="fc_bath_sqm" required></div>
+                            <div class="form-group"><label>Total Bath Walls Perimeter [I] (lm) *</label><input type="number" step="0.01" name="fc_bath_perim" required></div>
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">4. Doors Configuration</h4>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">Total doors naturally required: <span id="fc_door_calc" style="font-weight:bold; color:var(--text-primary);">2</span>. Distribute them below, adding extras for box rooms if needed.</div>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                            <div class="form-group"><label>Hinged Doors [X1]</label><input type="number" name="fc_door_hinged" id="fc_door_hinged" value="2" required></div>
+                            <div class="form-group"><label>Sliding Doors [X2]</label><input type="number" name="fc_door_sliding" id="fc_door_sliding" value="0" required></div>
+                            <div class="form-group"><label>Pocket Doors [X3]</label><input type="number" name="fc_door_pocket" id="fc_door_pocket" value="0" required></div>
+                        </div>
+
+                        <div id="fc_garage_section" style="display:none;">
+                            <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">5. Garage Details</h4>
+                            <div class="form-group"><label>Garage Plaster/Paint Area (sqm) *</label><input type="number" step="0.01" name="fc_garage_sqm" id="fc_garage_sqm"></div>
+                        </div>
+
+                        <div id="fc_cp_section" style="display:none;">
+                            <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px; color: #10b981;">6. Semi-Finishes (External Envelope)</h4>
+                            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                                <div class="form-group"><label>Aluminium Railings (lm)</label><input type="number" step="0.01" name="fc_rail_alu" value="0"></div>
+                                <div class="form-group"><label>Glass Railings (lm)</label><input type="number" step="0.01" name="fc_rail_glass" value="0"></div>
+                                <div class="form-group"><label>Wrought Iron Railings (lm)</label><input type="number" step="0.01" name="fc_rail_iron" value="0"></div>
+                            </div>
+                            
+                            <label style="margin-top: 10px; display: block; font-weight: bold;">External Apertures (Windows & Doors)</label>
+                            <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" id="fc_ap_table">
+                                <thead><tr><th style="text-align:left; padding-bottom:5px;">Type</th><th style="text-align:left;">Width (m)</th><th style="text-align:left;">Height (m)</th><th></th></tr></thead>
+                                <tbody id="fc_ap_body"></tbody>
+                            </table>
+                            <button type="button" class="btn btn-sm" style="background: rgba(255,255,255,0.1);" onclick="addFcAperture()">+ Add Aperture</button>
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">7. Management & Discounts</h4>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group"><label>Project Management Fee (%)</label><input type="number" step="0.01" name="fc_pm_pct" value="10.00" required></div>
+                            <div class="form-group"><label>Special Discount (€)</label><input type="number" step="0.01" name="fc_discount" value="0.00" <?= $canApproveQuotes ? '' : 'readonly title="Requires Approval Access"' ?>></div>
+                        </div>
+
+                        <button type="submit" class="btn" style="background: #8b5cf6; color: white; border: none; width: 100%; padding: 15px; font-size: 1.1rem; font-weight: bold; margin-top: 20px;">Generate Full BoQ</button>
+                    </form>
+                </div>
+            </div>
+            
+            <script>
+            function toggleFcSections() {
+                const state = document.getElementById('fc_state').value;
+                const garage = document.getElementById('fc_garage').checked;
+                
+                document.getElementById('fc_cp_section').style.display = (state === 'common_parts') ? 'block' : 'none';
+                document.getElementById('fc_balc_perim_group').style.display = (state === 'common_parts') ? 'block' : 'none';
+                document.getElementById('fc_garage_section').style.display = garage ? 'block' : 'none';
+                
+                document.getElementById('fc_balcony_perim').required = (state === 'common_parts');
+                document.getElementById('fc_garage_sqm').required = garage;
+            }
+            
+            function calcFcDoors() {
+                const b = parseInt(document.getElementById('fc_beds').value) || 0;
+                const s = parseInt(document.getElementById('fc_bath_shower').value) || 0;
+                const ba = parseInt(document.getElementById('fc_bath_bath').value) || 0;
+                const tot = b + s + ba;
+                document.getElementById('fc_door_calc').innerText = tot;
+                document.getElementById('fc_door_hinged').value = tot; // Default all to hinged
+            }
+            
+            function addFcAperture() {
+                const tb = document.getElementById('fc_ap_body');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="padding: 4px 0;"><select name="ap_type[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);"><option value="ap_hinged_win">Hinged Window</option><option value="ap_sliding_win">Sliding Window</option><option value="ap_hinged_door">Hinged Door</option><option value="ap_sliding_door">Sliding Door</option></select></td>
+                    <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_w[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" required></td>
+                    <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_h[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" required></td>
+                    <td style="padding: 4px 0; text-align:right;"><button type="button" class="btn btn-sm btn-danger" style="padding:4px 8px;" onclick="this.parentElement.parentElement.remove()">X</button></td>
+                `;
+                tb.appendChild(tr);
+            }
+            </script>
+            <?php endif; ?>
+
             <?php if ($canManageQuote && !$isQuoteLocked): ?>
             <div id="itemModal" class="modal">
                 <div class="modal-content" style="max-width: 500px;">
@@ -981,16 +1286,13 @@ require_once 'header.php';
                 document.getElementById('claimModal').style.display = 'block'; 
             }
             
-            // Re-apply window.onclick to handle both modals safely
             window.addEventListener('click', function(event) {
                 let iModal = document.getElementById('itemModal');
                 let cModal = document.getElementById('claimModal');
-                if (iModal && event.target == iModal) {
-                    iModal.style.display = "none";
-                }
-                if (cModal && event.target == cModal) {
-                    cModal.style.display = "none";
-                }
+                let fcModal = document.getElementById('fcModal');
+                if (iModal && event.target == iModal) iModal.style.display = "none";
+                if (cModal && event.target == cModal) cModal.style.display = "none";
+                if (fcModal && event.target == fcModal) fcModal.style.display = "none";
             });
             </script>
 
