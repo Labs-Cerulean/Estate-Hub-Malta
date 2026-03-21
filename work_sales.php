@@ -178,6 +178,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $pdo->prepare("UPDATE sales_quotes SET finishes_calc_data = ? WHERE id = ?")->execute([json_encode($memoryPayload), $qId]);
 
+            // Fetch Quote VAT Rate to reverse engineer the Inc VAT contribution
+            $qStmt = $pdo->prepare("SELECT vat_rate FROM sales_quotes WHERE id = ?");
+            $qStmt->execute([$qId]);
+            $qVatRate = (float)$qStmt->fetchColumn();
+            $vatMult = 1 + ($qVatRate / 100);
+            
             // 1. Clear existing BoQ
             $pdo->prepare("DELETE FROM sales_quote_items WHERE quote_id = ?")->execute([$qId]);
             
@@ -230,8 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $rawSupVal = ($K_supply * $ratesDb['sup_floor']) + ($L_supply * $ratesDb['sup_bath_floor']) + ($M_supply * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
             $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
             
-            // The user requested the rate to literally be the Inc Vat rounded value.
-            // They use the VAT added to this line item internally as a hidden contingency.
+            // Push the Inc VAT value straight into the Exc VAT Rate column to generate a hidden margin.
             $supValExcVat = $supValRoundedIncVat; 
             
             $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Value: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
@@ -348,18 +353,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $oldStatusStmt->execute([$qId]);
             $oldQuote = $oldStatusStmt->fetch();
             
-            $approvalStatuses = ['Approved', 'Sent', 'Accepted', 'Completed'];
-            if (in_array($newStatus, $approvalStatuses) && !in_array($oldQuote['status'], $approvalStatuses)) {
+            if ($newStatus === 'Rejected') {
+                if (!$canApproveQuotes) throw new Exception("You are not authorized to reject quotes.");
+                $pdo->prepare("UPDATE sales_quotes SET status = 'Rejected' WHERE id = ?")->execute([$qId]);
+                $message = "Quote Rejected. It is now unlocked for editing.";
+            } elseif ($newStatus === 'Approved') {
                 if (!$canApproveQuotes) throw new Exception("You are not authorized to approve quotes.");
-                if ($newStatus === 'Approved') {
-                    $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Approved', approver_id = ?, approved_at = NOW() WHERE id = ?");
-                    $stmt->execute([$userId, $qId]);
-                    $message = "Quote Approved! It can now be printed and sent.";
-                } else {
-                    $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Rejected' WHERE id = ?");
-                    $stmt->execute([$qId]);
-                    $message = "Quote Rejected.";
-                }
+                $pdo->prepare("UPDATE sales_quotes SET status = 'Approved', approver_id = ?, approved_at = NOW() WHERE id = ?")->execute([$userId, $qId]);
+                $message = "Quote Approved! It can now be printed and sent.";
             } elseif (in_array($newStatus, ['Sent', 'Accepted', 'Completed'])) {
                 $stmt = $pdo->prepare("UPDATE sales_quotes SET status = ? WHERE id = ?");
                 $stmt->execute([$newStatus, $qId]);
@@ -415,7 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                 }
-            } else {
+            } elseif ($newStatus === 'Pending Approval') {
                 $stmt = $pdo->prepare("UPDATE sales_quotes SET status = 'Pending Approval' WHERE id = ?");
                 $stmt->execute([$qId]);
                 $message = "Quote submitted for approval.";
