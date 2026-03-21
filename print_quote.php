@@ -60,6 +60,10 @@ function displayUnit($u) {
     $m = ['lump_sum'=>'Lump Sum', 'sqm'=>'sq.m', 'lm'=>'lm', 'cum'=>'cu.m', 'cu.yd'=>'cu.yd', 'hrs'=>'Hours', 'qty'=>'Qty / Pcs'];
     return $m[$u] ?? $u;
 }
+
+// Determine if we should hide individual pricing (Turnkey Finishes rule)
+$isFinishes = ($quote['quote_type'] === 'Finishes');
+$colSpan = $isFinishes ? 3 : 5;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -153,21 +157,23 @@ function displayUnit($u) {
     <table class="print-table">
         <thead>
             <tr>
-                <th style="width: 50%;">Description</th>
+                <th style="width: <?= $isFinishes ? '70%' : '50%' ?>;">Description</th>
                 <th>Unit</th>
                 <th class="num">Est. Qty</th>
-                <th class="num">Unit Rate</th>
-                <th class="num">Amount (€)</th>
+                <?php if (!$isFinishes): ?>
+                    <th class="num">Unit Rate</th>
+                    <th class="num">Amount (€)</th>
+                <?php endif; ?>
             </tr>
         </thead>
         <tbody>
             <?php if (empty($items)): ?>
-                <tr><td colspan="5" style="text-align:center; padding: 20px;">No items specified in this quote.</td></tr>
+                <tr><td colspan="<?= $colSpan ?>" style="text-align:center; padding: 20px;">No items specified in this quote.</td></tr>
             <?php else: 
                 $currentCat = '';
                 foreach($items as $i): 
                     if ($i['category'] !== $currentCat) {
-                        echo "<tr><td colspan='5' style='background: #f9fafb; color: #1f2937; font-weight: bold;'>".htmlspecialchars($i['category'])."</td></tr>";
+                        echo "<tr><td colspan='{$colSpan}' style='background: #f9fafb; color: #1f2937; font-weight: bold;'>".htmlspecialchars($i['category'])."</td></tr>";
                         $currentCat = $i['category'];
                     }
             ?>
@@ -175,8 +181,10 @@ function displayUnit($u) {
                 <td><?= nl2br(htmlspecialchars($i['description'])) ?></td>
                 <td><?= displayUnit($i['unit']) ?></td>
                 <td class="num"><?= (float)$i['estimated_qty'] ?></td>
-                <td class="num">€<?= number_format($i['unit_rate'], 2) ?></td>
-                <td class="num strong">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
+                <?php if (!$isFinishes): ?>
+                    <td class="num">€<?= number_format($i['unit_rate'], 2) ?></td>
+                    <td class="num strong">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
+                <?php endif; ?>
             </tr>
             <?php endforeach; endif; ?>
         </tbody>
