@@ -210,28 +210,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Item deleted.";
         }
         
-        // 6. Save Claim
+        // 6. Save or Update Claim
         if ($action === 'save_claim') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
             
+            $claimId = !empty($_POST['claim_id']) ? (int)$_POST['claim_id'] : null;
             $exc = (float)$_POST['amount_exc_vat'];
             $vat = (float)$_POST['vat_rate'];
             $inc = $exc + ($exc * ($vat/100));
             
-            $stmt = $pdo->prepare("INSERT INTO sales_claims (quote_id, claim_type, description, amount_exc_vat, amount_inc_vat, status) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$qId, $_POST['claim_type'], $_POST['description'], $exc, $inc, $_POST['status']]);
-            $message = "Claim issued successfully.";
+            if ($claimId) {
+                $stmt = $pdo->prepare("UPDATE sales_claims SET claim_type = ?, description = ?, amount_exc_vat = ?, amount_inc_vat = ?, status = ? WHERE id = ?");
+                $stmt->execute([$_POST['claim_type'], $_POST['description'], $exc, $inc, $_POST['status'], $claimId]);
+                $message = "Claim updated successfully.";
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO sales_claims (quote_id, claim_type, description, amount_exc_vat, amount_inc_vat, status) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$qId, $_POST['claim_type'], $_POST['description'], $exc, $inc, $_POST['status']]);
+                $message = "Claim issued successfully.";
+            }
         }
         
-        // 7. Update Claim Status
+        // 7. Update Claim Status Directly
         if ($action === 'update_claim_status') {
             $qId = (int)$_POST['quote_id'];
             $date = $_POST['status'] === 'Paid' ? date('Y-m-d') : null;
             $stmt = $pdo->prepare("UPDATE sales_claims SET status = ?, paid_on = ? WHERE id = ?");
             $stmt->execute([$_POST['status'], $date, $_POST['claim_id']]);
             $message = "Claim status updated.";
+        }
+
+        // 8. Delete Claim
+        if ($action === 'delete_claim') {
+            $qId = (int)$_POST['quote_id'];
+            $type = $_POST['quote_type'];
+            if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
+            
+            $pdo->prepare("DELETE FROM sales_claims WHERE id=?")->execute([$_POST['claim_id']]);
+            $message = "Claim deleted securely.";
         }
 
     } catch (Exception $e) {
@@ -340,7 +357,7 @@ require_once 'header.php';
 .status-Completed { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; border: 1px solid #7c3aed; }
 
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
-.modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border: 1px solid var(--border-glass); border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
+.modal-content { background-color: var(--bg-card); margin: 5% auto; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
 .close-modal { position: absolute; top: 15px; right: 20px; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
 
@@ -749,6 +766,15 @@ require_once 'header.php';
                             <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">No claims issued yet.</div>
                         <?php else: ?>
                             <table style="width: 100%; font-size: 0.8rem; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align: left; padding-bottom: 5px; color: var(--text-muted);">Type / Stage</th>
+                                        <th style="text-align: right; padding-bottom: 5px; color: var(--text-muted);">Amount</th>
+                                        <th style="text-align: center; padding-bottom: 5px; color: var(--text-muted);">Status</th>
+                                        <th style="text-align: right; padding-bottom: 5px; color: var(--text-muted);">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
                                 <?php foreach($claims as $c): ?>
                                     <tr>
                                         <td style="padding: 8px 0; border-bottom: 1px solid var(--border-glass);">
@@ -758,7 +784,7 @@ require_once 'header.php';
                                         <td style="padding: 8px 0; border-bottom: 1px solid var(--border-glass); text-align: right; font-weight: bold;">
                                             €<?= number_format($c['amount_inc_vat'], 2) ?>
                                         </td>
-                                        <td style="padding: 8px 0; border-bottom: 1px solid var(--border-glass); text-align: right;">
+                                        <td style="padding: 8px 0; border-bottom: 1px solid var(--border-glass); text-align: center;">
                                             <?php if ($canManageQuote): ?>
                                                 <form method="POST">
                                                     <input type="hidden" name="action" value="update_claim_status">
@@ -773,8 +799,22 @@ require_once 'header.php';
                                                 <span style="color: <?= $c['status'] === 'Paid' ? '#10b981' : '#f59e0b' ?>; font-weight: bold;"><?= $c['status'] ?></span>
                                             <?php endif; ?>
                                         </td>
+                                        <td style="padding: 8px 0; border-bottom: 1px solid var(--border-glass); text-align: right;">
+                                            <a href="print_claim.php?claim_id=<?= $c['id'] ?>" target="_blank" class="btn btn-sm" style="background: #3B82F6; color: white; padding: 2px 6px;" title="Print RFP">📄 PDF</a>
+                                            <?php if ($canManageQuote): ?>
+                                                <button onclick='openClaimModal(<?= json_encode($c, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" style="padding: 2px 6px;" title="Edit">✎</button>
+                                                <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this claim?');">
+                                                    <input type="hidden" name="action" value="delete_claim">
+                                                    <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                                                    <input type="hidden" name="quote_type" value="<?= $quote['quote_type'] ?>">
+                                                    <input type="hidden" name="claim_id" value="<?= $c['id'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-danger" style="padding: 2px 6px;" title="Delete">X</button>
+                                                </form>
+                                            <?php endif; ?>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
+                                </tbody>
                             </table>
                         <?php endif; ?>
                     </div>
@@ -862,16 +902,17 @@ require_once 'header.php';
             <div id="claimModal" class="modal">
                 <div class="modal-content" style="max-width: 400px;">
                     <span class="close-modal" onclick="document.getElementById('claimModal').style.display='none'">&times;</span>
-                    <h2 style="color: #3b82f6; margin-top: 0;">Issue Claim</h2>
+                    <h2 id="claimModalTitle" style="color: #3b82f6; margin-top: 0;">Issue Claim</h2>
                     <form method="POST">
                         <input type="hidden" name="action" value="save_claim">
                         <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
                         <input type="hidden" name="quote_type" value="<?= $quote['quote_type'] ?>">
                         <input type="hidden" name="vat_rate" value="<?= $quote['vat_rate'] ?>">
+                        <input type="hidden" name="claim_id" id="mod_claim_id">
                         
                         <div class="form-group">
                             <label>Claim Type</label>
-                            <select name="claim_type" required>
+                            <select name="claim_type" id="mod_claim_type" required>
                                 <option value="Deposit">Advance Deposit</option>
                                 <option value="Interim">Interim Claim (% of Works)</option>
                                 <option value="Final Measured">Final Measured Bill</option>
@@ -879,21 +920,21 @@ require_once 'header.php';
                         </div>
                         <div class="form-group">
                             <label>Description / Stage</label>
-                            <input type="text" name="description" placeholder="e.g. M&E 1st and 2nd Fix (50%)" required>
+                            <input type="text" name="description" id="mod_claim_desc" placeholder="e.g. M&E 1st and 2nd Fix (50%)" required>
                         </div>
                         <div class="form-group">
                             <label>Amount to Claim (Exc VAT)</label>
-                            <input type="number" step="0.01" name="amount_exc_vat" required>
+                            <input type="number" step="0.01" name="amount_exc_vat" id="mod_claim_amount" required>
                             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">System will auto-add <?= $quote['vat_rate'] ?>% VAT.</div>
                         </div>
                         <div class="form-group">
                             <label>Status</label>
-                            <select name="status">
+                            <select name="status" id="mod_claim_status">
                                 <option value="Pending">Pending Payment</option>
                                 <option value="Paid">Already Paid</option>
                             </select>
                         </div>
-                        <button type="submit" class="btn" style="background: #3b82f6; color: white; width: 100%; border: none; padding: 10px;">Issue Claim</button>
+                        <button type="submit" class="btn" style="background: #3b82f6; color: white; width: 100%; border: none; padding: 10px;">Save Claim</button>
                     </form>
                 </div>
             </div>
@@ -920,7 +961,25 @@ require_once 'header.php';
                 }
                 document.getElementById('itemModal').style.display = 'block';
             }
-            function openClaimModal() { document.getElementById('claimModal').style.display = 'block'; }
+            
+            function openClaimModal(data = null) { 
+                if(data) {
+                    document.getElementById('claimModalTitle').innerText = 'Edit Claim';
+                    document.getElementById('mod_claim_id').value = data.id;
+                    document.getElementById('mod_claim_type').value = data.claim_type;
+                    document.getElementById('mod_claim_desc').value = data.description;
+                    document.getElementById('mod_claim_amount').value = data.amount_exc_vat;
+                    document.getElementById('mod_claim_status').value = data.status;
+                } else {
+                    document.getElementById('claimModalTitle').innerText = 'Issue Claim';
+                    document.getElementById('mod_claim_id').value = '';
+                    document.getElementById('mod_claim_type').value = 'Interim';
+                    document.getElementById('mod_claim_desc').value = '';
+                    document.getElementById('mod_claim_amount').value = '';
+                    document.getElementById('mod_claim_status').value = 'Pending';
+                }
+                document.getElementById('claimModal').style.display = 'block'; 
+            }
             
             // Re-apply window.onclick to handle both modals safely
             window.addEventListener('click', function(event) {
