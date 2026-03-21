@@ -361,7 +361,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$canApproveQuotes) throw new Exception("You are not authorized to approve quotes.");
                 $pdo->prepare("UPDATE sales_quotes SET status = 'Approved', approver_id = ?, approved_at = NOW() WHERE id = ?")->execute([$userId, $qId]);
                 $message = "Quote Approved! It can now be printed and sent.";
-            } elseif (in_array($newStatus, ['Sent', 'Accepted', 'Completed'])) {
+            } elseif (in_array($newStatus, ['Sent', 'Accepted', 'Declined', 'Completed'])) {
                 $stmt = $pdo->prepare("UPDATE sales_quotes SET status = ? WHERE id = ?");
                 $stmt->execute([$newStatus, $qId]);
                 $message = "Status updated to $newStatus.";
@@ -603,6 +603,7 @@ require_once 'header.php';
 .status-Sent { background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid #2563eb; }
 .status-Accepted { background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid #16a34a; }
 .status-Rejected { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #dc2626; }
+.status-Declined { background: rgba(100, 116, 139, 0.2); color: #64748b; border: 1px solid #475569; }
 .status-Completed { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; border: 1px solid #7c3aed; }
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
 .modal-content { background-color: var(--bg-card); margin: 3% auto; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; max-height: 90vh; overflow-y: auto;}
@@ -681,7 +682,10 @@ require_once 'header.php';
             <?php
             $global_order = 0; $global_claimed = 0; $global_pending = 0; $global_paid = 0;
             foreach ($quotesList as $q) {
-                $global_order += $q['total_inc_vat'];
+                // Ignore Rejected and Declined quotes in the Pipeline Total
+                if (!in_array($q['status'], ['Rejected', 'Declined'])) {
+                    $global_order += $q['total_inc_vat'];
+                }
                 $global_claimed += $q['total_claimed'];
                 $global_pending += $q['total_pending'];
                 $global_paid += $q['total_paid'];
@@ -841,7 +845,7 @@ require_once 'header.php';
                 else $tPend += $c['amount_inc_vat']; 
             }
             
-            $canPrint = in_array($quote['status'], ['Approved', 'Sent', 'Accepted', 'Completed']);
+            $canPrint = in_array($quote['status'], ['Approved', 'Sent', 'Accepted', 'Declined', 'Completed']);
             $dispStat = str_replace(' Approval', '', $quote['status']);
             ?>
 
@@ -985,6 +989,7 @@ require_once 'header.php';
                                     <option value="Approved" <?= $quote['status']=='Approved'?'selected':'' ?>>Approved (Unsent)</option>
                                     <option value="Sent" <?= $quote['status']=='Sent'?'selected':'' ?>>Sent to Client</option>
                                     <option value="Accepted" <?= $quote['status']=='Accepted'?'selected':'' ?>>Accepted by Client</option>
+                                    <option value="Declined" <?= $quote['status']=='Declined'?'selected':'' ?>>Declined by Client (Lost)</option>
                                     <option value="Completed" <?= $quote['status']=='Completed'?'selected':'' ?>>Completed / Billed</option>
                                 </select>
                                 <button type="submit" class="btn btn-secondary">Update</button>
