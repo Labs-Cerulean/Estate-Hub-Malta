@@ -323,7 +323,6 @@ require_once 'header.php';
                 <?php if ($canManage): ?>
                     <div style="display: flex; gap: 0.5rem;">
                         <button onclick="openWorkModal()" class="btn btn-primary">+ Create Work Order</button>
-                        <button onclick="openTxModal()" class="btn btn-secondary">+ Log Global Payment</button>
                     </div>
                 <?php endif; ?>
             </div>
