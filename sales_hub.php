@@ -2,7 +2,7 @@
 require_once 'config.php';
 require_once 'session-check.php';
 
-$allowed_roles = ['sales_manager', 'sales_agent', 'system_manager', 'director'];
+$allowed_roles = ['sales_manager', 'sales_agent', 'admin', 'director'];
 if (!in_array($_SESSION['role'], $allowed_roles)) {
     header("Location: index.php");
     exit;
@@ -71,7 +71,7 @@ require_once 'header.php'; // Your standard header
 
 <script>
     // 1. Initialize Mapbox (Replace with your free Mapbox Access Token)
-    mapboxgl.accessToken = 'YOUR_MAPBOX_PUBLIC_TOKEN_HERE'; 
+    mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
     const map = new mapboxgl.Map({
         container: 'sales-map',
         style: 'mapbox://styles/mapbox/light-v11', // Sleek, modern light theme
