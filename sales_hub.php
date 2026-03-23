@@ -57,12 +57,19 @@ require_once 'header.php'; // Your standard header
     <div class="card shadow-sm border-0 filter-overlay">
         <div class="card-body p-3">
             <h5 class="mb-3 fw-bold"><i class="fas fa-map-marked-alt text-primary"></i> Sales Hub</h5>
-            <select class="form-select mb-2 rounded-pill shadow-sm" id="typeFilter">
+            <select class="form-select mb-3 rounded-pill shadow-sm" id="typeFilter">
                 <option value="all">All Property Types</option>
                 <option value="apartment">Apartments</option>
                 <option value="commercial">Commercial</option>
                 <option value="garage">Garages</option>
             </select>
+            
+            <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
+                <hr>
+                <button class="btn btn-outline-primary btn-sm w-100 rounded-pill" data-bs-toggle="modal" data-bs-target="#uploadFrameModal">
+                    <i class="fas fa-file-upload"></i> Upload Frame (CSV)
+                </button>
+            <?php endif; ?>
         </div>
     </div>
 </div>
