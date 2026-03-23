@@ -143,7 +143,17 @@ require_once 'header.php'; // Your standard header
                 <label class="form-label">Select Project</label>
                 <select class="form-control form-select" name="project_id" required>
                     <option value="">-- Choose Project --</option>
-                    <option value="42">Next Developers (Qrendi)</option> 
+                    <?php
+                    // Fetch all projects from the database dynamically
+                    try {
+                        $stmt = $pdo->query("SELECT id, project_name FROM projects ORDER BY project_name ASC");
+                        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            echo '<option value="' . htmlspecialchars($row['id']) . '">' . htmlspecialchars($row['project_name']) . '</option>';
+                        }
+                    } catch (Exception $e) {
+                        echo '<option value="">Error loading projects</option>';
+                    }
+                    ?>
                 </select>
             </div>
             <div class="form-group mb-3">
