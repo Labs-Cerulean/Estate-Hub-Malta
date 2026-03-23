@@ -4,17 +4,16 @@ require_once '../session-check.php';
 
 header('Content-Type: application/json');
 
-// Ensure only authorized roles can access
-$allowed_roles = ['sales_manager', 'sales_agent', 'system_manager', 'director'];
+// ADDED 'admin' TO THIS LIST!
+$allowed_roles = ['admin', 'sales_manager', 'sales_agent', 'director'];
 if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $allowed_roles)) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+    echo json_encode(['success' => false, 'message' => 'Unauthorized API Access']);
     exit;
 }
 
 try {
     // Fetch projects that have sales properties, along with their coordinates
-    // Assuming your `projects` table has latitude/longitude. If they are in `sales_properties`, adjust accordingly.
-   $query = "
+    $query = "
         SELECT 
             p.id as project_id, 
             p.name as project_name, 
