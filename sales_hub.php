@@ -2,7 +2,7 @@
 require_once 'config.php';
 require_once 'session-check.php';
 
-$allowed_roles = ['sales_manager', 'sales_agent', 'admin', 'director', 'system_manager'];
+$allowed_roles = ['sales_manager', 'sales_agent', 'admin', 'director'];
 if (!in_array($_SESSION['role'], $allowed_roles)) {
     header("Location: index.php");
     exit;
