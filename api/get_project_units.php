@@ -18,7 +18,7 @@ try {
     $s3 = new S3FileManager();
 
     // 1. Fetch Cloudflare Media from Universal Vault
-    $docStmt = $pdo->prepare("SELECT sub_category, title, file_path FROM project_documents WHERE project_id = ? AND category = 'Sales'");
+    $docStmt = $pdo->prepare("SELECT sub_category, title, file_path FROM project_documents WHERE project_id = ? AND category = 'Sales' ORDER BY created_at ASC");
     $docStmt->execute([$project_id]);
     $docs = $docStmt->fetchAll(PDO::FETCH_ASSOC);
     
