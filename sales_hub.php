@@ -144,14 +144,14 @@ require_once 'header.php'; // Your standard header
                 <select class="form-control form-select" name="project_id" required>
                     <option value="">-- Choose Project --</option>
                     <?php
-                    // Fetch all projects from the database dynamically
+                    // Fetch all projects from the database dynamically using the correct 'name' column
                     try {
-                        $stmt = $pdo->query("SELECT id, project_name FROM projects ORDER BY project_name ASC");
+                        $stmt = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC");
                         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                            echo '<option value="' . htmlspecialchars($row['id']) . '">' . htmlspecialchars($row['project_name']) . '</option>';
+                            echo '<option value="' . htmlspecialchars($row['id']) . '">' . htmlspecialchars($row['name']) . '</option>';
                         }
                     } catch (Exception $e) {
-                        echo '<option value="">Error loading projects</option>';
+                        echo '<option value="">Error loading projects: ' . htmlspecialchars($e->getMessage()) . '</option>';
                     }
                     ?>
                 </select>
