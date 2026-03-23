@@ -24,7 +24,7 @@ require_once 'header.php';
     .filter-overlay {
         position: absolute; top: 15px; left: 15px; z-index: 10; width: 280px;
         border-radius: 15px; 
-        background: rgba(33, 37, 41, 0.85); /* Dark Grey */
+        background: rgba(33, 37, 41, 0.85);
         backdrop-filter: blur(10px);
         border: 1px solid rgba(255,255,255,0.1);
         color: #f8f9fa;
@@ -33,16 +33,18 @@ require_once 'header.php';
     /* Dark Theme Sidebar */
     #custom-sidebar {
         position: fixed; top: 70px; right: -450px; width: 450px; height: calc(100vh - 70px);
-        background-color: #212529; /* Dark Grey Panel */
+        background-color: #212529; 
         color: #f8f9fa;
         box-shadow: -5px 0 25px rgba(0,0,0,0.5);
         transition: right 0.3s ease-in-out; z-index: 1050; overflow-y: auto;
     }
     #custom-sidebar.show-sidebar { right: 0; }
-   .sidebar-header { 
-        position: sticky; /* Locks it to the top */
+    
+    /* Sticky Header (Stays at the top while scrolling) */
+    .sidebar-header { 
+        position: sticky; 
         top: 0; 
-        z-index: 1060; /* Keeps it layered above the scrolling text */
+        z-index: 1060; 
         background-color: #1a1d20; 
         color: white; 
         padding: 15px 20px; 
@@ -51,6 +53,7 @@ require_once 'header.php';
         align-items: center; 
         border-bottom: 1px solid rgba(255,255,255,0.05); 
     }
+    
     .status-badge { font-size: 0.8rem; padding: 5px 10px; border-radius: 20px; font-weight: 600; display: inline-block;}
     
     /* Custom Scrollbar for sidebar */
@@ -78,10 +81,17 @@ require_once 'header.php';
                 <option value="garage">Garages</option>
             </select>
             
+            <div class="text-center text-secondary small mb-3" style="font-size: 0.75rem;">
+                <i class="fas fa-mouse"></i> Right-Click & Drag to Rotate 3D Map
+            </div>
+            
             <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
                 <hr style="border-color: rgba(255,255,255,0.2);">
-                <button class="btn btn-outline-info btn-sm btn-block w-100" style="border-radius: 20px;" onclick="openUploadModal()">
-                    <i class="fas fa-file-upload"></i> Upload Frame (CSV)
+                <button class="btn btn-outline-info btn-sm btn-block w-100 mb-2" style="border-radius: 20px;" onclick="openUploadModal()">
+                    <i class="fas fa-file-csv"></i> Upload Frame (CSV)
+                </button>
+                <button class="btn btn-outline-success btn-sm btn-block w-100" style="border-radius: 20px;" onclick="openMediaModal()">
+                    <i class="fas fa-cloud-upload-alt"></i> Upload Media & Plans
                 </button>
             <?php endif; ?>
         </div>
@@ -94,12 +104,15 @@ require_once 'header.php';
     <button type="button" class="close text-white" style="background: transparent; border: none; font-size: 1.5rem; line-height: 1;" onclick="closeSidebar()">&times;</button>
   </div>
   <div class="sidebar-body">
-    <div class="text-center p-5 border-bottom" style="background-color: #2c3034; border-color: #343a40 !important;">
-        <i class="fas fa-building fa-4x text-secondary mb-3"></i>
-        <p class="text-secondary small m-0">Project renders and videos will appear here.</p>
+    <div id="sidebarMediaContainer" class="border-bottom" style="background-color: #2c3034; border-color: #343a40 !important;">
+        <div class="text-center p-5">
+            <i class="fas fa-building fa-4x text-secondary mb-3"></i>
+            <p class="text-secondary small m-0">Click a map pin to load project data.</p>
+        </div>
     </div>
+    
     <div class="p-3">
-        <div class="d-flex justify-content-between mb-4 px-2">
+        <div class="d-flex justify-content-between mb-4 px-2 mt-2">
             <span class="badge badge-success bg-success status-badge"><span id="sidebarAvail">0</span> Avail</span>
             <span class="badge badge-warning bg-warning text-dark status-badge"><span id="sidebarHold">0</span> Hold</span>
             <span class="badge badge-danger bg-danger status-badge"><span id="sidebarSold">0</span> Sold</span>
@@ -136,7 +149,7 @@ require_once 'header.php';
             <div class="form-group mb-3">
                 <label class="form-label text-light">CSV File</label>
                 <input class="form-control bg-dark text-light border-secondary" type="file" name="frame_csv" accept=".csv" required>
-                <small class="form-text text-secondary">Ensure file is saved as a CSV matching the 8-column template.</small>
+                <small class="form-text text-secondary">Ensure file is saved as a CSV matching the 9-column template.</small>
             </div>
           </div>
           <div class="modal-footer border-secondary">
@@ -147,7 +160,54 @@ require_once 'header.php';
   </div>
 </div>
 
+<div class="modal fade" id="uploadMediaModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear;">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">Upload Project Media</h5>
+        <button type="button" class="close text-light" aria-label="Close" onclick="closeMediaModal()" style="background: transparent; border: none; font-size: 1.5rem;"><span aria-hidden="true">&times;</span></button>
+      </div>
+      <form id="uploadMediaForm">
+          <div class="modal-body">
+            <div class="form-group mb-3">
+                <label class="form-label text-light">Select Project</label>
+                <select class="form-control form-select bg-dark text-light border-secondary" name="project_id" required>
+                    <option value="">-- Choose Project --</option>
+                    <?php
+                    try {
+                        $stmt = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC");
+                        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { echo '<option value="' . htmlspecialchars($row['id']) . '">' . htmlspecialchars($row['name']) . '</option>'; }
+                    } catch (Exception $e) {}
+                    ?>
+                </select>
+            </div>
+            <div class="form-group mb-3">
+                <label class="form-label text-light">Media Type</label>
+                <select class="form-control form-select bg-dark text-light border-secondary" name="media_type" id="mediaTypeSelect" required onchange="toggleFloorInput()">
+                    <option value="Render (Image)">Render (Image)</option>
+                    <option value="Render (Video)">Render (Video)</option>
+                    <option value="Floor Plan">Floor Plan (PDF/Img)</option>
+                </select>
+            </div>
+            <div class="form-group mb-3" id="floorInputGroup" style="display:none;">
+                <label class="form-label text-light">Floor Level (Matches CSV)</label>
+                <input class="form-control bg-dark text-light border-secondary" type="text" name="floor_level" placeholder="e.g. -1, 0, 1, 2">
+            </div>
+            <div class="form-group mb-3">
+                <label class="form-label text-light">File</label>
+                <input class="form-control bg-dark text-light border-secondary" type="file" name="media_file" required>
+            </div>
+          </div>
+          <div class="modal-footer border-secondary">
+            <button type="submit" class="btn btn-success">Upload to Cloudflare</button>
+          </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
+    // --- Bulletproof Modal & Sidebar Functions ---
     function openUploadModal() {
         const m = document.getElementById('uploadFrameModal');
         m.classList.add('show'); m.style.display = 'block'; m.style.backgroundColor = 'rgba(0,0,0,0.7)';
@@ -158,18 +218,39 @@ require_once 'header.php';
         m.style.opacity = '0';
         setTimeout(() => { m.classList.remove('show'); m.style.display = 'none'; }, 300);
     }
+    
+    function openMediaModal() {
+        const m = document.getElementById('uploadMediaModal');
+        m.classList.add('show'); m.style.display = 'block'; m.style.backgroundColor = 'rgba(0,0,0,0.7)';
+        setTimeout(() => m.style.opacity = '1', 10);
+    }
+    function closeMediaModal() {
+        const m = document.getElementById('uploadMediaModal');
+        m.style.opacity = '0';
+        setTimeout(() => { m.classList.remove('show'); m.style.display = 'none'; }, 300);
+    }
+
+    function toggleFloorInput() {
+        const type = document.getElementById('mediaTypeSelect').value;
+        const floorGrp = document.getElementById('floorInputGroup');
+        if (type === 'Floor Plan') { floorGrp.style.display = 'block'; floorGrp.querySelector('input').required = true; }
+        else { floorGrp.style.display = 'none'; floorGrp.querySelector('input').required = false; }
+    }
+
     function closeSidebar() { document.getElementById('custom-sidebar').classList.remove('show-sidebar'); }
 
+    // Store map projects globally so we can jump to them
     let mapProjectsData = {};
 
+    // --- Mapbox Initialization ---
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
     const map = new mapboxgl.Map({
         container: 'sales-map',
         style: 'mapbox://styles/mapbox/satellite-streets-v12', 
         center: [14.405, 35.937], 
         zoom: 12,
-        pitch: 40, // More natural tilt
-        bearing: 0 // Straight North orientation
+        pitch: 40, 
+        bearing: 0 
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
@@ -193,6 +274,7 @@ require_once 'header.php';
         }, labelLayerId);
     });
 
+    // --- Core Interaction: Open Sidebar & Fetch Data ---
     function openProjectSidebar(project) {
         map.flyTo({ center: [project.longitude, project.latitude], zoom: 17, pitch: 50, essential: true });
         
@@ -203,12 +285,49 @@ require_once 'header.php';
 
         document.getElementById('custom-sidebar').classList.add('show-sidebar');
         document.getElementById('unitListContainer').innerHTML = '<div class="text-center p-4 text-light"><div class="spinner-border text-info" role="status"></div><div class="mt-2">Loading units...</div></div>';
+        document.getElementById('sidebarMediaContainer').innerHTML = '<div class="text-center p-5"><div class="spinner-border text-secondary mb-2" role="status"></div><div class="small text-secondary">Loading media...</div></div>';
 
         fetch('api/get_project_units.php?project_id=' + project.project_id)
             .then(response => response.json())
             .then(unitData => {
-                if(unitData.success) document.getElementById('unitListContainer').innerHTML = unitData.html;
-                else document.getElementById('unitListContainer').innerHTML = '<div class="p-3 text-center text-danger">Error loading units.</div>';
+                if(unitData.success) {
+                    document.getElementById('unitListContainer').innerHTML = unitData.html;
+                    
+                    // Build Dynamic Carousel from Cloudflare R2 files
+                    let slides = [];
+                    if (unitData.media && unitData.media.videos) {
+                        unitData.media.videos.forEach(v => { slides.push(`<video src="${v}" controls style="width:100%; height:250px; object-fit:cover;"></video>`); });
+                    }
+                    if (unitData.media && unitData.media.renders) {
+                        unitData.media.renders.forEach(r => { slides.push(`<img src="${r}" style="width:100%; height:250px; object-fit:cover;">`); });
+                    }
+                    
+                    let mediaHtml = '';
+                    if (slides.length > 0) {
+                        if (slides.length === 1) {
+                            mediaHtml = slides[0];
+                        } else {
+                            let inner = '';
+                            slides.forEach((s, i) => { inner += `<div class="carousel-item ${i===0?'active':''}">${s}</div>`; });
+                            mediaHtml = `
+                            <div id="projectCarousel" class="carousel slide" data-bs-ride="carousel">
+                              <div class="carousel-inner">${inner}</div>
+                              <button class="carousel-control-prev" type="button" data-bs-target="#projectCarousel" data-bs-slide="prev">
+                                <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                              </button>
+                              <button class="carousel-control-next" type="button" data-bs-target="#projectCarousel" data-bs-slide="next">
+                                <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                              </button>
+                            </div>`;
+                        }
+                    } else {
+                        mediaHtml = `<div class="text-center p-5"><i class="fas fa-image fa-3x text-secondary mb-2"></i><div class="small text-secondary">No media uploaded yet</div></div>`;
+                    }
+                    document.getElementById('sidebarMediaContainer').innerHTML = mediaHtml;
+
+                } else {
+                    document.getElementById('unitListContainer').innerHTML = '<div class="p-3 text-center text-danger">Error loading units.</div>';
+                }
             });
     }
 
@@ -216,6 +335,7 @@ require_once 'header.php';
         if(projectId && mapProjectsData[projectId]) openProjectSidebar(mapProjectsData[projectId]);
     }
 
+    // --- Load Map Pins ---
     map.on('load', () => {
         fetch('api/get_sales_map_data.php')
             .then(response => response.json())
@@ -234,7 +354,7 @@ require_once 'header.php';
 
                             const el = document.createElement('div');
                             el.className = 'custom-marker';
-                            el.style.backgroundColor = project.available_units > 0 ? '#10B981' : '#EF4444'; // Adjusted to match your specific green/red
+                            el.style.backgroundColor = project.available_units > 0 ? '#10B981' : '#EF4444'; 
                             el.style.width = '24px'; el.style.height = '24px';
                             el.style.borderRadius = '50%'; el.style.border = '3px solid white';
                             el.style.boxShadow = '0 0 10px rgba(0,0,0,0.8)'; el.style.cursor = 'pointer';
@@ -249,6 +369,17 @@ require_once 'header.php';
                 }
             });
     });
+
+    // --- Workflow Action Functions ---
+    function managerUpdateStatus(propertyId, newStatus) {
+        let formData = new FormData(); 
+        formData.append('property_id', propertyId); 
+        formData.append('new_status', newStatus);
+        fetch('api/manager_update_status.php', { method: 'POST', body: formData })
+        .then(r => r.json()).then(data => {
+            if(data.success) { console.log("Status updated to " + newStatus); } else { alert("Error: " + data.message); }
+        });
+    }
 
     function holdProperty(propertyId) {
         if(!confirm("Are you sure you want to put this unit on hold? You will have 7 days to finalize.")) return;
@@ -268,6 +399,7 @@ require_once 'header.php';
         });
     }
 
+    // --- Form Upload Handlers ---
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
         e.preventDefault();
         let formData = new FormData(this); let btn = this.querySelector('button[type="submit"]');
@@ -278,22 +410,15 @@ require_once 'header.php';
         });
     });
 
-    // --- Manager Status Update ---
-    function managerUpdateStatus(propertyId, newStatus) {
-        let formData = new FormData(); 
-        formData.append('property_id', propertyId); 
-        formData.append('new_status', newStatus);
-        
-        fetch('api/manager_update_status.php', { method: 'POST', body: formData })
+    document.getElementById('uploadMediaForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        let formData = new FormData(this); let btn = this.querySelector('button[type="submit"]');
+        btn.innerHTML = 'Uploading to Cloudflare...'; btn.disabled = true;
+        fetch('api/upload_sales_media.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
-            if(data.success) { 
-                // Don't reload the whole page, just quietly acknowledge
-                console.log("Status updated to " + newStatus); 
-            } else { 
-                alert("Error: " + data.message); 
-            }
+            if(data.success) { alert(data.message); location.reload(); } else { alert('Error: ' + data.message); btn.innerHTML = 'Upload to Cloudflare'; btn.disabled = false; }
         });
-    }
+    });
 </script>
 
 <?php require_once 'footer.php'; ?>
