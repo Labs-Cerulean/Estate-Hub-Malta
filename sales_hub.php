@@ -410,14 +410,71 @@ require_once 'header.php';
         });
     });
 
-    document.getElementById('uploadMediaForm').addEventListener('submit', function(e) {
+    // --- Direct-to-Cloudflare Media Upload Handler ---
+    document.getElementById('uploadMediaForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-        let formData = new FormData(this); let btn = this.querySelector('button[type="submit"]');
-        btn.innerHTML = 'Uploading to Cloudflare...'; btn.disabled = true;
-        fetch('api/upload_sales_media.php', { method: 'POST', body: formData })
-        .then(r => r.json()).then(data => {
-            if(data.success) { alert(data.message); location.reload(); } else { alert('Error: ' + data.message); btn.innerHTML = 'Upload to Cloudflare'; btn.disabled = false; }
-        });
+        
+        let fileInput = this.querySelector('input[type="file"]');
+        if(fileInput.files.length === 0) {
+            alert("Please select a file to upload."); return;
+        }
+        
+        let file = fileInput.files[0];
+        let btn = this.querySelector('button[type="submit"]');
+        btn.innerHTML = 'Connecting to Cloudflare...'; 
+        btn.disabled = true;
+
+        try {
+            // 1. Get the secure upload link from our API
+            let authData = new FormData();
+            authData.append('action', 'get_upload_url');
+            authData.append('filename', file.name);
+            authData.append('mime_type', file.type || 'application/octet-stream');
+
+            let authRes = await fetch('api/upload_sales_media.php', { method: 'POST', body: authData });
+            let authJson = await authRes.json();
+            
+            if(!authJson.success) throw new Error(authJson.message);
+
+            // 2. Upload directly to Cloudflare R2
+            btn.innerHTML = 'Uploading file...';
+            
+            await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', authJson.url, true);
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                
+                xhr.onload = function() {
+                    if (xhr.status >= 200 && xhr.status < 300) { resolve(); } 
+                    else { reject(new Error('Cloudflare rejected the upload. Check console.')); }
+                };
+                xhr.onerror = () => reject(new Error('Network Error during upload.'));
+                xhr.send(file);
+            });
+
+            // 3. Save the record in the database
+            btn.innerHTML = 'Saving Data...';
+            let dbData = new FormData(this);
+            dbData.append('action', 'save_record');
+            dbData.append('file_key', authJson.key);
+            dbData.append('filename', file.name);
+
+            let dbRes = await fetch('api/upload_sales_media.php', { method: 'POST', body: dbData });
+            let dbJson = await dbRes.json();
+            
+            if(dbJson.success) { 
+                alert(dbJson.message); 
+                location.reload(); 
+            } else { 
+                throw new Error(dbJson.message); 
+            }
+
+        } catch (err) {
+            alert('Error: ' + err.message);
+            console.error(err);
+            btn.innerHTML = 'Upload to Cloudflare'; 
+            btn.disabled = false;
+        }
     });
 </script>
 
