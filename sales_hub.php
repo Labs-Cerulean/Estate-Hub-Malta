@@ -46,9 +46,36 @@ require_once 'header.php'; // Your standard header
         backdrop-filter: blur(10px);
     }
     
+    /* CUSTOM SLIDING SIDEBAR (Bulletproof CSS) */
+    #custom-sidebar {
+        position: fixed;
+        top: 70px; /* Adjust if your header is taller/shorter */
+        right: -450px; /* Hidden off-screen by default */
+        width: 450px;
+        height: calc(100vh - 70px);
+        background-color: #ffffff;
+        box-shadow: -5px 0 25px rgba(0,0,0,0.15);
+        transition: right 0.3s ease-in-out;
+        z-index: 1050;
+        overflow-y: auto;
+    }
+    
+    #custom-sidebar.show-sidebar {
+        right: 0; /* Slides in */
+    }
+
+    .sidebar-header {
+        background-color: #212529;
+        color: white;
+        padding: 15px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
     /* Sleek UI Overrides */
     .mapboxgl-popup-content { border-radius: 12px; padding: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-    .status-badge { font-size: 0.8rem; padding: 5px 10px; border-radius: 20px; font-weight: 600; }
+    .status-badge { font-size: 0.8rem; padding: 5px 10px; border-radius: 20px; font-weight: 600; display: inline-block;}
 </style>
 
 <div id="map-wrapper">
@@ -56,8 +83,8 @@ require_once 'header.php'; // Your standard header
 
     <div class="card shadow-sm border-0 filter-overlay">
         <div class="card-body p-3">
-            <h5 class="mb-3 fw-bold"><i class="fas fa-map-marked-alt text-primary"></i> Sales Hub</h5>
-            <select class="form-select mb-3 rounded-pill shadow-sm" id="typeFilter">
+            <h5 class="mb-3 font-weight-bold fw-bold"><i class="fas fa-map-marked-alt text-primary"></i> Sales Hub</h5>
+            <select class="form-control form-select mb-3 rounded-pill shadow-sm" id="typeFilter">
                 <option value="all">All Property Types</option>
                 <option value="apartment">Apartments</option>
                 <option value="commercial">Commercial</option>
@@ -66,7 +93,7 @@ require_once 'header.php'; // Your standard header
             
             <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
                 <hr>
-                <button class="btn btn-outline-primary btn-sm w-100 rounded-pill" data-bs-toggle="modal" data-bs-target="#uploadFrameModal">
+                <button class="btn btn-outline-primary btn-sm btn-block w-100" style="border-radius: 20px;" data-toggle="modal" data-target="#uploadFrameModal" data-bs-toggle="modal" data-bs-target="#uploadFrameModal">
                     <i class="fas fa-file-upload"></i> Upload Frame (CSV)
                 </button>
             <?php endif; ?>
@@ -74,25 +101,26 @@ require_once 'header.php'; // Your standard header
     </div>
 </div>
 
-<div class="offcanvas offcanvas-end" tabindex="-1" id="propertySidebar" aria-labelledby="propertySidebarLabel" style="width: 450px; border-left: none; box-shadow: -5px 0 25px rgba(0,0,0,0.1);">
-  <div class="offcanvas-header bg-dark text-white">
-    <h5 class="offcanvas-title fw-bold" id="sidebarProjectName">Project Details</h5>
-    <button type="button" class="btn-close btn-close-white text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+<div id="custom-sidebar">
+  <div class="sidebar-header">
+    <h5 class="m-0 font-weight-bold fw-bold" id="sidebarProjectName">Project Details</h5>
+    <button type="button" class="close text-white" style="background: transparent; border: none; font-size: 1.5rem; line-height: 1;" onclick="closeSidebar()">&times;</button>
   </div>
-  <div class="offcanvas-body p-0">
+  
+  <div class="sidebar-body">
     <div class="bg-light text-center p-5 border-bottom">
         <i class="fas fa-building fa-4x text-muted mb-3"></i>
-        <p class="text-muted small">Project renders and videos will appear here.</p>
+        <p class="text-muted small m-0">Project renders and videos will appear here.</p>
     </div>
     
     <div class="p-4">
         <div class="d-flex justify-content-between mb-4">
-            <span class="badge bg-success status-badge"><span id="sidebarAvail">0</span> Available</span>
-            <span class="badge bg-warning text-dark status-badge"><span id="sidebarHold">0</span> On Hold</span>
-            <span class="badge bg-danger status-badge"><span id="sidebarSold">0</span> Sold</span>
+            <span class="badge badge-success bg-success status-badge"><span id="sidebarAvail">0</span> Available</span>
+            <span class="badge badge-warning bg-warning text-dark status-badge"><span id="sidebarHold">0</span> On Hold</span>
+            <span class="badge badge-danger bg-danger status-badge"><span id="sidebarSold">0</span> Sold</span>
         </div>
 
-        <h6 class="fw-bold mb-3 text-uppercase text-muted">Available Units</h6>
+        <h6 class="font-weight-bold fw-bold mb-3 text-uppercase text-muted">Available Units</h6>
         
         <div id="unitListContainer" class="list-group list-group-flush border-top border-bottom">
             </div>
@@ -100,26 +128,28 @@ require_once 'header.php'; // Your standard header
   </div>
 </div>
 
-<div class="modal fade" id="uploadFrameModal" tabindex="-1">
-  <div class="modal-dialog">
+<div class="modal fade" id="uploadFrameModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Upload Project Frame</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="close btn-close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
       </div>
       <form id="uploadFrameForm">
           <div class="modal-body">
-            <div class="mb-3">
+            <div class="form-group mb-3">
                 <label class="form-label">Select Project</label>
-                <select class="form-select" name="project_id" required>
+                <select class="form-control form-select" name="project_id" required>
                     <option value="">-- Choose Project --</option>
                     <option value="42">Next Developers (Qrendi)</option> 
                 </select>
             </div>
-            <div class="mb-3">
+            <div class="form-group mb-3">
                 <label class="form-label">CSV File</label>
                 <input class="form-control" type="file" name="frame_csv" accept=".csv" required>
-                <div class="form-text">Ensure file is saved as a CSV matching the 8-column template.</div>
+                <small class="form-text text-muted">Ensure file is saved as a CSV matching the 8-column template.</small>
             </div>
           </div>
           <div class="modal-footer">
@@ -131,7 +161,7 @@ require_once 'header.php'; // Your standard header
 </div>
 
 <script>
-    // 1. Initialize Mapbox
+    // Mapbox Initialization
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
     const map = new mapboxgl.Map({
         container: 'sales-map',
@@ -143,7 +173,12 @@ require_once 'header.php'; // Your standard header
 
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
 
-    // 2. Fetch Data and Add Markers
+    // Custom Sidebar Functions
+    function closeSidebar() {
+        document.getElementById('custom-sidebar').classList.remove('show-sidebar');
+    }
+
+    // Fetch Data and Add Markers
     map.on('load', () => {
         fetch('api/get_sales_map_data.php')
             .then(response => response.json())
@@ -166,7 +201,7 @@ require_once 'header.php'; // Your standard header
                                 .setLngLat([project.longitude, project.latitude])
                                 .addTo(map);
 
-                            // 3. Handle Marker Clicks (Open Sidebar & Fetch Units)
+                            // Handle Marker Clicks
                             el.addEventListener('click', () => {
                                 map.flyTo({ center: [project.longitude, project.latitude], zoom: 15 });
                                 
@@ -175,14 +210,11 @@ require_once 'header.php'; // Your standard header
                                 document.getElementById('sidebarHold').innerText = project.held_units;
                                 document.getElementById('sidebarSold').innerText = project.sold_units;
 
-                                // Show the offcanvas sidebar
-                                const sidebar = new bootstrap.Offcanvas(document.getElementById('propertySidebar'));
-                                sidebar.show();
+                                // Slide in the custom sidebar
+                                document.getElementById('custom-sidebar').classList.add('show-sidebar');
                                 
-                                // Show loader in the sidebar
-                                document.getElementById('unitListContainer').innerHTML = '<div class="text-center p-3 text-muted spinner-border mx-auto" role="status"></div>';
+                                document.getElementById('unitListContainer').innerHTML = '<div class="text-center p-3 text-muted">Loading units...</div>';
 
-                                // Fetch units from API
                                 fetch('api/get_project_units.php?project_id=' + project.project_id)
                                     .then(response => response.json())
                                     .then(unitData => {
@@ -199,7 +231,7 @@ require_once 'header.php'; // Your standard header
             });
     });
 
-    // 4. Handle CSV Upload Form Submission
+    // Handle CSV Upload Form Submission
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
         e.preventDefault();
         
