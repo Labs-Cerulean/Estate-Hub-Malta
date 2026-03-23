@@ -15,16 +15,57 @@ require_once 'header.php'; // Your standard header
 <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
 
 <style>
-    /* Full height map minus the navbar */
-    #sales-map { position: absolute; top: 70px; bottom: 0; width: 100%; left: 0; }
+    /* Hide the footer on this specific page for a full-screen app experience */
+    footer, .footer, #footer { display: none !important; }
+    
+    /* Ensure the main container doesn't restrict the layout */
+    .container-fluid.main-content, .main-panel { padding: 0 !important; margin: 0 !important; }
+    
+    /* A relative wrapper forces the absolute map & filter to stay together */
+    #map-wrapper {
+        position: relative;
+        height: calc(100vh - 70px); /* Assumes your header is roughly 70px high */
+        width: 100%;
+        overflow: hidden;
+    }
+    
+    #sales-map { 
+        position: absolute; 
+        top: 0; bottom: 0; width: 100%; left: 0; 
+    }
+    
+    /* Ensure the filter stays neatly in the top left of the map */
+    .filter-overlay {
+        position: absolute;
+        top: 15px;
+        left: 15px;
+        z-index: 10;
+        width: 250px;
+        border-radius: 15px; 
+        background: rgba(255,255,255,0.9); 
+        backdrop-filter: blur(10px);
+    }
     
     /* Sleek UI Overrides */
     .mapboxgl-popup-content { border-radius: 12px; padding: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
     .status-badge { font-size: 0.8rem; padding: 5px 10px; border-radius: 20px; font-weight: 600; }
-    
-    /* Ensure the main container doesn't restrict the absolute map */
-    .container-fluid.main-content { padding: 0 !important; }
 </style>
+
+<div id="map-wrapper">
+    <div id='sales-map'></div>
+
+    <div class="card shadow-sm border-0 filter-overlay">
+        <div class="card-body p-3">
+            <h5 class="mb-3 fw-bold"><i class="fas fa-map-marked-alt text-primary"></i> Sales Hub</h5>
+            <select class="form-select mb-2 rounded-pill shadow-sm" id="typeFilter">
+                <option value="all">All Property Types</option>
+                <option value="apartment">Apartments</option>
+                <option value="commercial">Commercial</option>
+                <option value="garage">Garages</option>
+            </select>
+        </div>
+    </div>
+</div>
 
 <div id='sales-map'></div>
 
