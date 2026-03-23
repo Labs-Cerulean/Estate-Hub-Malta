@@ -93,7 +93,7 @@ require_once 'header.php'; // Your standard header
             
             <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
                 <hr>
-                <button class="btn btn-outline-primary btn-sm btn-block w-100" style="border-radius: 20px;" data-toggle="modal" data-target="#uploadFrameModal" data-bs-toggle="modal" data-bs-target="#uploadFrameModal">
+                <button class="btn btn-outline-primary btn-sm btn-block w-100" style="border-radius: 20px;" onclick="openUploadModal()">
                     <i class="fas fa-file-upload"></i> Upload Frame (CSV)
                 </button>
             <?php endif; ?>
@@ -128,12 +128,12 @@ require_once 'header.php'; // Your standard header
   </div>
 </div>
 
-<div class="modal fade" id="uploadFrameModal" tabindex="-1" role="dialog">
+<div class="modal fade" id="uploadFrameModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear;">
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Upload Project Frame</h5>
-        <button type="button" class="close btn-close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
+        <button type="button" class="close btn-close" aria-label="Close" onclick="closeUploadModal()" style="background: transparent; border: none; font-size: 1.5rem;">
           <span aria-hidden="true">&times;</span>
         </button>
       </div>
@@ -161,7 +161,30 @@ require_once 'header.php'; // Your standard header
 </div>
 
 <script>
-    // Mapbox Initialization
+    // --- Bulletproof Modal Functions ---
+    function openUploadModal() {
+        const modal = document.getElementById('uploadFrameModal');
+        modal.classList.add('show');
+        modal.style.display = 'block';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.5)'; // Creates the dark background overlay
+        setTimeout(() => modal.style.opacity = '1', 10);
+    }
+
+    function closeUploadModal() {
+        const modal = document.getElementById('uploadFrameModal');
+        modal.style.opacity = '0';
+        setTimeout(() => {
+            modal.classList.remove('show');
+            modal.style.display = 'none';
+        }, 300);
+    }
+
+    // Custom Sidebar Functions
+    function closeSidebar() {
+        document.getElementById('custom-sidebar').classList.remove('show-sidebar');
+    }
+
+    // --- Mapbox Initialization ---
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
     const map = new mapboxgl.Map({
         container: 'sales-map',
@@ -172,11 +195,6 @@ require_once 'header.php'; // Your standard header
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
-
-    // Custom Sidebar Functions
-    function closeSidebar() {
-        document.getElementById('custom-sidebar').classList.remove('show-sidebar');
-    }
 
     // Fetch Data and Add Markers
     map.on('load', () => {
@@ -231,7 +249,7 @@ require_once 'header.php'; // Your standard header
             });
     });
 
-    // Handle CSV Upload Form Submission
+    // --- Handle CSV Upload Form Submission ---
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
         e.preventDefault();
         
