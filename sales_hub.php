@@ -39,7 +39,18 @@ require_once 'header.php';
         transition: right 0.3s ease-in-out; z-index: 1050; overflow-y: auto;
     }
     #custom-sidebar.show-sidebar { right: 0; }
-    .sidebar-header { background-color: #1a1d20; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); }
+   .sidebar-header { 
+        position: sticky; /* Locks it to the top */
+        top: 0; 
+        z-index: 1060; /* Keeps it layered above the scrolling text */
+        background-color: #1a1d20; 
+        color: white; 
+        padding: 15px 20px; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        border-bottom: 1px solid rgba(255,255,255,0.05); 
+    }
     .status-badge { font-size: 0.8rem; padding: 5px 10px; border-radius: 20px; font-weight: 600; display: inline-block;}
     
     /* Custom Scrollbar for sidebar */
