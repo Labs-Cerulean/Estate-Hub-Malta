@@ -117,6 +117,36 @@ require_once 'header.php'; // Your standard header
   </div>
 </div>
 
+<div class="modal fade" id="uploadFrameModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Upload Project Frame</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="uploadFrameForm">
+          <div class="modal-body">
+            <div class="mb-3">
+                <label class="form-label">Select Project</label>
+                <select class="form-select" name="project_id" required>
+                    <option value="">-- Choose Project --</option>
+                    <option value="42">Next Developers (Qrendi)</option> 
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">CSV File</label>
+                <input class="form-control" type="file" name="frame_csv" accept=".csv" required>
+                <div class="form-text">Ensure file is saved as a CSV matching the 8-column template.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="submit" class="btn btn-primary">Upload & Import</button>
+          </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
     // 1. Initialize Mapbox (Replace with your free Mapbox Access Token)
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
