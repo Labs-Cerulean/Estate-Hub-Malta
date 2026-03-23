@@ -1,6 +1,7 @@
 <?php
 require_once '../config.php';
 require_once '../session-check.php';
+require_once '../S3FileManager.php';
 
 header('Content-Type: application/json');
 
@@ -14,13 +15,38 @@ if (!$project_id) {
 }
 
 try {
-    // Added floor_level to the SELECT
+    $s3 = new S3FileManager();
+
+    // 1. Fetch Cloudflare Media from Universal Vault
+    $docStmt = $pdo->prepare("SELECT sub_category, title, file_path FROM project_documents WHERE project_id = ? AND category = 'Sales'");
+    $docStmt->execute([$project_id]);
+    $docs = $docStmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $renders = [];
+    $videos = [];
+    $plans = []; 
+    
+    foreach ($docs as $d) {
+        $url = $s3->getPresignedUrl($d['file_path'], '+60 minutes');
+        if ($d['sub_category'] === 'Render (Image)') {
+            $renders[] = $url;
+        } elseif ($d['sub_category'] === 'Render (Video)') {
+            $videos[] = $url;
+        } elseif ($d['sub_category'] === 'Floor Plan') {
+            // Extract the tagged floor level we created in step 1
+            if (preg_match('/Level (.*)/i', $d['title'], $matches)) {
+                $lvl = trim($matches[1]);
+                $plans[$lvl] = $url;
+            }
+        }
+    }
+
+    // 2. Fetch Units
     $stmt = $pdo->prepare("SELECT id, unit_name, unit_type, floor_level, shell_price, finishes_price, internal_sqm, external_sqm, description, status, held_by_agent_id FROM sales_properties WHERE project_id = ? ORDER BY floor_level ASC, unit_type, unit_name");
     $stmt->execute([$project_id]);
     $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $html = '';
-    
     if (empty($units)) {
         $html = '<div class="p-4 text-center text-light">No units found for this project.</div>';
     } else {
@@ -40,22 +66,22 @@ try {
             if(strpos($u['status'], 'Sold') !== false) $badgeColor = 'bg-danger';
             if(strpos($u['status'], 'Reserved') !== false) $badgeColor = 'bg-info text-dark';
             
+            // If Cloudflare has a plan for this specific floor, generate a button!
+            $planBtn = '';
+            $floorLvl = trim($u['floor_level']);
+            if (isset($plans[$floorLvl])) {
+                $planBtn = "<a href='{$plans[$floorLvl]}' target='_blank' class='btn btn-sm btn-outline-info w-100 py-0 mb-1' style='font-size: 0.75rem;'><i class='fas fa-map'></i> View Plan</a>";
+            }
+
             $html .= "<tr style='border-bottom: 1px solid #343a40;'>";
-            
-            // Col 1: Unit, Floor & Desc
             $html .= "<td>
                         <div class='fw-bold text-light'><i class='fas {$icon} text-secondary me-1'></i>{$u['unit_name']} <span class='badge bg-secondary ms-1'>Lvl {$u['floor_level']}</span></div>
                         <div class='small text-muted' style='font-size: 0.7rem;'>{$u['description']}</div>
                       </td>";
-            
-            // Col 2: SQM
             $html .= "<td><div class='text-light'>I: {$u['internal_sqm']}</div><div class='text-light'>E: {$u['external_sqm']}</div></td>";
-            
-            // Col 3: Price
             $html .= "<td><div class='fw-bold text-info'>{$price_str}</div></td>";
-            
-            // Col 4: Status (Dropdown for Managers, Badge for Agents)
-            $html .= "<td class='text-center'>";
+            $html .= "<td class='text-center'>{$planBtn}";
+
             if ($is_manager) {
                 $statuses = ['Available', 'On Hold', 'Reserved', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
                 $html .= "<select class='form-select form-select-sm bg-dark text-light border-secondary mb-1' style='font-size: 0.75rem;' onchange='managerUpdateStatus({$u['id']}, this.value)'>";
@@ -76,7 +102,16 @@ try {
         }
         $html .= '</tbody></table></div>';
     }
-    echo json_encode(['success' => true, 'html' => $html]);
+    
+    // Return HTML AND the Media links to populate the sidebar!
+    echo json_encode([
+        'success' => true, 
+        'html' => $html,
+        'media' => [
+            'renders' => $renders,
+            'videos' => $videos
+        ]
+    ]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
