@@ -277,6 +277,23 @@ require_once 'header.php';
             if(data.success) { alert(data.message); location.reload(); } else { alert('Error: ' + data.message); btn.innerHTML = 'Upload & Import'; btn.disabled = false; }
         });
     });
+
+    // --- Manager Status Update ---
+    function managerUpdateStatus(propertyId, newStatus) {
+        let formData = new FormData(); 
+        formData.append('property_id', propertyId); 
+        formData.append('new_status', newStatus);
+        
+        fetch('api/manager_update_status.php', { method: 'POST', body: formData })
+        .then(r => r.json()).then(data => {
+            if(data.success) { 
+                // Don't reload the whole page, just quietly acknowledge
+                console.log("Status updated to " + newStatus); 
+            } else { 
+                alert("Error: " + data.message); 
+            }
+        });
+    }
 </script>
 
 <?php require_once 'footer.php'; ?>
