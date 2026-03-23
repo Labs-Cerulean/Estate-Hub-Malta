@@ -33,11 +33,18 @@ try {
         
         $inserted_count = 0;
         
-        // Prepare the insert statement to match the 8 columns
+        // Prepare the insert statement for the property
         $stmt = $pdo->prepare("
             INSERT INTO sales_properties 
             (project_id, unit_name, unit_type, description, internal_sqm, external_sqm, shell_price, finishes_price, status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+
+        // Prepare the insert statement for the individual audit log
+        $log_stmt = $pdo->prepare("
+            INSERT INTO sales_property_logs 
+            (property_id, user_id, action, old_status, new_status, justification) 
+            VALUES (?, ?, ?, ?, ?, ?)
         ");
         
         // Loop through each row in the CSV
@@ -46,7 +53,7 @@ try {
             if(count($data) >= 8 && trim($data[0]) !== '') {
                 
                 $unit_name    = trim($data[0]);
-                $unit_type    = strtolower(trim($data[1])); // apartment, commercial, or garage
+                $unit_type    = strtolower(trim($data[1])); 
                 $description  = trim($data[2]);
                 $internal_sqm = (float) trim($data[3]);
                 $external_sqm = (float) trim($data[4]);
@@ -54,9 +61,9 @@ try {
                 $cp_price     = (float) trim($data[6]);
                 $status       = trim($data[7]);
                 
-                // Fallback for empty status
                 if(empty($status)) $status = 'Available';
 
+                // 1. Insert the Property
                 $stmt->execute([
                     $project_id, 
                     $unit_name, 
@@ -69,16 +76,25 @@ try {
                     $status
                 ]);
                 
+                // 2. Get the new, real ID of the unit we just created
+                $new_property_id = $pdo->lastInsertId();
+
+                // 3. Log this specific unit's creation
+                $log_stmt->execute([
+                    $new_property_id, 
+                    $_SESSION['user_id'], 
+                    'Initial Frame Import', 
+                    'None', 
+                    $status, 
+                    'Imported via CSV Frame Upload'
+                ]);
+                
                 $inserted_count++;
             }
         }
         fclose($handle);
         
-        // Log the bulk action (Rule #3)
-        $log = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
-        $log->execute([0, $_SESSION['user_id'], 'Bulk Project Frame Upload', 'None', 'Available/Hold', "Uploaded $inserted_count units to Project $project_id"]);
-
-        echo json_encode(['success' => true, 'message' => "$inserted_count units successfully uploaded!"]);
+        echo json_encode(['success' => true, 'message' => "$inserted_count units successfully uploaded and logged!"]);
     } else {
         throw new Exception("Could not read the uploaded file.");
     }
