@@ -194,6 +194,60 @@ require_once 'header.php'; // Your standard header
         document.getElementById('custom-sidebar').classList.remove('show-sidebar');
     }
 
+        // --- Property Action Workflows ---
+    
+    function holdProperty(propertyId) {
+        if(!confirm("Are you sure you want to put this unit on hold? You will have 7 days to finalize.")) return;
+        
+        let formData = new FormData();
+        formData.append('action', 'hold_property');
+        formData.append('property_id', propertyId);
+    
+        fetch('api/sales_actions.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.success) {
+                alert("Property successfully put on hold!");
+                location.reload(); // Reload to update the map pin colors and sidebar counts
+            } else {
+                alert("Error: " + data.message);
+            }
+        })
+        .catch(error => {
+            alert("An error occurred communicating with the server.");
+            console.error(error);
+        });
+    }
+    
+    function requestReserve(propertyId) {
+        if(!confirm("Are you sure you want to transition this unit to Reserved?")) return;
+        
+        let formData = new FormData();
+        formData.append('action', 'request_reserved');
+        formData.append('property_id', propertyId);
+    
+        fetch('api/sales_actions.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.success) {
+                alert("Reservation status updated!");
+                location.reload(); 
+            } else {
+                alert("Error: " + data.message);
+            }
+        })
+        .catch(error => {
+            alert("An error occurred communicating with the server.");
+            console.error(error);
+        });
+    }
+
     // --- Mapbox Initialization ---
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
     const map = new mapboxgl.Map({
