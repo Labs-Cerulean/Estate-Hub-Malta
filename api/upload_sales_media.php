@@ -11,44 +11,55 @@ if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $allowed_roles)) {
     exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || empty($_FILES['media_file']['tmp_name'])) {
-    echo json_encode(['success' => false, 'message' => 'No file uploaded.']);
-    exit;
-}
-
-$project_id = (int)($_POST['project_id'] ?? 0);
-$media_type = $_POST['media_type'] ?? ''; 
-$floor_level = trim($_POST['floor_level'] ?? '');
-
-if (!$project_id || !$media_type) {
-    echo json_encode(['success' => false, 'message' => 'Missing required fields.']);
-    exit;
-}
+$action = $_POST['action'] ?? '';
 
 try {
     $s3 = new S3FileManager();
-    $file = $_FILES['media_file'];
-    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-    
-    // Upload to Cloudflare (Folder: sales)
-    $fileKey = $s3->uploadFile($file['tmp_name'], $file['name'], $file['type'], 'sales');
-    if (!$fileKey) {
-        throw new Exception("Failed to upload file to Cloudflare. Check your R2 settings.");
+
+    // STEP 1: Generate the Secure Cloudflare Link
+    if ($action === 'get_upload_url') {
+        $filename = $_POST['filename'] ?? 'file';
+        $mime_type = $_POST['mime_type'] ?? 'application/octet-stream';
+        
+        $urlData = $s3->getPresignedUploadUrl($filename, $mime_type, 'sales');
+        
+        if ($urlData) {
+            echo json_encode(['success' => true, 'url' => $urlData['url'], 'key' => $urlData['key']]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Failed to generate secure upload link.']);
+        }
+        exit;
     }
-    
-    // Build the Document Title
-    $title = preg_replace('/\\.[^.\\s]{3,4}$/', '', $file['name']); // Remove extension
-    
-    // If it's a Floor Plan, tag the floor level to the title so it matches automatically later
-    if ($media_type === 'Floor Plan' && $floor_level !== '') {
-        $title = "Floor Plan - Level " . $floor_level;
+
+    // STEP 2: Save the file record to the Database
+    if ($action === 'save_record') {
+        $project_id = (int)($_POST['project_id'] ?? 0);
+        $media_type = $_POST['media_type'] ?? ''; 
+        $floor_level = trim($_POST['floor_level'] ?? '');
+        $fileKey = $_POST['file_key'];
+        $filename = $_POST['filename'];
+        
+        if (!$project_id || !$media_type || !$fileKey) {
+            throw new Exception("Missing required fields to save record.");
+        }
+
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $title = preg_replace('/\\.[^.\\s]{3,4}$/', '', $filename); // Remove extension
+        
+        // Auto-tag the Floor Plan
+        if ($media_type === 'Floor Plan' && $floor_level !== '') {
+            $title = "Floor Plan - Level " . $floor_level;
+        }
+        
+        $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, uploaded_by) VALUES (?, 'Sales', ?, ?, ?, ?, ?)");
+        $stmt->execute([$project_id, $media_type, $title, $fileKey, $ext, $_SESSION['user_id']]);
+        
+        echo json_encode(['success' => true, 'message' => 'Media successfully uploaded to Cloudflare!']);
+        exit;
     }
-    
-    // Insert directly into the Universal Document Vault under "Sales"
-    $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, uploaded_by) VALUES (?, 'Sales', ?, ?, ?, ?, ?)");
-    $stmt->execute([$project_id, $media_type, $title, $fileKey, $ext, $_SESSION['user_id']]);
-    
-    echo json_encode(['success' => true, 'message' => 'Media uploaded successfully!']);
+
+    echo json_encode(['success' => false, 'message' => 'Invalid action request.']);
+
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
