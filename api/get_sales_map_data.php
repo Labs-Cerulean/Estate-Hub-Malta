@@ -14,10 +14,10 @@ if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $allowed_roles)) {
 try {
     // Fetch projects that have sales properties, along with their coordinates
     // Assuming your `projects` table has latitude/longitude. If they are in `sales_properties`, adjust accordingly.
-    $query = "
+   $query = "
         SELECT 
             p.id as project_id, 
-            p.project_name, 
+            p.name as project_name, 
             p.latitude, 
             p.longitude,
             COUNT(sp.id) as total_units,
