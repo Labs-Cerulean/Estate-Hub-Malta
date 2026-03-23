@@ -2,7 +2,7 @@
 require_once 'config.php';
 require_once 'session-check.php';
 
-$allowed_roles = ['sales_manager', 'sales_agent', 'admin', 'director'];
+$allowed_roles = ['sales_manager', 'sales_agent', 'admin', 'director', 'system_manager'];
 if (!in_array($_SESSION['role'], $allowed_roles)) {
     header("Location: index.php");
     exit;
@@ -74,22 +74,6 @@ require_once 'header.php'; // Your standard header
     </div>
 </div>
 
-<div id='sales-map'></div>
-
-<div class="position-absolute top-0 start-0 m-3" style="z-index: 10; margin-top: 85px !important;">
-    <div class="card shadow-sm border-0" style="border-radius: 15px; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);">
-        <div class="card-body p-3">
-            <h5 class="mb-3 fw-bold">Sales Hub</h5>
-            <select class="form-select mb-2 rounded-pill shadow-sm" id="typeFilter">
-                <option value="all">All Property Types</option>
-                <option value="apartment">Apartments</option>
-                <option value="commercial">Commercial</option>
-                <option value="garage">Garages</option>
-            </select>
-        </div>
-    </div>
-</div>
-
 <div class="offcanvas offcanvas-end" tabindex="-1" id="propertySidebar" aria-labelledby="propertySidebarLabel" style="width: 450px; border-left: none; box-shadow: -5px 0 25px rgba(0,0,0,0.1);">
   <div class="offcanvas-header bg-dark text-white">
     <h5 class="offcanvas-title fw-bold" id="sidebarProjectName">Project Details</h5>
@@ -111,7 +95,6 @@ require_once 'header.php'; // Your standard header
         <h6 class="fw-bold mb-3 text-uppercase text-muted">Available Units</h6>
         
         <div id="unitListContainer" class="list-group list-group-flush border-top border-bottom">
-            <div class="text-center p-3 text-muted spinner-border mx-auto d-none" id="unitLoader" role="status"></div>
             </div>
     </div>
   </div>
@@ -148,17 +131,16 @@ require_once 'header.php'; // Your standard header
 </div>
 
 <script>
-    // 1. Initialize Mapbox (Replace with your free Mapbox Access Token)
+    // 1. Initialize Mapbox
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
     const map = new mapboxgl.Map({
         container: 'sales-map',
-        style: 'mapbox://styles/mapbox/light-v11', // Sleek, modern light theme
-        center: [14.405, 35.937], // Centered on Malta
+        style: 'mapbox://styles/mapbox/light-v11',
+        center: [14.405, 35.937], 
         zoom: 11,
-        pitch: 45, // Adds a slight 3D tilt
+        pitch: 45, 
     });
 
-    // Add zoom and rotation controls to the map.
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
 
     // 2. Fetch Data and Add Markers
@@ -166,13 +148,13 @@ require_once 'header.php'; // Your standard header
         fetch('api/get_sales_map_data.php')
             .then(response => response.json())
             .then(data => {
-                if(data.success) {
+                if(data.success && data.data) {
                     data.data.forEach(project => {
                         if(project.latitude && project.longitude) {
-                            // Create a custom HTML marker
+                            
                             const el = document.createElement('div');
                             el.className = 'custom-marker';
-                            el.style.backgroundColor = project.available_units > 0 ? '#198754' : '#dc3545'; // Green if avail, Red if sold out
+                            el.style.backgroundColor = project.available_units > 0 ? '#198754' : '#dc3545';
                             el.style.width = '24px';
                             el.style.height = '24px';
                             el.style.borderRadius = '50%';
@@ -180,17 +162,14 @@ require_once 'header.php'; // Your standard header
                             el.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
                             el.style.cursor = 'pointer';
 
-                            // Add marker to map
-                            const marker = new mapboxgl.Marker(el)
+                            new mapboxgl.Marker(el)
                                 .setLngLat([project.longitude, project.latitude])
                                 .addTo(map);
 
-                            // 3. Handle Marker Clicks (Open Sidebar)
+                            // 3. Handle Marker Clicks (Open Sidebar & Fetch Units)
                             el.addEventListener('click', () => {
-                                // Fly to location
                                 map.flyTo({ center: [project.longitude, project.latitude], zoom: 15 });
                                 
-                                // Populate Sidebar Header Data
                                 document.getElementById('sidebarProjectName').innerText = project.project_name;
                                 document.getElementById('sidebarAvail').innerText = project.available_units;
                                 document.getElementById('sidebarHold').innerText = project.held_units;
@@ -200,8 +179,19 @@ require_once 'header.php'; // Your standard header
                                 const sidebar = new bootstrap.Offcanvas(document.getElementById('propertySidebar'));
                                 sidebar.show();
                                 
-                                // TODO: Add an AJAX call here to fetch the specific units for `project.project_id` 
-                                // and inject the HTML rows (with "Hold" / "Request Reserve" buttons) into `#unitListContainer`.
+                                // Show loader in the sidebar
+                                document.getElementById('unitListContainer').innerHTML = '<div class="text-center p-3 text-muted spinner-border mx-auto" role="status"></div>';
+
+                                // Fetch units from API
+                                fetch('api/get_project_units.php?project_id=' + project.project_id)
+                                    .then(response => response.json())
+                                    .then(unitData => {
+                                        if(unitData.success) {
+                                            document.getElementById('unitListContainer').innerHTML = unitData.html;
+                                        } else {
+                                            document.getElementById('unitListContainer').innerHTML = '<div class="p-3 text-center text-danger">Error loading units.</div>';
+                                        }
+                                    });
                             });
                         }
                     });
@@ -209,7 +199,7 @@ require_once 'header.php'; // Your standard header
             });
     });
 
-    // Handle CSV Upload Form Submission
+    // 4. Handle CSV Upload Form Submission
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
         e.preventDefault();
         
@@ -226,7 +216,7 @@ require_once 'header.php'; // Your standard header
         .then(data => {
             if(data.success) {
                 alert(data.message);
-                location.reload(); // Reload page to show the new map pin!
+                location.reload(); 
             } else {
                 alert('Error: ' + data.message);
                 submitBtn.innerHTML = 'Upload & Import';
@@ -234,7 +224,8 @@ require_once 'header.php'; // Your standard header
             }
         })
         .catch(error => {
-            alert('An unexpected error occurred.');
+            alert('An unexpected error occurred. Check console.');
+            console.error(error);
             submitBtn.innerHTML = 'Upload & Import';
             submitBtn.disabled = false;
         });
