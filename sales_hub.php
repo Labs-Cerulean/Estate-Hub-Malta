@@ -208,6 +208,37 @@ require_once 'header.php'; // Your standard header
                 }
             });
     });
+
+    // Handle CSV Upload Form Submission
+    document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        let formData = new FormData(this);
+        let submitBtn = this.querySelector('button[type="submit"]');
+        submitBtn.innerHTML = 'Uploading...';
+        submitBtn.disabled = true;
+    
+        fetch('api/upload_project_frame.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.success) {
+                alert(data.message);
+                location.reload(); // Reload page to show the new map pin!
+            } else {
+                alert('Error: ' + data.message);
+                submitBtn.innerHTML = 'Upload & Import';
+                submitBtn.disabled = false;
+            }
+        })
+        .catch(error => {
+            alert('An unexpected error occurred.');
+            submitBtn.innerHTML = 'Upload & Import';
+            submitBtn.disabled = false;
+        });
+    });
 </script>
 
 <?php require_once 'footer.php'; ?>
