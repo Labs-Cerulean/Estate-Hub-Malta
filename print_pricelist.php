@@ -40,61 +40,74 @@ foreach ($units as $u) {
     <meta charset="UTF-8">
     <title><?= htmlspecialchars($project['name']) ?> - Live Pricelist</title>
     <style>
-        body { margin: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #525659; }
+        /* Base styling for screen preview */
+        body { margin: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #525659; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         
-        .page { 
+        .print-page { 
             width: 210mm; 
-            height: 297mm; 
             background: white; 
             margin: 20px auto; 
             box-shadow: 0 5px 15px rgba(0,0,0,0.3); 
-            overflow: hidden; 
             position: relative;
-            display: flex;
-            flex-direction: column;
+        }
+        
+        /* Image pages are strictly locked to A4 dimensions */
+        .img-page {
+            height: 297mm; 
+            overflow: hidden;
         }
         .full-img { width: 100%; height: 100%; object-fit: cover; }
         
-        .data-page { padding: 40px; box-sizing: border-box; }
+        /* Data pages flow naturally to allow browser page-breaking */
+        .data-page { 
+            padding: 15mm; 
+            box-sizing: border-box; 
+            min-height: 297mm;
+        }
+
         .data-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #111; padding-bottom: 10px; }
         .data-header h1 { margin: 0; font-size: 28px; text-transform: uppercase; color: #111; }
         .data-header p { margin: 5px 0 0 0; color: #666; font-size: 12px; }
 
-        .floor-section { margin-bottom: 20px; }
+        .floor-section { margin-bottom: 25px; page-break-inside: avoid; }
         .floor-title { background: #111; color: white; padding: 5px 10px; font-weight: bold; text-transform: uppercase; font-size: 14px; margin-bottom: 10px; }
         
         table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 10px; }
-        th { background: #f3f4f6; color: #333; padding: 8px; text-align: left; border-bottom: 2px solid #ccc; text-transform: uppercase; font-size: 10px; }
+        thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
+        th { background: #f3f4f6; color: #333; padding: 10px 8px; text-align: left; border-bottom: 2px solid #ccc; text-transform: uppercase; font-size: 10px; }
         td { padding: 8px; border-bottom: 1px solid #eee; color: #111; }
         .num { text-align: right; }
         .bold { font-weight: bold; }
         
-        /* Status styling to match your PDF */
         .status-hold { color: #f59e0b; font-weight: bold; }
         .status-sold { color: #ef4444; font-weight: bold; }
         .status-avail { color: #10b981; font-weight: bold; }
 
+        /* Print Override */
         @media print {
-            body { background: white; margin: 0; }
-            .page { margin: 0; box-shadow: none; page-break-after: always; }
+            @page { size: A4; margin: 0; }
+            body { background: transparent; margin: 0; }
+            .print-page { margin: 0; box-shadow: none; page-break-after: always; }
+            .data-page { min-height: auto; } /* Let the browser dictate the exact height for splits */
             .no-print { display: none !important; }
         }
     </style>
 </head>
 <body>
 
-    <div class="no-print" style="position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 1000; color: white; text-align: center;">
+    <div class="no-print" style="position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 1000; color: white; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
         <p style="margin: 0 0 10px 0; font-size: 14px;">Review Live Pricelist</p>
         <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Save to PDF / Print</button>
     </div>
 
     <?php if (isset($media['Pricelist - Front Cover'])): ?>
-    <div class="page">
+    <div class="print-page img-page">
         <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Front Cover']) ?>">
     </div>
     <?php endif; ?>
 
-    <div class="page data-page">
+    <div class="print-page data-page">
         <div class="data-header">
             <h1>PRICE LIST</h1>
             <p>Generated: <?= date('d F Y H:i') ?> | Prices and availability subject to change without notice.</p>
@@ -138,19 +151,19 @@ foreach ($units as $u) {
     </div>
 
     <?php if (isset($media['Pricelist - Timeframes & Terms'])): ?>
-    <div class="page">
+    <div class="print-page img-page">
         <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Timeframes & Terms']) ?>">
     </div>
     <?php endif; ?>
 
     <?php if (isset($media['Pricelist - Spec Sheet'])): ?>
-    <div class="page">
+    <div class="print-page img-page">
         <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Spec Sheet']) ?>">
     </div>
     <?php endif; ?>
 
     <?php if (isset($media['Pricelist - Back Cover'])): ?>
-    <div class="page">
+    <div class="print-page img-page">
         <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Back Cover']) ?>">
     </div>
     <?php endif; ?>
