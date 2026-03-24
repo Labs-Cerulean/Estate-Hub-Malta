@@ -161,12 +161,12 @@ require_once 'header.php';
                 <button class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Live Pricelist</button>
             </div>
             
-            <div class="btn-group w-100 mt-2" role="group">
+            <div class="d-flex gap-2 w-100 mt-2">
                 <input type="radio" class="btn-check" name="unitFilter" id="filterAll" autocomplete="off" checked onchange="filterSidebarUnits('All')">
-                <label class="btn btn-outline-info btn-sm" for="filterAll">Show All Units</label>
+                <label class="btn btn-outline-info btn-sm flex-fill shadow-sm" style="border-radius: 8px; padding: 8px;" for="filterAll">Show All Units</label>
 
                 <input type="radio" class="btn-check" name="unitFilter" id="filterAvail" autocomplete="off" onchange="filterSidebarUnits('Available')">
-                <label class="btn btn-outline-success btn-sm" for="filterAvail">Available Only</label>
+                <label class="btn btn-outline-success btn-sm flex-fill shadow-sm" style="border-radius: 8px; padding: 8px;" for="filterAvail">Available Only</label>
             </div>
         </div>
         
@@ -307,10 +307,10 @@ require_once 'header.php';
         const cards = document.querySelectorAll('.unit-card');
         cards.forEach(card => {
             if (filterType === 'All') {
-                card.style.display = 'flex';
+                card.style.display = ''; // Removed the 'flex' parameter that was breaking the layout
             } else if (filterType === 'Available') {
                 if (card.getAttribute('data-status') === 'Available') {
-                    card.style.display = 'flex';
+                    card.style.display = ''; // Removed the 'flex' parameter that was breaking the layout
                 } else {
                     card.style.display = 'none';
                 }
