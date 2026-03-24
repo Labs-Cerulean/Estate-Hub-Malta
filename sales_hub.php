@@ -155,18 +155,19 @@ require_once 'header.php';
             <span class="badge badge-danger bg-danger status-badge"><span id="sidebarSold">0</span> Sold</span>
         </div>
         
-        <div class="d-flex flex-column gap-2 mb-4 px-2 border-bottom border-secondary pb-3">
-            <div class="d-flex justify-content-between align-items-center">
+        <div class="mb-4 px-2 border-bottom border-secondary pb-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
                 <h6 class="font-weight-bold fw-bold text-uppercase text-light m-0">Project Units</h6>
                 <button class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Live Pricelist</button>
             </div>
             
-            <div class="d-flex gap-2 w-100 mt-2">
-                <input type="radio" class="btn-check" name="unitFilter" id="filterAll" autocomplete="off" checked onchange="filterSidebarUnits('All')">
-                <label class="btn btn-outline-info btn-sm flex-fill shadow-sm" style="border-radius: 8px; padding: 8px;" for="filterAll">Show All Units</label>
-
-                <input type="radio" class="btn-check" name="unitFilter" id="filterAvail" autocomplete="off" onchange="filterSidebarUnits('Available')">
-                <label class="btn btn-outline-success btn-sm flex-fill shadow-sm" style="border-radius: 8px; padding: 8px;" for="filterAvail">Available Only</label>
+            <div class="row m-0 w-100">
+                <div class="col-6 p-0 pr-1">
+                    <button class="btn btn-info w-100 shadow-sm" id="btnFilterAll" style="border-radius: 8px; padding: 8px; font-weight: 600; font-size: 0.85rem;" onclick="setFilter('All')">Show All</button>
+                </div>
+                <div class="col-6 p-0 pl-1">
+                    <button class="btn btn-outline-success w-100 shadow-sm" id="btnFilterAvail" style="border-radius: 8px; padding: 8px; font-weight: 600; font-size: 0.85rem;" onclick="setFilter('Available')">Available Only</button>
+                </div>
             </div>
         </div>
         
@@ -302,15 +303,28 @@ require_once 'header.php';
         }, 3000);
     }
 
-    // --- Quick Filter System ---
-    function filterSidebarUnits(filterType) {
+    // --- Bulletproof Filter System ---
+    function setFilter(filterType) {
+        const btnAll = document.getElementById('btnFilterAll');
+        const btnAvail = document.getElementById('btnFilterAvail');
+
+        // Toggle UI Active State
+        if (filterType === 'All') {
+            btnAll.className = 'btn btn-info w-100 shadow-sm';
+            btnAvail.className = 'btn btn-outline-success w-100 shadow-sm';
+        } else {
+            btnAll.className = 'btn btn-outline-info w-100 shadow-sm';
+            btnAvail.className = 'btn btn-success w-100 shadow-sm';
+        }
+
+        // Apply Filter Logic to Cards
         const cards = document.querySelectorAll('.unit-card');
         cards.forEach(card => {
             if (filterType === 'All') {
-                card.style.display = ''; // Removed the 'flex' parameter that was breaking the layout
+                card.style.display = 'block'; 
             } else if (filterType === 'Available') {
                 if (card.getAttribute('data-status') === 'Available') {
-                    card.style.display = ''; // Removed the 'flex' parameter that was breaking the layout
+                    card.style.display = 'block';
                 } else {
                     card.style.display = 'none';
                 }
@@ -433,8 +447,8 @@ require_once 'header.php';
         document.getElementById('sidebarHold').innerText = project.held_units;
         document.getElementById('sidebarSold').innerText = project.sold_units;
 
-        // Reset the quick filter toggle to 'All'
-        document.getElementById('filterAll').checked = true;
+        // Reset the quick filter toggle to 'All' to match the fresh load
+        setFilter('All');
 
         document.getElementById('custom-sidebar').classList.add('show-sidebar');
         document.getElementById('unitListContainer').innerHTML = '<div class="text-center p-4 text-light"><div class="spinner-border text-info" role="status"></div><div class="mt-2">Loading units...</div></div>';
@@ -528,7 +542,6 @@ require_once 'header.php';
         formData.append('property_id', propertyId); 
         formData.append('new_status', newStatus);
         
-        // Visual feedback during save
         let originalBg = selectElement.style.backgroundColor;
         let originalColor = selectElement.style.color;
         selectElement.style.backgroundColor = '#374151'; 
@@ -539,13 +552,11 @@ require_once 'header.php';
         .then(r => r.json()).then(data => {
             selectElement.disabled = false;
             if(data.success) { 
-                // Flash success color
                 selectElement.style.backgroundColor = '#065f46';
                 selectElement.style.color = '#fff';
                 
                 showToast(`Status successfully updated to ${newStatus}`, 'success');
                 
-                // Instantly reload sidebar to refresh the unit's border colors and agent tags
                 setTimeout(() => {
                     const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
                     if(pid && mapProjectsData[pid]) openProjectSidebar(mapProjectsData[pid]);
