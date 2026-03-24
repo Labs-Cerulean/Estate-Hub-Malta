@@ -2,9 +2,9 @@
 require_once 'config.php';
 session_start();
 
-// If user is already logged in, redirect them so they don't see the login screen again
-if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true) {
-    $normalizedRole = strtolower(trim(str_replace(' ', '_', $_SESSION['role'])));
+// 1. If user is already logged in, redirect them immediately so they don't see the login screen
+if (isset($_SESSION['user_id'])) {
+    $normalizedRole = strtolower(trim(str_replace(' ', '_', $_SESSION['role'] ?? '')));
     if ($normalizedRole === 'sales_agent') {
         header("Location: sales_hub.php");
     } else {
@@ -12,7 +12,6 @@ if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true) {
     }
     exit;
 }
-?>
 
 $error = '';
 
