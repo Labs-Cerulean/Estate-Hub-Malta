@@ -1,11 +1,19 @@
 <?php
-require_once 'init.php';
+<?php
+require_once 'config.php';
+session_start();
 
-// If already logged in, redirect to dashboard
-if (isLoggedIn()) {
-    header('Location: dashboard.php');
+// If user is already logged in, redirect them so they don't see the login screen again
+if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true) {
+    $normalizedRole = strtolower(trim(str_replace(' ', '_', $_SESSION['role'])));
+    if ($normalizedRole === 'sales_agent') {
+        header("Location: sales_hub.php");
+    } else {
+        header("Location: dashboard.php");
+    }
     exit;
 }
+?>
 
 $error = '';
 
