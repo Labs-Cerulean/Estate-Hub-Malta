@@ -40,7 +40,7 @@ require_once 'header.php';
     }
     #custom-sidebar.show-sidebar { right: 0; }
     
-    /* Sticky Header */
+    /* Sticky Header (Stays at the top while scrolling) */
     .sidebar-header { 
         position: sticky; 
         top: 0; 
@@ -61,16 +61,20 @@ require_once 'header.php';
     #custom-sidebar::-webkit-scrollbar-track { background: #212529; }
     #custom-sidebar::-webkit-scrollbar-thumb { background: #495057; border-radius: 3px; }
 
-    /* Bulletproof Full-Screen Modal Override */
+    /* Bulletproof Full-Screen Modal */
     .modal-fullscreen-custom {
-        max-width: 100% !important;
-        margin: 0 !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
         height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
+    
     .modal-fullscreen-custom .modal-content {
         height: 100vh !important;
-        border: 0 !important;
+        min-height: 100vh !important;
         border-radius: 0 !important;
+        border: none !important;
     }
 </style>
 
@@ -135,9 +139,9 @@ require_once 'header.php';
   </div>
 </div>
 
-<div class="modal fade" id="viewPlanModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 2000; padding: 0 !important;">
-  <div class="modal-dialog" role="document" style="max-width: 100vw !important; width: 100vw !important; margin: 0 !important; height: 100vh !important;">
-    <div class="modal-content bg-dark text-light" style="height: 100vh !important; border: none !important; border-radius: 0 !important;">
+<div class="modal fade p-0" id="viewPlanModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 2000;">
+  <div class="modal-dialog modal-fullscreen-custom" role="document">
+    <div class="modal-content bg-dark text-light">
       
       <div class="modal-header border-secondary d-flex justify-content-between align-items-center" style="height: 60px; padding: 0 20px;">
         <h5 class="modal-title m-0"><i class="fas fa-map text-info"></i> Floor Plan Viewer</h5>
@@ -152,7 +156,7 @@ require_once 'header.php';
         <button type="button" class="close text-light m-0 p-0" aria-label="Close" onclick="closePlanModal()" style="background: transparent; border: none; font-size: 1.5rem; line-height: 1;"><span aria-hidden="true">&times;</span></button>
       </div>
 
-      <div class="modal-body p-0" style="height: calc(100vh - 60px) !important; width: 100vw !important; overflow: hidden; background-color: #525659; display: flex; align-items: center; justify-content: center;">
+      <div class="modal-body p-0" style="height: calc(100vh - 60px); overflow: hidden; background-color: #525659;">
           <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
               <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>
           </div>
