@@ -3,30 +3,57 @@ require_once 'init.php';
 require_once 'session-check.php';
 require_once 'S3FileManager.php'; 
 
+// --- PDF STREAMING PROXY ---
+// Bypasses browser memory crashes and Cloudflare CORS security blocks
+if (isset($_GET['proxy_doc_id'])) {
+    $docId = (int)$_GET['proxy_doc_id'];
+    $stmt = $pdo->prepare("SELECT file_path FROM project_documents WHERE id = ?");
+    $stmt->execute([$docId]);
+    $doc = $stmt->fetch();
+    
+    if ($doc) {
+        $s3 = new S3FileManager();
+        $url = $s3->getPresignedUrl($doc['file_path'], '+10 minutes');
+        
+        header("Content-Type: application/pdf");
+        
+        // Stream the file byte-by-byte to save server RAM
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, false); 
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_exec($ch);
+        curl_close($ch);
+        exit;
+    }
+    http_response_code(404);
+    exit;
+}
+// -----------------------
+
 $projectId = isset($_GET['project_id']) ? (int)$_GET['project_id'] : null;
 if (!$projectId) die("Project ID is missing.");
 
 $s3 = new S3FileManager();
 
-// 1. Fetch Project
 $stmt = $pdo->prepare("SELECT * FROM projects WHERE id = ?");
 $stmt->execute([$projectId]);
 $project = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$project) die("Project not found.");
 
-// 2. Fetch Media Pages & determine their file types
-$docsStmt = $pdo->prepare("SELECT sub_category, file_path, file_type FROM project_documents WHERE project_id = ? AND category = 'Sales' AND sub_category LIKE 'Pricelist - %' ORDER BY created_at ASC");
+// Fetch Media & determine file types
+$docsStmt = $pdo->prepare("SELECT id, sub_category, file_path, file_type FROM project_documents WHERE project_id = ? AND category = 'Sales' AND sub_category LIKE 'Pricelist - %' ORDER BY created_at ASC");
 $docsStmt->execute([$projectId]);
 $media = [];
 
 foreach ($docsStmt->fetchAll() as $d) {
     $media[$d['sub_category']] = [
+        'id' => $d['id'],
         'url' => $s3->getPresignedUrl($d['file_path'], '+60 minutes'),
         'type' => strtolower($d['file_type'])
     ];
 }
 
-// 3. Fetch and Group Units by Floor
 $uStmt = $pdo->prepare("SELECT * FROM sales_properties WHERE project_id = ? ORDER BY floor_level ASC, unit_type ASC, unit_name ASC");
 $uStmt->execute([$projectId]);
 $units = $uStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -36,20 +63,17 @@ foreach ($units as $u) {
     $floors[$u['floor_level']][] = $u;
 }
 
-// Helper function to render Images natively, or stage PDFs for JS rendering
+// Render helper
 function renderMediaPage($subCat, $mediaData) {
     if (!isset($mediaData[$subCat])) return;
     
+    $docId = $mediaData[$subCat]['id'];
     $url = $mediaData[$subCat]['url'];
     $type = $mediaData[$subCat]['type'];
 
     if ($type === 'pdf') {
-        // Fetch the PDF securely and Base64 encode it to bypass browser CORS blocks
-        $pdfContent = @file_get_contents($url);
-        if ($pdfContent) {
-            $b64 = base64_encode($pdfContent);
-            echo "<div class='pdf-render-target' data-b64='{$b64}'></div>";
-        }
+        // Drop an invisible anchor for the JS PDF Engine to find
+        echo "<div class='pdf-render-target' data-doc-id='{$docId}'></div>";
     } else {
         echo "<div class='print-page img-page'><img class='full-img' src='" . htmlspecialchars($url) . "'></div>";
     }
@@ -71,8 +95,8 @@ function renderMediaPage($subCat, $mediaData) {
             position: relative;
         }
         
-        .img-page { height: 297mm; overflow: hidden; }
-        .full-img { width: 100%; height: 100%; object-fit: cover; }
+        .img-page { height: 297mm; overflow: hidden; background: #fff; }
+        .full-img { width: 100%; height: 100%; object-fit: contain; } /* 'contain' ensures large PDF pages don't stretch weirdly */
         
         .data-page { padding: 15mm; box-sizing: border-box; min-height: 297mm; }
         .data-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #111; padding-bottom: 10px; }
@@ -173,28 +197,23 @@ function renderMediaPage($subCat, $mediaData) {
                     printBtn.style.background = "#6b7280";
                 }
 
-                // Inject PDF.js dynamically
                 const script = document.createElement('script');
                 script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
                 script.onload = async () => {
                     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
                     
                     for (let target of pdfTargets) {
-                        const b64 = target.getAttribute('data-b64');
-                        const pdfData = atob(b64);
-                        const uint8Array = new Uint8Array(pdfData.length);
-                        for (let i = 0; i < pdfData.length; i++) {
-                            uint8Array[i] = pdfData.charCodeAt(i);
-                        }
+                        const docId = target.getAttribute('data-doc-id');
+                        const proxyUrl = 'print_pricelist.php?proxy_doc_id=' + docId;
 
                         try {
-                            const loadingTask = pdfjsLib.getDocument({data: uint8Array});
+                            const loadingTask = pdfjsLib.getDocument(proxyUrl);
                             const pdf = await loadingTask.promise;
                             
                             // Loop through every page in the PDF!
                             for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                                 const page = await pdf.getPage(pageNum);
-                                const scale = 2.5; // Render at 2.5x high resolution for crisp printing
+                                const scale = 2.0; // Render at 2x resolution for high-quality printing
                                 const viewport = page.getViewport({scale: scale});
                                 
                                 const wrapper = document.createElement('div');
@@ -208,14 +227,14 @@ function renderMediaPage($subCat, $mediaData) {
                                 
                                 await page.render({ canvasContext: context, viewport: viewport }).promise;
                                 
-                                // Insert the rendered page seamlessly into the layout
+                                // Insert the rendered canvas exactly where the PDF target was
                                 target.parentNode.insertBefore(wrapper, target);
                             }
                         } catch(e) {
                             console.error("Error rendering PDF", e);
-                            target.innerHTML = "<p style='color:red; padding: 20px; text-align:center;'>Error rendering PDF. Please try uploading as a JPG.</p>";
+                            target.innerHTML = "<div class='print-page'><h3 style='color:red; text-align:center; padding-top:100px;'>Error rendering PDF. Cloudflare block or corrupted file.</h3></div>";
                         }
-                        target.remove(); // Remove the invisible target div
+                        target.remove(); // Clean up the invisible target
                     }
                     
                     if(printBtn) {
