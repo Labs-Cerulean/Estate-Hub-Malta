@@ -30,8 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['username']) && !empt
             $update = $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
             $update->execute([$user['id']]);
 
-            header('Location: ../dashboard.php');
+            // REDIRECT LOGIC based on user role
+            if ($user['role'] === 'sales_agent') {
+                header('Location: ../sales_hub.php');
+            } else {
+                header('Location: ../dashboard.php');
+            }
             exit;
+            
         } else {
             // FAILED
             $_SESSION['login_error'] = 'Invalid username or password';
