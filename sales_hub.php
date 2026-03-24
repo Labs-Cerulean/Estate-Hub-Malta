@@ -251,10 +251,10 @@ require_once 'header.php';
                     <option value="Render (Image)">Render (Image)</option>
                     <option value="Render (Video)">Render (Video)</option>
                     <option value="Floor Plan">Floor Plan (PDF/Img)</option>
-                    <option disabled>--- Pricelist PDF Pages (JPG/PNG ONLY) ---</option>
+                    <option disabled>--- Pricelist Document Pages (JPG/PNG/PDF) ---</option>
                     <option value="Pricelist - Front Cover">Pricelist - Front Cover</option>
                     <option value="Pricelist - Timeframes & Terms">Pricelist - Timeframes & Terms</option>
-                    <option value="Pricelist - Spec Sheet">Pricelist - Spec Sheet</option>
+                    <option value="Pricelist - Spec Sheet">Pricelist - Spec Sheet (Multi-page PDF supported!)</option>
                     <option value="Pricelist - Back Cover">Pricelist - Back Cover</option>
                 </select>
             </div>
