@@ -123,7 +123,34 @@ require_once 'header.php';
   </div>
 </div>
 
-<div class="modal fade" id="uploadFrameModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear;">
+<div class="modal fade" id="viewPlanModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 2000;">
+  <div class="modal-dialog modal-xl" role="document" style="max-width: 95vw;">
+    <div class="modal-content bg-dark text-light">
+      
+      <div class="modal-header border-secondary d-flex justify-content-between align-items-center">
+        <h5 class="modal-title m-0"><i class="fas fa-map text-info"></i> Floor Plan Viewer</h5>
+        
+        <div class="btn-group mx-auto" role="group">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="zoomPlan(-0.25)" title="Zoom Out"><i class="fas fa-search-minus"></i></button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetPlan()" title="Reset View"><i class="fas fa-compress"></i></button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="zoomPlan(0.25)" title="Zoom In"><i class="fas fa-search-plus"></i></button>
+            <button type="button" class="btn btn-outline-info btn-sm ms-3" onclick="rotatePlan()" title="Rotate 90°"><i class="fas fa-undo"></i> Rotate</button>
+        </div>
+
+        <button type="button" class="close text-light m-0 p-0" aria-label="Close" onclick="closePlanModal()" style="background: transparent; border: none; font-size: 1.5rem;"><span aria-hidden="true">&times;</span></button>
+      </div>
+
+      <div class="modal-body p-0" style="height: 85vh; overflow: auto; background-color: #525659; display: flex; align-items: center; justify-content: center;">
+          <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+              <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>
+          </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="uploadFrameModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 1060;">
   <div class="modal-dialog" role="document">
     <div class="modal-content bg-dark text-light">
       <div class="modal-header border-secondary">
@@ -160,7 +187,7 @@ require_once 'header.php';
   </div>
 </div>
 
-<div class="modal fade" id="uploadMediaModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear;">
+<div class="modal fade" id="uploadMediaModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 1060;">
   <div class="modal-dialog" role="document">
     <div class="modal-content bg-dark text-light">
       <div class="modal-header border-secondary">
@@ -207,7 +234,55 @@ require_once 'header.php';
 </div>
 
 <script>
-    // --- Bulletproof Modal & Sidebar Functions ---
+    // --- View Plan Modal & Controls ---
+    let currentPlanZoom = 1;
+    let currentPlanRotation = 0;
+
+    function openPlanModal(url) {
+        const m = document.getElementById('viewPlanModal');
+        document.getElementById('planIframe').src = url;
+        resetPlan(); 
+        m.classList.add('show'); 
+        m.style.display = 'block'; 
+        m.style.backgroundColor = 'rgba(0,0,0,0.85)';
+        setTimeout(() => m.style.opacity = '1', 10);
+    }
+
+    function closePlanModal() {
+        const m = document.getElementById('viewPlanModal');
+        m.style.opacity = '0';
+        setTimeout(() => { 
+            m.classList.remove('show'); 
+            m.style.display = 'none'; 
+            document.getElementById('planIframe').src = ''; 
+        }, 300);
+    }
+
+    function zoomPlan(amount) {
+        currentPlanZoom += amount;
+        if (currentPlanZoom < 0.25) currentPlanZoom = 0.25; 
+        if (currentPlanZoom > 4) currentPlanZoom = 4; 
+        applyPlanTransform();
+    }
+
+    function rotatePlan() {
+        currentPlanRotation += 90;
+        if (currentPlanRotation >= 360) currentPlanRotation = 0;
+        applyPlanTransform();
+    }
+
+    function resetPlan() {
+        currentPlanZoom = 1;
+        currentPlanRotation = 0;
+        applyPlanTransform();
+    }
+
+    function applyPlanTransform() {
+        const container = document.getElementById('planTransformContainer');
+        container.style.transform = `scale(${currentPlanZoom}) rotate(${currentPlanRotation}deg)`;
+    }
+
+    // --- Media & CSV Modal Functions ---
     function openUploadModal() {
         const m = document.getElementById('uploadFrameModal');
         m.classList.add('show'); m.style.display = 'block'; m.style.backgroundColor = 'rgba(0,0,0,0.7)';
