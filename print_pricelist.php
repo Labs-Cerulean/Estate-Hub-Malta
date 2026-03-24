@@ -213,26 +213,37 @@ function renderMediaPage($subCat, $mediaData) {
                             // Loop through every page in the PDF!
                             for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                                 const page = await pdf.getPage(pageNum);
-                                const scale = 2.0; // Render at 2x resolution for high-quality printing
+                                const scale = 2.0; // High resolution
                                 const viewport = page.getViewport({scale: scale});
                                 
                                 const wrapper = document.createElement('div');
                                 wrapper.className = 'print-page img-page';
                                 
+                                // Create the canvas to draw the PDF
                                 const canvas = document.createElement('canvas');
-                                canvas.className = 'full-img';
                                 const context = canvas.getContext('2d');
                                 canvas.height = viewport.height;
                                 canvas.width = viewport.width;
                                 
+                                // Force a white background (fixes transparent PDF bugs)
+                                context.fillStyle = '#ffffff';
+                                context.fillRect(0, 0, canvas.width, canvas.height);
+                                
+                                // Render the PDF page onto the canvas
                                 await page.render({ canvasContext: context, viewport: viewport }).promise;
                                 
-                                // Insert the rendered canvas exactly where the PDF target was
+                                // CRITICAL FIX: Convert the canvas into a standard Image so the browser prints it perfectly!
+                                const img = document.createElement('img');
+                                img.className = 'full-img';
+                                img.src = canvas.toDataURL('image/jpeg', 0.95); 
+                                
+                                // Add the image to the wrapper, and insert into the page
+                                wrapper.appendChild(img);
                                 target.parentNode.insertBefore(wrapper, target);
                             }
                         } catch(e) {
                             console.error("Error rendering PDF", e);
-                            target.innerHTML = "<div class='print-page'><h3 style='color:red; text-align:center; padding-top:100px;'>Error rendering PDF. Cloudflare block or corrupted file.</h3></div>";
+                            target.insertAdjacentHTML('beforebegin', "<div class='print-page'><h3 style='color:red; text-align:center; padding-top:100px;'>Error rendering PDF. Cloudflare block or corrupted file.</h3></div>");
                         }
                         target.remove(); // Clean up the invisible target
                     }
