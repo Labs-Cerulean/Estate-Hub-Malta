@@ -135,11 +135,11 @@ require_once 'header.php';
   </div>
 </div>
 
-<div class="modal fade" id="viewPlanModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 2000;">
-  <div class="modal-dialog modal-fullscreen-custom" role="document">
-    <div class="modal-content bg-dark text-light">
+<div class="modal fade" id="viewPlanModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 2000; padding: 0 !important;">
+  <div class="modal-dialog" role="document" style="max-width: 100vw !important; width: 100vw !important; margin: 0 !important; height: 100vh !important;">
+    <div class="modal-content bg-dark text-light" style="height: 100vh !important; border: none !important; border-radius: 0 !important;">
       
-      <div class="modal-header border-secondary d-flex justify-content-between align-items-center" style="height: 60px;">
+      <div class="modal-header border-secondary d-flex justify-content-between align-items-center" style="height: 60px; padding: 0 20px;">
         <h5 class="modal-title m-0"><i class="fas fa-map text-info"></i> Floor Plan Viewer</h5>
         
         <div class="btn-group mx-auto" role="group">
@@ -149,10 +149,10 @@ require_once 'header.php';
             <button type="button" class="btn btn-outline-info btn-sm ms-3" onclick="rotatePlan()" title="Rotate 90°"><i class="fas fa-undo"></i> Rotate</button>
         </div>
 
-        <button type="button" class="close text-light m-0 p-0" aria-label="Close" onclick="closePlanModal()" style="background: transparent; border: none; font-size: 1.5rem;"><span aria-hidden="true">&times;</span></button>
+        <button type="button" class="close text-light m-0 p-0" aria-label="Close" onclick="closePlanModal()" style="background: transparent; border: none; font-size: 1.5rem; line-height: 1;"><span aria-hidden="true">&times;</span></button>
       </div>
 
-      <div class="modal-body p-0" style="height: calc(100vh - 60px); overflow: hidden; background-color: #525659;">
+      <div class="modal-body p-0" style="height: calc(100vh - 60px) !important; width: 100vw !important; overflow: hidden; background-color: #525659; display: flex; align-items: center; justify-content: center;">
           <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
               <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>
           </div>
