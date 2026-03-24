@@ -97,6 +97,8 @@ require_once 'header.php';
     .vanilla-close:hover { color: #fff; }
 </style>
 
+<div id="toast-container" style="position: fixed; bottom: 30px; right: 30px; z-index: 9999; display: flex; flex-direction: column; gap: 10px;"></div>
+
 <div id="map-wrapper">
     <div id='sales-map'></div>
 
@@ -153,9 +155,19 @@ require_once 'header.php';
             <span class="badge badge-danger bg-danger status-badge"><span id="sidebarSold">0</span> Sold</span>
         </div>
         
-        <div class="d-flex justify-content-between align-items-center mb-3 px-2 border-bottom border-secondary pb-2">
-            <h6 class="font-weight-bold fw-bold text-uppercase text-light m-0">Available Units</h6>
-            <button class="btn btn-sm btn-primary rounded-pill px-3" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Generate Live Pricelist</button>
+        <div class="d-flex flex-column gap-2 mb-4 px-2 border-bottom border-secondary pb-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="font-weight-bold fw-bold text-uppercase text-light m-0">Project Units</h6>
+                <button class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Live Pricelist</button>
+            </div>
+            
+            <div class="btn-group w-100 mt-2" role="group">
+                <input type="radio" class="btn-check" name="unitFilter" id="filterAll" autocomplete="off" checked onchange="filterSidebarUnits('All')">
+                <label class="btn btn-outline-info btn-sm" for="filterAll">Show All Units</label>
+
+                <input type="radio" class="btn-check" name="unitFilter" id="filterAvail" autocomplete="off" onchange="filterSidebarUnits('Available')">
+                <label class="btn btn-outline-success btn-sm" for="filterAvail">Available Only</label>
+            </div>
         </div>
         
         <div id="unitListContainer"></div>
@@ -165,25 +177,20 @@ require_once 'header.php';
 
 <div id="viewPlanModal" class="vanilla-modal">
     <div class="vanilla-modal-content">
-        
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #495057; padding-bottom: 10px;">
             <h4 style="margin: 0; color: #0dcaf0;"><i class="fas fa-map"></i> Floor Plan Viewer</h4>
-            
             <div class="btn-group" role="group">
                 <button type="button" class="btn btn-outline-light btn-sm" onclick="zoomPlan(-0.25)" title="Zoom Out"><i class="fas fa-search-minus"></i></button>
                 <button type="button" class="btn btn-outline-light btn-sm" onclick="resetPlan()" title="Reset View"><i class="fas fa-compress"></i></button>
                 <button type="button" class="btn btn-outline-light btn-sm" onclick="zoomPlan(0.25)" title="Zoom In"><i class="fas fa-search-plus"></i></button>
             </div>
-
             <span class="vanilla-close" onclick="closePlanModal()">&times;</span>
         </div>
-
         <div style="flex: 1; overflow: hidden; background-color: #525659; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
             <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
                 <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>
             </div>
         </div>
-
     </div>
 </div>
 
@@ -276,6 +283,41 @@ require_once 'header.php';
 </div>
 
 <script>
+    // --- Toast Notification System ---
+    function showToast(message, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        const bgColor = type === 'success' ? '#10B981' : '#EF4444';
+        const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+        
+        toast.style.cssText = `background: ${bgColor}; color: white; padding: 14px 24px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); font-size: 0.95rem; font-weight: 600; opacity: 0; transform: translateY(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); display: flex; align-items: center; gap: 10px;`;
+        toast.innerHTML = `<i class="fas ${icon} fa-lg"></i> ${message}`;
+        
+        container.appendChild(toast);
+        
+        setTimeout(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0)'; }, 10);
+        setTimeout(() => { 
+            toast.style.opacity = '0'; toast.style.transform = 'translateY(20px)'; 
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    // --- Quick Filter System ---
+    function filterSidebarUnits(filterType) {
+        const cards = document.querySelectorAll('.unit-card');
+        cards.forEach(card => {
+            if (filterType === 'All') {
+                card.style.display = 'flex';
+            } else if (filterType === 'Available') {
+                if (card.getAttribute('data-status') === 'Available') {
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            }
+        });
+    }
+
     // --- Vanilla View Plan Modal Controls ---
     let currentPlanZoom = 1;
 
@@ -385,11 +427,14 @@ require_once 'header.php';
         map.flyTo({ center: [project.longitude, project.latitude], zoom: 17, pitch: 50, essential: true });
         
         document.getElementById('sidebarProjectName').innerText = project.project_name;
-        document.getElementById('sidebarProjectName').setAttribute('data-pid', project.project_id); // Save ID for Pricelist
+        document.getElementById('sidebarProjectName').setAttribute('data-pid', project.project_id);
         
         document.getElementById('sidebarAvail').innerText = project.available_units;
         document.getElementById('sidebarHold').innerText = project.held_units;
         document.getElementById('sidebarSold').innerText = project.sold_units;
+
+        // Reset the quick filter toggle to 'All'
+        document.getElementById('filterAll').checked = true;
 
         document.getElementById('custom-sidebar').classList.add('show-sidebar');
         document.getElementById('unitListContainer').innerHTML = '<div class="text-center p-4 text-light"><div class="spinner-border text-info" role="status"></div><div class="mt-2">Loading units...</div></div>';
@@ -478,13 +523,41 @@ require_once 'header.php';
     });
 
     // --- Workflow & Pricing Action Functions ---
-    function managerUpdateStatus(propertyId, newStatus) {
+    function managerUpdateStatus(propertyId, newStatus, selectElement) {
         let formData = new FormData(); 
         formData.append('property_id', propertyId); 
         formData.append('new_status', newStatus);
+        
+        // Visual feedback during save
+        let originalBg = selectElement.style.backgroundColor;
+        let originalColor = selectElement.style.color;
+        selectElement.style.backgroundColor = '#374151'; 
+        selectElement.style.color = '#9ca3af';
+        selectElement.disabled = true;
+
         fetch('api/manager_update_status.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
-            if(data.success) { console.log("Status updated to " + newStatus); } else { alert("Error: " + data.message); }
+            selectElement.disabled = false;
+            if(data.success) { 
+                // Flash success color
+                selectElement.style.backgroundColor = '#065f46';
+                selectElement.style.color = '#fff';
+                
+                showToast(`Status successfully updated to ${newStatus}`, 'success');
+                
+                // Instantly reload sidebar to refresh the unit's border colors and agent tags
+                setTimeout(() => {
+                    const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
+                    if(pid && mapProjectsData[pid]) openProjectSidebar(mapProjectsData[pid]);
+                }, 800);
+            } else { 
+                showToast("Error: " + data.message, 'error');
+                selectElement.style.backgroundColor = originalBg;
+                selectElement.style.color = originalColor;
+            }
+        }).catch(err => {
+            selectElement.disabled = false;
+            showToast("Network error occurred.", 'error');
         });
     }
 
@@ -510,11 +583,13 @@ require_once 'header.php';
         fetch('api/update_unit_price.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
             if(data.success) { 
-                alert("Price updated!"); 
-                const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
-                if(pid && mapProjectsData[pid]) openProjectSidebar(mapProjectsData[pid]);
+                showToast("Price updated successfully!", "success"); 
+                setTimeout(() => {
+                    const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
+                    if(pid && mapProjectsData[pid]) openProjectSidebar(mapProjectsData[pid]);
+                }, 800);
             } else { 
-                alert("Error: " + data.message); 
+                showToast("Error: " + data.message, "error"); 
             }
         });
     }
@@ -530,7 +605,8 @@ require_once 'header.php';
         let formData = new FormData(); formData.append('action', 'hold_property'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
-            if(data.success) { alert("Property put on hold!"); location.reload(); } else { alert("Error: " + data.message); }
+            if(data.success) { showToast("Property put on hold!", "success"); setTimeout(() => location.reload(), 800); } 
+            else { showToast("Error: " + data.message, "error"); }
         });
     }
 
@@ -539,7 +615,8 @@ require_once 'header.php';
         let formData = new FormData(); formData.append('action', 'request_reserved'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
-            if(data.success) { alert("Reservation status updated!"); location.reload(); } else { alert("Error: " + data.message); }
+            if(data.success) { showToast("Reservation status updated!", "success"); setTimeout(() => location.reload(), 800); } 
+            else { showToast("Error: " + data.message, "error"); }
         });
     }
 
