@@ -61,9 +61,7 @@ require_once 'header.php';
     #custom-sidebar::-webkit-scrollbar-track { background: #212529; }
     #custom-sidebar::-webkit-scrollbar-thumb { background: #495057; border-radius: 3px; }
 
-    /* ==========================================
-       VANILLA CSS VIEWER MODAL (Documentation.php Style)
-       ========================================== */
+    /* Vanilla CSS Full Screen Modal */
     .vanilla-modal { 
         display: none; 
         position: fixed; 
@@ -154,7 +152,12 @@ require_once 'header.php';
             <span class="badge badge-warning bg-warning text-dark status-badge"><span id="sidebarHold">0</span> Hold</span>
             <span class="badge badge-danger bg-danger status-badge"><span id="sidebarSold">0</span> Sold</span>
         </div>
-        <h6 class="font-weight-bold fw-bold mb-3 text-uppercase text-light px-2">Available Units</h6>
+        
+        <div class="d-flex justify-content-between align-items-center mb-3 px-2 border-bottom border-secondary pb-2">
+            <h6 class="font-weight-bold fw-bold text-uppercase text-light m-0">Available Units</h6>
+            <button class="btn btn-sm btn-primary rounded-pill px-3" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Generate Live Pricelist</button>
+        </div>
+        
         <div id="unitListContainer"></div>
     </div>
   </div>
@@ -170,7 +173,6 @@ require_once 'header.php';
                 <button type="button" class="btn btn-outline-light btn-sm" onclick="zoomPlan(-0.25)" title="Zoom Out"><i class="fas fa-search-minus"></i></button>
                 <button type="button" class="btn btn-outline-light btn-sm" onclick="resetPlan()" title="Reset View"><i class="fas fa-compress"></i></button>
                 <button type="button" class="btn btn-outline-light btn-sm" onclick="zoomPlan(0.25)" title="Zoom In"><i class="fas fa-search-plus"></i></button>
-                <button type="button" class="btn btn-outline-info btn-sm ms-3" onclick="rotatePlan()" title="Rotate 90°"><i class="fas fa-undo"></i> Rotate</button>
             </div>
 
             <span class="vanilla-close" onclick="closePlanModal()">&times;</span>
@@ -249,6 +251,11 @@ require_once 'header.php';
                     <option value="Render (Image)">Render (Image)</option>
                     <option value="Render (Video)">Render (Video)</option>
                     <option value="Floor Plan">Floor Plan (PDF/Img)</option>
+                    <option disabled>--- Pricelist PDF Pages (JPG/PNG ONLY) ---</option>
+                    <option value="Pricelist - Front Cover">Pricelist - Front Cover</option>
+                    <option value="Pricelist - Timeframes & Terms">Pricelist - Timeframes & Terms</option>
+                    <option value="Pricelist - Spec Sheet">Pricelist - Spec Sheet</option>
+                    <option value="Pricelist - Back Cover">Pricelist - Back Cover</option>
                 </select>
             </div>
             <div class="form-group mb-3" id="floorInputGroup" style="display:none;">
@@ -271,27 +278,23 @@ require_once 'header.php';
 <script>
     // --- Vanilla View Plan Modal Controls ---
     let currentPlanZoom = 1;
-    let currentPlanRotation = 0;
 
     function openPlanModal(url) {
         const m = document.getElementById('viewPlanModal');
         document.getElementById('planIframe').src = url;
         resetPlan(); 
-        m.style.display = 'block'; // Pure vanilla display block
+        m.style.display = 'block'; 
     }
 
     function closePlanModal() {
         const m = document.getElementById('viewPlanModal');
         m.style.display = 'none'; 
-        document.getElementById('planIframe').src = ''; // Unload iframe
+        document.getElementById('planIframe').src = ''; 
     }
 
-    // Close vanilla modal if clicked outside the content box
     window.addEventListener('click', function(event) {
         const m = document.getElementById('viewPlanModal');
-        if (event.target == m) {
-            closePlanModal();
-        }
+        if (event.target == m) closePlanModal();
     });
 
     function zoomPlan(amount) {
@@ -301,21 +304,14 @@ require_once 'header.php';
         applyPlanTransform();
     }
 
-    function rotatePlan() {
-        currentPlanRotation += 90;
-        if (currentPlanRotation >= 360) currentPlanRotation = 0;
-        applyPlanTransform();
-    }
-
     function resetPlan() {
         currentPlanZoom = 1;
-        currentPlanRotation = 0;
         applyPlanTransform();
     }
 
     function applyPlanTransform() {
         const container = document.getElementById('planTransformContainer');
-        container.style.transform = `scale(${currentPlanZoom}) rotate(${currentPlanRotation}deg)`;
+        container.style.transform = `scale(${currentPlanZoom})`;
     }
 
     // --- Media & CSV Modal Functions ---
@@ -389,6 +385,8 @@ require_once 'header.php';
         map.flyTo({ center: [project.longitude, project.latitude], zoom: 17, pitch: 50, essential: true });
         
         document.getElementById('sidebarProjectName').innerText = project.project_name;
+        document.getElementById('sidebarProjectName').setAttribute('data-pid', project.project_id); // Save ID for Pricelist
+        
         document.getElementById('sidebarAvail').innerText = project.available_units;
         document.getElementById('sidebarHold').innerText = project.held_units;
         document.getElementById('sidebarSold').innerText = project.sold_units;
@@ -479,7 +477,7 @@ require_once 'header.php';
             });
     });
 
-    // --- Workflow Action Functions ---
+    // --- Workflow & Pricing Action Functions ---
     function managerUpdateStatus(propertyId, newStatus) {
         let formData = new FormData(); 
         formData.append('property_id', propertyId); 
@@ -488,6 +486,43 @@ require_once 'header.php';
         .then(r => r.json()).then(data => {
             if(data.success) { console.log("Status updated to " + newStatus); } else { alert("Error: " + data.message); }
         });
+    }
+
+    function togglePriceEdit(id) {
+        const disp = document.getElementById('price_disp_' + id);
+        const edit = document.getElementById('price_edit_' + id);
+        if (disp.style.display === 'none') {
+            disp.style.display = 'block'; edit.style.display = 'none';
+        } else {
+            disp.style.display = 'none'; edit.style.display = 'block';
+        }
+    }
+
+    function savePrice(id) {
+        const shell = document.getElementById('inp_sh_' + id).value;
+        const fin = document.getElementById('inp_fn_' + id).value;
+        
+        let formData = new FormData();
+        formData.append('property_id', id);
+        formData.append('shell_price', shell);
+        formData.append('finishes_price', fin);
+
+        fetch('api/update_unit_price.php', { method: 'POST', body: formData })
+        .then(r => r.json()).then(data => {
+            if(data.success) { 
+                alert("Price updated!"); 
+                const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
+                if(pid && mapProjectsData[pid]) openProjectSidebar(mapProjectsData[pid]);
+            } else { 
+                alert("Error: " + data.message); 
+            }
+        });
+    }
+
+    function generateLivePricelist() {
+        const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
+        if(!pid) { alert("Project ID not found."); return; }
+        window.open('print_pricelist.php?project_id=' + pid, '_blank');
     }
 
     function holdProperty(propertyId) {
