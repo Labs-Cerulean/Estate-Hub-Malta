@@ -66,11 +66,13 @@ try {
             if(strpos($u['status'], 'Sold') !== false) $badgeColor = 'bg-danger';
             if(strpos($u['status'], 'Reserved') !== false) $badgeColor = 'bg-info text-dark';
             
-            // If Cloudflare has a plan for this specific floor, generate a button!
+           // If Cloudflare has a plan for this specific floor, generate a modal button!
             $planBtn = '';
             $floorLvl = trim($u['floor_level']);
             if (isset($plans[$floorLvl])) {
-                $planBtn = "<a href='{$plans[$floorLvl]}' target='_blank' class='btn btn-sm btn-outline-info w-100 py-0 mb-1' style='font-size: 0.75rem;'><i class='fas fa-map'></i> View Plan</a>";
+                // Ensure the URL is safely escaped for Javascript
+                $safeUrl = htmlspecialchars($plans[$floorLvl], ENT_QUOTES, 'UTF-8');
+                $planBtn = "<button class='btn btn-sm btn-outline-info w-100 py-0 mb-1' style='font-size: 0.75rem;' onclick='openPlanModal(\"{$safeUrl}\")'><i class='fas fa-map'></i> View Plan</button>";
             }
 
             $html .= "<tr style='border-bottom: 1px solid #343a40;'>";
