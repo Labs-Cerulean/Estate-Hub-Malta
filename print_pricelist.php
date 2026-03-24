@@ -14,13 +14,16 @@ $stmt->execute([$projectId]);
 $project = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$project) die("Project not found.");
 
-// 2. Fetch Media Pages (Front, Terms, Specs, Back)
-$docsStmt = $pdo->prepare("SELECT sub_category, file_path FROM project_documents WHERE project_id = ? AND category = 'Sales' AND sub_category LIKE 'Pricelist - %' ORDER BY created_at ASC");
+// 2. Fetch Media Pages & determine their file types
+$docsStmt = $pdo->prepare("SELECT sub_category, file_path, file_type FROM project_documents WHERE project_id = ? AND category = 'Sales' AND sub_category LIKE 'Pricelist - %' ORDER BY created_at ASC");
 $docsStmt->execute([$projectId]);
 $media = [];
-// This loop ensures the LATEST uploaded version of each page is used
+
 foreach ($docsStmt->fetchAll() as $d) {
-    $media[$d['sub_category']] = $s3->getPresignedUrl($d['file_path'], '+60 minutes');
+    $media[$d['sub_category']] = [
+        'url' => $s3->getPresignedUrl($d['file_path'], '+60 minutes'),
+        'type' => strtolower($d['file_type'])
+    ];
 }
 
 // 3. Fetch and Group Units by Floor
@@ -33,6 +36,24 @@ foreach ($units as $u) {
     $floors[$u['floor_level']][] = $u;
 }
 
+// Helper function to render Images natively, or stage PDFs for JS rendering
+function renderMediaPage($subCat, $mediaData) {
+    if (!isset($mediaData[$subCat])) return;
+    
+    $url = $mediaData[$subCat]['url'];
+    $type = $mediaData[$subCat]['type'];
+
+    if ($type === 'pdf') {
+        // Fetch the PDF securely and Base64 encode it to bypass browser CORS blocks
+        $pdfContent = @file_get_contents($url);
+        if ($pdfContent) {
+            $b64 = base64_encode($pdfContent);
+            echo "<div class='pdf-render-target' data-b64='{$b64}'></div>";
+        }
+    } else {
+        echo "<div class='print-page img-page'><img class='full-img' src='" . htmlspecialchars($url) . "'></div>";
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -40,7 +61,6 @@ foreach ($units as $u) {
     <meta charset="UTF-8">
     <title><?= htmlspecialchars($project['name']) ?> - Live Pricelist</title>
     <style>
-        /* Base styling for screen preview */
         body { margin: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #525659; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         
         .print-page { 
@@ -51,20 +71,10 @@ foreach ($units as $u) {
             position: relative;
         }
         
-        /* Image pages are strictly locked to A4 dimensions */
-        .img-page {
-            height: 297mm; 
-            overflow: hidden;
-        }
+        .img-page { height: 297mm; overflow: hidden; }
         .full-img { width: 100%; height: 100%; object-fit: cover; }
         
-        /* Data pages flow naturally to allow browser page-breaking */
-        .data-page { 
-            padding: 15mm; 
-            box-sizing: border-box; 
-            min-height: 297mm;
-        }
-
+        .data-page { padding: 15mm; box-sizing: border-box; min-height: 297mm; }
         .data-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #111; padding-bottom: 10px; }
         .data-header h1 { margin: 0; font-size: 28px; text-transform: uppercase; color: #111; }
         .data-header p { margin: 5px 0 0 0; color: #666; font-size: 12px; }
@@ -84,12 +94,11 @@ foreach ($units as $u) {
         .status-sold { color: #ef4444; font-weight: bold; }
         .status-avail { color: #10b981; font-weight: bold; }
 
-        /* Print Override */
         @media print {
             @page { size: A4; margin: 0; }
             body { background: transparent; margin: 0; }
             .print-page { margin: 0; box-shadow: none; page-break-after: always; }
-            .data-page { min-height: auto; } /* Let the browser dictate the exact height for splits */
+            .data-page { min-height: auto; } 
             .no-print { display: none !important; }
         }
     </style>
@@ -98,14 +107,10 @@ foreach ($units as $u) {
 
     <div class="no-print" style="position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 1000; color: white; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
         <p style="margin: 0 0 10px 0; font-size: 14px;">Review Live Pricelist</p>
-        <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Save to PDF / Print</button>
+        <button id="printBtn" onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Save to PDF / Print</button>
     </div>
 
-    <?php if (isset($media['Pricelist - Front Cover'])): ?>
-    <div class="print-page img-page">
-        <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Front Cover']) ?>">
-    </div>
-    <?php endif; ?>
+    <?php renderMediaPage('Pricelist - Front Cover', $media); ?>
 
     <div class="print-page data-page">
         <div class="data-header">
@@ -150,23 +155,78 @@ foreach ($units as $u) {
         <?php endforeach; ?>
     </div>
 
-    <?php if (isset($media['Pricelist - Timeframes & Terms'])): ?>
-    <div class="print-page img-page">
-        <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Timeframes & Terms']) ?>">
-    </div>
-    <?php endif; ?>
+    <?php renderMediaPage('Pricelist - Timeframes & Terms', $media); ?>
 
-    <?php if (isset($media['Pricelist - Spec Sheet'])): ?>
-    <div class="print-page img-page">
-        <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Spec Sheet']) ?>">
-    </div>
-    <?php endif; ?>
+    <?php renderMediaPage('Pricelist - Spec Sheet', $media); ?>
 
-    <?php if (isset($media['Pricelist - Back Cover'])): ?>
-    <div class="print-page img-page">
-        <img class="full-img" src="<?= htmlspecialchars($media['Pricelist - Back Cover']) ?>">
-    </div>
-    <?php endif; ?>
+    <?php renderMediaPage('Pricelist - Back Cover', $media); ?>
 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const pdfTargets = document.querySelectorAll('.pdf-render-target');
+            if (pdfTargets.length > 0) {
+                
+                const printBtn = document.getElementById('printBtn');
+                if(printBtn) {
+                    printBtn.disabled = true;
+                    printBtn.innerHTML = "⏳ Processing PDF pages...";
+                    printBtn.style.background = "#6b7280";
+                }
+
+                // Inject PDF.js dynamically
+                const script = document.createElement('script');
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+                script.onload = async () => {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+                    
+                    for (let target of pdfTargets) {
+                        const b64 = target.getAttribute('data-b64');
+                        const pdfData = atob(b64);
+                        const uint8Array = new Uint8Array(pdfData.length);
+                        for (let i = 0; i < pdfData.length; i++) {
+                            uint8Array[i] = pdfData.charCodeAt(i);
+                        }
+
+                        try {
+                            const loadingTask = pdfjsLib.getDocument({data: uint8Array});
+                            const pdf = await loadingTask.promise;
+                            
+                            // Loop through every page in the PDF!
+                            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                                const page = await pdf.getPage(pageNum);
+                                const scale = 2.5; // Render at 2.5x high resolution for crisp printing
+                                const viewport = page.getViewport({scale: scale});
+                                
+                                const wrapper = document.createElement('div');
+                                wrapper.className = 'print-page img-page';
+                                
+                                const canvas = document.createElement('canvas');
+                                canvas.className = 'full-img';
+                                const context = canvas.getContext('2d');
+                                canvas.height = viewport.height;
+                                canvas.width = viewport.width;
+                                
+                                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                                
+                                // Insert the rendered page seamlessly into the layout
+                                target.parentNode.insertBefore(wrapper, target);
+                            }
+                        } catch(e) {
+                            console.error("Error rendering PDF", e);
+                            target.innerHTML = "<p style='color:red; padding: 20px; text-align:center;'>Error rendering PDF. Please try uploading as a JPG.</p>";
+                        }
+                        target.remove(); // Remove the invisible target div
+                    }
+                    
+                    if(printBtn) {
+                        printBtn.disabled = false;
+                        printBtn.innerHTML = "🖨️ Save to PDF / Print";
+                        printBtn.style.background = "#2563eb";
+                    }
+                };
+                document.head.appendChild(script);
+            }
+        });
+    </script>
 </body>
 </html>
