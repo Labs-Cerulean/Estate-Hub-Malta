@@ -8,6 +8,7 @@ if (!function_exists('isLoggedIn')) {
 
 $pageTitle = $pageTitle ?? 'Estate Hub';
 $currentPage = basename($_SERVER['PHP_SELF'], '.php');
+$userRole = getCurrentRole(); // Fetch the role once for easy routing
 
 // Define visibility for Dropdowns based on user capabilities
 $showProjects = hasPermission('view_projects') || hasPermission('view_mobilisation') || hasPermission('edit_services') || isAdmin();
@@ -26,6 +27,9 @@ if (isLoggedIn() && isset($pdo)) {
     $stmtAct->execute([getCurrentUserId()]);
     $pendingActionsCount = $stmtAct->fetchColumn();
 }
+
+// Determine Home Link based on Role
+$homeLink = ($userRole === 'sales_agent') ? 'sales_hub.php' : 'dashboard.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -40,7 +44,7 @@ if (isLoggedIn() && isset($pdo)) {
         <header class="header">
             <div class="header-container">
                 <div class="header-left">
-                    <a href="dashboard.php" style="display: flex; align-items: center; gap: 1rem; text-decoration: none;">
+                    <a href="<?= $homeLink ?>" style="display: flex; align-items: center; gap: 1rem; text-decoration: none;">
                         <img src="/logo.png" alt="Estate Hub Logo" class="logo-nav">
                         <div>
                             <h1 class="header-title">Estate Hub</h1>
@@ -51,7 +55,13 @@ if (isLoggedIn() && isset($pdo)) {
                 
                 <div class="header-right">
                     
-                    <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
+                    <?php if ($userRole !== 'sales_agent'): ?>
+                        <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
+                    <?php endif; ?>
+
+                    <?php if (in_array($userRole, ['sales_manager', 'sales_agent', 'admin', 'director', 'system_manager'])): ?>
+                        <a href="sales_hub.php" class="nav-link <?= $currentPage === 'sales_hub' ? 'active' : '' ?>">Sales Hub</a>
+                    <?php endif; ?>
                     
                     <?php if ($showProjects): ?>
                     <div class="nav-dropdown">
