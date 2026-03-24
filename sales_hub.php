@@ -20,7 +20,6 @@ require_once 'header.php';
     #map-wrapper { position: relative; height: calc(100vh - 70px); width: 100%; overflow: hidden; }
     #sales-map { position: absolute; top: 0; bottom: 0; width: 100%; left: 0; }
     
-    /* Dark Theme Filter Overlay */
     .filter-overlay {
         position: absolute; top: 15px; left: 15px; z-index: 10; width: 280px;
         border-radius: 15px; 
@@ -30,7 +29,6 @@ require_once 'header.php';
         color: #f8f9fa;
     }
     
-    /* Dark Theme Sidebar */
     #custom-sidebar {
         position: fixed; top: 70px; right: -450px; width: 450px; height: calc(100vh - 70px);
         background-color: #212529; 
@@ -40,7 +38,6 @@ require_once 'header.php';
     }
     #custom-sidebar.show-sidebar { right: 0; }
     
-    /* Sticky Header (Stays at the top while scrolling) */
     .sidebar-header { 
         position: sticky; 
         top: 0; 
@@ -56,12 +53,10 @@ require_once 'header.php';
     
     .status-badge { font-size: 0.8rem; padding: 5px 10px; border-radius: 20px; font-weight: 600; display: inline-block;}
     
-    /* Custom Scrollbar for sidebar */
     #custom-sidebar::-webkit-scrollbar { width: 6px; }
     #custom-sidebar::-webkit-scrollbar-track { background: #212529; }
     #custom-sidebar::-webkit-scrollbar-thumb { background: #495057; border-radius: 3px; }
 
-    /* Vanilla CSS Full Screen Modal */
     .vanilla-modal { 
         display: none; 
         position: fixed; 
@@ -171,7 +166,8 @@ require_once 'header.php';
             </div>
         </div>
         
-        <div id="unitListContainer" class="pt-2"></div> </div>
+        <div id="unitListContainer" class="pt-2"></div> 
+    </div>
   </div>
 </div>
 
@@ -283,7 +279,6 @@ require_once 'header.php';
 </div>
 
 <script>
-    // --- Toast Notification System ---
     function showToast(message, type = 'success') {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
@@ -302,12 +297,10 @@ require_once 'header.php';
         }, 3000);
     }
 
-    // --- Bulletproof Filter System ---
     function setFilter(filterType) {
         const btnAll = document.getElementById('btnFilterAll');
         const btnAvail = document.getElementById('btnFilterAvail');
 
-        // Toggle UI Active State
         if (filterType === 'All') {
             btnAll.className = 'btn btn-info w-100 shadow-sm';
             btnAvail.className = 'btn btn-outline-success w-100 shadow-sm';
@@ -316,7 +309,6 @@ require_once 'header.php';
             btnAvail.className = 'btn btn-success w-100 shadow-sm';
         }
 
-        // Apply Filter Logic to Cards
         const cards = document.querySelectorAll('.unit-card');
         cards.forEach(card => {
             if (filterType === 'All') {
@@ -331,7 +323,6 @@ require_once 'header.php';
         });
     }
 
-    // --- Vanilla View Plan Modal Controls ---
     let currentPlanZoom = 1;
 
     function openPlanModal(url) {
@@ -369,7 +360,6 @@ require_once 'header.php';
         container.style.transform = `scale(${currentPlanZoom})`;
     }
 
-    // --- Media & CSV Modal Functions ---
     function openUploadModal() {
         const m = document.getElementById('uploadFrameModal');
         m.classList.add('show'); m.style.display = 'block'; m.style.backgroundColor = 'rgba(0,0,0,0.7)';
@@ -403,7 +393,6 @@ require_once 'header.php';
 
     let mapProjectsData = {};
 
-    // --- Mapbox Initialization ---
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
     const map = new mapboxgl.Map({
         container: 'sales-map',
@@ -435,7 +424,6 @@ require_once 'header.php';
         }, labelLayerId);
     });
 
-    // --- Core Interaction: Open Sidebar & Fetch Data ---
     function openProjectSidebar(project) {
         map.flyTo({ center: [project.longitude, project.latitude], zoom: 17, pitch: 50, essential: true });
         
@@ -446,7 +434,6 @@ require_once 'header.php';
         document.getElementById('sidebarHold').innerText = project.held_units;
         document.getElementById('sidebarSold').innerText = project.sold_units;
 
-        // Reset the quick filter toggle to 'All' to match the fresh load
         setFilter('All');
 
         document.getElementById('custom-sidebar').classList.add('show-sidebar');
@@ -500,7 +487,6 @@ require_once 'header.php';
         if(projectId && mapProjectsData[projectId]) openProjectSidebar(mapProjectsData[projectId]);
     }
 
-    // --- Load Map Pins ---
     map.on('load', () => {
         fetch('api/get_sales_map_data.php')
             .then(response => response.json())
@@ -535,7 +521,6 @@ require_once 'header.php';
             });
     });
 
-    // --- Workflow & Pricing Action Functions ---
     function managerUpdateStatus(propertyId, newStatus, selectElement) {
         let formData = new FormData(); 
         formData.append('property_id', propertyId); 
@@ -577,7 +562,7 @@ require_once 'header.php';
         if (disp.style.display === 'none') {
             disp.style.display = 'block'; edit.style.display = 'none';
         } else {
-            disp.style.display = 'none'; edit.style.display = 'block';
+            disp.style.display = 'none'; edit.style.block = 'block';
         }
     }
 
@@ -630,7 +615,6 @@ require_once 'header.php';
         });
     }
 
-    // --- Form Upload Handlers ---
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
         e.preventDefault();
         let formData = new FormData(this); let btn = this.querySelector('button[type="submit"]');
