@@ -155,15 +155,17 @@ require_once 'header.php';
             <span class="badge badge-danger bg-danger status-badge"><span id="sidebarSold">0</span> Sold</span>
         </div>
         
-        <div class="mb-4 px-2 border-bottom border-secondary pb-4"> <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="mb-4 px-2 border-bottom border-secondary" style="padding-bottom: 25px;">
+            <div class="d-flex justify-content-between align-items-center mb-4">
                 <h6 class="font-weight-bold fw-bold text-uppercase text-light m-0">Project Units</h6>
                 <button class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Live Pricelist</button>
             </div>
             
-            <div class="row m-0 w-100 mb-2"> <div class="col-6 p-0 pr-1">
+            <div class="row m-0 w-100" style="padding-bottom: 5px;">
+                <div class="col-6 p-0" style="padding-right: 6px !important;">
                     <button class="btn btn-info w-100 shadow-sm" id="btnFilterAll" style="border-radius: 8px; padding: 8px; font-weight: 600; font-size: 0.85rem;" onclick="setFilter('All')">Show All</button>
                 </div>
-                <div class="col-6 p-0 pl-1">
+                <div class="col-6 p-0" style="padding-left: 6px !important;">
                     <button class="btn btn-outline-success w-100 shadow-sm" id="btnFilterAvail" style="border-radius: 8px; padding: 8px; font-weight: 600; font-size: 0.85rem;" onclick="setFilter('Available')">Available Only</button>
                 </div>
             </div>
