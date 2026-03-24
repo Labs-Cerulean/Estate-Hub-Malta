@@ -82,7 +82,7 @@ if (isset($_POST['ajax_action'])) {
 }
 
 // ==========================================
-// 3. STANDARD FORM ACTIONS (Edit / Delete)
+// 3. STANDARD FORM ACTIONS (Edit / Delete / Rename)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action']) && $_POST['action'] !== 'overflow_error') {
     $action = $_POST['action'] ?? '';
@@ -123,17 +123,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action']) && $_
             if ($doc) {
                 if (!isset($docPerms[$doc['category']]) || $docPerms[$doc['category']] < 4) throw new Exception("Permission denied.");
                 
-                // 1. Physically delete from Cloudflare R2
                 $s3->deleteFile($doc['file_path']);
-                
-                // 2. Erase the "Ghost Link" from Subcontractor Accounts to prevent dead buttons
                 $pdo->prepare("UPDATE subcontractor_transactions SET document_path = NULL WHERE document_path = ?")->execute([$doc['file_path']]);
-                
-                // 3. Delete from the Document Vault
                 $pdo->prepare("DELETE FROM project_documents WHERE id = ?")->execute([$docId]);
                 
                 $message = "Document deleted successfully!";
             }
+        } catch (Exception $e) { $error = $e->getMessage(); }
+    }
+    elseif ($action === 'rename_subfolder') {
+        try {
+            if (!$isAdmin) throw new Exception("Permission denied. Only admins can merge or rename folders.");
+            $pId = (int)$_POST['project_id'];
+            $cat = $_POST['category'];
+            $oldSub = trim($_POST['old_sub_category']);
+            $newSub = trim($_POST['new_sub_category']);
+            
+            if (empty($newSub)) throw new Exception("New subfolder name cannot be empty.");
+            
+            $stmt = $pdo->prepare("UPDATE project_documents SET sub_category = ? WHERE project_id = ? AND category = ? AND sub_category = ?");
+            $stmt->execute([$newSub, $pId, $cat, $oldSub]);
+            $message = "Subfolder successfully merged/renamed!";
         } catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
@@ -169,7 +179,8 @@ foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break;
 
 $documents = []; 
 $expiringDocs = [];
-$tree = []; // To hold the hierarchical folder structure
+$tree = []; 
+$dynamicSubcats = []; // Tracks actual existing subcategories in the database
 
 if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $placeholders = implode(',', array_fill(0, count($accessibleProjectIds), '?'));
@@ -199,21 +210,27 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $docStmt->execute($params);
     $documents = $docStmt->fetchAll();
 
-    // Build the Tree Array 
-    // [Project] -> [Category] -> ['subcats' => [SubCatName => Files], 'loose' => [Files]]
+    // Build the Tree Array & Dynamic Subcategories
     foreach ($documents as $d) {
+        $pId = $d['project_id'];
         $pName = $d['project_name'];
         $cat = $d['category'];
         $subcat = empty($d['sub_category']) ? '' : trim($d['sub_category']);
 
-        if (!isset($tree[$pName])) $tree[$pName] = [];
-        if (!isset($tree[$pName][$cat])) $tree[$pName][$cat] = ['subcats' => [], 'loose' => []];
+        // Collect existing subcategories for the JS Datalist
+        if ($subcat !== '') {
+            if (!isset($dynamicSubcats[$cat])) $dynamicSubcats[$cat] = [];
+            if (!in_array($subcat, $dynamicSubcats[$cat])) $dynamicSubcats[$cat][] = $subcat;
+        }
+
+        if (!isset($tree[$pId])) $tree[$pId] = ['name' => $pName, 'categories' => []];
+        if (!isset($tree[$pId]['categories'][$cat])) $tree[$pId]['categories'][$cat] = ['subcats' => [], 'loose' => []];
 
         if ($subcat !== '') {
-            if (!isset($tree[$pName][$cat]['subcats'][$subcat])) $tree[$pName][$cat]['subcats'][$subcat] = [];
-            $tree[$pName][$cat]['subcats'][$subcat][] = $d;
+            if (!isset($tree[$pId]['categories'][$cat]['subcats'][$subcat])) $tree[$pId]['categories'][$cat]['subcats'][$subcat] = [];
+            $tree[$pId]['categories'][$cat]['subcats'][$subcat][] = $d;
         } else {
-            $tree[$pName][$cat]['loose'][] = $d;
+            $tree[$pId]['categories'][$cat]['loose'][] = $d;
         }
     }
 }
@@ -362,19 +379,22 @@ require_once 'header.php';
             </div>
         <?php else: ?>
             <div id="vaultTree">
-                <?php foreach ($tree as $pName => $categories): ?>
-                    <details class="tree-details project-folder" open>
-                        <summary><?= htmlspecialchars($pName) ?></summary>
+                <?php foreach ($tree as $pId => $pData): ?>
+                    <details class="tree-details project-folder"> <summary><?= htmlspecialchars($pData['name']) ?></summary>
                         <div class="tree-level-1">
                             
-                            <?php foreach ($categories as $catName => $content): ?>
-                                <details class="tree-details category-folder" open>
-                                    <summary style="font-size: 0.95rem; color: #a5b4fc;"><?= htmlspecialchars($catName) ?></summary>
+                            <?php foreach ($pData['categories'] as $catName => $content): ?>
+                                <details class="tree-details category-folder"> <summary style="font-size: 0.95rem; color: #a5b4fc;"><?= htmlspecialchars($catName) ?></summary>
                                     <div class="tree-level-2">
                                         
                                         <?php foreach ($content['subcats'] as $subCatName => $files): ?>
                                             <details class="tree-details subcat-folder">
-                                                <summary style="font-size: 0.9rem; color: #818cf8;"><?= htmlspecialchars($subCatName) ?></summary>
+                                                <summary style="font-size: 0.9rem; color: #818cf8; display: flex; justify-content: space-between; align-items: center; width: 100%; padding-right: 15px;">
+                                                    <span><?= htmlspecialchars($subCatName) ?></span>
+                                                    <?php if ($isAdmin): ?>
+                                                        <button onclick="openMergeModal(event, <?= $pId ?>, '<?= htmlspecialchars($catName, ENT_QUOTES) ?>', '<?= htmlspecialchars($subCatName, ENT_QUOTES) ?>')" class="btn btn-sm" style="background: rgba(255,255,255,0.1); border: none; color: #ccc; padding: 2px 8px; font-size: 0.7rem; border-radius: 4px;" title="Rename this folder or merge it into another one">✏️ Rename/Merge</button>
+                                                    <?php endif; ?>
+                                                </summary>
                                                 <div class="tree-level-3">
                                                     <?php foreach ($files as $f): renderFileCard($f, $docPerms); endforeach; ?>
                                                 </div>
@@ -567,6 +587,35 @@ function renderFileCard($d, $docPerms) {
     </div>
 </div>
 
+<?php if ($isAdmin): ?>
+<div id="mergeModal" class="modal">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeModal('mergeModal')">&times;</span>
+        <h2 style="color: var(--primary-color); margin-top: 0;">Rename / Merge Subfolder</h2>
+        <form method="POST">
+            <input type="hidden" name="action" value="rename_subfolder">
+            <input type="hidden" name="project_id" id="merge_project_id">
+            <input type="hidden" name="category" id="merge_category">
+            <input type="hidden" name="old_sub_category" id="merge_old_sub">
+            
+            <div class="form-group">
+                <label>Current Subfolder Name</label>
+                <input type="text" id="merge_old_display" disabled style="background: rgba(0,0,0,0.2); border: 1px dashed #666; color: var(--text-muted);">
+            </div>
+            
+            <div class="form-group">
+                <label>New Subfolder Name *</label>
+                <p style="font-size: 0.75rem; color: #94a3b8; margin: 0 0 5px 0;">Select an existing folder from the list to merge them, or type a brand new name to rename.</p>
+                <input type="text" name="new_sub_category" id="merge_new_sub" required list="merge_subcat_suggestions">
+                <datalist id="merge_subcat_suggestions"></datalist>
+            </div>
+            
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Apply Changes</button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
 <script>
 // ==========================================
 // TREE SEARCH ENGINE
@@ -582,7 +631,6 @@ function filterTree() {
         categories.forEach(cat => {
             let catHasVisibleFiles = false;
             
-            // Check files inside sub-category folders
             const subcats = cat.querySelectorAll('.subcat-folder');
             subcats.forEach(subcat => {
                 let subcatHasVisibleFiles = false;
@@ -605,11 +653,10 @@ function filterTree() {
                     if (subcatHasVisibleFiles) subcat.open = true;
                 } else {
                     subcat.style.display = 'block';
-                    subcat.open = false; // Reset to closed when search cleared
+                    subcat.open = false; 
                 }
             });
 
-            // Check loose files directly in the category
             const looseFiles = cat.querySelectorAll('.loose-files .file-card');
             looseFiles.forEach(file => {
                 const searchData = file.getAttribute('data-search');
@@ -627,7 +674,7 @@ function filterTree() {
                 if (catHasVisibleFiles) cat.open = true;
             } else {
                 cat.style.display = 'block';
-                cat.open = true; // Default category open state
+                cat.open = false; // Stay closed by default
             }
         });
 
@@ -636,7 +683,7 @@ function filterTree() {
             if (projHasVisibleFiles) proj.open = true;
         } else {
             proj.style.display = 'block';
-            proj.open = true; // Default project open state
+            proj.open = false; // Stay closed by default
         }
     });
 }
@@ -650,6 +697,7 @@ window.onclick = function(event) {
     if (event.target == document.getElementById('uploadModal')) closeModal('uploadModal');
     if (event.target == document.getElementById('editModal')) closeModal('editModal');
     if (event.target == document.getElementById('viewerModal')) closeViewer();
+    if (event.target == document.getElementById('mergeModal')) closeModal('mergeModal');
 }
 
 function openViewer(id, title) {
@@ -691,6 +739,51 @@ function toggleReasonField() {
     const rsnInput = document.getElementById('edit_alarm_reason');
     if (isChecked) { rsnDiv.style.display = 'block'; rsnInput.required = true; } 
     else { rsnDiv.style.display = 'none'; rsnInput.required = false; }
+}
+
+function openMergeModal(e, projectId, category, oldSub) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    document.getElementById('merge_project_id').value = projectId;
+    document.getElementById('merge_category').value = category;
+    document.getElementById('merge_old_sub').value = oldSub;
+    document.getElementById('merge_old_display').value = oldSub;
+    document.getElementById('merge_new_sub').value = '';
+    
+    updateSubCategories(category, 'merge_subcat_suggestions');
+    
+    document.getElementById('mergeModal').style.display = 'block';
+}
+
+// ==========================================
+// DYNAMIC SUGGESTIONS
+// ==========================================
+// Base suggestions + Dynamically populated existing categories from the DB
+const dynamicSubcats = <?= json_encode($dynamicSubcats) ?>;
+const defaultSuggestions = {
+    'BCA': ['Condition Report', 'Method Statement', 'CAR Insurance', 'Bank Guarantee', 'Responsibility Form', 'Clearance Letter'],
+    'Engineering': ['ARMS Application', 'Water/Sewerage Application', 'PA Compliance', 'EPC Certificate', 'Lift Certification', 'Fire Safety Comm.'],
+    'OHSA': ['TC Certificate', 'Plant Certificate', 'RAMS', 'Safety Report', 'Incident Report'],
+    'Drawings': ['Architectural Plan', 'Structural Plan', 'Services Plan', 'Elevations', 'Sections'],
+    'Commercial': ['Quote', 'Contract', 'PO', 'Guarantee', 'Receipt'],
+    'Sales': ['Price List', 'Marketing Plan', 'Render (Image)', 'Render (Video)', 'Brochure', 'Floor Plan']
+};
+
+function updateSubCategories(category, listId) {
+    const dataList = document.getElementById(listId);
+    if(!dataList) return;
+    dataList.innerHTML = '';
+    
+    let combined = new Set();
+    if (defaultSuggestions[category]) defaultSuggestions[category].forEach(item => combined.add(item));
+    if (dynamicSubcats[category]) dynamicSubcats[category].forEach(item => combined.add(item));
+    
+    combined.forEach(item => {
+        const opt = document.createElement('option'); 
+        opt.value = item; 
+        dataList.appendChild(opt); 
+    });
 }
 
 // ==========================================
@@ -781,7 +874,6 @@ if (uploadForm) {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             
-            // Build title. If multiple files, append original filename to distinguish them.
             let docTitle = uploadForm.title.value;
             if (files.length > 1) {
                 docTitle = docTitle + ' - ' + file.name;
@@ -818,7 +910,7 @@ if (uploadForm) {
                             dbData.append('ajax_action', 'save_document_record');
                             dbData.append('file_key', authJson.key);
                             dbData.append('filename', file.name);
-                            dbData.set('title', docTitle); // Overwrite title for this specific file
+                            dbData.set('title', docTitle); 
 
                             let dbRes = await fetch('documentation.php', { method: 'POST', body: dbData });
                             let dbJson = await dbRes.json();
@@ -847,29 +939,6 @@ if (uploadForm) {
             progressBar.style.display = 'none';
         }
     });
-}
-
-// Suggestions Dictionary
-const suggestions = {
-    'BCA': ['Condition Report', 'Method Statement', 'CAR Insurance', 'Bank Guarantee', 'Responsibility Form', 'Clearance Letter'],
-    'Engineering': ['ARMS Application', 'Water/Sewerage Application', 'PA Compliance', 'EPC Certificate', 'Lift Certification', 'Fire Safety Comm.'],
-    'OHSA': ['TC Certificate', 'Plant Certificate', 'RAMS', 'Safety Report', 'Incident Report'],
-    'Drawings': ['Architectural Plan', 'Structural Plan', 'Services Plan', 'Elevations', 'Sections'],
-    'Commercial': ['Quote', 'Contract', 'PO', 'Guarantee', 'Receipt'],
-    'Sales': ['Price List', 'Marketing Plan', 'Render (Image)', 'Render (Video)', 'Brochure']
-};
-
-function updateSubCategories(category, listId) {
-    const dataList = document.getElementById(listId);
-    if(!dataList) return;
-    dataList.innerHTML = '';
-    if (suggestions[category]) { 
-        suggestions[category].forEach(item => { 
-            const opt = document.createElement('option'); 
-            opt.value = item; 
-            dataList.appendChild(opt); 
-        }); 
-    }
 }
 </script>
 
