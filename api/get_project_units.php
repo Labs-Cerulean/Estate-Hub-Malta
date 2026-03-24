@@ -150,16 +150,14 @@ try {
                         </div>";
             }
 
-            // --- ACTION BUTTONS (NUCLEAR FORCE-BLOCK LAYOUT) ---
+            // --- ACTION BUTTONS (VERTICAL BLOCK LAYOUT) ---
             $html .= "<div style='display: block; width: 100%; margin-top: 20px;'>"; 
             
             if ($is_manager) {
-                // Modify Pricing Button inside its own wrapper div
                 $html .= "<div style='margin-bottom: 12px;'>
                             <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-pen' style='margin-right: 5px;'></i> Modify Pricing</button>
                           </div>";
 
-                // Dropdown inside its own wrapper div
                 $statuses = ['Available', 'On Hold', 'Reserved', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
                 $html .= "<div style='margin-bottom: 12px;'>
                             <select class='form-control bg-dark text-light border-secondary' style='display: block; width: 100%; font-size: 0.95rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$u['id']}, this.value, this)'>";
@@ -170,7 +168,6 @@ try {
                 $html .= "  </select>
                           </div>";
             } else {
-                // Agent Buttons inside wrapper divs
                 if ($status === 'Available') {
                     $html .= "<div style='margin-bottom: 12px;'>
                                 <button class='btn' style='display: block; width: 100%; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='holdProperty({$u['id']})'><i class='fas fa-hand-paper' style='margin-right: 5px;'></i> Put on Hold</button>
@@ -182,7 +179,6 @@ try {
                 }
             }
 
-            // Plan button inside its own wrapper div
             $floorLvl = trim($u['floor_level']);
             if (isset($plans[$floorLvl])) {
                 $safeUrl = htmlspecialchars($plans[$floorLvl], ENT_QUOTES, 'UTF-8');
@@ -191,8 +187,8 @@ try {
                           </div>";
             }
             
-            $html .= "</div>"; // End Actions Box
-            $html .= "</div></div>"; // End Card & Body
+            $html .= "</div>"; 
+            $html .= "</div></div>"; 
         }
         $html .= '</div>';
     }
