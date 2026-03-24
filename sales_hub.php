@@ -61,21 +61,42 @@ require_once 'header.php';
     #custom-sidebar::-webkit-scrollbar-track { background: #212529; }
     #custom-sidebar::-webkit-scrollbar-thumb { background: #495057; border-radius: 3px; }
 
-    /* Bulletproof Full-Screen Modal */
-    .modal-fullscreen-custom {
-        width: 100vw !important;
-        max-width: 100vw !important;
-        height: 100vh !important;
-        margin: 0 !important;
-        padding: 0 !important;
+    /* ==========================================
+       VANILLA CSS VIEWER MODAL (Documentation.php Style)
+       ========================================== */
+    .vanilla-modal { 
+        display: none; 
+        position: fixed; 
+        z-index: 2000; 
+        left: 0; 
+        top: 0; 
+        width: 100%; 
+        height: 100%; 
+        background-color: rgba(0,0,0,0.85); 
+        backdrop-filter: blur(4px); 
     }
-    
-    .modal-fullscreen-custom .modal-content {
-        height: 100vh !important;
-        min-height: 100vh !important;
-        border-radius: 0 !important;
-        border: none !important;
+    .vanilla-modal-content { 
+        background-color: #212529; 
+        margin: 2% auto; 
+        padding: 1rem; 
+        border: 1px solid #495057; 
+        border-radius: 12px; 
+        width: 95%; 
+        max-width: 1600px; 
+        height: 90vh; 
+        display: flex; 
+        flex-direction: column; 
+        box-shadow: 0 15px 35px rgba(0,0,0,0.6); 
     }
+    .vanilla-close { 
+        color: #adb5bd; 
+        font-size: 2.5rem; 
+        font-weight: bold; 
+        cursor: pointer; 
+        line-height: 1; 
+        transition: 0.2s; 
+    }
+    .vanilla-close:hover { color: #fff; }
 </style>
 
 <div id="map-wrapper">
@@ -139,31 +160,29 @@ require_once 'header.php';
   </div>
 </div>
 
-<div class="modal fade p-0" id="viewPlanModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 2000;">
-  <div class="modal-dialog modal-fullscreen-custom" role="document">
-    <div class="modal-content bg-dark text-light">
-      
-      <div class="modal-header border-secondary d-flex justify-content-between align-items-center" style="height: 60px; padding: 0 20px;">
-        <h5 class="modal-title m-0"><i class="fas fa-map text-info"></i> Floor Plan Viewer</h5>
+<div id="viewPlanModal" class="vanilla-modal">
+    <div class="vanilla-modal-content">
         
-        <div class="btn-group mx-auto" role="group">
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="zoomPlan(-0.25)" title="Zoom Out"><i class="fas fa-search-minus"></i></button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetPlan()" title="Reset View"><i class="fas fa-compress"></i></button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="zoomPlan(0.25)" title="Zoom In"><i class="fas fa-search-plus"></i></button>
-            <button type="button" class="btn btn-outline-info btn-sm ms-3" onclick="rotatePlan()" title="Rotate 90°"><i class="fas fa-undo"></i> Rotate</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #495057; padding-bottom: 10px;">
+            <h4 style="margin: 0; color: #0dcaf0;"><i class="fas fa-map"></i> Floor Plan Viewer</h4>
+            
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-outline-light btn-sm" onclick="zoomPlan(-0.25)" title="Zoom Out"><i class="fas fa-search-minus"></i></button>
+                <button type="button" class="btn btn-outline-light btn-sm" onclick="resetPlan()" title="Reset View"><i class="fas fa-compress"></i></button>
+                <button type="button" class="btn btn-outline-light btn-sm" onclick="zoomPlan(0.25)" title="Zoom In"><i class="fas fa-search-plus"></i></button>
+                <button type="button" class="btn btn-outline-info btn-sm ms-3" onclick="rotatePlan()" title="Rotate 90°"><i class="fas fa-undo"></i> Rotate</button>
+            </div>
+
+            <span class="vanilla-close" onclick="closePlanModal()">&times;</span>
         </div>
 
-        <button type="button" class="close text-light m-0 p-0" aria-label="Close" onclick="closePlanModal()" style="background: transparent; border: none; font-size: 1.5rem; line-height: 1;"><span aria-hidden="true">&times;</span></button>
-      </div>
-
-      <div class="modal-body p-0" style="height: calc(100vh - 60px); overflow: hidden; background-color: #525659;">
-          <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-              <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>
-          </div>
-      </div>
+        <div style="flex: 1; overflow: hidden; background-color: #525659; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+            <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+                <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>
+            </div>
+        </div>
 
     </div>
-  </div>
 </div>
 
 <div class="modal fade" id="uploadFrameModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 1060;">
@@ -250,7 +269,7 @@ require_once 'header.php';
 </div>
 
 <script>
-    // --- View Plan Modal & Controls ---
+    // --- Vanilla View Plan Modal Controls ---
     let currentPlanZoom = 1;
     let currentPlanRotation = 0;
 
@@ -258,21 +277,22 @@ require_once 'header.php';
         const m = document.getElementById('viewPlanModal');
         document.getElementById('planIframe').src = url;
         resetPlan(); 
-        m.classList.add('show'); 
-        m.style.display = 'block'; 
-        m.style.backgroundColor = 'rgba(0,0,0,0.85)';
-        setTimeout(() => m.style.opacity = '1', 10);
+        m.style.display = 'block'; // Pure vanilla display block
     }
 
     function closePlanModal() {
         const m = document.getElementById('viewPlanModal');
-        m.style.opacity = '0';
-        setTimeout(() => { 
-            m.classList.remove('show'); 
-            m.style.display = 'none'; 
-            document.getElementById('planIframe').src = ''; 
-        }, 300);
+        m.style.display = 'none'; 
+        document.getElementById('planIframe').src = ''; // Unload iframe
     }
+
+    // Close vanilla modal if clicked outside the content box
+    window.addEventListener('click', function(event) {
+        const m = document.getElementById('viewPlanModal');
+        if (event.target == m) {
+            closePlanModal();
+        }
+    });
 
     function zoomPlan(amount) {
         currentPlanZoom += amount;
