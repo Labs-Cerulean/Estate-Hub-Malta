@@ -79,7 +79,7 @@ try {
                 $badgeBg = '#8b5cf6';
             }
 
-            // --- AGENT TAG LOGIC (Only shows for Hold & Reserved) ---
+            // --- AGENT TAG LOGIC ---
             $agentTag = '';
             if ($u['held_by_agent_id'] && in_array($status, ['On Hold', 'Reserved'])) {
                 $verb = ($status === 'Reserved') ? 'Reserved by' : 'Held by';
@@ -88,8 +88,8 @@ try {
 
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
-            // --- START BEAUTIFUL CARD ---
-            $html .= "<div class='card mb-4 shadow' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; transition: transform 0.2s;'>";
+            // --- START BEAUTIFUL CARD (Added data-status for Quick Filters) ---
+            $html .= "<div class='card mb-4 shadow unit-card' data-status='{$status}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; transition: transform 0.2s;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---
@@ -129,7 +129,7 @@ try {
                         </div>";
             
             if ($is_manager) {
-                $html .= "<button class='btn btn-link p-0 mt-2' style='font-size: 0.7rem; text-decoration: none; color: {$accentColor};' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-pen'></i> Modify Pricing</button>";
+                $html .= "<button class='btn btn-link p-0 mt-2' style='font-size: 0.75rem; text-decoration: none; color: {$accentColor};' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-pen'></i> Modify Pricing</button>";
             }
             $html .= "</div>";
 
@@ -140,47 +140,44 @@ try {
                             <div class='d-flex gap-2 mb-2'>
                                 <div class='flex-fill'>
                                     <label class='form-label text-info' style='font-size: 0.65rem; margin-bottom: 2px; text-transform: uppercase; font-weight: 700;'>Shell Price (€)</label>
-                                    <input type='number' id='inp_sh_{$u['id']}' class='form-control form-control-sm bg-dark text-light border-info shadow-none' value='{$u['shell_price']}' style='font-size: 0.8rem;'>
+                                    <input type='number' id='inp_sh_{$u['id']}' class='form-control form-control-sm bg-dark text-light border-info shadow-none' value='{$u['shell_price']}' style='font-size: 0.8rem; padding: 8px;'>
                                 </div>
                                 <div class='flex-fill'>
                                     <label class='form-label text-info' style='font-size: 0.65rem; margin-bottom: 2px; text-transform: uppercase; font-weight: 700;'>Finishes Price (€)</label>
-                                    <input type='number' id='inp_fn_{$u['id']}' class='form-control form-control-sm bg-dark text-light border-info shadow-none' value='{$u['finishes_price']}' style='font-size: 0.8rem;'>
+                                    <input type='number' id='inp_fn_{$u['id']}' class='form-control form-control-sm bg-dark text-light border-info shadow-none' value='{$u['finishes_price']}' style='font-size: 0.8rem; padding: 8px;'>
                                 </div>
                             </div>
                             <div class='d-flex gap-2 mt-3'>
-                                <button class='btn btn-info btn-sm flex-fill py-2 text-dark fw-bold' style='font-size: 0.75rem; border-radius: 8px;' onclick='savePrice({$u['id']})'><i class='fas fa-save me-1'></i> Save</button>
-                                <button class='btn btn-outline-secondary btn-sm py-2 px-3' style='font-size: 0.75rem; border-radius: 8px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-times'></i></button>
+                                <button class='btn btn-info btn-sm flex-fill py-2 text-dark fw-bold' style='font-size: 0.8rem; border-radius: 8px;' onclick='savePrice({$u['id']})'><i class='fas fa-save me-1'></i> Save</button>
+                                <button class='btn btn-outline-secondary btn-sm py-2 px-4' style='font-size: 0.8rem; border-radius: 8px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-times'></i></button>
                             </div>
                         </div>";
             }
 
-            // --- MODERN ACTION BUTTONS ---
+            // --- MODERN ACTION BUTTONS (Increased Spacing: gap-3 and padding: 10px) ---
             $planBtn = '';
             $floorLvl = trim($u['floor_level']);
             if (isset($plans[$floorLvl])) {
                 $safeUrl = htmlspecialchars($plans[$floorLvl], ENT_QUOTES, 'UTF-8');
-                // The Plan button sits in the grid natively
-                $planBtn = "<button class='btn flex-fill' style='background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 8px; font-size: 0.8rem; font-weight: 600; padding: 8px 0;' onclick='openPlanModal(\"{$safeUrl}\")'><i class='fas fa-map me-1'></i> View Plan</button>";
+                $planBtn = "<button class='btn flex-fill' style='background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 8px; font-size: 0.85rem; font-weight: 600; padding: 10px 0;' onclick='openPlanModal(\"{$safeUrl}\")'><i class='fas fa-map me-1'></i> View Plan</button>";
             }
 
-            $html .= "<div class='mt-3 d-flex gap-2 flex-wrap'>";
+            $html .= "<div class='mt-3 d-flex gap-3 flex-wrap'>"; 
             
             if ($is_manager) {
-                // Manager Override Dropdown
                 $statuses = ['Available', 'On Hold', 'Reserved', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
-                $html .= "<select class='form-select form-select-sm bg-dark text-light border-secondary flex-fill' style='font-size: 0.85rem; border-radius: 8px; padding: 8px 12px; height: auto;' onchange='managerUpdateStatus({$u['id']}, this.value)'>";
+                $html .= "<select class='form-select form-select-sm bg-dark text-light border-secondary flex-fill' style='font-size: 0.9rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$u['id']}, this.value, this)'>";
                 foreach ($statuses as $st) {
                     $selected = ($status === $st) ? 'selected' : '';
                     $html .= "<option value='{$st}' {$selected}>{$st}</option>";
                 }
                 $html .= "</select>";
-                if ($planBtn) $html .= "<div class='w-100 mt-1 d-flex'>{$planBtn}</div>"; // Drop plan button to next line for managers
+                if ($planBtn) $html .= "<div class='w-100 d-flex'>{$planBtn}</div>";
             } else {
-                // Agent Buttons
                 if ($status === 'Available') {
-                    $html .= "<button class='btn flex-fill' style='background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.8rem; font-weight: 600; padding: 8px 0;' onclick='holdProperty({$u['id']})'><i class='fas fa-hand-paper me-1'></i> Put on Hold</button>";
+                    $html .= "<button class='btn flex-fill' style='background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.85rem; font-weight: 600; padding: 10px 0;' onclick='holdProperty({$u['id']})'><i class='fas fa-hand-paper me-1'></i> Put on Hold</button>";
                 } elseif ($status === 'On Hold' && $u['held_by_agent_id'] == $_SESSION['user_id']) {
-                     $html .= "<button class='btn flex-fill' style='background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 0.8rem; font-weight: 600; padding: 8px 0;' onclick='requestReserve({$u['id']})'><i class='fas fa-check-circle me-1'></i> Reserve Unit</button>";
+                     $html .= "<button class='btn flex-fill' style='background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 0.85rem; font-weight: 600; padding: 10px 0;' onclick='requestReserve({$u['id']})'><i class='fas fa-check-circle me-1'></i> Reserve Unit</button>";
                 }
                 $html .= $planBtn;
             }
