@@ -34,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($user && password_verify($password, $user['password_hash'])) {
                 if ($user['is_active'] === 'Yes') {
                     // Set session variables
+                    $_SESSION['loggedin'] = true;
                     $_SESSION['user_id'] = $user['id'];
                     $_SESSION['username'] = $user['username'];
                     $_SESSION['role'] = $user['role'];
@@ -45,8 +46,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $updateStmt = $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
                     $updateStmt->execute([$user['id']]);
                     
-                    header('Location: dashboard.php');
+                    // --- ROLE-BASED REDIRECT ---
+                    $normalizedRole = strtolower(trim(str_replace(' ', '_', $user['role'])));
+                    if ($normalizedRole === 'sales_agent') {
+                        header('Location: sales_hub.php');
+                    } else {
+                        header('Location: dashboard.php');
+                    }
                     exit;
+                    
                 } else {
                     $error = 'Your account has been deactivated';
                 }
@@ -66,9 +74,6 @@ if (isset($_GET['timeout'])) {
 
 // Set page title
 $pageTitle = 'Login';
-
-// Now output HTML
-//require_once 'header.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
