@@ -40,7 +40,7 @@ require_once 'header.php';
     }
     #custom-sidebar.show-sidebar { right: 0; }
     
-    /* Sticky Header (Stays at the top while scrolling) */
+    /* Sticky Header */
     .sidebar-header { 
         position: sticky; 
         top: 0; 
@@ -60,6 +60,18 @@ require_once 'header.php';
     #custom-sidebar::-webkit-scrollbar { width: 6px; }
     #custom-sidebar::-webkit-scrollbar-track { background: #212529; }
     #custom-sidebar::-webkit-scrollbar-thumb { background: #495057; border-radius: 3px; }
+
+    /* Bulletproof Full-Screen Modal Override */
+    .modal-fullscreen-custom {
+        max-width: 100% !important;
+        margin: 0 !important;
+        height: 100vh !important;
+    }
+    .modal-fullscreen-custom .modal-content {
+        height: 100vh !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+    }
 </style>
 
 <div id="map-wrapper">
@@ -124,10 +136,10 @@ require_once 'header.php';
 </div>
 
 <div class="modal fade" id="viewPlanModal" tabindex="-1" role="dialog" style="display: none; transition: opacity 0.3s linear; z-index: 2000;">
-  <div class="modal-dialog modal-xl" role="document" style="max-width: 95vw;">
+  <div class="modal-dialog modal-fullscreen-custom" role="document">
     <div class="modal-content bg-dark text-light">
       
-      <div class="modal-header border-secondary d-flex justify-content-between align-items-center">
+      <div class="modal-header border-secondary d-flex justify-content-between align-items-center" style="height: 60px;">
         <h5 class="modal-title m-0"><i class="fas fa-map text-info"></i> Floor Plan Viewer</h5>
         
         <div class="btn-group mx-auto" role="group">
@@ -140,7 +152,7 @@ require_once 'header.php';
         <button type="button" class="close text-light m-0 p-0" aria-label="Close" onclick="closePlanModal()" style="background: transparent; border: none; font-size: 1.5rem;"><span aria-hidden="true">&times;</span></button>
       </div>
 
-      <div class="modal-body p-0" style="height: 85vh; overflow: auto; background-color: #525659; display: flex; align-items: center; justify-content: center;">
+      <div class="modal-body p-0" style="height: calc(100vh - 60px); overflow: hidden; background-color: #525659;">
           <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
               <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>
           </div>
@@ -314,7 +326,6 @@ require_once 'header.php';
 
     function closeSidebar() { document.getElementById('custom-sidebar').classList.remove('show-sidebar'); }
 
-    // Store map projects globally so we can jump to them
     let mapProjectsData = {};
 
     // --- Mapbox Initialization ---
@@ -368,7 +379,6 @@ require_once 'header.php';
                 if(unitData.success) {
                     document.getElementById('unitListContainer').innerHTML = unitData.html;
                     
-                    // Build Dynamic Carousel from Cloudflare R2 files
                     let slides = [];
                     if (unitData.media && unitData.media.videos) {
                         unitData.media.videos.forEach(v => { slides.push(`<video src="${v}" controls style="width:100%; height:250px; object-fit:cover;"></video>`); });
@@ -485,7 +495,6 @@ require_once 'header.php';
         });
     });
 
-    // --- Direct-to-Cloudflare Media Upload Handler ---
     document.getElementById('uploadMediaForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         
@@ -500,7 +509,6 @@ require_once 'header.php';
         btn.disabled = true;
 
         try {
-            // 1. Get the secure upload link from our API
             let authData = new FormData();
             authData.append('action', 'get_upload_url');
             authData.append('filename', file.name);
@@ -511,7 +519,6 @@ require_once 'header.php';
             
             if(!authJson.success) throw new Error(authJson.message);
 
-            // 2. Upload directly to Cloudflare R2
             btn.innerHTML = 'Uploading file...';
             
             await new Promise((resolve, reject) => {
@@ -527,7 +534,6 @@ require_once 'header.php';
                 xhr.send(file);
             });
 
-            // 3. Save the record in the database
             btn.innerHTML = 'Saving Data...';
             let dbData = new FormData(this);
             dbData.append('action', 'save_record');
