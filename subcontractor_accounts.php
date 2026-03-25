@@ -124,11 +124,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
             $boqDataJson = null;
             $docPath = null;
 
-            // Handle Secure Invoice Upload to R2 and Project Documentation
-            if ($type === 'Invoice' && !empty($_FILES['invoice_file']['tmp_name'])) {
+            // Handle Secure Document Upload (Invoices OR Certifications)
+            if (in_array($type, ['Invoice', 'Certification']) && !empty($_FILES['invoice_file']['tmp_name'])) {
                 require_once 'S3FileManager.php';
                 $s3 = new S3FileManager();
-                $docPath = $s3->uploadFile($_FILES['invoice_file']['tmp_name'], $_FILES['invoice_file']['name'], $_FILES['invoice_file']['type'], 'invoices');
+                $folder = $type === 'Invoice' ? 'invoices' : 'certifications';
+                $docPath = $s3->uploadFile($_FILES['invoice_file']['tmp_name'], $_FILES['invoice_file']['name'], $_FILES['invoice_file']['type'], $folder);
                 
                 if ($docPath && $work_id) {
                     $chkP = $pdo->prepare("SELECT project_id FROM subcontractor_works WHERE id = ?");
@@ -136,7 +137,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
                     $pid = $chkP->fetchColumn();
                     if ($pid) {
                         try {
-                            $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, uploaded_by) VALUES (?, 'Commercial', 'Invoice', ?, ?, ?)")->execute([$pid, 'Invoice: ' . trim($_POST['reference']), $docPath, getCurrentUserId()]);
+                            $docTitle = ($type === 'Invoice' ? 'Invoice: ' : 'Cert Attachment: ') . trim($_POST['reference']);
+                            $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, uploaded_by) VALUES (?, 'Commercial', ?, ?, ?, ?)")->execute([$pid, $type, $docTitle, $docPath, getCurrentUserId()]);
                         } catch (Exception $e) { }
                     }
                 }
@@ -268,7 +270,7 @@ require_once 'header.php';
 .summary-card .value { font-size: 1.5rem; font-weight: bold; color: var(--text-primary); }
 .delta-positive { color: #10B981 !important; } 
 .delta-negative { color: #EF4444 !important; } 
-.client-bar { background: rgba(99, 102, 241, 0.1); border: 1px solid var(--primary-color); padding: 1rem 1.5rem; border-radius: 8px; display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }
+.client-bar { background: rgba(99, 102, 246, 0.1); border: 1px solid var(--primary-color); padding: 1rem 1.5rem; border-radius: 8px; display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }
 .client-bar select { padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); font-size: 1rem; min-width: 250px; }
 .badge { padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
 .badge-cert { background: rgba(59, 130, 246, 0.2); color: #3B82F6; }
@@ -689,7 +691,11 @@ require_once 'header.php';
                                             $docUrl = $s3Temp->getPresignedUrl($t['document_path'], '+60 minutes');
                                         }
                                         ?>
-                                        <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-sm" style="background: #8b5cf6; color: white; margin-right: 5px;">View Invoice</a>
+                                        <?php if ($t['transaction_type'] === 'Invoice'): ?>
+                                            <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-sm" style="background: #8b5cf6; color: white; margin-right: 5px;">View Invoice</a>
+                                        <?php else: ?>
+                                            <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-sm" style="background: #6b7280; color: white; margin-right: 5px;">View Details</a>
+                                        <?php endif; ?>
                                     <?php endif; ?>
 
                                     <?php if($canManage): ?>
@@ -836,9 +842,9 @@ require_once 'header.php';
                     </div>
 
                     <div class="form-group" id="t_file_group" style="display:none; background: rgba(139, 92, 246, 0.1); padding: 15px; border-radius: 8px; border: 1px dashed var(--border-glass); margin-bottom: 15px;">
-                        <label style="color: #8B5CF6;">📎 Upload Invoice Document</label>
+                        <label style="color: #8B5CF6;" id="t_file_label">📎 Upload Document</label>
                         <input type="file" name="invoice_file" id="t_invoice_file" accept="application/pdf,image/*" style="width: 100%; color: var(--text-primary); margin-top: 5px;">
-                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">This file will be attached to the transaction and automatically saved to the Project Documentation vault.</p>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;" id="t_file_desc">This file will be attached to the transaction.</p>
                     </div>
 
                     <?php if ($sub_id && !empty($availableInvoices)): ?>
@@ -1193,12 +1199,25 @@ require_once 'header.php';
                 var matchGroup = document.getElementById('t_invoice_match_group');
                 var typeSelect = document.getElementById('t_type');
                 var fileGroup = document.getElementById('t_file_group');
+                var fileLabel = document.getElementById('t_file_label');
+                var fileDesc = document.getElementById('t_file_desc');
                 
                 if(matchGroup && typeSelect) {
                     matchGroup.style.display = typeSelect.value === 'Payment' ? 'block' : 'none';
                 }
+                
                 if(fileGroup && typeSelect) {
-                    fileGroup.style.display = typeSelect.value === 'Invoice' ? 'block' : 'none';
+                    if (typeSelect.value === 'Invoice') {
+                        fileGroup.style.display = 'block';
+                        if(fileLabel) fileLabel.innerText = '📎 Upload Invoice Document';
+                        if(fileDesc) fileDesc.innerText = 'This file will be attached and automatically saved to the Project Documentation vault.';
+                    } else if (typeSelect.value === 'Certification') {
+                        fileGroup.style.display = 'block';
+                        if(fileLabel) fileLabel.innerText = '📎 Upload Supporting Details (PDF)';
+                        if(fileDesc) fileDesc.innerText = 'This PDF will be automatically appended to the generated Certificate.';
+                    } else {
+                        fileGroup.style.display = 'none';
+                    }
                 }
             } catch(e) {
                 console.error("Error in toggleInvoiceMatch:", e);
