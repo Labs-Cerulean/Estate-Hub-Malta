@@ -124,14 +124,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage && $selected_client_id &
             $boqDataJson = null;
             $docPath = null;
 
-            // Handle Secure Document Upload (Invoices OR Certifications)
-            if (in_array($type, ['Invoice', 'Certification']) && !empty($_FILES['invoice_file']['tmp_name'])) {
-                require_once 'S3FileManager.php';
-                $s3 = new S3FileManager();
-                $folder = $type === 'Invoice' ? 'invoices' : 'certifications';
-                $docPath = $s3->uploadFile($_FILES['invoice_file']['tmp_name'], $_FILES['invoice_file']['name'], $_FILES['invoice_file']['type'], $folder);
+            // Handle Direct-to-Cloudflare Uploads (File key injected by Javascript)
+            if (in_array($type, ['Invoice', 'Certification']) && !empty($_POST['uploaded_file_key'])) {
+                $docPath = $_POST['uploaded_file_key'];
                 
-                if ($docPath && $work_id) {
+                if ($work_id) {
                     $chkP = $pdo->prepare("SELECT project_id FROM subcontractor_works WHERE id = ?");
                     $chkP->execute([$work_id]);
                     $pid = $chkP->fetchColumn();
@@ -797,8 +794,7 @@ require_once 'header.php';
             <div class="modal-content">
                 <span class="close-modal" onclick="closeModal('txModal')">&times;</span>
                 <h2 id="tModalTitle" style="color: var(--primary-color);">Log Activity</h2>
-                <form method="POST" enctype="multipart/form-data">
-                    <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
+                <form method="POST" id="txForm"> <input type="hidden" name="client_id" value="<?= $selected_client_id ?>">
                     <input type="hidden" name="action" value="save_transaction">
                     <input type="hidden" name="transaction_id" id="t_id">
                     
@@ -1232,6 +1228,76 @@ require_once 'header.php';
                 document.getElementById('t_ref').value = opt.getAttribute('data-ref') ? 'Paid ' + opt.getAttribute('data-ref') : 'Payment for Invoice';
             }
         }
+
+        // --- DIRECT JAVASCRIPT UPLOAD ENGINE ---
+        document.getElementById('txForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            let fileInput = document.getElementById('t_invoice_file');
+            let btn = this.querySelector('button[type="submit"]');
+            let originalText = btn.innerHTML;
+            let fileKey = '';
+            
+            if (fileInput && fileInput.files.length > 0) {
+                let file = fileInput.files[0];
+                btn.innerHTML = 'Connecting to Cloudflare...';
+                btn.disabled = true;
+                
+                try {
+                    let authData = new FormData();
+                    authData.append('action', 'get_upload_url');
+                    authData.append('filename', file.name);
+                    authData.append('mime_type', file.type || 'application/pdf');
+
+                    let authRes = await fetch('api/upload_sales_media.php', { method: 'POST', body: authData });
+                    let authJson = await authRes.json();
+                    
+                    if (!authJson.success) throw new Error(authJson.message);
+
+                    btn.innerHTML = 'Uploading Heavy File...';
+                    
+                    await new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('PUT', authJson.url, true);
+                        xhr.setRequestHeader('Content-Type', file.type || 'application/pdf');
+                        
+                        xhr.onload = function() {
+                            if (xhr.status >= 200 && xhr.status < 300) resolve();
+                            else reject(new Error('Cloudflare rejected the upload.'));
+                        };
+                        xhr.onerror = () => reject(new Error('Network error during upload.'));
+                        xhr.send(file);
+                    });
+                    
+                    fileKey = authJson.key;
+                } catch (err) {
+                    alert('Upload Error: ' + err.message);
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    return; // Stop submission on failure
+                }
+            }
+            
+            // Submission to Backend
+            btn.innerHTML = 'Saving Data...';
+            let formData = new FormData(this);
+            
+            if (fileKey) {
+                formData.append('uploaded_file_key', fileKey);
+                formData.delete('invoice_file'); // Prevent the PHP server from seeing the file
+            }
+            
+            fetch('subcontractor_accounts.php?client_id=<?= $selected_client_id ?>', {
+                method: 'POST',
+                body: formData
+            }).then(r => r.text()).then(html => {
+                location.reload();
+            }).catch(err => {
+                alert('Error saving data.');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            });
+        });
 
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
         window.onclick = function(event) {
