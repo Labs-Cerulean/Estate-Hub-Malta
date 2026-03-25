@@ -1,6 +1,33 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
+
+// --- PDF STREAMING PROXY (For attached PDF details) ---
+if (isset($_GET['proxy_tx_id'])) {
+    $docId = (int)$_GET['proxy_tx_id'];
+    $stmt = $pdo->prepare("SELECT document_path FROM subcontractor_transactions WHERE id = ?");
+    $stmt->execute([$docId]);
+    $doc = $stmt->fetch();
+    
+    if ($doc && !empty($doc['document_path'])) {
+        require_once 'S3FileManager.php';
+        $s3 = new S3FileManager();
+        $url = $s3->getPresignedUrl($doc['document_path'], '+10 minutes');
+        
+        header("Content-Type: application/pdf");
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, false); 
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_exec($ch);
+        curl_close($ch);
+        exit;
+    }
+    http_response_code(404);
+    exit;
+}
+// ------------------------------------------------------
+
 require_once 'S3FileManager.php';
 
 $txId = isset($_GET['tx_id']) ? (int)$_GET['tx_id'] : null;
@@ -45,7 +72,6 @@ $sub = $sStmt->fetch(PDO::FETCH_ASSOC);
 // POINT-IN-TIME HISTORICAL CALCULATIONS
 // ==========================================
 
-// Fetch Historical Certificates for the Audit Trail AND Sum (FIXED: Using 'notes' instead of 'description')
 $historyStmt = $pdo->prepare("
     SELECT id, transaction_date, reference, notes, amount as amount_inc_vat 
     FROM subcontractor_transactions 
@@ -70,7 +96,6 @@ $boqProgress = [];
 if ($work['is_measured'] && !empty($tx['boq_data'])) {
     $boqProgress = json_decode($tx['boq_data'], true);
     
-    // We need the descriptions from the main boq table
     $boqDescStmt = $pdo->prepare("SELECT id, description, total_exc FROM subcontractor_boq WHERE work_id = ?");
     $boqDescStmt->execute([$work['id']]);
     $boqDescriptions = [];
@@ -85,8 +110,19 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
     <meta charset="UTF-8">
     <title>Payment Certificate - <?= htmlspecialchars($tx['reference'] ?: $txId) ?></title>
     <style>
-        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111827; background: #fff; line-height: 1.5; margin: 0; padding: 20px; font-size: 12px; }
-        .page-container { max-width: 1000px; margin: 0 auto; }
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111827; background: #525659; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        
+        .print-page { 
+            width: 210mm; 
+            background: white; 
+            margin: 20px auto; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3); 
+            position: relative;
+            box-sizing: border-box;
+        }
+        .data-page { padding: 15mm; min-height: 297mm; font-size: 12px; line-height: 1.5; }
+        .img-page { height: 297mm; overflow: hidden; background: #fff; padding: 0; }
+        .img-page img { width: 100%; height: 100%; object-fit: contain; }
         
         .header-section { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; margin-bottom: 20px; }
         .logo-box { max-width: 250px; max-height: 80px; }
@@ -124,25 +160,24 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
         .footer { margin-top: 40px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #9ca3af; }
 
         @media print {
-            body { padding: 0; }
-            .page-container { width: 100%; max-width: 100%; }
-            @page { margin: 1.5cm; }
+            @page { size: A4; margin: 0; }
+            body { background: transparent; margin: 0; padding: 0; }
+            .print-page { margin: 0; box-shadow: none; page-break-after: always; width: 100%; }
+            .data-page { min-height: auto; padding: 1.5cm; } 
+            .img-page { height: 297mm !important; }
             .no-print { display: none !important; }
         }
     </style>
 </head>
 <body>
 
-<div class="page-container">
+<div class="no-print" style="position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 1000; color: white; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+    <h3 style="margin: 0 0 5px 0; color: #fff;">Certificate Print Preview</h3>
+    <p style="margin: 0 0 15px 0; color: #ccc; font-size: 12px;">Review data and attached PDF pages below.</p>
+    <button id="printBtn" onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Print / Save as PDF</button>
+</div>
 
-    <div class="no-print" style="margin-bottom: 20px; padding: 15px; background: #f3f4f6; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #d1d5db;">
-        <div>
-            <h3 style="margin: 0; color: #1f2937;">Certificate Print Preview</h3>
-            <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 12px;">This document reflects the exact status on the date of certification.</p>
-        </div>
-        <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Print / Save as PDF</button>
-    </div>
-
+<div class="print-page data-page">
     <div class="header-section">
         <div class="logo-box">
             <?php if (!empty($logoSrc)): ?>
@@ -219,7 +254,7 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
                     $old = (float)$bp['old_pct'];
                     $new = (float)$bp['new_pct'];
                     $diff = $new - $old;
-                    if ($diff <= 0) continue; // Only show items that actually progressed
+                    if ($diff <= 0) continue; 
                     
                     $valAdded = ((float)$descInfo['total_exc']) * ($diff / 100);
                     $calcExc += $valAdded;
@@ -324,8 +359,80 @@ if ($work['is_measured'] && !empty($tx['boq_data'])) {
         This document serves as formal certification of works completed up to the date stated above.<br>
         Estate Hub Management System
     </div>
-
 </div>
+
+<?php if (!empty($tx['document_path'])): ?>
+    <div class="pdf-render-target" data-tx-id="<?= $tx['id'] ?>"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const pdfTargets = document.querySelectorAll('.pdf-render-target');
+            if (pdfTargets.length > 0) {
+                
+                const printBtn = document.getElementById('printBtn');
+                if(printBtn) {
+                    printBtn.disabled = true;
+                    printBtn.innerHTML = "⏳ Loading Attachment...";
+                    printBtn.style.background = "#6b7280";
+                }
+
+                const script = document.createElement('script');
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+                script.onload = async () => {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+                    
+                    for (let target of pdfTargets) {
+                        const txId = target.getAttribute('data-tx-id');
+                        const proxyUrl = 'print_certificate.php?proxy_tx_id=' + txId;
+
+                        try {
+                            const loadingTask = pdfjsLib.getDocument(proxyUrl);
+                            const pdf = await loadingTask.promise;
+                            
+                            // Loop through every page in the attached PDF!
+                            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                                const page = await pdf.getPage(pageNum);
+                                const scale = 2.0; // Render at 2x resolution for high-quality printing
+                                const viewport = page.getViewport({scale: scale});
+                                
+                                const wrapper = document.createElement('div');
+                                wrapper.className = 'print-page img-page';
+                                
+                                const canvas = document.createElement('canvas');
+                                const context = canvas.getContext('2d');
+                                canvas.height = viewport.height;
+                                canvas.width = viewport.width;
+                                
+                                // Force a white background
+                                context.fillStyle = '#ffffff';
+                                context.fillRect(0, 0, canvas.width, canvas.height);
+                                
+                                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                                
+                                // Convert the canvas into a printable Image
+                                const img = document.createElement('img');
+                                img.src = canvas.toDataURL('image/jpeg', 0.95); 
+                                
+                                wrapper.appendChild(img);
+                                target.parentNode.insertBefore(wrapper, target);
+                            }
+                        } catch(e) {
+                            console.error("Error rendering PDF", e);
+                        }
+                        target.remove(); // Clean up the invisible target
+                    }
+                    
+                    if(printBtn) {
+                        printBtn.disabled = false;
+                        printBtn.innerHTML = "🖨️ Print / Save as PDF";
+                        printBtn.style.background = "#2563eb";
+                    }
+                };
+                document.head.appendChild(script);
+            }
+        });
+    </script>
+<?php endif; ?>
 
 </body>
 </html>
