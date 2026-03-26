@@ -96,20 +96,22 @@ if (!empty($projectIds)) {
 
 // 3. Filter for active execution stages
 $ohsaProjects = [];
-$ohsaStages = ['Mobilisation','Mobilization','Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
+$ohsaStages = ['Mobilisation', 'Mobilization', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 foreach ($projectsRaw as $p) {
-    // Exclude withdrawn or on-hold projects entirely
-    if (($p['project_status'] ?? 'Active') !== 'Active') continue;
+    // FIX 1: We will comment out the strict "Active" filter to ensure 
+    // projects labeled as "On Hold" or "Pre-construction" don't magically vanish from safety tracking.
+    // if (($p['project_status'] ?? 'Active') !== 'Active') continue;
 
-    $stage = deriveProjectStage($pdo, $p['id']);
+    // FIX 2: Upgrade to the Enterprise Stage Engine to match the Dashboard
+    $stage = getAccurateProjectStage($pdo, $p['id']);
     
     if (in_array($stage, $ohsaStages)) {
         $p['stage'] = $stage;
         $p['cnf_status'] = $ohsaSetups[$p['id']]['cnf_status'] ?? 'Not Submitted';
         $p['pscs_name'] = $ohsaSetups[$p['id']]['pscs_name'] ?? 'Unassigned';
         $p['safety_status'] = $ohsaSetups[$p['id']]['safety_status'] ?? 'N/A';
-        $p['safety_comments'] = $ohsaSetups[$p['id']]['safety_comments'] ?? '';
+        $p['safety_comments'] = $ohsaSetups[$p['id']]['safety_comments'] ?? '';;
         
         $p['equipment'] = $ohsaEquipment[$p['id']] ?? [];
         $p['pa_numbers'] = $paNumbers[$p['id']] ?? [];
