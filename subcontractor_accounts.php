@@ -36,6 +36,31 @@ if (isset($_POST['ajax_action'])) {
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
         exit;
     }
+
+    if ($action === 'get_upload_url') {
+        require_once 'S3FileManager.php';
+        $s3 = new S3FileManager();
+        
+        // Securely check if the user has Commercial upload rights (Level 3+)
+        $stmtPerms = $pdo->prepare("SELECT doc_commercial FROM users WHERE id = ?");
+        $stmtPerms->execute([getCurrentUserId()]);
+        $doc_commercial = (int)$stmtPerms->fetchColumn();
+        
+        if (!isAdmin() && $doc_commercial < 3) {
+            echo json_encode(['success' => false, 'message' => 'Permission denied: Commercial Level 3 required.']);
+            exit;
+        }
+        
+        $folder = (isset($_POST['type']) && $_POST['type'] === 'Invoice') ? 'invoices' : 'certifications';
+        $urlData = $s3->getPresignedUploadUrl($_POST['filename'], $_POST['mime_type'], $folder);
+        
+        if ($urlData) {
+            echo json_encode(['success' => true, 'url' => $urlData['url'], 'key' => $urlData['key']]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Failed to generate secure link.']);
+        }
+        exit;
+    }
 }
 // ==========================================
 
@@ -1244,12 +1269,16 @@ require_once 'header.php';
                 btn.disabled = true;
                 
                 try {
+                    let typeSelect = document.getElementById('t_type');
+                    
                     let authData = new FormData();
-                    authData.append('action', 'get_upload_url');
+                    authData.append('ajax_action', 'get_upload_url');
+                    authData.append('type', typeSelect ? typeSelect.value : 'Certification');
                     authData.append('filename', file.name);
                     authData.append('mime_type', file.type || 'application/pdf');
 
-                    let authRes = await fetch('api/upload_sales_media.php', { method: 'POST', body: authData });
+                    // Call THIS file securely, NOT the Sales API
+                    let authRes = await fetch('subcontractor_accounts.php', { method: 'POST', body: authData });
                     let authJson = await authRes.json();
                     
                     if (!authJson.success) throw new Error(authJson.message);
