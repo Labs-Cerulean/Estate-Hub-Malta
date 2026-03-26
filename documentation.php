@@ -24,6 +24,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'overflow_error') {
 // ==========================================
 // 1. DETERMINE USER CATEGORY PERMISSIONS
 // ==========================================
+// Safely ensure the column exists before we try to select it
+try { $pdo->exec("ALTER TABLE users ADD COLUMN doc_training TINYINT(1) DEFAULT 0"); } catch (PDOException $e) { }
+
 $stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_engineering, doc_commercial, doc_sales, doc_training FROM users WHERE id = ?");
 $stmtPerms->execute([$userId]);
 $uPerm = $stmtPerms->fetch(PDO::FETCH_ASSOC);
