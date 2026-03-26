@@ -185,7 +185,8 @@ $projects = getAccessibleProjects($pdo, $userId);
 array_unshift($projects, ['id' => 'global', 'name' => '⭐ Training & Company Hub']);
 
 // Get numeric project IDs for the SQL query
-$accessibleProjectIds = array_filter(array_column($projects, 'id'), function($id) { return $id !== 'global'; });
+// FIX: Added array_values() to reset array keys to 0 so PDO doesn't crash
+$accessibleProjectIds = array_values(array_filter(array_column($projects, 'id'), function($id) { return $id !== 'global'; }));
 
 $canUploadAnything = false;
 foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break; } }
@@ -197,7 +198,7 @@ $dynamicSubcats = []; // Tracks actual existing subcategories in the database
 
 if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $placeholders = implode(',', array_fill(0, count($accessibleProjectIds), '?'));
-    $params = $accessibleProjectIds;
+    $baseParams = $accessibleProjectIds; // Clean base array
     $allowedCatString = implode("','", array_map(function($c) { return addslashes($c); }, $accessibleCategories));
 
     // Fetch Expiring Documents (Include Global Nulls)
@@ -208,7 +209,7 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
         AND d.expiry_date IS NOT NULL AND d.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND d.alarm_dismissed = 0
         ORDER BY d.expiry_date ASC
     ");
-    $expStmt->execute($params);
+    $expStmt->execute($baseParams);
     $expiringDocs = $expStmt->fetchAll();
 
     // Fetch Main Vault Documents
@@ -217,19 +218,24 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
               LEFT JOIN users u ON d.uploaded_by = u.id LEFT JOIN users u2 ON d.alarm_dismissed_by = u2.id
               WHERE (d.project_id IN ($placeholders) OR d.project_id IS NULL) AND d.category IN ('$allowedCatString')";
     
+    $mainParams = $baseParams; // Reset params for this query
+    
     if ($selectedProjectId !== 'all') { 
         if ($selectedProjectId === 'global') {
             $query .= " AND d.project_id IS NULL";
         } else {
             $query .= " AND d.project_id = ?"; 
-            $params[] = $selectedProjectId; 
+            $mainParams[] = $selectedProjectId; 
         }
     }
     
-    if ($selectedCategory !== 'all' && in_array($selectedCategory, $accessibleCategories)) { $query .= " AND d.category = ?"; $params[] = $selectedCategory; }
+    if ($selectedCategory !== 'all' && in_array($selectedCategory, $accessibleCategories)) { 
+        $query .= " AND d.category = ?"; 
+        $mainParams[] = $selectedCategory; 
+    }
     $query .= " ORDER BY p.name ASC, d.category ASC, d.sub_category ASC, d.created_at DESC";
     $docStmt = $pdo->prepare($query);
-    $docStmt->execute($params);
+    $docStmt->execute($mainParams);
     $documents = $docStmt->fetchAll();
 
     // Build the Tree Array & Dynamic Subcategories
