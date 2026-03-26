@@ -8,6 +8,9 @@ require_once 'init.php';
 require_once 'session-check.php';
 require_once 'S3FileManager.php'; 
 
+// Ensure database supports the new Client Hub structure safely
+try { $pdo->exec("ALTER TABLE project_documents ADD COLUMN client_id INT DEFAULT NULL"); } catch (PDOException $e) { }
+
 $userId = getCurrentUserId();
 $isAdmin = isAdmin();
 $s3 = new S3FileManager();
@@ -21,7 +24,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'overflow_error') {
 // ==========================================
 // 1. DETERMINE USER CATEGORY PERMISSIONS
 // ==========================================
-$stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_engineering, doc_commercial, doc_sales FROM users WHERE id = ?");
+$stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_engineering, doc_commercial, doc_sales, doc_training FROM users WHERE id = ?");
 $stmtPerms->execute([$userId]);
 $uPerm = $stmtPerms->fetch(PDO::FETCH_ASSOC);
 
@@ -32,9 +35,7 @@ if ($isAdmin || (int)$uPerm['doc_drawings'] > 0) $docPerms['Drawings'] = $isAdmi
 if ($isAdmin || (int)$uPerm['doc_engineering'] > 0) $docPerms['Engineering'] = $isAdmin ? 4 : (int)$uPerm['doc_engineering'];
 if ($isAdmin || (int)$uPerm['doc_commercial'] > 0) $docPerms['Commercial'] = $isAdmin ? 4 : (int)$uPerm['doc_commercial'];
 if ($isAdmin || (int)$uPerm['doc_sales'] > 0) $docPerms['Sales'] = $isAdmin ? 4 : (int)$uPerm['doc_sales'];
-
-// Tie the "Training" folder to the OHSA permission (or Admin)
-if ($isAdmin || (int)$uPerm['doc_ohsa'] > 0) $docPerms['Training'] = $isAdmin ? 4 : (int)$uPerm['doc_ohsa'];
+if ($isAdmin || (int)$uPerm['doc_training'] > 0) $docPerms['Training'] = $isAdmin ? 4 : (int)$uPerm['doc_training'];
 
 $accessibleCategories = array_keys($docPerms);
 
@@ -59,10 +60,18 @@ if (isset($_POST['ajax_action'])) {
         }
 
         if ($_POST['ajax_action'] === 'save_document_record') {
-            // Handle the Global Hub (NULL Project ID)
-            $projectId = ($_POST['project_id'] === 'global') ? null : (int)$_POST['project_id'];
-            $category = $_POST['category'];
+            $contextId = $_POST['project_id'];
+            $projectId = null;
+            $clientId = null;
             
+            // Check if uploading to a Client Company Hub or a standard Project
+            if (strpos($contextId, 'client_') === 0) {
+                $clientId = (int)str_replace('client_', '', $contextId);
+            } else {
+                $projectId = (int)$contextId;
+            }
+
+            $category = $_POST['category'];
             if (!isset($docPerms[$category]) || $docPerms[$category] < 3) {
                 echo json_encode(['success' => false, 'error' => 'Permission denied']); exit;
             }
@@ -73,8 +82,8 @@ if (isset($_POST['ajax_action'])) {
             $fileKey = $_POST['file_key'];
             $ext = strtolower(pathinfo($_POST['filename'], PATHINFO_EXTENSION));
 
-            $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, expiry_date, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$projectId, $category, $subCategory, $title, $fileKey, $ext, $expiryDate, $userId]);
+            $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, client_id, category, sub_category, title, file_path, file_type, expiry_date, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$projectId, $clientId, $category, $subCategory, $title, $fileKey, $ext, $expiryDate, $userId]);
             
             echo json_encode(['success' => true]);
             exit;
@@ -138,17 +147,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action']) && $_
     elseif ($action === 'rename_subfolder') {
         try {
             if (!$isAdmin) throw new Exception("Permission denied. Only admins can merge or rename folders.");
-            $pId = ($_POST['project_id'] === 'global') ? null : (int)$_POST['project_id'];
+            
+            $contextId = $_POST['project_id'];
             $cat = $_POST['category'];
             $oldSub = trim($_POST['old_sub_category']);
             $newSub = trim($_POST['new_sub_category']);
             
             if (empty($newSub)) throw new Exception("New subfolder name cannot be empty.");
             
-            if ($pId === null) {
-                $stmt = $pdo->prepare("UPDATE project_documents SET sub_category = ? WHERE project_id IS NULL AND category = ? AND sub_category = ?");
-                $stmt->execute([$newSub, $cat, $oldSub]);
+            if (strpos($contextId, 'client_') === 0) {
+                $cId = (int)str_replace('client_', '', $contextId);
+                $stmt = $pdo->prepare("UPDATE project_documents SET sub_category = ? WHERE client_id = ? AND category = ? AND sub_category = ?");
+                $stmt->execute([$newSub, $cId, $cat, $oldSub]);
             } else {
+                $pId = (int)$contextId;
                 $stmt = $pdo->prepare("UPDATE project_documents SET sub_category = ? WHERE project_id = ? AND category = ? AND sub_category = ?");
                 $stmt->execute([$newSub, $pId, $cat, $oldSub]);
             }
@@ -181,12 +193,11 @@ $selectedProjectId = (isset($_GET['project_id']) && $_GET['project_id'] !== 'all
 $selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? $_GET['category'] : 'all';
 
 $projects = getAccessibleProjects($pdo, $userId);
-// Inject the Global Hub into the projects array
-array_unshift($projects, ['id' => 'global', 'name' => '⭐ Training & Company Hub']);
+$accessibleProjectIds = array_column($projects, 'id');
 
-// Get numeric project IDs for the SQL query
-// FIX: Added array_values() to reset array keys to 0 so PDO doesn't crash
-$accessibleProjectIds = array_values(array_filter(array_column($projects, 'id'), function($id) { return $id !== 'global'; }));
+// Fetch the clients this user has explicit access to
+$clients = getUserClients($pdo, $userId);
+$accessibleClientIds = array_column($clients, 'id');
 
 $canUploadAnything = false;
 foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break; } }
@@ -194,18 +205,24 @@ foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break;
 $documents = []; 
 $expiringDocs = [];
 $tree = []; 
-$dynamicSubcats = []; // Tracks actual existing subcategories in the database
+$dynamicSubcats = []; 
 
-if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
-    $placeholders = implode(',', array_fill(0, count($accessibleProjectIds), '?'));
-    $baseParams = $accessibleProjectIds; // Clean base array
+if ((!empty($accessibleProjectIds) || !empty($accessibleClientIds)) && !empty($accessibleCategories)) {
+    $placeholdersP = !empty($accessibleProjectIds) ? implode(',', array_fill(0, count($accessibleProjectIds), '?')) : '0';
+    $placeholdersC = !empty($accessibleClientIds) ? implode(',', array_fill(0, count($accessibleClientIds), '?')) : '0';
+    
+    $baseParams = array_merge($accessibleProjectIds, $accessibleClientIds);
     $allowedCatString = implode("','", array_map(function($c) { return addslashes($c); }, $accessibleCategories));
 
-    // Fetch Expiring Documents (Include Global Nulls)
+    // Fetch Expiring Documents
     $expStmt = $pdo->prepare("
-        SELECT d.*, COALESCE(p.name, '⭐ Training & Company Hub') as project_name 
-        FROM project_documents d LEFT JOIN projects p ON d.project_id = p.id 
-        WHERE (d.project_id IN ($placeholders) OR d.project_id IS NULL) AND d.category IN ('$allowedCatString')
+        SELECT d.*, 
+               CASE WHEN d.client_id IS NOT NULL THEN CONCAT('🏢 ', c.name, ' Hub') ELSE p.name END as project_name 
+        FROM project_documents d 
+        LEFT JOIN projects p ON d.project_id = p.id 
+        LEFT JOIN clients c ON d.client_id = c.id
+        WHERE (d.project_id IN ($placeholdersP) OR d.client_id IN ($placeholdersC)) 
+        AND d.category IN ('$allowedCatString')
         AND d.expiry_date IS NOT NULL AND d.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND d.alarm_dismissed = 0
         ORDER BY d.expiry_date ASC
     ");
@@ -213,19 +230,24 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $expiringDocs = $expStmt->fetchAll();
 
     // Fetch Main Vault Documents
-    $query = "SELECT d.*, COALESCE(p.name, '⭐ Training & Company Hub') as project_name, u.first_name, u.last_name, u2.first_name as dis_fn, u2.last_name as dis_ln
-              FROM project_documents d LEFT JOIN projects p ON d.project_id = p.id 
-              LEFT JOIN users u ON d.uploaded_by = u.id LEFT JOIN users u2 ON d.alarm_dismissed_by = u2.id
-              WHERE (d.project_id IN ($placeholders) OR d.project_id IS NULL) AND d.category IN ('$allowedCatString')";
+    $query = "SELECT d.*, p.name as project_name, c.name as client_name, u.first_name, u.last_name, u2.first_name as dis_fn, u2.last_name as dis_ln
+              FROM project_documents d 
+              LEFT JOIN projects p ON d.project_id = p.id 
+              LEFT JOIN clients c ON d.client_id = c.id
+              LEFT JOIN users u ON d.uploaded_by = u.id 
+              LEFT JOIN users u2 ON d.alarm_dismissed_by = u2.id
+              WHERE (d.project_id IN ($placeholdersP) OR d.client_id IN ($placeholdersC)) 
+              AND d.category IN ('$allowedCatString')";
     
-    $mainParams = $baseParams; // Reset params for this query
+    $mainParams = $baseParams; 
     
     if ($selectedProjectId !== 'all') { 
-        if ($selectedProjectId === 'global') {
-            $query .= " AND d.project_id IS NULL";
+        if (strpos($selectedProjectId, 'client_') === 0) {
+            $query .= " AND d.client_id = ?"; 
+            $mainParams[] = (int)str_replace('client_', '', $selectedProjectId); 
         } else {
             $query .= " AND d.project_id = ?"; 
-            $mainParams[] = $selectedProjectId; 
+            $mainParams[] = (int)$selectedProjectId; 
         }
     }
     
@@ -233,19 +255,19 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
         $query .= " AND d.category = ?"; 
         $mainParams[] = $selectedCategory; 
     }
-    $query .= " ORDER BY p.name ASC, d.category ASC, d.sub_category ASC, d.created_at DESC";
+    $query .= " ORDER BY p.name ASC, c.name ASC, d.category ASC, d.sub_category ASC, d.created_at DESC";
     $docStmt = $pdo->prepare($query);
     $docStmt->execute($mainParams);
     $documents = $docStmt->fetchAll();
 
     // Build the Tree Array & Dynamic Subcategories
     foreach ($documents as $d) {
-        $pId = $d['project_id'] === null ? 'global' : $d['project_id'];
-        $pName = $d['project_name'];
+        $isClientHub = !empty($d['client_id']);
+        $pId = $isClientHub ? 'client_' . $d['client_id'] : $d['project_id'];
+        $pName = $isClientHub ? '🏢 ' . $d['client_name'] . ' (Company Hub)' : $d['project_name'];
         $cat = $d['category'];
         $subcat = empty($d['sub_category']) ? '' : trim($d['sub_category']);
 
-        // Collect existing subcategories for the JS Datalist
         if ($subcat !== '') {
             if (!isset($dynamicSubcats[$cat])) $dynamicSubcats[$cat] = [];
             if (!in_array($subcat, $dynamicSubcats[$cat])) $dynamicSubcats[$cat][] = $subcat;
@@ -380,10 +402,19 @@ require_once 'header.php';
             <strong style="color: var(--primary-color);">Filter Context:</strong>
             <input type="hidden" name="category" value="<?= htmlspecialchars($selectedCategory) ?>">
             <select name="project_id" onchange="this.form.submit()" style="padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary);">
-                <option value="all">-- All Accessible Projects --</option>
-                <?php foreach($projects as $p): ?>
-                    <option value="<?= $p['id'] ?>" <?= (string)$selectedProjectId === (string)$p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
-                <?php endforeach; ?>
+                <option value="all">-- All Folders --</option>
+                
+                <optgroup label="🏢 Company Hubs (Client Level)">
+                    <?php foreach($clients as $c): ?>
+                        <option value="client_<?= $c['id'] ?>" <?= $selectedProjectId === 'client_'.$c['id'] ? 'selected' : '' ?>>🏢 <?= htmlspecialchars($c['name']) ?> Hub</option>
+                    <?php endforeach; ?>
+                </optgroup>
+                
+                <optgroup label="🏗️ Projects">
+                    <?php foreach($projects as $p): ?>
+                        <option value="<?= $p['id'] ?>" <?= (string)$selectedProjectId === (string)$p['id'] ? 'selected' : '' ?>>🏗️ <?= htmlspecialchars($p['name']) ?></option>
+                    <?php endforeach; ?>
+                </optgroup>
             </select>
         </form>
         
@@ -520,12 +551,21 @@ function renderFileCard($d, $docPerms) {
         
         <form id="directUploadForm">
             <div class="form-group">
-                <label>Project Context *</label>
+                <label>Folder Location *</label>
                 <select name="project_id" required>
-                    <option value="">-- Select Project --</option>
-                    <?php foreach($projects as $p): ?>
-                        <option value="<?= $p['id'] ?>" <?= (string)$selectedProjectId === (string)$p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
-                    <?php endforeach; ?>
+                    <option value="">-- Select Destination --</option>
+                    
+                    <optgroup label="🏢 Company Hubs (Client Level)">
+                        <?php foreach($clients as $c): ?>
+                            <option value="client_<?= $c['id'] ?>">🏢 <?= htmlspecialchars($c['name']) ?> Hub</option>
+                        <?php endforeach; ?>
+                    </optgroup>
+                    
+                    <optgroup label="🏗️ Projects">
+                        <?php foreach($projects as $p): ?>
+                            <option value="<?= $p['id'] ?>">🏗️ <?= htmlspecialchars($p['name']) ?></option>
+                        <?php endforeach; ?>
+                    </optgroup>
                 </select>
             </div>
 
