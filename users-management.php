@@ -6,7 +6,8 @@ if (!isAdmin()) { header('Location: dashboard.php'); exit; }
 
 $message = ''; $error = '';
 
-// Ensure all users have a capabilities record
+// Ensure all users have a capabilities record and support the new Training Docs Access
+try { $pdo->exec("ALTER TABLE users ADD COLUMN doc_training TINYINT(1) DEFAULT 0"); } catch (PDOException $e) { }
 $pdo->exec("INSERT IGNORE INTO user_capabilities (user_id) SELECT id FROM users");
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -94,18 +95,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
         $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
 
-        // 4-Tier Document Vault Permissions
+        // 4-Tier Document Vault Permissions (Now Including Training)
         $doc_bca = isset($_POST['doc_bca']) ? (int)$_POST['doc_bca'] : 0;
         $doc_ohsa = isset($_POST['doc_ohsa']) ? (int)$_POST['doc_ohsa'] : 0;
         $doc_drawings = isset($_POST['doc_drawings']) ? (int)$_POST['doc_drawings'] : 0;
         $doc_engineering = isset($_POST['doc_engineering']) ? (int)$_POST['doc_engineering'] : 0;
         $doc_commercial = isset($_POST['doc_commercial']) ? (int)$_POST['doc_commercial'] : 0;
         $doc_sales = isset($_POST['doc_sales']) ? (int)$_POST['doc_sales'] : 0;
+        $doc_training = isset($_POST['doc_training']) ? (int)$_POST['doc_training'] : 0;
 
         try {
             $pdo->beginTransaction();
-            $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_engineering=?, doc_commercial=?, doc_sales=? WHERE id=?");
-            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_engineering, $doc_commercial, $doc_sales, $userId]);
+            $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_engineering=?, doc_commercial=?, doc_sales=?, doc_training=? WHERE id=?");
+            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_engineering, $doc_commercial, $doc_sales, $doc_training, $userId]);
             
             if (!empty($_POST['new_password'])) {
                 $pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
@@ -356,6 +358,17 @@ require_once 'header.php';
                                     <option value="4" <?= $selectedUser['doc_sales'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
                                 </select>
                             </div>
+                            
+                            <div class="form-group" style="margin: 0; grid-column: span 2; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 10px;">
+                                <label style="font-size: 0.8rem; margin-bottom: 2px; color: #10b981;">Training & Company HR Docs (Client-Level)</label>
+                                <select name="doc_training" id="edit_cap_doc_training" class="doc-select-edit" style="font-size: 0.85rem; padding: 4px 8px; border-color: #10b981;">
+                                    <option value="0" <?= $selectedUser['doc_training'] == 0 ? 'selected' : '' ?>>0. No Access</option>
+                                    <option value="1" <?= $selectedUser['doc_training'] == 1 ? 'selected' : '' ?>>1. View Online Only</option>
+                                    <option value="2" <?= $selectedUser['doc_training'] == 2 ? 'selected' : '' ?>>2. View & Download</option>
+                                    <option value="3" <?= $selectedUser['doc_training'] == 3 ? 'selected' : '' ?>>3. View, Download, Upload</option>
+                                    <option value="4" <?= $selectedUser['doc_training'] == 4 ? 'selected' : '' ?>>4. Full Control (Inc. Delete)</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
@@ -521,21 +534,21 @@ const roleDefaults = {
 };
 
 const docDefaults = {
-    'admin': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 4, doc_sales: 4 },
-    'director': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 4, doc_sales: 4 },
-    'system_manager': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 0, doc_sales: 0 },
-    'project_manager': { doc_bca: 3, doc_ohsa: 3, doc_drawings: 3, doc_engineering: 3, doc_commercial: 0, doc_sales: 0 },
-    'accountant': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 4, doc_sales: 0 },
-    'architect': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 2, doc_commercial: 0, doc_sales: 0 },
-    'structural_engineer': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
-    'services_engineer': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 3, doc_commercial: 0, doc_sales: 0 },
-    'site_technical_officer': { doc_bca: 2, doc_ohsa: 3, doc_drawings: 2, doc_engineering: 2, doc_commercial: 0, doc_sales: 0 },
-    'quality_controller': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
-    'pmo_staff': { doc_bca: 3, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
-    'ohsa_rep': { doc_bca: 0, doc_ohsa: 3, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
-    'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0 },
-    'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 4 },
-    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2 }
+    'admin': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 4, doc_sales: 4, doc_training: 4 },
+    'director': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 4, doc_sales: 4, doc_training: 4 },
+    'system_manager': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 0, doc_sales: 0, doc_training: 4 },
+    'project_manager': { doc_bca: 3, doc_ohsa: 3, doc_drawings: 3, doc_engineering: 3, doc_commercial: 0, doc_sales: 0, doc_training: 3 },
+    'accountant': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 4, doc_sales: 0, doc_training: 0 },
+    'architect': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 2, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'structural_engineer': { doc_bca: 2, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'services_engineer': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 3, doc_engineering: 3, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'site_technical_officer': { doc_bca: 2, doc_ohsa: 3, doc_drawings: 2, doc_engineering: 2, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'quality_controller': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'pmo_staff': { doc_bca: 3, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 2 },
+    'ohsa_rep': { doc_bca: 0, doc_ohsa: 3, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 3 },
+    'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 4, doc_training: 0 },
+    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2, doc_training: 0 }
 };
 
 function toggleAccessSections(type) {
