@@ -10,6 +10,8 @@ require_once 'S3FileManager.php';
 
 // Ensure database supports the new Client Hub structure safely
 try { $pdo->exec("ALTER TABLE project_documents ADD COLUMN client_id INT DEFAULT NULL"); } catch (PDOException $e) { }
+// Safely ensure the column exists before we try to select it
+try { $pdo->exec("ALTER TABLE users ADD COLUMN doc_training TINYINT(1) DEFAULT 0"); } catch (PDOException $e) { }
 
 $userId = getCurrentUserId();
 $isAdmin = isAdmin();
@@ -24,9 +26,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'overflow_error') {
 // ==========================================
 // 1. DETERMINE USER CATEGORY PERMISSIONS
 // ==========================================
-// Safely ensure the column exists before we try to select it
-try { $pdo->exec("ALTER TABLE users ADD COLUMN doc_training TINYINT(1) DEFAULT 0"); } catch (PDOException $e) { }
-
 $stmtPerms = $pdo->prepare("SELECT doc_bca, doc_ohsa, doc_drawings, doc_engineering, doc_commercial, doc_sales, doc_training FROM users WHERE id = ?");
 $stmtPerms->execute([$userId]);
 $uPerm = $stmtPerms->fetch(PDO::FETCH_ASSOC);
@@ -67,7 +66,6 @@ if (isset($_POST['ajax_action'])) {
             $projectId = null;
             $clientId = null;
             
-            // Check if uploading to a Client Company Hub or a standard Project
             if (strpos($contextId, 'client_') === 0) {
                 $clientId = (int)str_replace('client_', '', $contextId);
             } else {
@@ -198,8 +196,12 @@ $selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? 
 $projects = getAccessibleProjects($pdo, $userId);
 $accessibleProjectIds = array_column($projects, 'id');
 
-// Fetch the clients this user has explicit access to
-$clients = getUserClients($pdo, $userId);
+// FIX: If admin, fetch all clients. Otherwise, fetch assigned clients.
+if ($isAdmin) {
+    $clients = $pdo->query("SELECT id, name, type FROM clients ORDER BY name ASC")->fetchAll();
+} else {
+    $clients = getUserClients($pdo, $userId);
+}
 $accessibleClientIds = array_column($clients, 'id');
 
 $canUploadAnything = false;
@@ -209,6 +211,17 @@ $documents = [];
 $expiringDocs = [];
 $tree = []; 
 $dynamicSubcats = []; 
+
+// PRE-FILL THE TREE WITH CLIENT HUBS AND TRAINING FOLDERS
+foreach ($clients as $c) {
+    $pId = 'client_' . $c['id'];
+    $pName = '🏢 ' . $c['name'] . ' Hub';
+    $tree[$pId] = ['name' => $pName, 'categories' => []];
+    
+    if (isset($docPerms['Training']) && $docPerms['Training'] > 0) {
+        $tree[$pId]['categories']['Training'] = ['subcats' => [], 'loose' => []];
+    }
+}
 
 if ((!empty($accessibleProjectIds) || !empty($accessibleClientIds)) && !empty($accessibleCategories)) {
     $placeholdersP = !empty($accessibleProjectIds) ? implode(',', array_fill(0, count($accessibleProjectIds), '?')) : '0';
@@ -267,7 +280,7 @@ if ((!empty($accessibleProjectIds) || !empty($accessibleClientIds)) && !empty($a
     foreach ($documents as $d) {
         $isClientHub = !empty($d['client_id']);
         $pId = $isClientHub ? 'client_' . $d['client_id'] : $d['project_id'];
-        $pName = $isClientHub ? '🏢 ' . $d['client_name'] . ' (Company Hub)' : $d['project_name'];
+        $pName = $isClientHub ? '🏢 ' . $d['client_name'] . ' Hub' : $d['project_name'];
         $cat = $d['category'];
         $subcat = empty($d['sub_category']) ? '' : trim($d['sub_category']);
 
@@ -446,7 +459,13 @@ require_once 'header.php';
                         <div class="tree-level-1">
                             
                             <?php foreach ($pData['categories'] as $catName => $content): ?>
-                                <details class="tree-details category-folder"> <summary style="font-size: 0.95rem; color: #a5b4fc;"><?= htmlspecialchars($catName) ?></summary>
+                                <details class="tree-details category-folder"> 
+                                    <summary style="font-size: 0.95rem; color: #a5b4fc; display: flex; justify-content: space-between; align-items: center; width: 100%; padding-right: 15px;">
+                                        <span><?= htmlspecialchars($catName) ?></span>
+                                        <?php if ($canUploadAnything && isset($docPerms[$catName]) && $docPerms[$catName] >= 3): ?>
+                                            <button onclick="openUploadModalPreselected(event, '<?= $pId ?>', '<?= htmlspecialchars($catName, ENT_QUOTES) ?>')" class="btn btn-sm" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #10B981; padding: 2px 8px; font-size: 0.7rem; border-radius: 4px;" title="Upload directly to this folder">📤 Upload Here</button>
+                                        <?php endif; ?>
+                                    </summary>
                                     <div class="tree-level-2">
                                         
                                         <?php foreach ($content['subcats'] as $subCatName => $files): ?>
@@ -762,7 +781,27 @@ function filterTree() {
 // ==========================================
 // MODALS & UI
 // ==========================================
-function openUploadModal() { document.getElementById('uploadModal').style.display = 'block'; }
+function openUploadModal() { 
+    document.getElementById('uploadModal').style.display = 'block'; 
+    document.getElementById('directUploadForm').reset();
+    resetDropZoneText();
+}
+
+function openUploadModalPreselected(e, projectId, category) {
+    e.preventDefault();
+    e.stopPropagation();
+    openUploadModal();
+    
+    const projSelect = document.querySelector('#directUploadForm select[name="project_id"]');
+    if (projSelect) projSelect.value = projectId;
+    
+    const catSelect = document.querySelector('#directUploadForm select[name="category"]');
+    if (catSelect) {
+        catSelect.value = category;
+        updateSubCategories(category, 'subcat_suggestions');
+    }
+}
+
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 window.onclick = function(event) {
     if (event.target == document.getElementById('uploadModal')) closeModal('uploadModal');
