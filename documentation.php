@@ -33,6 +33,9 @@ if ($isAdmin || (int)$uPerm['doc_engineering'] > 0) $docPerms['Engineering'] = $
 if ($isAdmin || (int)$uPerm['doc_commercial'] > 0) $docPerms['Commercial'] = $isAdmin ? 4 : (int)$uPerm['doc_commercial'];
 if ($isAdmin || (int)$uPerm['doc_sales'] > 0) $docPerms['Sales'] = $isAdmin ? 4 : (int)$uPerm['doc_sales'];
 
+// Tie the "Training" folder to the OHSA permission (or Admin)
+if ($isAdmin || (int)$uPerm['doc_ohsa'] > 0) $docPerms['Training'] = $isAdmin ? 4 : (int)$uPerm['doc_ohsa'];
+
 $accessibleCategories = array_keys($docPerms);
 
 // ==========================================
@@ -56,7 +59,8 @@ if (isset($_POST['ajax_action'])) {
         }
 
         if ($_POST['ajax_action'] === 'save_document_record') {
-            $projectId = (int)$_POST['project_id'];
+            // Handle the Global Hub (NULL Project ID)
+            $projectId = ($_POST['project_id'] === 'global') ? null : (int)$_POST['project_id'];
             $category = $_POST['category'];
             
             if (!isset($docPerms[$category]) || $docPerms[$category] < 3) {
@@ -134,15 +138,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action']) && $_
     elseif ($action === 'rename_subfolder') {
         try {
             if (!$isAdmin) throw new Exception("Permission denied. Only admins can merge or rename folders.");
-            $pId = (int)$_POST['project_id'];
+            $pId = ($_POST['project_id'] === 'global') ? null : (int)$_POST['project_id'];
             $cat = $_POST['category'];
             $oldSub = trim($_POST['old_sub_category']);
             $newSub = trim($_POST['new_sub_category']);
             
             if (empty($newSub)) throw new Exception("New subfolder name cannot be empty.");
             
-            $stmt = $pdo->prepare("UPDATE project_documents SET sub_category = ? WHERE project_id = ? AND category = ? AND sub_category = ?");
-            $stmt->execute([$newSub, $pId, $cat, $oldSub]);
+            if ($pId === null) {
+                $stmt = $pdo->prepare("UPDATE project_documents SET sub_category = ? WHERE project_id IS NULL AND category = ? AND sub_category = ?");
+                $stmt->execute([$newSub, $cat, $oldSub]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE project_documents SET sub_category = ? WHERE project_id = ? AND category = ? AND sub_category = ?");
+                $stmt->execute([$newSub, $pId, $cat, $oldSub]);
+            }
             $message = "Subfolder successfully merged/renamed!";
         } catch (Exception $e) { $error = $e->getMessage(); }
     }
@@ -168,11 +177,15 @@ if (isset($_GET['action']) && in_array($_GET['action'], ['view', 'download']) &&
 // ==========================================
 // 4. DATA FETCHING & TREE BUILDING
 // ==========================================
-$selectedProjectId = (isset($_GET['project_id']) && $_GET['project_id'] !== 'all') ? (int)$_GET['project_id'] : 'all';
+$selectedProjectId = (isset($_GET['project_id']) && $_GET['project_id'] !== 'all') ? $_GET['project_id'] : 'all';
 $selectedCategory = (isset($_GET['category']) && $_GET['category'] !== 'all') ? $_GET['category'] : 'all';
 
 $projects = getAccessibleProjects($pdo, $userId);
-$accessibleProjectIds = array_column($projects, 'id');
+// Inject the Global Hub into the projects array
+array_unshift($projects, ['id' => 'global', 'name' => '⭐ Training & Company Hub']);
+
+// Get numeric project IDs for the SQL query
+$accessibleProjectIds = array_filter(array_column($projects, 'id'), function($id) { return $id !== 'global'; });
 
 $canUploadAnything = false;
 foreach ($docPerms as $lvl) { if ($lvl >= 3) { $canUploadAnything = true; break; } }
@@ -187,11 +200,11 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $params = $accessibleProjectIds;
     $allowedCatString = implode("','", array_map(function($c) { return addslashes($c); }, $accessibleCategories));
 
-    // Fetch Expiring Documents
+    // Fetch Expiring Documents (Include Global Nulls)
     $expStmt = $pdo->prepare("
-        SELECT d.*, p.name as project_name 
-        FROM project_documents d JOIN projects p ON d.project_id = p.id 
-        WHERE d.project_id IN ($placeholders) AND d.category IN ('$allowedCatString')
+        SELECT d.*, COALESCE(p.name, '⭐ Training & Company Hub') as project_name 
+        FROM project_documents d LEFT JOIN projects p ON d.project_id = p.id 
+        WHERE (d.project_id IN ($placeholders) OR d.project_id IS NULL) AND d.category IN ('$allowedCatString')
         AND d.expiry_date IS NOT NULL AND d.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND d.alarm_dismissed = 0
         ORDER BY d.expiry_date ASC
     ");
@@ -199,11 +212,20 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
     $expiringDocs = $expStmt->fetchAll();
 
     // Fetch Main Vault Documents
-    $query = "SELECT d.*, p.name as project_name, u.first_name, u.last_name, u2.first_name as dis_fn, u2.last_name as dis_ln
-              FROM project_documents d JOIN projects p ON d.project_id = p.id 
+    $query = "SELECT d.*, COALESCE(p.name, '⭐ Training & Company Hub') as project_name, u.first_name, u.last_name, u2.first_name as dis_fn, u2.last_name as dis_ln
+              FROM project_documents d LEFT JOIN projects p ON d.project_id = p.id 
               LEFT JOIN users u ON d.uploaded_by = u.id LEFT JOIN users u2 ON d.alarm_dismissed_by = u2.id
-              WHERE d.project_id IN ($placeholders) AND d.category IN ('$allowedCatString')";
-    if ($selectedProjectId !== 'all') { $query .= " AND d.project_id = ?"; $params[] = $selectedProjectId; }
+              WHERE (d.project_id IN ($placeholders) OR d.project_id IS NULL) AND d.category IN ('$allowedCatString')";
+    
+    if ($selectedProjectId !== 'all') { 
+        if ($selectedProjectId === 'global') {
+            $query .= " AND d.project_id IS NULL";
+        } else {
+            $query .= " AND d.project_id = ?"; 
+            $params[] = $selectedProjectId; 
+        }
+    }
+    
     if ($selectedCategory !== 'all' && in_array($selectedCategory, $accessibleCategories)) { $query .= " AND d.category = ?"; $params[] = $selectedCategory; }
     $query .= " ORDER BY p.name ASC, d.category ASC, d.sub_category ASC, d.created_at DESC";
     $docStmt = $pdo->prepare($query);
@@ -212,7 +234,7 @@ if (!empty($accessibleProjectIds) && !empty($accessibleCategories)) {
 
     // Build the Tree Array & Dynamic Subcategories
     foreach ($documents as $d) {
-        $pId = $d['project_id'];
+        $pId = $d['project_id'] === null ? 'global' : $d['project_id'];
         $pName = $d['project_name'];
         $cat = $d['category'];
         $subcat = empty($d['sub_category']) ? '' : trim($d['sub_category']);
@@ -354,7 +376,7 @@ require_once 'header.php';
             <select name="project_id" onchange="this.form.submit()" style="padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary);">
                 <option value="all">-- All Accessible Projects --</option>
                 <?php foreach($projects as $p): ?>
-                    <option value="<?= $p['id'] ?>" <?= $selectedProjectId == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
+                    <option value="<?= $p['id'] ?>" <?= (string)$selectedProjectId === (string)$p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
                 <?php endforeach; ?>
             </select>
         </form>
@@ -392,7 +414,7 @@ require_once 'header.php';
                                                 <summary style="font-size: 0.9rem; color: #818cf8; display: flex; justify-content: space-between; align-items: center; width: 100%; padding-right: 15px;">
                                                     <span><?= htmlspecialchars($subCatName) ?></span>
                                                     <?php if ($isAdmin): ?>
-                                                        <button onclick="openMergeModal(event, <?= $pId ?>, '<?= htmlspecialchars($catName, ENT_QUOTES) ?>', '<?= htmlspecialchars($subCatName, ENT_QUOTES) ?>')" class="btn btn-sm" style="background: rgba(255,255,255,0.1); border: none; color: #ccc; padding: 2px 8px; font-size: 0.7rem; border-radius: 4px;" title="Rename this folder or merge it into another one">✏️ Rename/Merge</button>
+                                                        <button onclick="openMergeModal(event, '<?= $pId ?>', '<?= htmlspecialchars($catName, ENT_QUOTES) ?>', '<?= htmlspecialchars($subCatName, ENT_QUOTES) ?>')" class="btn btn-sm" style="background: rgba(255,255,255,0.1); border: none; color: #ccc; padding: 2px 8px; font-size: 0.7rem; border-radius: 4px;" title="Rename this folder or merge it into another one">✏️ Rename/Merge</button>
                                                     <?php endif; ?>
                                                 </summary>
                                                 <div class="tree-level-3">
@@ -496,7 +518,7 @@ function renderFileCard($d, $docPerms) {
                 <select name="project_id" required>
                     <option value="">-- Select Project --</option>
                     <?php foreach($projects as $p): ?>
-                        <option value="<?= $p['id'] ?>" <?= $selectedProjectId == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
+                        <option value="<?= $p['id'] ?>" <?= (string)$selectedProjectId === (string)$p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -513,14 +535,14 @@ function renderFileCard($d, $docPerms) {
                 </div>
                 <div class="form-group">
                     <label>Sub Category / Type</label>
-                    <input type="text" name="sub_category" placeholder="e.g. Condition Report" list="subcat_suggestions">
+                    <input type="text" name="sub_category" placeholder="e.g. Condition Report or Person's Name" list="subcat_suggestions">
                     <datalist id="subcat_suggestions"></datalist>
                 </div>
             </div>
 
             <div class="form-group">
                 <label>Base Document Title *</label>
-                <input type="text" name="title" required placeholder="e.g. Condition Report Block A">
+                <input type="text" name="title" required placeholder="e.g. Health & Safety Induction">
                 <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">If multiple files are selected, the original filename will be appended to this title to distinguish them.</p>
             </div>
 
@@ -765,6 +787,7 @@ const defaultSuggestions = {
     'BCA': ['Condition Report', 'Method Statement', 'CAR Insurance', 'Bank Guarantee', 'Responsibility Form', 'Clearance Letter'],
     'Engineering': ['ARMS Application', 'Water/Sewerage Application', 'PA Compliance', 'EPC Certificate', 'Lift Certification', 'Fire Safety Comm.'],
     'OHSA': ['TC Certificate', 'Plant Certificate', 'RAMS', 'Safety Report', 'Incident Report'],
+    'Training': ['General Safety', 'Induction', 'First Aid', 'Equipment Certification'],
     'Drawings': ['Architectural Plan', 'Structural Plan', 'Services Plan', 'Elevations', 'Sections'],
     'Commercial': ['Quote', 'Contract', 'PO', 'Guarantee', 'Receipt'],
     'Sales': ['Price List', 'Marketing Plan', 'Render (Image)', 'Render (Video)', 'Brochure', 'Floor Plan']
