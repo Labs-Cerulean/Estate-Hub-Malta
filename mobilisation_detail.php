@@ -7,6 +7,9 @@ try {
     $pdo->exec("ALTER TABLE projects ADD COLUMN is_blocked TINYINT(1) DEFAULT 0");
     $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_reason TEXT");
     $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_resolution TEXT");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN blocker_status VARCHAR(20) DEFAULT 'None'");
+    // Seamlessly migrate existing checkbox data to the new Status system
+    $pdo->exec("UPDATE projects SET blocker_status = 'Active' WHERE is_blocked = 1 AND blocker_status = 'None'");
 } catch(PDOException $e) {}
 
 $projectId = $_GET['project_id'] ?? $_GET['projectid'] ?? null;
@@ -108,6 +111,9 @@ $sectionB_groups = [
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
+    // ==========================================
+    // 1000-INPUT LIMIT BYPASS DECODER
+    // ==========================================
     if (isset($_POST['bypass_json_payload'])) {
         $parsed = json_decode($_POST['bypass_json_payload'], true);
         if (is_array($parsed)) {
@@ -117,11 +123,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // --- NEW: EXTRAORDINARY BLOCKER HANDLER ---
     if (($_POST['action'] ?? null) === 'update_blocker' && $canUpdateStatus) {
-        $isBlocked = isset($_POST['is_blocked']) ? 1 : 0;
+        $bStatus = $_POST['blocker_status'] ?? 'None';
         $reason = trim($_POST['blocked_reason'] ?? '');
         $resolution = trim($_POST['blocked_resolution'] ?? '');
         
-        $pdo->prepare("UPDATE projects SET is_blocked=?, blocked_reason=?, blocked_resolution=? WHERE id=?")->execute([$isBlocked, $reason, $resolution, $projectId]);
+        $pdo->prepare("UPDATE projects SET blocker_status=?, blocked_reason=?, blocked_resolution=? WHERE id=?")->execute([$bStatus, $reason, $resolution, $projectId]);
         $message = "Escalation status updated successfully.";
         $project = getProjectWithClient($pdo, $projectId); // Refresh project data
     }
@@ -286,6 +292,9 @@ $floorStatusesRaw = $stmtAllStatuses->fetchAll(PDO::FETCH_ASSOC);
 $floorStatuses = [];
 foreach ($floorStatusesRaw as $r) { $floorStatuses[$r['level_id']][$r['finish_type_id']] = $r['status']; }
 
+// ==========================================
+// CALCULATE 100% ACCURATE STAGE LOGIC
+// ==========================================
 $currentStageName = getAccurateProjectStage($pdo, $projectId);
 $stagesEnum = ['Feasibility'=>1, 'Tracking'=>2, 'Permit'=>3, 'Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $stageNum = $stagesEnum[$currentStageName] ?? 1;
@@ -377,15 +386,18 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
         </div>
         <form method="POST">
             <input type="hidden" name="action" value="update_blocker">
+            
             <div style="margin-bottom: 1.5rem; margin-top: 1rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #dc2626; font-weight: bold; font-size: 1.1rem;">
-                    <input type="checkbox" name="is_blocked" value="1" <?= !empty($project['is_blocked']) ? 'checked' : '' ?> style="width: 20px; height: 20px;" onchange="document.getElementById('blocker_details').style.display = this.checked ? 'block' : 'none';">
-                    Flag this project as BLOCKED (Will highlight in red on the Executive Report)
-                </label>
-                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px; margin-left: 28px;">Use this to highlight delays that are outside standard operational progress (e.g. Injunctions, severe weather, funding issues).</p>
+                <label style="color: #dc2626; font-weight: bold; font-size: 1.1rem; display:block;">Escalation Status</label>
+                <select name="blocker_status" style="padding: 0.5rem; border-radius: 6px; background: var(--bg-card); color: #fff; border: 1px solid var(--border-glass); margin-top: 5px; width: 100%; max-width: 300px; display: block; font-weight:bold;" onchange="document.getElementById('blocker_details').style.display = (this.value !== 'None') ? 'block' : 'none';">
+                    <option value="None" <?= ($project['blocker_status'] ?? 'None') === 'None' ? 'selected' : '' ?>>No Escalation (Normal)</option>
+                    <option value="Active" <?= ($project['blocker_status'] ?? '') === 'Active' ? 'selected' : '' ?>>🚨 Active Blocker</option>
+                    <option value="Cleared" <?= ($project['blocker_status'] ?? '') === 'Cleared' ? 'selected' : '' ?>>✅ Blocker Cleared</option>
+                </select>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Use this to highlight delays outside standard operational progress. Marking as "Cleared" preserves the history for the report.</p>
             </div>
             
-            <div id="blocker_details" style="display: <?= !empty($project['is_blocked']) ? 'block' : 'none' ?>;">
+            <div id="blocker_details" style="display: <?= ($project['blocker_status'] ?? 'None') !== 'None' ? 'block' : 'none' ?>;">
                 <div class="form-group">
                     <label style="color: #fca5a5;">Reason for Blocker</label>
                     <textarea name="blocked_reason" rows="2" placeholder="e.g. Neighbor injunction, awaiting court decision..." style="border-color: rgba(220,38,38,0.5);"><?= htmlspecialchars($project['blocked_reason'] ?? '') ?></textarea>
