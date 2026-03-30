@@ -44,7 +44,6 @@ function getEntityName($pdo, $id, $hint = 'auto') {
         "SELECT name FROM clients WHERE id = ?"
     ];
 
-    // Rearrange priority based on hint to search the most likely table first
     if ($hint === 'user') array_unshift($queries, $queries[0]);
     if ($hint === 'professional') array_unshift($queries, $queries[1]);
 
@@ -55,7 +54,6 @@ function getEntityName($pdo, $id, $hint = 'auto') {
             if ($name = $stmt->fetchColumn()) return htmlspecialchars($name);
         } catch (Exception $e) {}
     }
-    
     return "<span style='color:var(--text-muted); font-style:italic;'>Unassigned (ID: $id)</span>";
 }
 
@@ -223,10 +221,14 @@ $pageTitle = 'Daily Client Report';
         $stage = getAccurateProjectStage($pdo, $p['id']);
         if (in_array($stage, $earlyStages)) continue; // Skip early stages
         
+        // Determine Location Correctly (From DB edit-project columns)
+        $locStr = trim(($p['street_name'] ?? '') . ', ' . ($p['city'] ?? ''), ', ');
+        if (empty($locStr)) $locStr = 'Location not specified';
+        $p['formatted_location'] = $locStr;
+
         // Determine Island
         $isGozo = false;
-        $locStr = $p['locality'] ?? $p['location'] ?? $p['address'] ?? '';
-        $regionStr = $p['region'] ?? '';
+        $regionStr = $p['region'] ?? $p['island'] ?? '';
         
         if (stripos($regionStr, 'gozo') !== false) {
             $isGozo = true;
@@ -268,19 +270,28 @@ $pageTitle = 'Daily Client Report';
             $p['missing_mob_count'] = $missing;
             $islandData[$targetIsland]['mob'][] = $p;
         } else {
-            // Structural Progress (Driven by Subcontractor Financial Certifications)
-            $sStmt = $pdo->prepare("SELECT AVG(construction_pct) FROM block_levels bl JOIN project_blocks pb ON bl.block_id = pb.id WHERE pb.project_id = ?");
+            // Structural Progress (Averaged from physical block level dropdowns, NOT financial certificates)
+            $sStmt = $pdo->prepare("SELECT construction_status FROM block_levels bl JOIN project_blocks pb ON bl.block_id = pb.id WHERE pb.project_id = ?");
             $sStmt->execute([$p['id']]);
-            $structProg = $sStmt->fetchColumn();
-            $p['struct_prog'] = $structProg !== null ? round((float)$structProg, 1) : 0;
+            $levels = $sStmt->fetchAll(PDO::FETCH_COLUMN);
+            $structProg = 0;
+            if (count($levels) > 0) {
+                $score = 0;
+                foreach($levels as $st) {
+                    if ($st === 'Complete') $score += 100;
+                    elseif (in_array($st, ['In Progress', 'Ongoing CP'])) $score += 50;
+                }
+                $structProg = round($score / count($levels), 1);
+            }
+            $p['struct_prog'] = $structProg;
 
-            // Finishes Progress (Driven by Mobilisation Detail Dropdowns)
+            // Finishes Progress
             $fStmt = $pdo->prepare("SELECT AVG(progress) FROM project_blocks WHERE project_id = ?");
             $fStmt->execute([$p['id']]);
             $finProg = $fStmt->fetchColumn();
             $p['fin_prog'] = $finProg !== null ? round((float)$finProg, 1) : 0;
 
-            // Execution Score for sorting (Weighted: Stage > Structural > Finishes)
+            // Execution Score for sorting
             $stageScore = $stagesEnum[$stage] ?? 5;
             $p['exec_score'] = ($stageScore * 10000) + ($p['struct_prog'] * 100) + $p['fin_prog'];
             
@@ -290,8 +301,8 @@ $pageTitle = 'Daily Client Report';
 
     // Apply Sorting per Island
     foreach ($islandData as $islandKey => &$data) {
-        usort($data['mob'], function($a, $b) { return $b['missing_mob_count'] <=> $a['missing_mob_count']; }); // Most missing first
-        usort($data['exec'], function($a, $b) { return $a['exec_score'] <=> $b['exec_score']; }); // Lowest score first
+        usort($data['mob'], function($a, $b) { return $b['missing_mob_count'] <=> $a['missing_mob_count']; }); 
+        usort($data['exec'], function($a, $b) { return $a['exec_score'] <=> $b['exec_score']; }); 
     }
     unset($data);
 ?>
@@ -331,15 +342,20 @@ $pageTitle = 'Daily Client Report';
                 
                 <?php foreach ($data['mob'] as $p): 
                     $pid = $p['id'];
-                    $loc = $p['location'] ?? $p['locality'] ?? $p['address'] ?? 'Location not specified';
+                    $loc = $p['formatted_location'];
                     
+                    // Fetch PA Numbers to extract the Architect / Engineer accurately
                     $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id = ?");
                     $paStmt->execute([$pid]);
                     $paRaw = $paStmt->fetchAll(PDO::FETCH_ASSOC);
                     
-                    // Specific Periti only
-                    $archName = getEntityName($pdo, $p['architect_id'] ?? $p['architect_firm_id'] ?? null, 'professional');
-                    $structName = getEntityName($pdo, $p['structural_engineer_id'] ?? $p['structural_firm_id'] ?? null, 'professional');
+                    $archId = null; $structId = null;
+                    foreach ($paRaw as $pa) {
+                        if (!empty($pa['architect_id']) && !$archId) $archId = $pa['architect_id'];
+                        if (!empty($pa['structural_engineer_id']) && !$structId) $structId = $pa['structural_engineer_id'];
+                    }
+                    $archName = getEntityName($pdo, $archId, 'professional');
+                    $structName = getEntityName($pdo, $structId, 'professional');
 
                     $mob = $p['mob_data'];
                     $pendingMob = [];
@@ -406,24 +422,34 @@ $pageTitle = 'Daily Client Report';
             <?php if (!empty($data['exec'])): ?>
                 <div class="phase-header">
                     <h3>🏗️ Phase 2: Active Site Execution</h3>
-                    <div class="phase-desc">Ordered from newly started to near completion. Includes Execution team, Contractors, and Safety Status.</div>
+                    <div class="phase-desc">Ordered from newly started to near completion. Includes Execution team, Subcontractors, and Safety Status.</div>
                 </div>
                 
                 <?php foreach ($data['exec'] as $p): 
                     $pid = $p['id'];
                     $stage = $p['calculated_stage'];
-                    $loc = $p['location'] ?? $p['locality'] ?? $p['address'] ?? 'Location not specified';
+                    $loc = $p['formatted_location'];
                     $mob = $p['mob_data'];
 
                     $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id = ?");
                     $paStmt->execute([$pid]);
                     $paRaw = $paStmt->fetchAll(PDO::FETCH_ASSOC);
                     
-                    // Extensive super-search for contractors and PMs
-                    $pmName = getEntityName($pdo, $p['pm_id'] ?? $p['project_manager_id'] ?? null, 'user');
-                    $demoContractor = getEntityName($pdo, $p['demo_contractor_id'] ?? $p['contractor_demo_id'] ?? null);
-                    $civilContractor = getEntityName($pdo, $p['contractor_id'] ?? $p['civil_contractor_id'] ?? null);
-                    $finishesContractor = getEntityName($pdo, $p['turnkey_contractor_id'] ?? $p['finishes_contractor_id'] ?? null);
+                    // Fetch PM reliably from the user access matrix
+                    $pmStmt = $pdo->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users u JOIN user_project_access upa ON u.id = upa.user_id WHERE upa.project_id = ? AND u.role IN ('project_manager', 'site_technical_officer') LIMIT 1");
+                    $pmStmt->execute([$pid]);
+                    $pmFound = $pmStmt->fetchColumn();
+                    $pmName = $pmFound ? htmlspecialchars($pmFound) : getEntityName($pdo, $p['project_manager_id'] ?? null, 'user');
+
+                    // Fetch Active Subcontractors executing work on this site
+                    $contStmt = $pdo->prepare("SELECT DISTINCT s.name FROM subcontractors s JOIN subcontractor_works w ON s.id = w.subcontractor_id WHERE w.project_id = ?");
+                    $contStmt->execute([$pid]);
+                    $activeContractors = $contStmt->fetchAll(PDO::FETCH_COLUMN);
+                    $contractorStr = !empty($activeContractors) ? htmlspecialchars(implode(', ', $activeContractors)) : "<span style='color:var(--text-muted); font-style:italic;'>No subcontractors linked via works</span>";
+
+                    if ($stage === 'Demolition') $progressText = "Demolition is " . ($mob['demo_status'] ?? 'Pending');
+                    elseif ($stage === 'Excavation') $progressText = "Excavation is " . ($mob['excavation_status'] ?? 'Pending');
+                    else $progressText = "Execution Phase";
 
                     $ohsaStmt = $pdo->prepare("SELECT safety_status, safety_comments FROM project_ohsa_setup WHERE project_id = ?");
                     $ohsaStmt->execute([$pid]);
@@ -448,9 +474,13 @@ $pageTitle = 'Daily Client Report';
                         <div class="info-box">
                             <h4>👷 Execution Team</h4>
                             <div class="data-row"><span class="data-label">Project Manager:</span> <span class="data-value"><?= $pmName ?></span></div>
-                            <div class="data-row"><span class="data-label">Demo/Excavation:</span> <span class="data-value"><?= $demoContractor ?></span></div>
-                            <div class="data-row"><span class="data-label">Civil/Const.:</span> <span class="data-value"><?= $civilContractor ?></span></div>
-                            <div class="data-row"><span class="data-label">Finishes/Turnkey:</span> <span class="data-value"><?= $finishesContractor ?></span></div>
+                            
+                            <div style="margin-top: 10px; border-top: 1px dashed var(--border-glass); padding-top: 5px;">
+                                <span class="data-label">Active Linked Contractors:</span><br>
+                                <div style="font-size:0.85rem; color:#fff; margin-top: 2px;">
+                                    <?= $contractorStr ?>
+                                </div>
+                            </div>
                             
                             <div style="margin-top: 10px; border-top: 1px dashed var(--border-glass); padding-top: 5px;">
                                 <span class="data-label">PA Approvals:</span><br>
@@ -470,7 +500,6 @@ $pageTitle = 'Daily Client Report';
                         <div class="info-box">
                             <h4>📈 Physical Progress</h4>
                             <?php if (in_array($stage, ['Demolition', 'Excavation'])): ?>
-                                <?php $progressText = ($stage === 'Demolition') ? "Demolition is " . ($mob['demo_status'] ?? 'Pending') : "Excavation is " . ($mob['excavation_status'] ?? 'Pending'); ?>
                                 <div class="data-row"><span class="data-label">Stage Status:</span> <span class="data-value" style="color:#22c55e; font-weight:bold;"><?= $progressText ?></span></div>
                             <?php else: ?>
                                 <div class="data-row"><span class="data-label">Structural Build:</span> <span class="data-value" style="color:#3b82f6; font-weight:bold;"><?= $p['struct_prog'] ?>%</span></div>
