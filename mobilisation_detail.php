@@ -2,15 +2,12 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
-// AUTO-DEPLOY DATABASE UPDATES FOR ESCALATION BLOCKER
-try {
-    $pdo->exec("ALTER TABLE projects ADD COLUMN is_blocked TINYINT(1) DEFAULT 0");
-    $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_reason TEXT");
-    $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_resolution TEXT");
-    $pdo->exec("ALTER TABLE projects ADD COLUMN blocker_status VARCHAR(20) DEFAULT 'None'");
-    // Seamlessly migrate existing checkbox data to the new Status system
-    $pdo->exec("UPDATE projects SET blocker_status = 'Active' WHERE is_blocked = 1 AND blocker_status = 'None'");
-} catch(PDOException $e) {}
+// AUTO-DEPLOY DATABASE UPDATES FOR ESCALATION BLOCKER (Fixed Cascade)
+try { $pdo->exec("ALTER TABLE projects ADD COLUMN is_blocked TINYINT(1) DEFAULT 0"); } catch(PDOException $e) {}
+try { $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_reason TEXT"); } catch(PDOException $e) {}
+try { $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_resolution TEXT"); } catch(PDOException $e) {}
+try { $pdo->exec("ALTER TABLE projects ADD COLUMN blocker_status VARCHAR(20) DEFAULT 'None'"); } catch(PDOException $e) {}
+try { $pdo->exec("UPDATE projects SET blocker_status = 'Active' WHERE is_blocked = 1 AND blocker_status = 'None'"); } catch(PDOException $e) {}
 
 $projectId = $_GET['project_id'] ?? $_GET['projectid'] ?? null;
 if (!$projectId) { header('Location: dashboard.php'); exit; }
@@ -292,9 +289,6 @@ $floorStatusesRaw = $stmtAllStatuses->fetchAll(PDO::FETCH_ASSOC);
 $floorStatuses = [];
 foreach ($floorStatusesRaw as $r) { $floorStatuses[$r['level_id']][$r['finish_type_id']] = $r['status']; }
 
-// ==========================================
-// CALCULATE 100% ACCURATE STAGE LOGIC
-// ==========================================
 $currentStageName = getAccurateProjectStage($pdo, $projectId);
 $stagesEnum = ['Feasibility'=>1, 'Tracking'=>2, 'Permit'=>3, 'Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $stageNum = $stagesEnum[$currentStageName] ?? 1;
