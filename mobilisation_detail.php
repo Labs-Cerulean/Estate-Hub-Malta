@@ -101,6 +101,18 @@ $sectionB_groups = [
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
+    // ==========================================
+    // 1000-INPUT LIMIT BYPASS DECODER
+    // ==========================================
+    // This intercepts the compressed JSON string sent by the JS engine and unpacks it 
+    // seamlessly into the standard $_POST array, bypassing PHP's 1000 variable limit perfectly!
+    if (isset($_POST['bypass_json_payload'])) {
+        $parsed = json_decode($_POST['bypass_json_payload'], true);
+        if (is_array($parsed)) {
+            $_POST = array_merge($_POST, $parsed);
+        }
+    }
+    
     if (isset($_POST['add_log'])) {
         $logMsg = trim($_POST['log_message'] ?? '');
         $assignedTo = !empty($_POST['assigned_to']) ? $_POST['assigned_to'] : null;
@@ -491,7 +503,7 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
     <?php if (empty($projectBlocks)): ?>
         <div class="alert alert-info">No blocks defined. Edit project to add blocks.</div>
     <?php else: ?>
-        <form method="POST">
+        <form method="POST" id="masterBlocksForm">
             <input type="hidden" name="action" value="update_blocks">
             <h2 style="border-bottom: 2px solid var(--border-glass); padding-bottom: 10px; margin-bottom: 1.5rem; margin-top: 2.5rem;">🏢 Master Block Execution Engine</h2>
             
@@ -902,6 +914,54 @@ document.addEventListener('DOMContentLoaded', () => {
             select.addEventListener('change', enforceSequentialConstruction);
         });
         enforceSequentialConstruction();
+    }
+    
+    // ==========================================
+    // 1000-INPUT LIMIT BYPASS SCRIPT
+    // ==========================================
+    const masterForm = document.getElementById('masterBlocksForm');
+    if (masterForm) {
+        masterForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const btn = this.querySelector('button[type="submit"]');
+            if (btn) {
+                btn.innerHTML = '💾 Compressing & Saving...';
+                btn.style.opacity = '0.7';
+                btn.disabled = true;
+            }
+
+            // Serialize the entire 5000+ input form into a nested JSON object
+            var obj = {};
+            var formData = new FormData(this);
+            for (var [key, value] of formData.entries()) {
+                var keys = key.replace(/\]/g, "").split(/\[/);
+                var current = obj;
+                for (var i = 0; i < keys.length; i++) {
+                    var k = keys[i];
+                    if (k === "") k = Object.keys(current).length;
+                    if (i === keys.length - 1) {
+                        current[k] = value;
+                    } else {
+                        current[k] = current[k] || {};
+                        current = current[k];
+                    }
+                }
+            }
+
+            // Create a brand new tiny form to submit ONLY the JSON string
+            var bypassForm = document.createElement('form');
+            bypassForm.method = 'POST';
+            bypassForm.action = window.location.href; 
+            
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'bypass_json_payload';
+            input.value = JSON.stringify(obj);
+            bypassForm.appendChild(input);
+            
+            document.body.appendChild(bypassForm);
+            bypassForm.submit();
+        });
     }
 });
 </script>
