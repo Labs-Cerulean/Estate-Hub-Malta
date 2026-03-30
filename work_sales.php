@@ -665,7 +665,7 @@ require_once 'header.php';
 .modal-content { background-color: var(--bg-card); margin: 3% auto; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; border: 1px solid var(--border-glass); box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; max-height: 90vh; overflow-y: auto;}
 .close-modal { position: absolute; top: 15px; right: 20px; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; }
 .close-modal:hover { color: var(--text-primary); }
-.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
 .summary-card { background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-glass); text-align: center; }
 .summary-card.highlight { background: rgba(14, 165, 233, 0.1); border-color: #0ea5e9; }
 .summary-card h4 { margin: 0 0 0.5rem 0; color: var(--text-secondary); font-size: 0.85rem; text-transform: uppercase;}
@@ -746,11 +746,16 @@ require_once 'header.php';
                 $global_pending += $q['total_pending'];
                 $global_paid += $q['total_paid'];
             }
+            $global_pending_works = $global_order - $global_claimed;
             ?>
             <div class="summary-cards">
                 <div class="summary-card highlight">
-                    <h4 style="color: var(--primary-color);">Total Pipeline (Inc VAT)</h4>
+                    <h4 style="color: var(--primary-color);">Total Order (Inc VAT)</h4>
                     <div class="value">€<?= number_format($global_order, 2) ?></div>
+                </div>
+                <div class="summary-card">
+                    <h4>Pending Works</h4>
+                    <div class="value" style="color: #a855f7;">€<?= number_format($global_pending_works, 2) ?></div>
                 </div>
                 <div class="summary-card">
                     <h4>Total Claimed</h4>
@@ -774,22 +779,26 @@ require_once 'header.php';
                             <th>Reference</th>
                             <th>Project & Billed Client</th>
                             <th style="text-align: right;">Total (Inc VAT)</th>
+                            <th style="text-align: right;">Unclaimed Works</th>
                             <th style="text-align: right;">Claimed</th>
-                            <th style="text-align: right;">Pending</th>
+                            <th style="text-align: right;">Pending Pay</th>
                             <th style="text-align: right;">Paid</th>
                             <th style="text-align: center;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($quotesList)): ?>
-                            <tr><td colspan="8" style="text-align: center; padding: 2rem;">No quotes found for this contractor in this category.</td></tr>
+                            <tr><td colspan="9" style="text-align: center; padding: 2rem;">No quotes found for this contractor in this category.</td></tr>
                         <?php else: foreach ($quotesList as $q): 
                             $effName = !empty($q['linked_client_name']) ? $q['linked_client_name'] : $q['client_name_free'];
                         ?>
                             <tr>
                                 <td>
-                                    <?php $dispStat = str_replace(' Approval', '', $q['status']); ?>
-                                    <span class="status-badge status-<?= $dispStat ?>"><?= $q['status'] ?></span>
+                                    <?php 
+                                        $dispStat = str_replace(' Approval', '', $q['status']); 
+                                        $statusText = $q['status'] === 'Approved' ? 'Internally Approved - To Send' : $q['status'];
+                                    ?>
+                                    <span class="status-badge status-<?= $dispStat ?>"><?= $statusText ?></span>
                                 </td>
                                 <td style="font-weight: bold; color: var(--text-primary);"><?= htmlspecialchars($q['reference_number']) ?></td>
                                 <td>
@@ -797,6 +806,7 @@ require_once 'header.php';
                                     <div style="font-size: 0.75rem; color: var(--text-muted);">Billed To: <?= htmlspecialchars($effName) ?></div>
                                 </td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($q['total_inc_vat'], 2) ?></td>
+                                <td style="text-align: right; color: #a855f7;">€<?= number_format($q['total_inc_vat'] - $q['total_claimed'], 2) ?></td>
                                 <td style="text-align: right; color: #3b82f6;">€<?= number_format($q['total_claimed'], 2) ?></td>
                                 <td style="text-align: right; color: #f59e0b;">€<?= number_format($q['total_pending'], 2) ?></td>
                                 <td style="text-align: right; color: #10b981;">€<?= number_format($q['total_paid'], 2) ?></td>
@@ -811,6 +821,7 @@ require_once 'header.php';
                         <tr style="background: rgba(255,255,255,0.05); font-weight: bold;">
                             <td colspan="3">PIPELINE TOTALS</td>
                             <td style="text-align: right;">€<?= number_format($global_order, 2) ?></td>
+                            <td style="text-align: right; color: #a855f7;">€<?= number_format($global_pending_works, 2) ?></td>
                             <td style="text-align: right; color: #3b82f6;">€<?= number_format($global_claimed, 2) ?></td>
                             <td style="text-align: right; color: <?= $global_pending > 0 ? '#f59e0b' : '#9ca3af' ?>;">€<?= number_format($global_pending, 2) ?></td>
                             <td style="text-align: right; color: #10b981;">€<?= number_format($global_paid, 2) ?></td>
@@ -926,9 +937,11 @@ require_once 'header.php';
                 if($c['status']==='Paid') $tPaid += $c['amount_inc_vat']; 
                 else $tPend += $c['amount_inc_vat']; 
             }
+            $tPendingWorks = $quote['total_inc_vat'] - $tClaimed;
             
             $canPrint = in_array($quote['status'], ['Approved', 'Sent', 'Accepted', 'Declined', 'Completed']);
             $dispStat = str_replace(' Approval', '', $quote['status']);
+            $statusText = $quote['status'] === 'Approved' ? 'Internally Approved - To Send' : $quote['status'];
             ?>
 
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;">
@@ -941,7 +954,7 @@ require_once 'header.php';
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center;">
-                    <span class="status-badge status-<?= $dispStat ?>" style="font-size: 1rem; padding: 6px 15px;"><?= $quote['status'] ?></span>
+                    <span class="status-badge status-<?= $dispStat ?>" style="font-size: 1rem; padding: 6px 15px;"><?= $statusText ?></span>
                     
                     <?php if ($canPrint): ?>
                         <a href="print_quote.php?quote_id=<?= $quote['id'] ?>" target="_blank" class="btn btn-secondary">📄 View & Print PDF</a>
@@ -955,6 +968,10 @@ require_once 'header.php';
                 <div class="summary-card highlight">
                     <h4 style="color: var(--primary-color);">Total Order (Inc VAT)</h4>
                     <div class="value">€<?= number_format($quote['total_inc_vat'], 2) ?></div>
+                </div>
+                <div class="summary-card">
+                    <h4>Pending Works</h4>
+                    <div class="value" style="color: #a855f7;">€<?= number_format($tPendingWorks, 2) ?></div>
                 </div>
                 <div class="summary-card">
                     <h4>Total Claimed</h4>
@@ -1068,7 +1085,7 @@ require_once 'header.php';
                                 <input type="hidden" name="action" value="change_status">
                                 <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
                                 <select name="new_status" style="flex:1;">
-                                    <option value="Approved" <?= $quote['status']=='Approved'?'selected':'' ?>>Approved (Unsent)</option>
+                                    <option value="Approved" <?= $quote['status']=='Approved'?'selected':'' ?>>Internally Approved - To Send</option>
                                     <option value="Sent" <?= $quote['status']=='Sent'?'selected':'' ?>>Sent to Client</option>
                                     <option value="Accepted" <?= $quote['status']=='Accepted'?'selected':'' ?>>Accepted by Client</option>
                                     <option value="Declined" <?= $quote['status']=='Declined'?'selected':'' ?>>Declined by Client (Lost)</option>
