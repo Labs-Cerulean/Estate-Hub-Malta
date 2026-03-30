@@ -44,7 +44,7 @@ function getEntityName($pdo, $id, $hint = 'auto') {
         "SELECT name FROM clients WHERE id = ?"
     ];
 
-    // Rearrange priority based on hint
+    // Rearrange priority based on hint to search the most likely table first
     if ($hint === 'user') array_unshift($queries, $queries[0]);
     if ($hint === 'professional') array_unshift($queries, $queries[1]);
 
@@ -253,7 +253,6 @@ $pageTitle = 'Daily Client Report';
         
         $p['calculated_stage'] = $stage;
         $p['mob_data'] = $mob;
-        $p['avg_prog'] = 0;
 
         if ($stage === 'Mobilisation') {
             $missing = 0;
@@ -269,11 +268,21 @@ $pageTitle = 'Daily Client Report';
             $p['missing_mob_count'] = $missing;
             $islandData[$targetIsland]['mob'][] = $p;
         } else {
-            $bStmt = $pdo->prepare("SELECT AVG(progress) FROM project_blocks WHERE project_id = ?");
-            $bStmt->execute([$p['id']]);
-            $p['avg_prog'] = round((float)$bStmt->fetchColumn(), 1);
+            // Structural Progress (Driven by Subcontractor Financial Certifications)
+            $sStmt = $pdo->prepare("SELECT AVG(construction_pct) FROM block_levels bl JOIN project_blocks pb ON bl.block_id = pb.id WHERE pb.project_id = ?");
+            $sStmt->execute([$p['id']]);
+            $structProg = $sStmt->fetchColumn();
+            $p['struct_prog'] = $structProg !== null ? round((float)$structProg, 1) : 0;
+
+            // Finishes Progress (Driven by Mobilisation Detail Dropdowns)
+            $fStmt = $pdo->prepare("SELECT AVG(progress) FROM project_blocks WHERE project_id = ?");
+            $fStmt->execute([$p['id']]);
+            $finProg = $fStmt->fetchColumn();
+            $p['fin_prog'] = $finProg !== null ? round((float)$finProg, 1) : 0;
+
+            // Execution Score for sorting (Weighted: Stage > Structural > Finishes)
             $stageScore = $stagesEnum[$stage] ?? 5;
-            $p['exec_score'] = ($stageScore * 100) + $p['avg_prog'];
+            $p['exec_score'] = ($stageScore * 10000) + ($p['struct_prog'] * 100) + $p['fin_prog'];
             
             $islandData[$targetIsland]['exec'][] = $p;
         }
@@ -415,10 +424,6 @@ $pageTitle = 'Daily Client Report';
                     $demoContractor = getEntityName($pdo, $p['demo_contractor_id'] ?? $p['contractor_demo_id'] ?? null);
                     $civilContractor = getEntityName($pdo, $p['contractor_id'] ?? $p['civil_contractor_id'] ?? null);
                     $finishesContractor = getEntityName($pdo, $p['turnkey_contractor_id'] ?? $p['finishes_contractor_id'] ?? null);
-                    
-                    if ($stage === 'Demolition') $progressText = "Demolition is " . ($mob['demo_status'] ?? 'Pending');
-                    elseif ($stage === 'Excavation') $progressText = "Excavation is " . ($mob['excavation_status'] ?? 'Pending');
-                    else $progressText = "Block Execution Avg: {$p['avg_prog']}% Complete";
 
                     $ohsaStmt = $pdo->prepare("SELECT safety_status, safety_comments FROM project_ohsa_setup WHERE project_id = ?");
                     $ohsaStmt->execute([$pid]);
@@ -464,7 +469,13 @@ $pageTitle = 'Daily Client Report';
 
                         <div class="info-box">
                             <h4>📈 Physical Progress</h4>
-                            <div class="data-row"><span class="data-label">Stage Status:</span> <span class="data-value" style="color:#22c55e; font-weight:bold;"><?= $progressText ?></span></div>
+                            <?php if (in_array($stage, ['Demolition', 'Excavation'])): ?>
+                                <?php $progressText = ($stage === 'Demolition') ? "Demolition is " . ($mob['demo_status'] ?? 'Pending') : "Excavation is " . ($mob['excavation_status'] ?? 'Pending'); ?>
+                                <div class="data-row"><span class="data-label">Stage Status:</span> <span class="data-value" style="color:#22c55e; font-weight:bold;"><?= $progressText ?></span></div>
+                            <?php else: ?>
+                                <div class="data-row"><span class="data-label">Structural Build:</span> <span class="data-value" style="color:#3b82f6; font-weight:bold;"><?= $p['struct_prog'] ?>%</span></div>
+                                <div class="data-row"><span class="data-label">Finishes Scope:</span> <span class="data-value" style="color:#a855f7; font-weight:bold;"><?= $p['fin_prog'] ?>%</span></div>
+                            <?php endif; ?>
                             
                             <h4 style="margin-top: 15px;">⚠️ Risks & Compliance</h4>
                             <?php if ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])): ?>
