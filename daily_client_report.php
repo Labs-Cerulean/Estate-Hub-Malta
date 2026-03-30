@@ -73,10 +73,10 @@ $pageTitle = 'Executive Daily Report';
         .report-header { text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; position: relative; }
         .report-header h1 { color: var(--primary-color); margin: 0 0 10px 0; font-size: 2.2rem; text-transform: uppercase; letter-spacing: 1px; }
         
-        .executive-dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 3rem; background: var(--bg-panel); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-glass); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .executive-dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 3rem; background: var(--bg-panel); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-glass); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
         .kpi-box { text-align: center; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
         .kpi-val { font-size: 2rem; font-weight: 900; color: #fff; margin-bottom: 5px; }
-        .kpi-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 1px; }
+        .kpi-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 1px; }
 
         .client-section { margin-bottom: 4rem; }
         .client-header { background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)); padding: 1.5rem 2rem; border-radius: 12px 12px 0 0; border: 1px solid var(--border-glass); border-bottom: none; }
@@ -206,7 +206,7 @@ $pageTitle = 'Executive Daily Report';
     }
     
     // KPI Counters
-    $kpiActive = 0; $kpiMob = 0; $kpiAlerts = 0; $kpiHold = 0; $kpiCompleted = 0;
+    $kpiActive = 0; $kpiMob = 0; $kpiAlerts = 0; $kpiHold = 0; $kpiCompleted = 0; $kpiEscalated = 0;
 
     $islandData = [
         '🇲🇹 MALTA' => ['mob' => [], 'exec' => [], 'completed' => [], 'on_hold' => []],
@@ -250,6 +250,8 @@ $pageTitle = 'Executive Daily Report';
         }
 
         if (in_array($stage, $earlyStages)) continue; // Skip Pre-execution
+        
+        if (!empty($p['is_blocked'])) $kpiEscalated++;
 
         // Base fetch
         $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
@@ -331,6 +333,10 @@ $pageTitle = 'Executive Daily Report';
             <div class="kpi-val"><?= $kpiMob ?></div>
             <div class="kpi-label">Sites in Mobilisation</div>
         </div>
+        <div class="kpi-box" style="border-bottom: 3px solid <?= $kpiEscalated > 0 ? '#dc2626' : '#22c55e' ?>;">
+            <div class="kpi-val" style="color: <?= $kpiEscalated > 0 ? '#dc2626' : '#22c55e' ?>;"><?= $kpiEscalated ?></div>
+            <div class="kpi-label">Escalated Blockers</div>
+        </div>
         <div class="kpi-box" style="border-bottom: 3px solid <?= $kpiAlerts > 0 ? '#ef4444' : '#22c55e' ?>;">
             <div class="kpi-val" style="color: <?= $kpiAlerts > 0 ? '#ef4444' : '#22c55e' ?>;"><?= $kpiAlerts ?></div>
             <div class="kpi-label">Safety Alerts</div>
@@ -387,7 +393,8 @@ $pageTitle = 'Executive Daily Report';
                     $docsStmt->execute([$pid]);
                     $expDocs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
                     
-                    $hasActions = !empty($p['pending_mob']) || !empty($expDocs);
+                    $hasBlocker = !empty($p['is_blocked']);
+                    $hasActions = !empty($p['pending_mob']) || !empty($expDocs) || $hasBlocker;
                 ?>
                 <div class="project-card">
                     <div class="card-inner">
@@ -420,6 +427,14 @@ $pageTitle = 'Executive Daily Report';
                         
                         <div class="card-action">
                             <?php if ($hasActions): ?>
+                                <?php if ($hasBlocker): ?>
+                                    <div class="action-box action-red" style="background: rgba(220, 38, 38, 0.15); border: 2px solid #dc2626; margin-bottom: 10px;">
+                                        <strong style="color: #dc2626; font-size: 1.1rem; display:block; margin-bottom:10px;">🚨 ESCALATED BLOCKER</strong>
+                                        <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
+                                        <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
+                                    </div>
+                                <?php endif; ?>
+                            
                                 <div class="action-box action-red">
                                     <strong>Action Required</strong>
                                     <?php if (!empty($p['pending_mob'])): ?>
@@ -486,7 +501,8 @@ $pageTitle = 'Executive Daily Report';
                     $docsStmt->execute([$pid]);
                     $expDocs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-                    $hasRisk = ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])) || !empty($expDocs);
+                    $hasBlocker = !empty($p['is_blocked']);
+                    $hasRisk = ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])) || !empty($expDocs) || $hasBlocker;
                 ?>
                 <div class="project-card">
                     <div class="card-inner">
@@ -542,6 +558,14 @@ $pageTitle = 'Executive Daily Report';
                         
                         <div class="card-action">
                             <?php if ($hasRisk): ?>
+                                <?php if ($hasBlocker): ?>
+                                    <div class="action-box action-red" style="background: rgba(220, 38, 38, 0.15); border: 2px solid #dc2626; margin-bottom: 10px;">
+                                        <strong style="color: #dc2626; font-size: 1.1rem; display:block; margin-bottom:10px;">🚨 ESCALATED BLOCKER</strong>
+                                        <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
+                                        <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
+                                    </div>
+                                <?php endif; ?>
+                            
                                 <div class="action-box action-red">
                                     <strong>CRITICAL RISK</strong>
                                     <?php if ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])): ?>
@@ -590,9 +614,15 @@ $pageTitle = 'Executive Daily Report';
                     <h3 style="color: #f59e0b;">⏸️ Projects On Hold / Blocked (<?= count($data['on_hold']) ?>)</h3>
                     <ul class="mini-list">
                         <?php foreach ($data['on_hold'] as $hp): ?>
-                            <li>
+                            <li style="margin-bottom: 10px;">
                                 <strong><?= htmlspecialchars($hp['name']) ?></strong>
                                 <?php if ($isGroupReport): ?> <span style="color: #a855f7;">[<?= htmlspecialchars($hp['client_name']) ?>]</span> <?php endif; ?>
+                                
+                                <?php if (!empty($hp['is_blocked'])): ?>
+                                    <div style="margin-top: 4px; font-size: 0.85rem; color: #ef4444; border-left: 2px solid #ef4444; padding-left: 8px;">
+                                        <strong>🚨 Escalated Blocker:</strong> <?= htmlspecialchars($hp['blocked_reason']) ?>
+                                    </div>
+                                <?php endif; ?>
                             </li>
                         <?php endforeach; ?>
                     </ul>
