@@ -249,6 +249,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $rawSupVal = ($K_supply * $ratesDb['sup_floor']) + ($L_supply * $ratesDb['sup_bath_floor']) + ($M_supply * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
             $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
             
+            // Add internal €6/lm skirting supply contribution to the actual DB value (Does not affect client allowance text)
+            $rawSupVal += ($E * 6.00);
+            
             $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Client Allowance: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
             
             $insertItem->execute([$qId, '1 - Tiling', $supDesc, 'lump_sum', 1, $rawSupVal, $sortIdx]);
