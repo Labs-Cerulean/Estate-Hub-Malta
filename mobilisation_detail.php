@@ -2,6 +2,13 @@
 require_once 'init.php';
 require_once 'session-check.php';
 
+// AUTO-DEPLOY DATABASE UPDATES FOR ESCALATION BLOCKER
+try {
+    $pdo->exec("ALTER TABLE projects ADD COLUMN is_blocked TINYINT(1) DEFAULT 0");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_reason TEXT");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_resolution TEXT");
+} catch(PDOException $e) {}
+
 $projectId = $_GET['project_id'] ?? $_GET['projectid'] ?? null;
 if (!$projectId) { header('Location: dashboard.php'); exit; }
 
@@ -101,16 +108,22 @@ $sectionB_groups = [
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // ==========================================
-    // 1000-INPUT LIMIT BYPASS DECODER
-    // ==========================================
-    // This intercepts the compressed JSON string sent by the JS engine and unpacks it 
-    // seamlessly into the standard $_POST array, bypassing PHP's 1000 variable limit perfectly!
     if (isset($_POST['bypass_json_payload'])) {
         $parsed = json_decode($_POST['bypass_json_payload'], true);
         if (is_array($parsed)) {
             $_POST = array_merge($_POST, $parsed);
         }
+    }
+    
+    // --- NEW: EXTRAORDINARY BLOCKER HANDLER ---
+    if (($_POST['action'] ?? null) === 'update_blocker' && $canUpdateStatus) {
+        $isBlocked = isset($_POST['is_blocked']) ? 1 : 0;
+        $reason = trim($_POST['blocked_reason'] ?? '');
+        $resolution = trim($_POST['blocked_resolution'] ?? '');
+        
+        $pdo->prepare("UPDATE projects SET is_blocked=?, blocked_reason=?, blocked_resolution=? WHERE id=?")->execute([$isBlocked, $reason, $resolution, $projectId]);
+        $message = "Escalation status updated successfully.";
+        $project = getProjectWithClient($pdo, $projectId); // Refresh project data
     }
     
     if (isset($_POST['add_log'])) {
@@ -273,9 +286,6 @@ $floorStatusesRaw = $stmtAllStatuses->fetchAll(PDO::FETCH_ASSOC);
 $floorStatuses = [];
 foreach ($floorStatusesRaw as $r) { $floorStatuses[$r['level_id']][$r['finish_type_id']] = $r['status']; }
 
-// ==========================================
-// CALCULATE 100% ACCURATE STAGE LOGIC
-// ==========================================
 $currentStageName = getAccurateProjectStage($pdo, $projectId);
 $stagesEnum = ['Feasibility'=>1, 'Tracking'=>2, 'Permit'=>3, 'Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10, 'Handed Over'=>11];
 $stageNum = $stagesEnum[$currentStageName] ?? 1;
@@ -359,6 +369,36 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
             </div>
             <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Status auto-calculates based on clearance and block progress below.</div>
         </div>
+    </div>
+
+    <div class="section-card" style="margin-bottom: 2rem; border-top: 4px solid #dc2626; background: rgba(220,38,38,0.02);">
+        <div class="section-header">
+            <h2 style="color: #dc2626; margin: 0; display: flex; align-items: center; gap: 10px;">🚨 Extraordinary Escalation / Blocker</h2>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="action" value="update_blocker">
+            <div style="margin-bottom: 1.5rem; margin-top: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #dc2626; font-weight: bold; font-size: 1.1rem;">
+                    <input type="checkbox" name="is_blocked" value="1" <?= !empty($project['is_blocked']) ? 'checked' : '' ?> style="width: 20px; height: 20px;" onchange="document.getElementById('blocker_details').style.display = this.checked ? 'block' : 'none';">
+                    Flag this project as BLOCKED (Will highlight in red on the Executive Report)
+                </label>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px; margin-left: 28px;">Use this to highlight delays that are outside standard operational progress (e.g. Injunctions, severe weather, funding issues).</p>
+            </div>
+            
+            <div id="blocker_details" style="display: <?= !empty($project['is_blocked']) ? 'block' : 'none' ?>;">
+                <div class="form-group">
+                    <label style="color: #fca5a5;">Reason for Blocker</label>
+                    <textarea name="blocked_reason" rows="2" placeholder="e.g. Neighbor injunction, awaiting court decision..." style="border-color: rgba(220,38,38,0.5);"><?= htmlspecialchars($project['blocked_reason'] ?? '') ?></textarea>
+                </div>
+                <div class="form-group">
+                    <label style="color: #fca5a5;">Resolution Plan / Action Being Taken</label>
+                    <textarea name="blocked_resolution" rows="2" placeholder="e.g. Legal team engaged, expected court date 12th Oct..." style="border-color: rgba(220,38,38,0.5);"><?= htmlspecialchars($project['blocked_resolution'] ?? '') ?></textarea>
+                </div>
+                <?php if ($canUpdateStatus): ?>
+                    <button type="submit" class="btn" style="background: #dc2626; color: #fff; border: none; margin-top: 10px;">Save Escalation Status</button>
+                <?php endif; ?>
+            </div>
+        </form>
     </div>
 
     <?php if ($project['summer_break_flag'] == 1): ?>
@@ -916,9 +956,6 @@ document.addEventListener('DOMContentLoaded', () => {
         enforceSequentialConstruction();
     }
     
-    // ==========================================
-    // 1000-INPUT LIMIT BYPASS SCRIPT
-    // ==========================================
     const masterForm = document.getElementById('masterBlocksForm');
     if (masterForm) {
         masterForm.addEventListener('submit', function(e) {
@@ -930,7 +967,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.disabled = true;
             }
 
-            // Serialize the entire 5000+ input form into a nested JSON object
             var obj = {};
             var formData = new FormData(this);
             for (var [key, value] of formData.entries()) {
@@ -948,7 +984,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // Create a brand new tiny form to submit ONLY the JSON string
             var bypassForm = document.createElement('form');
             bypassForm.method = 'POST';
             bypassForm.action = window.location.href; 
