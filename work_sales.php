@@ -99,6 +99,17 @@ $message = ''; $error = '';
 $allEntities = $isAdmin ? $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll() : getUserClients($pdo, $userId);
 $selected_contractor_id = isset($_GET['contractor_id']) ? (int)$_GET['contractor_id'] : null;
 
+// Extract contractor prefix for JS Reference Generation
+$contractorPrefix = 'CTR';
+if ($selected_contractor_id) {
+    foreach($allEntities as $c) { 
+        if($c['id'] == $selected_contractor_id) { 
+            $contractorPrefix = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $c['name']), 0, 4));
+            break; 
+        } 
+    }
+}
+
 // ==========================================
 // FORM ACTION HANDLING
 // ==========================================
@@ -169,7 +180,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'fc_rail_alu' => $_POST['fc_rail_alu'] ?? '0',
                 'fc_rail_glass' => $_POST['fc_rail_glass'] ?? '0',
                 'fc_rail_iron' => $_POST['fc_rail_iron'] ?? '0',
-                'fc_pm_pct' => $_POST['fc_pm_pct'] ?? '10.00',
+                'fc_pm_pct' => $_POST['fc_pm_pct'] ?? '15.00',
+                'fc_cleaning_fee' => $_POST['fc_cleaning_fee'] ?? '400.00',
                 'fc_discount' => $_POST['fc_discount'] ?? '0.00',
                 'ap_type' => $_POST['ap_type'] ?? [],
                 'ap_w' => $_POST['ap_w'] ?? [],
@@ -207,6 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $X3 = (int)$_POST['fc_door_pocket'];
             
             $pmPct = (float)$_POST['fc_pm_pct'];
+            $cleaningFee = (float)($_POST['fc_cleaning_fee'] ?? 400);
             $discount = (float)$_POST['fc_discount'];
             
             $sortIdx = 10;
@@ -232,18 +245,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $L_supply = $L * 1.10;
             $M_supply = $M * 1.10;
             
-            // Calc Supply Lump Sum (Rounded down to nearest 250)
+            // Calc Supply Lump Sum (Unrounded for quote logic, Rounded for client display text)
             $rawSupVal = ($K_supply * $ratesDb['sup_floor']) + ($L_supply * $ratesDb['sup_bath_floor']) + ($M_supply * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
             $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
             
-            // Push the Inc VAT value straight into the Exc VAT Rate column to generate a hidden margin.
-            $supValExcVat = $supValRoundedIncVat; 
+            $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Client Allowance: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
             
-            $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Value: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
-            
-            $insertItem->execute([$qId, '1 - Tiling', $supDesc, 'lump_sum', 1, $supValExcVat, $sortIdx]);
+            $insertItem->execute([$qId, '1 - Tiling', $supDesc, 'lump_sum', 1, $rawSupVal, $sortIdx]);
             $sortIdx += 10; 
-            $runningTotalExc += $supValExcVat;
+            $runningTotalExc += $rawSupVal;
             
             $add('1 - Tiling', 'Installation of Floor tiles (Inc. sand/cement/grouting)', 'sqm', $K, 'inst_floor');
             $add('1 - Tiling', 'Installation of Bathroom Floor tiles (Inc. sand/cement/grouting)', 'sqm', $L, 'inst_bath_floor');
@@ -323,17 +333,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // --- CATEGORY 7: PM & LOGISTICS ---
             $pmFee = $runningTotalExc * ($pmPct / 100);
-            
-            // Add the hidden €360 Cleaning/Logistics Fee
-            $pmFee += 360.00;
+            $pmFee += $cleaningFee; // Add dynamic cleaning/logistics fee
             
             $insertItem->execute([$qId, '7 - Project Management', 'Project Management, Coordination & Site Logistics', 'lump_sum', 1, $pmFee, $sortIdx]);
             $sortIdx += 10; 
-            $runningTotalExc += $pmFee;
             
             if ($discount > 0) {
                 $insertItem->execute([$qId, '8 - Discounts', 'Senior Management Discount', 'lump_sum', 1, -$discount, $sortIdx]);
-                $runningTotalExc -= $discount;
             }
             
             // Finalize Master Totals
@@ -435,7 +441,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
         }
         
-        // 5. Save BoQ Item
+        // 5. Save BoQ Item (WITH DYNAMIC PM HOOK)
         elseif ($action === 'save_item') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
@@ -454,15 +460,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$qId, $_POST['category'], $_POST['description'], $_POST['unit'], $qty, $rate, $sort]);
             }
             
+            // DYNAMIC PM RECALCULATION
+            if ($type === 'Finishes') {
+                $stmtQ = $pdo->prepare("SELECT finishes_calc_data FROM sales_quotes WHERE id = ?");
+                $stmtQ->execute([$qId]);
+                $qData = $stmtQ->fetchColumn();
+                
+                if ($qData) {
+                    $fcDataParsed = json_decode($qData, true);
+                    if (isset($fcDataParsed['fc_pm_pct'])) {
+                        $pmPct = (float)$fcDataParsed['fc_pm_pct'];
+                        $cleaningFee = isset($fcDataParsed['fc_cleaning_fee']) ? (float)$fcDataParsed['fc_cleaning_fee'] : 400.00; 
+
+                        $subStmt = $pdo->prepare("SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = ? AND category NOT IN ('7 - Project Management', '8 - Discounts')");
+                        $subStmt->execute([$qId]);
+                        $subTotal = (float)$subStmt->fetchColumn();
+
+                        $newPmFee = ($subTotal * ($pmPct / 100)) + $cleaningFee;
+                        $pdo->prepare("UPDATE sales_quote_items SET unit_rate = ?, estimated_qty = 1 WHERE quote_id = ? AND category = '7 - Project Management'")->execute([$newPmFee, $qId]);
+                    }
+                }
+            }
+            
             $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
             $message = "Item saved and quote totals recalculated.";
         }
         
-        // 6. Delete BoQ Item
+        // 6. Delete BoQ Item (WITH DYNAMIC PM HOOK)
         elseif ($action === 'delete_item') {
             $qId = (int)$_POST['quote_id'];
+            $type = $_POST['quote_type'];
+            
             $pdo->prepare("DELETE FROM sales_quote_items WHERE id=?")->execute([$_POST['item_id']]);
+            
+            // DYNAMIC PM RECALCULATION
+            if ($type === 'Finishes') {
+                $stmtQ = $pdo->prepare("SELECT finishes_calc_data FROM sales_quotes WHERE id = ?");
+                $stmtQ->execute([$qId]);
+                $qData = $stmtQ->fetchColumn();
+                
+                if ($qData) {
+                    $fcDataParsed = json_decode($qData, true);
+                    if (isset($fcDataParsed['fc_pm_pct'])) {
+                        $pmPct = (float)$fcDataParsed['fc_pm_pct'];
+                        $cleaningFee = isset($fcDataParsed['fc_cleaning_fee']) ? (float)$fcDataParsed['fc_cleaning_fee'] : 400.00; 
+
+                        $subStmt = $pdo->prepare("SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = ? AND category NOT IN ('7 - Project Management', '8 - Discounts')");
+                        $subStmt->execute([$qId]);
+                        $subTotal = (float)$subStmt->fetchColumn();
+
+                        $newPmFee = ($subTotal * ($pmPct / 100)) + $cleaningFee;
+                        $pdo->prepare("UPDATE sales_quote_items SET unit_rate = ?, estimated_qty = 1 WHERE quote_id = ? AND category = '7 - Project Management'")->execute([$newPmFee, $qId]);
+                    }
+                }
+            }
+
             $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
             $message = "Item deleted.";
@@ -774,13 +827,14 @@ require_once 'header.php';
                         <input type="hidden" name="action" value="create_quote">
                         <input type="hidden" name="quote_type" id="create_quote_type" value="">
                         <input type="hidden" name="contractor_id" value="<?= $selected_contractor_id ?>">
+                        <input type="hidden" id="gen_contractor_prefix" value="<?= $contractorPrefix ?>">
                         
                         <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px;">
                             <label style="color: var(--primary-color);">1. Who is the Client? (Choose ONE option)</label>
                             
                             <div style="margin-top: 10px;">
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option A: Select Existing Client / Internal Company</label>
-                                <select name="client_id">
+                                <select name="client_id" onchange="autoGenRef()">
                                     <option value="">-- Select Existing Client --</option>
                                     <?php foreach($allEntities as $c): ?><option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option><?php endforeach; ?>
                                 </select>
@@ -790,13 +844,13 @@ require_once 'header.php';
                             
                             <div>
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option B: External Client (Free Text)</label>
-                                <input type="text" name="client_name_free" placeholder="e.g. John Doe / External Ltd">
+                                <input type="text" name="client_name_free" onkeyup="autoGenRef()" placeholder="e.g. John Doe / External Ltd">
                             </div>
                         </div>
 
                         <div class="form-group">
                             <label>2. Project (Required) *</label>
-                            <select name="project_id" required>
+                            <select name="project_id" required onchange="autoGenRef()">
                                 <option value="">-- Select Project --</option>
                                 <?php foreach($projectsDb as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['client_name']) ?>)</option><?php endforeach; ?>
                             </select>
@@ -804,7 +858,7 @@ require_once 'header.php';
                         <div class="form-grid" style="grid-template-columns: 2fr 1fr; gap: 10px;">
                             <div class="form-group">
                                 <label>Quote Reference / Number *</label>
-                                <input type="text" name="reference_number" placeholder="e.g. PRAX-2026-04" required>
+                                <input type="text" name="reference_number" id="create_ref_input" placeholder="e.g. PRAX-2026-04" required>
                             </div>
                             <div class="form-group">
                                 <label>VAT Rate %</label>
@@ -826,8 +880,33 @@ require_once 'header.php';
                 
                 document.getElementById('createQuoteModalTitle').innerText = title;
                 document.getElementById('create_quote_type').value = type;
+                autoGenRef();
                 document.getElementById('createQuoteModal').style.display = 'block';
             }
+            
+            function autoGenRef() {
+                let contractor = document.getElementById('gen_contractor_prefix').value;
+                
+                let projSel = document.querySelector('select[name="project_id"]');
+                let projText = projSel.options[projSel.selectedIndex]?.text || '';
+                let projPrefix = projText.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
+                if (!projPrefix || projPrefix === '-- S') projPrefix = 'PRJ';
+                
+                let clientSel = document.querySelector('select[name="client_id"]');
+                let clientText = clientSel.options[clientSel.selectedIndex]?.text || '';
+                let clientFree = document.querySelector('input[name="client_name_free"]').value;
+                
+                let effClient = (clientSel.value !== '') ? clientText : clientFree;
+                let clientPrefix = effClient.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
+                if (!clientPrefix || clientPrefix === '-- S') clientPrefix = 'CLI';
+
+                let d = new Date();
+                let yr = d.getFullYear();
+                let rnd = Math.floor(100 + Math.random() * 900);
+                
+                document.getElementById('create_ref_input').value = `${contractor}-${clientPrefix}-${projPrefix}-${yr}-${rnd}`;
+            }
+
             window.addEventListener('click', function(event) {
                 let modal = document.getElementById('createQuoteModal');
                 if (event.target == modal) modal.style.display = "none";
@@ -1182,8 +1261,9 @@ require_once 'header.php';
                         </div>
 
                         <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">7. Management & Discounts</h4>
-                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div class="form-group"><label>Project Management Fee (%)</label><input type="number" step="0.01" name="fc_pm_pct" value="<?= fcv('fc_pm_pct', '10.00') ?>" required></div>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                            <div class="form-group"><label>Project Management Fee (%) *</label><input type="number" step="0.01" name="fc_pm_pct" value="<?= fcv('fc_pm_pct', '15.00') ?>" required></div>
+                            <div class="form-group"><label>Cleaning / Logistics Fee (€) *</label><input type="number" step="0.01" name="fc_cleaning_fee" value="<?= fcv('fc_cleaning_fee', '400.00') ?>" required></div>
                             <div class="form-group"><label>Special Discount (€)</label><input type="number" step="0.01" name="fc_discount" value="<?= fcv('fc_discount', '0.00') ?>" <?= $canApproveQuotes ? '' : 'readonly title="Requires Approval Access"' ?>></div>
                         </div>
 
