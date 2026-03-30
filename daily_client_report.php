@@ -14,10 +14,20 @@ if (!$isAdmin && !in_array($role, ['director', 'system_manager', 'project_manage
 // Fetch all accessible clients
 $clients = $isAdmin ? $pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC) : getUserClients($pdo, $userId);
 
-$selectedClientId = isset($_GET['client_id']) ? (int)$_GET['client_id'] : null;
+$selectedClientId = isset($_GET['client_id']) ? $_GET['client_id'] : null;
 
 $earlyStages = ['Feasibility', 'Tracking', 'Permit'];
 $completedStages = ['Handed Over', 'Completed'];
+
+// ==========================================
+// DEFINED CLIENT GROUPS
+// Add any future company groups here. 
+// 'search' is the keyword the system uses to find subsidiaries.
+// ==========================================
+$clientGroups = [
+    'EXCEL' => ['label' => 'ALL EXCEL COMPANIES', 'search' => 'Excel'],
+    'BLUE_CLAY' => ['label' => 'ALL BLUE CLAY COMPANIES', 'search' => 'Blue Clay']
+];
 
 // Helper function to safely fetch user/professional names
 function fetchNameSafely($pdo, $table, $id) {
@@ -68,6 +78,7 @@ $pageTitle = 'Daily Client Report';
         .proj-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
         .proj-title { font-size: 1.4rem; font-weight: 700; color: var(--primary-color); margin: 0 0 5px 0; }
         .proj-loc { font-size: 0.9rem; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+        .proj-client { font-size: 0.8rem; color: #a855f7; font-weight: bold; text-transform: uppercase; margin-top: 5px; }
         
         .stage-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; text-transform: uppercase; background: rgba(14, 165, 233, 0.2); color: #0ea5e9; border: 1px solid #0ea5e9; }
         
@@ -112,14 +123,23 @@ $pageTitle = 'Daily Client Report';
 <?php if (!$selectedClientId): ?>
     <div class="selection-container">
         <h1>🏢 Daily Executive Report</h1>
-        <p>Select a Client (or Client Group) to generate their dedicated status report.</p>
+        <p>Select a Client (or Combined Group) to generate their dedicated status report.</p>
         
         <form method="GET">
             <select name="client_id" required>
-                <option value="">-- Choose a Client --</option>
-                <?php foreach ($clients as $c): ?>
-                    <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
-                <?php endforeach; ?>
+                <option value="">-- Choose a Client / Group --</option>
+                
+                <optgroup label="🏢 Combined Client Groups">
+                    <?php foreach($clientGroups as $key => $group): ?>
+                        <option value="group_<?= $key ?>">❖ <?= htmlspecialchars($group['label']) ?></option>
+                    <?php endforeach; ?>
+                </optgroup>
+
+                <optgroup label="👤 Individual Clients">
+                    <?php foreach ($clients as $c): ?>
+                        <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
+                    <?php endforeach; ?>
+                </optgroup>
             </select>
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Generate Report</button>
             <div style="margin-top: 15px;"><a href="dashboard.php" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem;">&larr; Return to Dashboard</a></div>
@@ -128,20 +148,48 @@ $pageTitle = 'Daily Client Report';
 
 <?php else: 
     // REPORT GENERATION SCREEN
-    
-    // Find the selected client's name
     $selectedClientName = "Unknown Client";
-    foreach ($clients as $c) {
-        if ($c['id'] == $selectedClientId) {
-            $selectedClientName = $c['name'];
-            break;
-        }
-    }
+    $projects = [];
+    $isGroupReport = false;
 
-    // Fetch all projects for this selected client
-    $stmt = $pdo->prepare("SELECT * FROM projects WHERE clientid = ? ORDER BY name ASC");
-    $stmt->execute([$selectedClientId]);
-    $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Check if the user selected a combined group
+    if (strpos($selectedClientId, 'group_') === 0) {
+        $isGroupReport = true;
+        $groupKey = str_replace('group_', '', $selectedClientId);
+        
+        if (isset($clientGroups[$groupKey])) {
+            $selectedClientName = $clientGroups[$groupKey]['label'];
+            $searchTerm = $clientGroups[$groupKey]['search'];
+            
+            // Collect all authorized subsidiary IDs that match the search keyword
+            $matchedClientIds = [];
+            foreach ($clients as $c) {
+                if (stripos($c['name'], $searchTerm) !== false) {
+                    $matchedClientIds[] = $c['id'];
+                }
+            }
+            
+            // Pull projects for ALL matched subsidiaries at once
+            if (!empty($matchedClientIds)) {
+                $placeholders = implode(',', array_fill(0, count($matchedClientIds), '?'));
+                $stmt = $pdo->prepare("SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id WHERE p.clientid IN ($placeholders) ORDER BY c.name ASC, p.name ASC");
+                $stmt->execute($matchedClientIds);
+                $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        }
+    } else {
+        // Normal individual client logic
+        $selectedClientId = (int)$selectedClientId;
+        foreach ($clients as $c) {
+            if ($c['id'] == $selectedClientId) {
+                $selectedClientName = $c['name'];
+                break;
+            }
+        }
+        $stmt = $pdo->prepare("SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id WHERE p.clientid = ? ORDER BY p.name ASC");
+        $stmt->execute([$selectedClientId]);
+        $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
     
     $activeProjects = [];
     $completedProjects = [];
@@ -153,7 +201,7 @@ $pageTitle = 'Daily Client Report';
         if (in_array($stage, $earlyStages)) continue;
         
         if (in_array($stage, $completedStages) || ($p['status'] ?? '') === 'Completed') {
-            $completedProjects[] = ['name' => $p['name'], 'stage' => $stage];
+            $completedProjects[] = ['name' => $p['name'], 'stage' => $stage, 'client_name' => $p['client_name']];
         } else {
             $p['calculated_stage'] = $stage;
             $activeProjects[] = $p;
@@ -185,7 +233,7 @@ $pageTitle = 'Daily Client Report';
                 $stage = $p['calculated_stage'];
                 
                 // --- FETCH DATA ---
-                // 1. PA Numbers (FIXED: Removed 'status' column requirement to match DB schema)
+                // 1. PA Numbers
                 $paStmt = $pdo->prepare("SELECT pa_number FROM project_pa_numbers WHERE project_id = ?");
                 $paStmt->execute([$pid]);
                 $paNumbers = $paStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -246,6 +294,9 @@ $pageTitle = 'Daily Client Report';
                     <div>
                         <h3 class="proj-title"><?= htmlspecialchars($p['name']) ?></h3>
                         <div class="proj-loc">📍 <?= htmlspecialchars($p['locality'] ?? 'Location not specified') ?></div>
+                        <?php if ($isGroupReport): ?>
+                            <div class="proj-client">🏢 Entity: <?= htmlspecialchars($p['client_name']) ?></div>
+                        <?php endif; ?>
                     </div>
                     <div class="stage-badge"><?= $stage ?></div>
                 </div>
@@ -332,7 +383,10 @@ $pageTitle = 'Daily Client Report';
                     <h3>✅ Handed Over / Completed Projects</h3>
                     <ul class="completed-list">
                         <?php foreach ($completedProjects as $cp): ?>
-                            <li><strong><?= htmlspecialchars($cp['name']) ?></strong> <i>(<?= $cp['stage'] ?>)</i></li>
+                            <li>
+                                <strong><?= htmlspecialchars($cp['name']) ?></strong> <i>(<?= $cp['stage'] ?>)</i>
+                                <?php if ($isGroupReport): ?> <span style="font-size: 0.8rem; color: #a855f7; margin-left: 10px;">[<?= htmlspecialchars($cp['client_name']) ?>]</span> <?php endif; ?>
+                            </li>
                         <?php endforeach; ?>
                     </ul>
                 </div>
