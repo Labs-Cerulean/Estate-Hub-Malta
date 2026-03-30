@@ -26,17 +26,14 @@ $clientGroups = [
     'BLUE_CLAY' => ['label' => 'ALL BLUE CLAY COMPANIES', 'search' => 'Blue Clay']
 ];
 
-// Gozo Locality Dictionary
 $gozoLocalities = ['Nadur', 'Xaghra', 'Victoria', 'Rabat (Gozo)', 'Qala', 'Zebbug', 'Xewkija', 'Ghajnsielem', 'Gharb', 'Kercem', 'Munxar', 'San Lawrenz', 'Sannat', 'Fontana', 'Ghasri', 'Marsalforn', 'Xlendi', 'Mgarr'];
 
 // ==========================================
 // SUPER-FINDER Helper
-// Scans multiple tables to find the name of the assigned entity safely
 // ==========================================
 function getEntityName($pdo, $id, $hint = 'auto') {
     if (empty($id)) return "<span style='color:var(--text-muted); font-style:italic;'>Unassigned</span>";
     
-    // Ordered priority list of queries
     $queries = [
         "SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE id = ?",
         "SELECT name FROM professionals WHERE id = ?",
@@ -57,7 +54,7 @@ function getEntityName($pdo, $id, $hint = 'auto') {
     return "<span style='color:var(--text-muted); font-style:italic;'>Unassigned (ID: $id)</span>";
 }
 
-$pageTitle = 'Daily Client Report';
+$pageTitle = 'Executive Daily Report';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -73,44 +70,56 @@ $pageTitle = 'Daily Client Report';
         .selection-container h1 { color: var(--primary-color); margin-top: 0; }
         .selection-container select { width: 100%; padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); font-size: 1.1rem; margin-bottom: 1.5rem; cursor: pointer; }
         
-        .report-header { text-align: center; margin-bottom: 3rem; padding-bottom: 1.5rem; border-bottom: 2px solid var(--border-glass); position: relative; }
-        .report-header h1 { color: var(--primary-color); margin: 0 0 10px 0; font-size: 2.2rem; }
+        .report-header { text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; position: relative; }
+        .report-header h1 { color: var(--primary-color); margin: 0 0 10px 0; font-size: 2.2rem; text-transform: uppercase; letter-spacing: 1px; }
         
-        .client-section { margin-bottom: 4rem; background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-        .client-header { background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)); padding: 1.5rem 2rem; border-bottom: 1px solid var(--border-glass); }
+        .executive-dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 3rem; background: var(--bg-panel); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-glass); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .kpi-box { text-align: center; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+        .kpi-val { font-size: 2rem; font-weight: 900; color: #fff; margin-bottom: 5px; }
+        .kpi-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 1px; }
+
+        .client-section { margin-bottom: 4rem; }
+        .client-header { background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)); padding: 1.5rem 2rem; border-radius: 12px 12px 0 0; border: 1px solid var(--border-glass); border-bottom: none; }
         .client-header h2 { margin: 0; color: #fff; font-size: 1.8rem; text-transform: uppercase; letter-spacing: 1px; }
         
-        .island-divider { background: rgba(0,0,0,0.3); border: 2px solid var(--primary-color); padding: 1rem 2rem; border-left: none; border-right: none; text-align: center; margin-top: 2rem; }
-        .island-divider h2 { margin: 0; color: var(--primary-color); font-size: 2rem; text-transform: uppercase; letter-spacing: 2px; }
+        .island-divider { background: var(--bg-panel); border: 1px solid var(--border-glass); border-top: none; padding: 1rem 2rem; text-align: center; }
+        .island-divider h2 { margin: 0; color: var(--primary-color); font-size: 1.8rem; text-transform: uppercase; letter-spacing: 2px; }
 
-        .phase-header { background: rgba(0,0,0,0.2); padding: 1rem 2rem; border-bottom: 1px solid var(--border-glass); border-top: 1px solid var(--border-glass); }
-        .phase-header h3 { margin: 0; color: #fff; font-size: 1.3rem; display: flex; align-items: center; gap: 10px; }
-        .phase-desc { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+        .phase-header { background: rgba(0,0,0,0.3); padding: 1rem 2rem; border-bottom: 1px solid var(--border-glass); border-top: 1px solid var(--border-glass); }
+        .phase-header h3 { margin: 0; color: #fff; font-size: 1.2rem; }
 
-        .project-card { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border-glass); }
-        .project-card:last-child { border-bottom: none; }
+        .project-card { background: var(--bg-panel); border: 1px solid var(--border-glass); border-top: none; display: flex; flex-direction: column; }
         .project-card:nth-child(even) { background: rgba(255,255,255,0.02); }
         
+        .card-inner { display: flex; flex-wrap: wrap; }
+        .card-main { flex: 3; padding: 1.5rem; min-width: 300px; border-right: 1px solid var(--border-glass); }
+        .card-action { flex: 1; padding: 1.5rem; min-width: 250px; display: flex; flex-direction: column; justify-content: center; }
+        
         .proj-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
-        .proj-title { font-size: 1.4rem; font-weight: 700; color: var(--primary-color); margin: 0 0 5px 0; }
-        .proj-loc { font-size: 0.9rem; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
-        .proj-client { font-size: 0.8rem; color: #a855f7; font-weight: bold; text-transform: uppercase; margin-top: 5px; }
+        .proj-title { font-size: 1.4rem; font-weight: 800; color: var(--primary-color); margin: 0 0 5px 0; }
+        .proj-loc { font-size: 0.85rem; color: var(--text-muted); }
         
-        .stage-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; text-transform: uppercase; background: rgba(14, 165, 233, 0.2); color: #0ea5e9; border: 1px solid #0ea5e9; }
+        .stage-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid #0ea5e9; }
         
-        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-top: 1rem; }
-        .info-box { background: var(--bg-card); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); }
-        .info-box h4 { margin: 0 0 10px 0; color: var(--text-secondary); font-size: 0.85rem; text-transform: uppercase; border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; }
-        .data-row { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 4px; }
-        .data-label { color: var(--text-muted); font-weight: 600; }
-        .data-value { color: #fff; text-align: right; }
+        .data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; font-size: 0.85rem; }
+        .data-label { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; display: block; margin-bottom: 2px; }
+        .data-value { color: #fff; font-weight: 500; }
         
-        .alert-box { background: rgba(239, 68, 68, 0.1); border-left: 4px solid #ef4444; padding: 10px 15px; margin-top: 10px; border-radius: 4px; font-size: 0.85rem; }
-        .warn-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; padding: 10px 15px; margin-top: 10px; border-radius: 4px; font-size: 0.85rem; }
+        .prog-bar-container { background: rgba(0,0,0,0.3); border-radius: 4px; height: 8px; width: 100%; margin-top: 5px; overflow: hidden; }
+        .prog-bar-fill { height: 100%; border-radius: 4px; }
         
-        .completed-section { background: rgba(34, 197, 94, 0.05); padding: 1.5rem 2rem; border-top: 1px solid var(--border-glass); }
-        .completed-section h3 { color: #22c55e; margin: 0 0 10px 0; font-size: 1.1rem; }
-        .completed-list { margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 0.95rem; }
+        .action-box { padding: 1rem; border-radius: 8px; font-size: 0.85rem; }
+        .action-red { background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #fca5a5; }
+        .action-red strong { color: #ef4444; font-size: 1rem; display: block; margin-bottom: 10px; text-transform: uppercase; }
+        .action-green { background: rgba(34, 197, 94, 0.05); border: 1px solid rgba(34, 197, 94, 0.3); color: #22c55e; text-align: center; padding: 2rem 1rem; }
+        
+        .action-list { margin: 0; padding-left: 20px; }
+        .action-list li { margin-bottom: 5px; }
+
+        .list-section { background: var(--bg-panel); padding: 1.5rem 2rem; border: 1px solid var(--border-glass); border-top: none; }
+        .list-section h3 { margin: 0 0 15px 0; font-size: 1.1rem; }
+        .mini-list { margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 0.9rem; }
+        .mini-list li { margin-bottom: 8px; }
         
         .btn-print { position: fixed; bottom: 30px; right: 30px; background: var(--primary-color); color: white; border: none; padding: 15px 25px; border-radius: 30px; font-weight: bold; font-size: 1.1rem; cursor: pointer; box-shadow: 0 10px 25px rgba(99, 102, 241, 0.5); z-index: 1000; transition: transform 0.2s; }
         .btn-print:hover { transform: scale(1.05); }
@@ -120,21 +129,22 @@ $pageTitle = 'Daily Client Report';
         @media print {
             body { background: #fff !important; color: #000 !important; padding: 0; }
             .btn-print, .btn-back, .navbar, .sidebar { display: none !important; }
-            .client-section { page-break-inside: avoid; border: 1px solid #ccc; box-shadow: none; margin-bottom: 2rem; }
-            .client-header { background: #f3f4f6 !important; border-bottom: 2px solid #000; }
+            .executive-dash { box-shadow: none; border: 2px solid #000; background: #f9fafb !important; }
+            .kpi-val { color: #000 !important; }
+            .kpi-label { color: #555 !important; }
+            .client-header { background: #e5e7eb !important; border: 2px solid #000; }
             .client-header h2 { color: #000 !important; }
-            .island-divider { background: #e5e7eb !important; border: 2px solid #000; }
-            .island-divider h2 { color: #000 !important; }
-            .phase-header { background: #f9fafb !important; border-bottom: 1px solid #000; border-top: 1px solid #000; }
+            .island-divider { background: #fff !important; border-left: 2px solid #000; border-right: 2px solid #000; }
+            .phase-header { background: #f3f4f6 !important; border-top: 2px solid #000; border-bottom: 2px solid #000; }
             .phase-header h3 { color: #000 !important; }
-            .project-card { border-bottom: 1px solid #eee; page-break-inside: avoid; }
-            .info-box { background: #fff; border: 1px solid #ddd; }
-            .data-value { color: #000; }
-            .data-label { color: #555; }
-            .proj-title { color: #000; }
-            .stage-badge { border: 1px solid #000; color: #000; }
-            .alert-box, .warn-box { border: 1px solid #ccc; border-left: 4px solid #000; background: #fff; color: #000; }
-            .data-row { border-bottom: 1px dashed #eee; }
+            .project-card { border-left: 2px solid #000; border-right: 2px solid #000; border-bottom: 1px solid #000; page-break-inside: avoid; }
+            .card-main { border-right: 1px solid #000; }
+            .action-red { border: 2px solid #ef4444 !important; background: #fff !important; color: #000 !important; }
+            .action-red strong { color: #ef4444 !important; }
+            .action-green { border: 1px solid #22c55e !important; color: #22c55e !important; }
+            .data-value { color: #000 !important; }
+            .data-label { color: #555 !important; }
+            .list-section { border: 2px solid #000; border-top: none; }
         }
     </style>
 </head>
@@ -142,19 +152,16 @@ $pageTitle = 'Daily Client Report';
 
 <?php if (!$selectedClientId): ?>
     <div class="selection-container">
-        <h1>🏢 Daily Executive Report</h1>
-        <p>Select a Client (or Combined Group) to generate their dedicated status report.</p>
-        
+        <h1>🏢 Executive Daily Report</h1>
+        <p>Select a Client (or Combined Group) to generate an actionable status report.</p>
         <form method="GET">
             <select name="client_id" required>
                 <option value="">-- Choose a Client / Group --</option>
-                
                 <optgroup label="🏢 Combined Client Groups">
                     <?php foreach($clientGroups as $key => $group): ?>
                         <option value="group_<?= $key ?>">❖ <?= htmlspecialchars($group['label']) ?></option>
                     <?php endforeach; ?>
                 </optgroup>
-
                 <optgroup label="👤 Individual Clients">
                     <?php foreach ($clients as $c): ?>
                         <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
@@ -167,27 +174,20 @@ $pageTitle = 'Daily Client Report';
     </div>
 
 <?php else: 
-    // REPORT GENERATION SCREEN
     $selectedClientName = "Unknown Client";
     $projects = [];
     $isGroupReport = false;
 
-    // Check if the user selected a combined group
     if (strpos($selectedClientId, 'group_') === 0) {
         $isGroupReport = true;
         $groupKey = str_replace('group_', '', $selectedClientId);
-        
         if (isset($clientGroups[$groupKey])) {
             $selectedClientName = $clientGroups[$groupKey]['label'];
             $searchTerm = $clientGroups[$groupKey]['search'];
-            
             $matchedClientIds = [];
             foreach ($clients as $c) {
-                if (stripos($c['name'], $searchTerm) !== false) {
-                    $matchedClientIds[] = $c['id'];
-                }
+                if (stripos($c['name'], $searchTerm) !== false) $matchedClientIds[] = $c['id'];
             }
-            
             if (!empty($matchedClientIds)) {
                 $placeholders = implode(',', array_fill(0, count($matchedClientIds), '?'));
                 $stmt = $pdo->prepare("SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id WHERE p.clientid IN ($placeholders) ORDER BY c.name ASC, p.name ASC");
@@ -196,81 +196,93 @@ $pageTitle = 'Daily Client Report';
             }
         }
     } else {
-        // Normal individual client logic
         $selectedClientId = (int)$selectedClientId;
         foreach ($clients as $c) {
-            if ($c['id'] == $selectedClientId) {
-                $selectedClientName = $c['name'];
-                break;
-            }
+            if ($c['id'] == $selectedClientId) { $selectedClientName = $c['name']; break; }
         }
         $stmt = $pdo->prepare("SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.clientid = c.id WHERE p.clientid = ? ORDER BY p.name ASC");
         $stmt->execute([$selectedClientId]);
         $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
-    // Sort logic arrays by Island
+    // KPI Counters
+    $kpiActive = 0; $kpiMob = 0; $kpiAlerts = 0; $kpiHold = 0; $kpiCompleted = 0;
+
     $islandData = [
-        '🇲🇹 MALTA' => ['mob' => [], 'exec' => [], 'completed' => []],
-        '⛴️ GOZO' => ['mob' => [], 'exec' => [], 'completed' => []]
+        '🇲🇹 MALTA' => ['mob' => [], 'exec' => [], 'completed' => [], 'on_hold' => []],
+        '⛴️ GOZO' => ['mob' => [], 'exec' => [], 'completed' => [], 'on_hold' => []]
     ];
 
     $stagesEnum = ['Mobilisation'=>4, 'Demolition'=>5, 'Excavation'=>6, 'Construction'=>7, 'Finishes'=>8, 'Compliance'=>9, 'Condominium'=>10];
 
     foreach ($projects as $p) {
-        $stage = getAccurateProjectStage($pdo, $p['id']);
-        if (in_array($stage, $earlyStages)) continue; // Skip early stages
-        
-        // Determine Location Correctly (From DB edit-project columns)
+        $status = $p['status'] ?? $p['project_status'] ?? 'Active';
+        if ($status === 'Withdrawn') continue;
+
         $locStr = trim(($p['street_name'] ?? '') . ', ' . ($p['city'] ?? ''), ', ');
         if (empty($locStr)) $locStr = 'Location not specified';
         $p['formatted_location'] = $locStr;
 
-        // Determine Island
         $isGozo = false;
         $regionStr = $p['region'] ?? $p['island'] ?? '';
-        
         if (stripos($regionStr, 'gozo') !== false) {
             $isGozo = true;
         } else {
             foreach ($gozoLocalities as $gl) {
-                if (stripos($locStr, $gl) !== false) {
-                    $isGozo = true; break;
-                }
+                if (stripos($locStr, $gl) !== false) { $isGozo = true; break; }
             }
         }
-        
         $targetIsland = $isGozo ? '⛴️ GOZO' : '🇲🇹 MALTA';
 
-        // Completed
-        if (in_array($stage, $completedStages) || ($p['status'] ?? '') === 'Completed') {
-            $islandData[$targetIsland]['completed'][] = ['name' => $p['name'], 'stage' => $stage, 'client_name' => $p['client_name']];
+        if ($status === 'On-Hold' || $status === 'On Hold') {
+            $kpiHold++;
+            $islandData[$targetIsland]['on_hold'][] = $p;
             continue;
         }
 
-        // Fetch Mobilisation Checklists
+        $stage = getAccurateProjectStage($pdo, $p['id']);
+        
+        if (in_array($stage, $completedStages) || $status === 'Completed') {
+            $kpiCompleted++;
+            $p['calculated_stage'] = $stage;
+            $islandData[$targetIsland]['completed'][] = $p;
+            continue;
+        }
+
+        if (in_array($stage, $earlyStages)) continue; // Skip Pre-execution
+
+        // Base fetch
         $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
         $mobStmt->execute([$p['id']]);
         $mob = $mobStmt->fetch(PDO::FETCH_ASSOC);
-        
         $p['calculated_stage'] = $stage;
         $p['mob_data'] = $mob;
+        
+        // Fetch OHSA early for KPI
+        $ohsaStmt = $pdo->prepare("SELECT safety_status, safety_comments FROM project_ohsa_setup WHERE project_id = ?");
+        $ohsaStmt->execute([$p['id']]);
+        $ohsa = $ohsaStmt->fetch(PDO::FETCH_ASSOC);
+        $p['ohsa_data'] = $ohsa;
+        if ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])) $kpiAlerts++;
 
         if ($stage === 'Mobilisation') {
+            $kpiMob++;
             $missing = 0;
-            if (!in_array($mob['geological_test'] ?? '', ['Complete', 'NA'])) $missing++;
-            if (!in_array($mob['condition_reports'] ?? '', ['Complete', 'NA'])) $missing++;
-            if (!in_array($mob['method_statements'] ?? '', ['Complete', 'NA'])) $missing++;
-            if (!in_array($mob['insurance_status'] ?? '', ['Complete', 'NA'])) $missing++;
-            if (!in_array($mob['responsibility_form'] ?? '', ['Complete', 'NA'])) $missing++;
-            if (($mob['mob_demolition'] ?? 'No') === 'No') $missing++;
-            if (($mob['mob_excavation'] ?? 'No') === 'No') $missing++;
-            if (($mob['mob_construction'] ?? 'No') === 'No') $missing++;
+            $pendingMob = [];
+            if (!in_array($mob['geological_test'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Geological Test";
+            if (!in_array($mob['condition_reports'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Condition Reports";
+            if (!in_array($mob['method_statements'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Method Statements";
+            if (!in_array($mob['insurance_status'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Insurance Status";
+            if (!in_array($mob['responsibility_form'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Responsibility Form";
+            if (($mob['mob_demolition'] ?? 'No') === 'No') $pendingMob[] = "Demolition Clearance";
+            if (($mob['mob_excavation'] ?? 'No') === 'No') $pendingMob[] = "Excavation Clearance";
+            if (($mob['mob_construction'] ?? 'No') === 'No') $pendingMob[] = "Construction Clearance";
             
-            $p['missing_mob_count'] = $missing;
+            $p['pending_mob'] = $pendingMob;
+            $p['missing_mob_count'] = count($pendingMob);
             $islandData[$targetIsland]['mob'][] = $p;
         } else {
-            // Structural Progress (Averaged from physical block level dropdowns, NOT financial certificates)
+            $kpiActive++;
             $sStmt = $pdo->prepare("SELECT construction_status FROM block_levels bl JOIN project_blocks pb ON bl.block_id = pb.id WHERE pb.project_id = ?");
             $sStmt->execute([$p['id']]);
             $levels = $sStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -285,13 +297,11 @@ $pageTitle = 'Daily Client Report';
             }
             $p['struct_prog'] = $structProg;
 
-            // Finishes Progress
             $fStmt = $pdo->prepare("SELECT AVG(progress) FROM project_blocks WHERE project_id = ?");
             $fStmt->execute([$p['id']]);
             $finProg = $fStmt->fetchColumn();
             $p['fin_prog'] = $finProg !== null ? round((float)$finProg, 1) : 0;
 
-            // Execution Score for sorting
             $stageScore = $stagesEnum[$stage] ?? 5;
             $p['exec_score'] = ($stageScore * 10000) + ($p['struct_prog'] * 100) + $p['fin_prog'];
             
@@ -299,7 +309,6 @@ $pageTitle = 'Daily Client Report';
         }
     }
 
-    // Apply Sorting per Island
     foreach ($islandData as $islandKey => &$data) {
         usort($data['mob'], function($a, $b) { return $b['missing_mob_count'] <=> $a['missing_mob_count']; }); 
         usort($data['exec'], function($a, $b) { return $a['exec_score'] <=> $b['exec_score']; }); 
@@ -309,25 +318,45 @@ $pageTitle = 'Daily Client Report';
 
     <div class="report-header">
         <a href="daily_client_report.php" class="btn-back">&larr; Select Different Client</a>
-        <h1>🏢 Daily Executive Report</h1>
+        <h1>Executive Summary: <?= htmlspecialchars($selectedClientName) ?></h1>
         <p>Generated on <strong><?= date('l, d F Y') ?></strong> at <strong><?= date('H:i') ?></strong></p>
     </div>
 
-    <button class="btn-print" onclick="window.print()">🖨️ Print / Save PDF</button>
+    <div class="executive-dash">
+        <div class="kpi-box" style="border-bottom: 3px solid #3b82f6;">
+            <div class="kpi-val"><?= $kpiActive ?></div>
+            <div class="kpi-label">Sites in Execution</div>
+        </div>
+        <div class="kpi-box" style="border-bottom: 3px solid #0ea5e9;">
+            <div class="kpi-val"><?= $kpiMob ?></div>
+            <div class="kpi-label">Sites in Mobilisation</div>
+        </div>
+        <div class="kpi-box" style="border-bottom: 3px solid <?= $kpiAlerts > 0 ? '#ef4444' : '#22c55e' ?>;">
+            <div class="kpi-val" style="color: <?= $kpiAlerts > 0 ? '#ef4444' : '#22c55e' ?>;"><?= $kpiAlerts ?></div>
+            <div class="kpi-label">Safety Alerts</div>
+        </div>
+        <div class="kpi-box" style="border-bottom: 3px solid #f59e0b;">
+            <div class="kpi-val"><?= $kpiHold ?></div>
+            <div class="kpi-label">Blocked / On Hold</div>
+        </div>
+        <div class="kpi-box" style="border-bottom: 3px solid #22c55e;">
+            <div class="kpi-val"><?= $kpiCompleted ?></div>
+            <div class="kpi-label">Completed</div>
+        </div>
+    </div>
 
-    <?php if (empty($islandData['🇲🇹 MALTA']['mob']) && empty($islandData['🇲🇹 MALTA']['exec']) && empty($islandData['🇲🇹 MALTA']['completed']) && empty($islandData['⛴️ GOZO']['mob']) && empty($islandData['⛴️ GOZO']['exec']) && empty($islandData['⛴️ GOZO']['completed'])): ?>
+    <button class="btn-print" onclick="window.print()">🖨️ Print Report</button>
+
+    <?php if ($kpiActive == 0 && $kpiMob == 0 && $kpiHold == 0 && $kpiCompleted == 0): ?>
         <div style="text-align: center; padding: 4rem; background: var(--bg-panel); border-radius: 12px; border: 1px solid var(--border-glass);">
-            <h2 style="color: var(--text-muted);">No Active Sites Found</h2>
-            <p>There are currently no projects in Mobilisation or Execution for <strong><?= htmlspecialchars($selectedClientName) ?></strong>.</p>
+            <h2 style="color: var(--text-muted);">No Activity Found</h2>
+            <p>There are currently no tracked projects for <strong><?= htmlspecialchars($selectedClientName) ?></strong>.</p>
         </div>
     <?php else: ?>
         <div class="client-section">
-            <div class="client-header">
-                <h2><?= htmlspecialchars($selectedClientName) ?></h2>
-            </div>
             
             <?php foreach ($islandData as $islandName => $data): 
-                if (empty($data['mob']) && empty($data['exec']) && empty($data['completed'])) continue;
+                if (empty($data['mob']) && empty($data['exec']) && empty($data['completed']) && empty($data['on_hold'])) continue;
             ?>
             
             <div class="island-divider">
@@ -336,15 +365,12 @@ $pageTitle = 'Daily Client Report';
 
             <?php if (!empty($data['mob'])): ?>
                 <div class="phase-header">
-                    <h3>🚧 Phase 1: Pre-Construction & Mobilisation</h3>
-                    <div class="phase-desc">Ordered from least mobilised to most ready. Focus is on resolving bottlenecks to begin physical works.</div>
+                    <h3>🚧 Phase 1: Mobilisation (<?= count($data['mob']) ?> Sites)</h3>
+                    <div class="phase-desc">Sites ordered from most blocked to most ready.</div>
                 </div>
                 
                 <?php foreach ($data['mob'] as $p): 
                     $pid = $p['id'];
-                    $loc = $p['formatted_location'];
-                    
-                    // Fetch PA Numbers to extract the Architect / Engineer accurately
                     $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id = ?");
                     $paStmt->execute([$pid]);
                     $paRaw = $paStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -356,62 +382,64 @@ $pageTitle = 'Daily Client Report';
                     }
                     $archName = getEntityName($pdo, $archId, 'professional');
                     $structName = getEntityName($pdo, $structId, 'professional');
-
-                    $mob = $p['mob_data'];
-                    $pendingMob = [];
-                    if (!in_array($mob['geological_test'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Geological Test";
-                    if (!in_array($mob['condition_reports'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Condition Reports";
-                    if (!in_array($mob['method_statements'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Method Statements";
-                    if (!in_array($mob['insurance_status'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Insurance Status";
-                    if (!in_array($mob['responsibility_form'] ?? '', ['Complete', 'NA'])) $pendingMob[] = "Responsibility Form";
-                    if (($mob['mob_demolition'] ?? 'No') === 'No') $pendingMob[] = "Demolition Clearance";
-                    if (($mob['mob_excavation'] ?? 'No') === 'No') $pendingMob[] = "Excavation Clearance";
-                    if (($mob['mob_construction'] ?? 'No') === 'No') $pendingMob[] = "Construction Clearance";
+                    
+                    $docsStmt = $pdo->prepare("SELECT title, expiry_date FROM project_documents WHERE project_id = ? AND expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND alarm_dismissed = 0 ORDER BY expiry_date ASC");
+                    $docsStmt->execute([$pid]);
+                    $expDocs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    $hasActions = !empty($p['pending_mob']) || !empty($expDocs);
                 ?>
                 <div class="project-card">
-                    <div class="proj-title-row">
-                        <div>
-                            <h3 class="proj-title"><?= htmlspecialchars($p['name']) ?></h3>
-                            <div class="proj-loc">📍 <?= htmlspecialchars($loc) ?></div>
-                            <?php if ($isGroupReport): ?><div class="proj-client">🏢 Entity: <?= htmlspecialchars($p['client_name']) ?></div><?php endif; ?>
-                        </div>
-                        <div class="stage-badge">Mobilisation</div>
-                    </div>
-
-                    <div class="info-grid">
-                        <div class="info-box">
-                            <h4>📋 Regulatory & Periti</h4>
-                            <div class="data-row"><span class="data-label">Architect:</span> <span class="data-value"><?= $archName ?></span></div>
-                            <div class="data-row"><span class="data-label">Struct. Engineer:</span> <span class="data-value"><?= $structName ?></span></div>
+                    <div class="card-inner">
+                        <div class="card-main">
+                            <div class="proj-title-row" style="margin-bottom: 5px;">
+                                <div>
+                                    <h3 class="proj-title"><?= htmlspecialchars($p['name']) ?></h3>
+                                    <div class="proj-loc">📍 <?= htmlspecialchars($p['formatted_location']) ?></div>
+                                    <?php if ($isGroupReport): ?><div class="proj-client">🏢 Entity: <?= htmlspecialchars($p['client_name']) ?></div><?php endif; ?>
+                                </div>
+                                <div class="stage-badge">Mobilisation</div>
+                            </div>
                             
-                            <div style="margin-top: 10px; border-top: 1px dashed var(--border-glass); padding-top: 5px;">
-                                <span class="data-label">PA Approvals:</span><br>
-                                <?php if (empty($paRaw)): ?>
-                                    <span style="color:var(--text-muted); font-size:0.85rem;">None recorded</span>
-                                <?php else: foreach($paRaw as $pa): 
-                                    $status = $pa['status'] ?? $pa['pa_status'] ?? 'Issued/Unknown';
-                                ?>
-                                    <div style="font-size:0.85rem; display:flex; justify-content:space-between; margin-bottom: 2px;">
-                                        <span style="color:#fff;"><?= htmlspecialchars($pa['pa_number']) ?></span>
-                                        <span style="color:var(--text-muted);"><?= htmlspecialchars($status) ?></span>
-                                    </div>
-                                <?php endforeach; endif; ?>
+                            <div class="data-grid">
+                                <div>
+                                    <span class="data-label">Periti (Architect & Engineer)</span>
+                                    <span class="data-value"><?= $archName ?> | <?= $structName ?></span>
+                                </div>
+                                <div>
+                                    <span class="data-label">PA Numbers</span>
+                                    <span class="data-value">
+                                        <?php if (empty($paRaw)): ?>None recorded
+                                        <?php else: foreach($paRaw as $pa): ?>
+                                            <?= htmlspecialchars($pa['pa_number']) ?> (<?= htmlspecialchars($pa['status'] ?? $pa['pa_status'] ?? 'Unknown') ?>)<br>
+                                        <?php endforeach; endif; ?>
+                                    </span>
+                                </div>
                             </div>
                         </div>
-
-                        <div class="info-box">
-                            <h4>🚀 Mobilisation Bottlenecks</h4>
-                            <?php if (!empty($pendingMob)): ?>
-                                <div style="font-size: 0.85rem;">
-                                    <strong style="color:#f59e0b;">Pending Actions to start site:</strong>
-                                    <ul style="margin: 5px 0 0 0; padding-left: 20px; color: #fff;">
-                                        <?php foreach($pendingMob as $req): ?>
-                                            <li><?= $req ?></li>
-                                        <?php endforeach; ?>
-                                    </ul>
+                        
+                        <div class="card-action">
+                            <?php if ($hasActions): ?>
+                                <div class="action-box action-red">
+                                    <strong>Action Required</strong>
+                                    <?php if (!empty($p['pending_mob'])): ?>
+                                        <ul class="action-list">
+                                            <?php foreach($p['pending_mob'] as $req): ?>
+                                                <li>Missing: <?= $req ?></li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                    <?php endif; ?>
+                                    <?php if (!empty($expDocs)): ?>
+                                        <div style="margin-top: 10px; border-top: 1px solid rgba(239,68,68,0.3); padding-top: 5px;">
+                                            Expiring Docs: <?= count($expDocs) ?> items
+                                        </div>
+                                    <?php endif; ?>
                                 </div>
                             <?php else: ?>
-                                <div style="font-size: 0.85rem; color:#22c55e; font-weight:bold;">All requirements met! Ready for Demolition/Excavation.</div>
+                                <div class="action-box action-green">
+                                    <div style="font-size: 1.5rem; font-weight: 900; letter-spacing: 1px;">🟢 ON TRACK</div>
+                                    <div style="font-size: 0.8rem; margin-top: 5px;">Ready to commence.</div>
+                                </div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -421,131 +449,150 @@ $pageTitle = 'Daily Client Report';
 
             <?php if (!empty($data['exec'])): ?>
                 <div class="phase-header">
-                    <h3>🏗️ Phase 2: Active Site Execution</h3>
-                    <div class="phase-desc">Ordered from newly started to near completion. Includes Execution team, Subcontractors, and Safety Status.</div>
+                    <h3>🏗️ Phase 2: Active Execution (<?= count($data['exec']) ?> Sites)</h3>
+                    <div class="phase-desc">Ordered from newly started to near completion.</div>
                 </div>
                 
                 <?php foreach ($data['exec'] as $p): 
                     $pid = $p['id'];
                     $stage = $p['calculated_stage'];
-                    $loc = $p['formatted_location'];
-                    $mob = $p['mob_data'];
+                    $ohsa = $p['ohsa_data'];
 
                     $paStmt = $pdo->prepare("SELECT * FROM project_pa_numbers WHERE project_id = ?");
                     $paStmt->execute([$pid]);
                     $paRaw = $paStmt->fetchAll(PDO::FETCH_ASSOC);
                     
-                    // Fetch PM reliably from the user access matrix
-                    $pmStmt = $pdo->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users u JOIN user_project_access upa ON u.id = upa.user_id WHERE upa.project_id = ? AND u.role IN ('project_manager', 'site_technical_officer') LIMIT 1");
+                    $archId = null; $structId = null;
+                    foreach ($paRaw as $pa) {
+                        if (!empty($pa['architect_id']) && !$archId) $archId = $pa['architect_id'];
+                        if (!empty($pa['structural_engineer_id']) && !$structId) $structId = $pa['structural_engineer_id'];
+                    }
+                    $archName = getEntityName($pdo, $archId, 'professional');
+                    $structName = getEntityName($pdo, $structId, 'professional');
+                    
+                    // Fetch ALL PMs assigned to project
+                    $pmStmt = $pdo->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users u JOIN user_project_access upa ON u.id = upa.user_id WHERE upa.project_id = ? AND u.role IN ('project_manager', 'site_technical_officer')");
                     $pmStmt->execute([$pid]);
-                    $pmFound = $pmStmt->fetchColumn();
-                    $pmName = $pmFound ? htmlspecialchars($pmFound) : getEntityName($pdo, $p['project_manager_id'] ?? null, 'user');
+                    $pms = $pmStmt->fetchAll(PDO::FETCH_COLUMN);
+                    $pmName = !empty($pms) ? implode(', ', array_map('htmlspecialchars', $pms)) : getEntityName($pdo, $p['project_manager_id'] ?? null, 'user');
 
-                    // Fetch Active Subcontractors executing work on this site
+                    // Active Subcontractors
                     $contStmt = $pdo->prepare("SELECT DISTINCT s.name FROM subcontractors s JOIN subcontractor_works w ON s.id = w.subcontractor_id WHERE w.project_id = ?");
                     $contStmt->execute([$pid]);
                     $activeContractors = $contStmt->fetchAll(PDO::FETCH_COLUMN);
-                    $contractorStr = !empty($activeContractors) ? htmlspecialchars(implode(', ', $activeContractors)) : "<span style='color:var(--text-muted); font-style:italic;'>No subcontractors linked via works</span>";
+                    $contractorStr = !empty($activeContractors) ? htmlspecialchars(implode(', ', $activeContractors)) : "<span style='color:var(--text-muted); font-style:italic;'>No executing contractors</span>";
 
-                    if ($stage === 'Demolition') $progressText = "Demolition is " . ($mob['demo_status'] ?? 'Pending');
-                    elseif ($stage === 'Excavation') $progressText = "Excavation is " . ($mob['excavation_status'] ?? 'Pending');
-                    else $progressText = "Execution Phase";
-
-                    $ohsaStmt = $pdo->prepare("SELECT safety_status, safety_comments FROM project_ohsa_setup WHERE project_id = ?");
-                    $ohsaStmt->execute([$pid]);
-                    $ohsa = $ohsaStmt->fetch(PDO::FETCH_ASSOC);
-                    
                     $docsStmt = $pdo->prepare("SELECT title, expiry_date FROM project_documents WHERE project_id = ? AND expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND alarm_dismissed = 0 ORDER BY expiry_date ASC");
                     $docsStmt->execute([$pid]);
                     $expDocs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                    $hasRisk = ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])) || !empty($expDocs);
                 ?>
                 <div class="project-card">
-                    <div class="proj-title-row">
-                        <div>
-                            <h3 class="proj-title"><?= htmlspecialchars($p['name']) ?></h3>
-                            <div class="proj-loc">📍 <?= htmlspecialchars($loc) ?></div>
-                            <?php if ($isGroupReport): ?><div class="proj-client">🏢 Entity: <?= htmlspecialchars($p['client_name']) ?></div><?php endif; ?>
-                        </div>
-                        <div class="stage-badge"><?= $stage ?></div>
-                    </div>
-
-                    <div class="info-grid">
-                        
-                        <div class="info-box">
-                            <h4>👷 Execution Team</h4>
-                            <div class="data-row"><span class="data-label">Project Manager:</span> <span class="data-value"><?= $pmName ?></span></div>
-                            
-                            <div style="margin-top: 10px; border-top: 1px dashed var(--border-glass); padding-top: 5px;">
-                                <span class="data-label">Active Linked Contractors:</span><br>
-                                <div style="font-size:0.85rem; color:#fff; margin-top: 2px;">
-                                    <?= $contractorStr ?>
+                    <div class="card-inner">
+                        <div class="card-main">
+                            <div class="proj-title-row" style="margin-bottom: 5px;">
+                                <div>
+                                    <h3 class="proj-title"><?= htmlspecialchars($p['name']) ?></h3>
+                                    <div class="proj-loc">📍 <?= htmlspecialchars($p['formatted_location']) ?></div>
+                                    <?php if ($isGroupReport): ?><div class="proj-client">🏢 Entity: <?= htmlspecialchars($p['client_name']) ?></div><?php endif; ?>
                                 </div>
+                                <div class="stage-badge"><?= $stage ?></div>
                             </div>
                             
-                            <div style="margin-top: 10px; border-top: 1px dashed var(--border-glass); padding-top: 5px;">
-                                <span class="data-label">PA Approvals:</span><br>
-                                <?php if (empty($paRaw)): ?>
-                                    <span style="color:var(--text-muted); font-size:0.85rem;">None recorded</span>
-                                <?php else: foreach($paRaw as $pa): 
-                                    $status = $pa['status'] ?? $pa['pa_status'] ?? 'Issued/Unknown';
-                                ?>
-                                    <div style="font-size:0.85rem; display:flex; justify-content:space-between; margin-bottom: 2px;">
-                                        <span style="color:#fff;"><?= htmlspecialchars($pa['pa_number']) ?></span>
-                                        <span style="color:var(--text-muted);"><?= htmlspecialchars($status) ?></span>
-                                    </div>
-                                <?php endforeach; endif; ?>
-                            </div>
-                        </div>
-
-                        <div class="info-box">
-                            <h4>📈 Physical Progress</h4>
                             <?php if (in_array($stage, ['Demolition', 'Excavation'])): ?>
-                                <div class="data-row"><span class="data-label">Stage Status:</span> <span class="data-value" style="color:#22c55e; font-weight:bold;"><?= $progressText ?></span></div>
-                            <?php else: ?>
-                                <div class="data-row"><span class="data-label">Structural Build:</span> <span class="data-value" style="color:#3b82f6; font-weight:bold;"><?= $p['struct_prog'] ?>%</span></div>
-                                <div class="data-row"><span class="data-label">Finishes Scope:</span> <span class="data-value" style="color:#a855f7; font-weight:bold;"><?= $p['fin_prog'] ?>%</span></div>
-                            <?php endif; ?>
-                            
-                            <h4 style="margin-top: 15px;">⚠️ Risks & Compliance</h4>
-                            <?php if ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])): ?>
-                                <div class="alert-box">
-                                    <strong>H&S Alert (<?= $ohsa['safety_status'] ?>):</strong><br>
-                                    <?= nl2br(htmlspecialchars($ohsa['safety_comments'] ?? 'No comments provided.')) ?>
+                                <div style="margin: 15px 0;">
+                                    <span class="data-label" style="display:inline;">Physical Progress:</span> 
+                                    <strong style="color:#22c55e;"> <?= $stage ?> is <?= $p['mob_data'][strtolower($stage).'_status'] ?? 'Pending' ?></strong>
                                 </div>
                             <?php else: ?>
-                                <div class="data-row"><span class="data-label">H&S Status:</span> <span class="data-value" style="color:#22c55e;">Clear / Compliant</span></div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0;">
+                                    <div>
+                                        <div style="display:flex; justify-content:space-between;">
+                                            <span class="data-label">Structural Build</span>
+                                            <span class="data-value" style="color:#3b82f6;"><?= $p['struct_prog'] ?>%</span>
+                                        </div>
+                                        <div class="prog-bar-container"><div class="prog-bar-fill" style="width: <?= $p['struct_prog'] ?>%; background: #3b82f6;"></div></div>
+                                    </div>
+                                    <div>
+                                        <div style="display:flex; justify-content:space-between;">
+                                            <span class="data-label">Finishes Scope</span>
+                                            <span class="data-value" style="color:#a855f7;"><?= $p['fin_prog'] ?>%</span>
+                                        </div>
+                                        <div class="prog-bar-container"><div class="prog-bar-fill" style="width: <?= $p['fin_prog'] ?>%; background: #a855f7;"></div></div>
+                                    </div>
+                                </div>
                             <?php endif; ?>
                             
-                            <?php if (!empty($expDocs)): ?>
-                                <div class="warn-box" style="margin-top: 10px;">
-                                    <strong>Expiring Documents:</strong>
-                                    <ul style="margin: 5px 0 0 0; padding-left: 20px;">
-                                        <?php foreach($expDocs as $doc): 
-                                            $days = (new DateTime())->diff(new DateTime($doc['expiry_date']))->format('%r%a');
-                                            $dText = $days < 0 ? "Expired" : "Exp in {$days}d";
-                                        ?>
-                                            <li><?= htmlspecialchars($doc['title']) ?> (<i><?= $dText ?></i>)</li>
-                                        <?php endforeach; ?>
-                                    </ul>
+                            <div class="data-grid" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;">
+                                <div>
+                                    <span class="data-label">Project Management</span>
+                                    <span class="data-value"><?= $pmName ?></span>
+                                </div>
+                                <div>
+                                    <span class="data-label">Periti Team</span>
+                                    <span class="data-value"><?= $archName ?> | <?= $structName ?></span>
+                                </div>
+                                <div style="grid-column: span 2;">
+                                    <span class="data-label">Active Linked Contractors</span>
+                                    <span class="data-value"><?= $contractorStr ?></span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-action">
+                            <?php if ($hasRisk): ?>
+                                <div class="action-box action-red">
+                                    <strong>CRITICAL RISK</strong>
+                                    <?php if ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])): ?>
+                                        <div style="margin-bottom: 10px;">
+                                            <span style="color:#f59e0b; font-weight:bold;">H&S (<?= $ohsa['safety_status'] ?>):</span><br>
+                                            <?= nl2br(htmlspecialchars($ohsa['safety_comments'] ?? 'No comments.')) ?>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($expDocs)): ?>
+                                        <div style="border-top: 1px solid rgba(239,68,68,0.3); padding-top: 5px;">
+                                            <span style="color:#fca5a5; font-weight:bold;">Expiring Docs:</span>
+                                            <ul class="action-list" style="margin-top:2px;">
+                                                <?php foreach($expDocs as $doc) echo "<li>" . htmlspecialchars($doc['title']) . "</li>"; ?>
+                                            </ul>
+                                        </div>
+                                    <?php endif; ?>
                                 </div>
                             <?php else: ?>
-                                <div class="data-row" style="margin-top: 5px;"><span class="data-label">Documentation:</span> <span class="data-value" style="color:#22c55e;">Up to date</span></div>
+                                <div class="action-box action-green">
+                                    <div style="font-size: 1.5rem; font-weight: 900; letter-spacing: 1px;">🟢 ON TRACK</div>
+                                    <div style="font-size: 0.8rem; margin-top: 5px;">Safety & Docs Clear.</div>
+                                </div>
                             <?php endif; ?>
                         </div>
-
                     </div>
                 </div>
                 <?php endforeach; ?>
             <?php endif; ?>
 
             <?php if (!empty($data['completed'])): ?>
-                <div class="completed-section">
-                    <h3>✅ Handed Over / Completed Projects</h3>
-                    <ul class="completed-list">
+                <div class="list-section">
+                    <h3 style="color: #22c55e;">✅ Handed Over / Completed Projects (<?= count($data['completed']) ?>)</h3>
+                    <ul class="mini-list">
                         <?php foreach ($data['completed'] as $cp): ?>
                             <li>
-                                <strong><?= htmlspecialchars($cp['name']) ?></strong> <i>(<?= $cp['stage'] ?>)</i>
-                                <?php if ($isGroupReport): ?> <span style="font-size: 0.8rem; color: #a855f7; margin-left: 10px;">[<?= htmlspecialchars($cp['client_name']) ?>]</span> <?php endif; ?>
+                                <strong><?= htmlspecialchars($cp['name']) ?></strong> 
+                                <?php if ($isGroupReport): ?> <span style="color: #a855f7;">[<?= htmlspecialchars($cp['client_name']) ?>]</span> <?php endif; ?>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($data['on_hold'])): ?>
+                <div class="list-section" style="border-top: 1px dashed var(--border-glass);">
+                    <h3 style="color: #f59e0b;">⏸️ Projects On Hold / Blocked (<?= count($data['on_hold']) ?>)</h3>
+                    <ul class="mini-list">
+                        <?php foreach ($data['on_hold'] as $hp): ?>
+                            <li>
+                                <strong><?= htmlspecialchars($hp['name']) ?></strong>
+                                <?php if ($isGroupReport): ?> <span style="color: #a855f7;">[<?= htmlspecialchars($hp['client_name']) ?>]</span> <?php endif; ?>
                             </li>
                         <?php endforeach; ?>
                     </ul>
