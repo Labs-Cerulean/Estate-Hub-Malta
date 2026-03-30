@@ -11,6 +11,16 @@ if (!$isAdmin && !in_array($role, ['director', 'system_manager', 'project_manage
     die("Unauthorized access. Executive level reporting only.");
 }
 
+// AUTO-DEPLOY DATABASE UPDATES FOR ESCALATION BLOCKER
+try {
+    $pdo->exec("ALTER TABLE projects ADD COLUMN is_blocked TINYINT(1) DEFAULT 0");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_reason TEXT");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN blocked_resolution TEXT");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN blocker_status VARCHAR(20) DEFAULT 'None'");
+    // Seamlessly migrate existing checkbox data
+    $pdo->exec("UPDATE projects SET blocker_status = 'Active' WHERE is_blocked = 1 AND blocker_status = 'None'");
+} catch(PDOException $e) {}
+
 // Fetch all accessible clients
 $clients = $isAdmin ? $pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC) : getUserClients($pdo, $userId);
 $selectedClientId = isset($_GET['client_id']) ? $_GET['client_id'] : null;
@@ -251,7 +261,7 @@ $pageTitle = 'Executive Daily Report';
 
         if (in_array($stage, $earlyStages)) continue; // Skip Pre-execution
         
-        if (!empty($p['is_blocked'])) $kpiEscalated++;
+        if (($p['blocker_status'] ?? 'None') === 'Active') $kpiEscalated++;
 
         // Base fetch
         $mobStmt = $pdo->prepare("SELECT * FROM project_mobilisation WHERE project_id = ?");
@@ -393,8 +403,9 @@ $pageTitle = 'Executive Daily Report';
                     $docsStmt->execute([$pid]);
                     $expDocs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
                     
-                    $hasBlocker = !empty($p['is_blocked']);
-                    $hasActions = !empty($p['pending_mob']) || !empty($expDocs) || $hasBlocker;
+                    $hasBlocker = ($p['blocker_status'] ?? 'None') === 'Active';
+                    $blockerCleared = ($p['blocker_status'] ?? 'None') === 'Cleared';
+                    $hasActions = !empty($p['pending_mob']) || !empty($expDocs);
                 ?>
                 <div class="project-card">
                     <div class="card-inner">
@@ -426,15 +437,21 @@ $pageTitle = 'Executive Daily Report';
                         </div>
                         
                         <div class="card-action">
+                            <?php if ($hasBlocker): ?>
+                                <div class="action-box action-red" style="background: rgba(220, 38, 38, 0.15); border: 2px solid #dc2626; margin-bottom: 10px;">
+                                    <strong style="color: #dc2626; font-size: 1.1rem; display:block; margin-bottom:10px;">🚨 ESCALATED BLOCKER</strong>
+                                    <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
+                                    <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
+                                </div>
+                            <?php elseif ($blockerCleared): ?>
+                                <div class="action-box action-green" style="background: rgba(34, 197, 94, 0.1); border: 2px solid #22c55e; margin-bottom: 10px; text-align: left; padding: 1rem;">
+                                    <strong style="color: #22c55e; font-size: 1.1rem; display:block; margin-bottom:10px;">✅ BLOCKER CLEARED</strong>
+                                    <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
+                                    <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
+                                </div>
+                            <?php endif; ?>
+
                             <?php if ($hasActions): ?>
-                                <?php if ($hasBlocker): ?>
-                                    <div class="action-box action-red" style="background: rgba(220, 38, 38, 0.15); border: 2px solid #dc2626; margin-bottom: 10px;">
-                                        <strong style="color: #dc2626; font-size: 1.1rem; display:block; margin-bottom:10px;">🚨 ESCALATED BLOCKER</strong>
-                                        <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
-                                        <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
-                                    </div>
-                                <?php endif; ?>
-                            
                                 <div class="action-box action-red">
                                     <strong>Action Required</strong>
                                     <?php if (!empty($p['pending_mob'])): ?>
@@ -450,8 +467,8 @@ $pageTitle = 'Executive Daily Report';
                                         </div>
                                     <?php endif; ?>
                                 </div>
-                            <?php else: ?>
-                                <div class="action-box action-green">
+                            <?php elseif (!$hasBlocker): ?>
+                                <div class="action-box action-green" style="text-align: center; padding: 2rem 1rem;">
                                     <div style="font-size: 1.5rem; font-weight: 900; letter-spacing: 1px;">🟢 ON TRACK</div>
                                     <div style="font-size: 0.8rem; margin-top: 5px;">Ready to commence.</div>
                                 </div>
@@ -501,8 +518,9 @@ $pageTitle = 'Executive Daily Report';
                     $docsStmt->execute([$pid]);
                     $expDocs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-                    $hasBlocker = !empty($p['is_blocked']);
-                    $hasRisk = ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])) || !empty($expDocs) || $hasBlocker;
+                    $hasBlocker = ($p['blocker_status'] ?? 'None') === 'Active';
+                    $blockerCleared = ($p['blocker_status'] ?? 'None') === 'Cleared';
+                    $hasRisk = ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])) || !empty($expDocs);
                 ?>
                 <div class="project-card">
                     <div class="card-inner">
@@ -557,15 +575,21 @@ $pageTitle = 'Executive Daily Report';
                         </div>
                         
                         <div class="card-action">
+                            <?php if ($hasBlocker): ?>
+                                <div class="action-box action-red" style="background: rgba(220, 38, 38, 0.15); border: 2px solid #dc2626; margin-bottom: 10px;">
+                                    <strong style="color: #dc2626; font-size: 1.1rem; display:block; margin-bottom:10px;">🚨 ESCALATED BLOCKER</strong>
+                                    <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
+                                    <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
+                                </div>
+                            <?php elseif ($blockerCleared): ?>
+                                <div class="action-box action-green" style="background: rgba(34, 197, 94, 0.1); border: 2px solid #22c55e; margin-bottom: 10px; text-align: left; padding: 1rem;">
+                                    <strong style="color: #22c55e; font-size: 1.1rem; display:block; margin-bottom:10px;">✅ BLOCKER CLEARED</strong>
+                                    <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
+                                    <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
+                                </div>
+                            <?php endif; ?>
+
                             <?php if ($hasRisk): ?>
-                                <?php if ($hasBlocker): ?>
-                                    <div class="action-box action-red" style="background: rgba(220, 38, 38, 0.15); border: 2px solid #dc2626; margin-bottom: 10px;">
-                                        <strong style="color: #dc2626; font-size: 1.1rem; display:block; margin-bottom:10px;">🚨 ESCALATED BLOCKER</strong>
-                                        <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
-                                        <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
-                                    </div>
-                                <?php endif; ?>
-                            
                                 <div class="action-box action-red">
                                     <strong>CRITICAL RISK</strong>
                                     <?php if ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])): ?>
@@ -583,8 +607,8 @@ $pageTitle = 'Executive Daily Report';
                                         </div>
                                     <?php endif; ?>
                                 </div>
-                            <?php else: ?>
-                                <div class="action-box action-green">
+                            <?php elseif (!$hasBlocker): ?>
+                                <div class="action-box action-green" style="text-align: center; padding: 2rem 1rem;">
                                     <div style="font-size: 1.5rem; font-weight: 900; letter-spacing: 1px;">🟢 ON TRACK</div>
                                     <div style="font-size: 0.8rem; margin-top: 5px;">Safety & Docs Clear.</div>
                                 </div>
@@ -618,9 +642,13 @@ $pageTitle = 'Executive Daily Report';
                                 <strong><?= htmlspecialchars($hp['name']) ?></strong>
                                 <?php if ($isGroupReport): ?> <span style="color: #a855f7;">[<?= htmlspecialchars($hp['client_name']) ?>]</span> <?php endif; ?>
                                 
-                                <?php if (!empty($hp['is_blocked'])): ?>
+                                <?php if (($hp['blocker_status'] ?? 'None') === 'Active'): ?>
                                     <div style="margin-top: 4px; font-size: 0.85rem; color: #ef4444; border-left: 2px solid #ef4444; padding-left: 8px;">
                                         <strong>🚨 Escalated Blocker:</strong> <?= htmlspecialchars($hp['blocked_reason']) ?>
+                                    </div>
+                                <?php elseif (($hp['blocker_status'] ?? 'None') === 'Cleared'): ?>
+                                    <div style="margin-top: 4px; font-size: 0.85rem; color: #22c55e; border-left: 2px solid #22c55e; padding-left: 8px;">
+                                        <strong>✅ Blocker Cleared:</strong> <?= htmlspecialchars($hp['blocked_reason']) ?>
                                     </div>
                                 <?php endif; ?>
                             </li>
