@@ -118,10 +118,14 @@ $pageTitle = 'Executive Daily Report';
         .prog-bar-container { background: rgba(0,0,0,0.3); border-radius: 4px; height: 8px; width: 100%; margin-top: 5px; overflow: hidden; }
         .prog-bar-fill { height: 100%; border-radius: 4px; }
         
-        .action-box { padding: 1rem; border-radius: 8px; font-size: 0.85rem; }
+        .action-box { padding: 1rem; border-radius: 8px; font-size: 0.85rem; margin-bottom: 10px; }
         .action-red { background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #fca5a5; }
         .action-red strong { color: #ef4444; font-size: 1rem; display: block; margin-bottom: 10px; text-transform: uppercase; }
-        .action-green { background: rgba(34, 197, 94, 0.05); border: 1px solid rgba(34, 197, 94, 0.3); color: #22c55e; text-align: center; padding: 2rem 1rem; }
+        
+        .action-yellow { background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; color: #fde68a; }
+        .action-yellow strong { color: #f59e0b; font-size: 1rem; display: block; margin-bottom: 10px; text-transform: uppercase; }
+
+        .action-green { background: rgba(34, 197, 94, 0.05); border: 1px solid rgba(34, 197, 94, 0.3); color: #22c55e; text-align: center; padding: 2rem 1rem; margin-bottom: 0; }
         
         .action-list { margin: 0; padding-left: 20px; }
         .action-list li { margin-bottom: 5px; }
@@ -149,9 +153,15 @@ $pageTitle = 'Executive Daily Report';
             .phase-header h3 { color: #000 !important; }
             .project-card { border-left: 2px solid #000; border-right: 2px solid #000; border-bottom: 1px solid #000; page-break-inside: avoid; }
             .card-main { border-right: 1px solid #000; }
+            
             .action-red { border: 2px solid #ef4444 !important; background: #fff !important; color: #000 !important; }
             .action-red strong { color: #ef4444 !important; }
+            
+            .action-yellow { border: 2px solid #f59e0b !important; background: #fff !important; color: #000 !important; }
+            .action-yellow strong { color: #f59e0b !important; }
+            
             .action-green { border: 1px solid #22c55e !important; color: #22c55e !important; }
+            
             .data-value { color: #000 !important; }
             .data-label { color: #555 !important; }
             .list-section { border: 2px solid #000; border-top: none; }
@@ -405,7 +415,10 @@ $pageTitle = 'Executive Daily Report';
                     
                     $hasBlocker = ($p['blocker_status'] ?? 'None') === 'Active';
                     $blockerCleared = ($p['blocker_status'] ?? 'None') === 'Cleared';
-                    $hasActions = !empty($p['pending_mob']) || !empty($expDocs);
+                    $hasPendingMob = !empty($p['pending_mob']);
+                    $hasExpDocs = !empty($expDocs);
+                    
+                    $isPerfectlyClear = !$hasBlocker && !$hasPendingMob && !$hasExpDocs;
                 ?>
                 <div class="project-card">
                     <div class="card-inner">
@@ -438,37 +451,41 @@ $pageTitle = 'Executive Daily Report';
                         
                         <div class="card-action">
                             <?php if ($hasBlocker): ?>
-                                <div class="action-box action-red" style="background: rgba(220, 38, 38, 0.15); border: 2px solid #dc2626; margin-bottom: 10px;">
-                                    <strong style="color: #dc2626; font-size: 1.1rem; display:block; margin-bottom:10px;">🚨 ESCALATED BLOCKER</strong>
+                                <div class="action-box action-red">
+                                    <strong>🚨 ESCALATED BLOCKER</strong>
                                     <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
                                     <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
                                 </div>
                             <?php elseif ($blockerCleared): ?>
-                                <div class="action-box action-green" style="background: rgba(34, 197, 94, 0.1); border: 2px solid #22c55e; margin-bottom: 10px; text-align: left; padding: 1rem;">
+                                <div class="action-box action-green" style="text-align: left; padding: 1rem;">
                                     <strong style="color: #22c55e; font-size: 1.1rem; display:block; margin-bottom:10px;">✅ BLOCKER CLEARED</strong>
                                     <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
                                     <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
                                 </div>
                             <?php endif; ?>
 
-                            <?php if ($hasActions): ?>
+                            <?php if ($hasPendingMob): ?>
                                 <div class="action-box action-red">
-                                    <strong>Action Required</strong>
-                                    <?php if (!empty($p['pending_mob'])): ?>
-                                        <ul class="action-list">
-                                            <?php foreach($p['pending_mob'] as $req): ?>
-                                                <li>Missing: <?= $req ?></li>
-                                            <?php endforeach; ?>
-                                        </ul>
-                                    <?php endif; ?>
-                                    <?php if (!empty($expDocs)): ?>
-                                        <div style="margin-top: 10px; border-top: 1px solid rgba(239,68,68,0.3); padding-top: 5px;">
-                                            Expiring Docs: <?= count($expDocs) ?> items
-                                        </div>
-                                    <?php endif; ?>
+                                    <strong>🚧 MOBILISATION ACTION</strong>
+                                    <ul class="action-list">
+                                        <?php foreach($p['pending_mob'] as $req): ?>
+                                            <li>Missing: <?= $req ?></li>
+                                        <?php endforeach; ?>
+                                    </ul>
                                 </div>
-                            <?php elseif (!$hasBlocker): ?>
-                                <div class="action-box action-green" style="text-align: center; padding: 2rem 1rem;">
+                            <?php endif; ?>
+                            
+                            <?php if ($hasExpDocs): ?>
+                                <div class="action-box action-red">
+                                    <strong>📄 DOCS EXPIRING</strong>
+                                    <ul class="action-list">
+                                        <?php foreach($expDocs as $doc) echo "<li>" . htmlspecialchars($doc['title']) . "</li>"; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if ($isPerfectlyClear): ?>
+                                <div class="action-box action-green">
                                     <div style="font-size: 1.5rem; font-weight: 900; letter-spacing: 1px;">🟢 ON TRACK</div>
                                     <div style="font-size: 0.8rem; margin-top: 5px;">Ready to commence.</div>
                                 </div>
@@ -520,7 +537,12 @@ $pageTitle = 'Executive Daily Report';
 
                     $hasBlocker = ($p['blocker_status'] ?? 'None') === 'Active';
                     $blockerCleared = ($p['blocker_status'] ?? 'None') === 'Cleared';
-                    $hasRisk = ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])) || !empty($expDocs);
+                    
+                    $hasRedOhsa = ($ohsa && $ohsa['safety_status'] === 'Red');
+                    $hasYellowOhsa = ($ohsa && $ohsa['safety_status'] === 'Yellow');
+                    $hasExpDocs = !empty($expDocs);
+
+                    $isPerfectlyClear = !$hasBlocker && !$hasRedOhsa && !$hasYellowOhsa && !$hasExpDocs;
                 ?>
                 <div class="project-card">
                     <div class="card-inner">
@@ -582,33 +604,40 @@ $pageTitle = 'Executive Daily Report';
                                     <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#fecaca;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
                                 </div>
                             <?php elseif ($blockerCleared): ?>
-                                <div class="action-box action-green" style="background: rgba(34, 197, 94, 0.1); border: 2px solid #22c55e; margin-bottom: 10px; text-align: left; padding: 1rem;">
+                                <div class="action-box action-green" style="text-align: left; padding: 1rem; margin-bottom: 10px;">
                                     <strong style="color: #22c55e; font-size: 1.1rem; display:block; margin-bottom:10px;">✅ BLOCKER CLEARED</strong>
                                     <div style="margin-bottom: 8px; font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Reason:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_reason'])) ?></span></div>
                                     <div style="font-size: 0.85rem;"><span style="color:#fff; font-weight:bold;">Resolution:</span><br><span style="color:#bbf7d0;"><?= nl2br(htmlspecialchars($p['blocked_resolution'])) ?></span></div>
                                 </div>
                             <?php endif; ?>
 
-                            <?php if ($hasRisk): ?>
+                            <?php if ($hasRedOhsa): ?>
                                 <div class="action-box action-red">
-                                    <strong>CRITICAL RISK</strong>
-                                    <?php if ($ohsa && in_array($ohsa['safety_status'], ['Red', 'Yellow'])): ?>
-                                        <div style="margin-bottom: 10px;">
-                                            <span style="color:#f59e0b; font-weight:bold;">H&S (<?= $ohsa['safety_status'] ?>):</span><br>
-                                            <?= nl2br(htmlspecialchars($ohsa['safety_comments'] ?? 'No comments.')) ?>
-                                        </div>
-                                    <?php endif; ?>
-                                    <?php if (!empty($expDocs)): ?>
-                                        <div style="border-top: 1px solid rgba(239,68,68,0.3); padding-top: 5px;">
-                                            <span style="color:#fca5a5; font-weight:bold;">Expiring Docs:</span>
-                                            <ul class="action-list" style="margin-top:2px;">
-                                                <?php foreach($expDocs as $doc) echo "<li>" . htmlspecialchars($doc['title']) . "</li>"; ?>
-                                            </ul>
-                                        </div>
-                                    <?php endif; ?>
+                                    <strong>🚨 CRITICAL H&S RISK</strong>
+                                    <div style="color:#fecaca;">
+                                        <?= nl2br(htmlspecialchars($ohsa['safety_comments'] ?? 'No comments provided.')) ?>
+                                    </div>
                                 </div>
-                            <?php elseif (!$hasBlocker): ?>
-                                <div class="action-box action-green" style="text-align: center; padding: 2rem 1rem;">
+                            <?php elseif ($hasYellowOhsa): ?>
+                                <div class="action-box action-yellow">
+                                    <strong>⚠️ MODERATE H&S WARNING</strong>
+                                    <div style="color:#fde68a;">
+                                        <?= nl2br(htmlspecialchars($ohsa['safety_comments'] ?? 'No comments provided.')) ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($hasExpDocs): ?>
+                                <div class="action-box action-red">
+                                    <strong>📄 DOCS EXPIRING</strong>
+                                    <ul class="action-list">
+                                        <?php foreach($expDocs as $doc) echo "<li>" . htmlspecialchars($doc['title']) . "</li>"; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if ($isPerfectlyClear): ?>
+                                <div class="action-box action-green">
                                     <div style="font-size: 1.5rem; font-weight: 900; letter-spacing: 1px;">🟢 ON TRACK</div>
                                     <div style="font-size: 0.8rem; margin-top: 5px;">Safety & Docs Clear.</div>
                                 </div>
