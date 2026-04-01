@@ -69,7 +69,7 @@ $colSpan = $isFinishes ? 3 : 5;
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Estimate - <?= htmlspecialchars($quote['reference_number']) ?></title>
+    <title>Quotation - <?= htmlspecialchars($quote['reference_number']) ?></title>
     <style>
         body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111827; background: #fff; line-height: 1.5; margin: 0; padding: 20px; font-size: 12px; }
         .page-container { max-width: 1000px; margin: 0 auto; }
@@ -135,7 +135,7 @@ $colSpan = $isFinishes ? 3 : 5;
             <?php endif; ?>
         </div>
         <div class="title-box">
-            <h1>Estimate / Quotation</h1>
+            <h1>Quotation</h1>
             <p>Date: <?= date('d F Y', strtotime($quote['created_at'])) ?></p>
         </div>
     </div>
