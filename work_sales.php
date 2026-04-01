@@ -220,7 +220,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $pmPct = (float)$_POST['fc_pm_pct'];
             $cleaningFee = (float)($_POST['fc_cleaning_fee'] ?? 400);
-            $discount = (float)$_POST['fc_discount'];
+            
+            // Convert Inputted Inc VAT Discount to Exc VAT for calculation
+            $discountIncVat = (float)$_POST['fc_discount'];
+            $discountExcVat = $discountIncVat / $vatMult;
             
             $sortIdx = 10;
             $runningTotalExc = 0;
@@ -341,8 +344,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $insertItem->execute([$qId, '7 - Project Management', 'Project Management, Coordination & Site Logistics', 'lump_sum', 1, $pmFee, $sortIdx]);
             $sortIdx += 10; 
             
-            if ($discount > 0) {
-                $insertItem->execute([$qId, '8 - Discounts', 'Senior Management Discount', 'lump_sum', 1, -$discount, $sortIdx]);
+            if ($discountExcVat > 0) {
+                $insertItem->execute([$qId, '8 - Discounts', 'Senior Management Discount', 'lump_sum', 1, -$discountExcVat, $sortIdx]);
             }
             
             // Finalize Master Totals
@@ -430,6 +433,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$qId]);
                 $message = "Quote submitted for approval.";
             }
+        }
+        
+        // 3B. Unlock Quote (Revert to Draft)
+        elseif ($action === 'unlock_quote') {
+            $qId = (int)$_POST['quote_id'];
+            if (!$canApproveQuotes) throw new Exception("Unauthorized to unlock quotes.");
+            
+            $pdo->prepare("UPDATE sales_quotes SET status = 'Draft' WHERE id = ?")->execute([$qId]);
+            $message = "Quote unlocked and reverted to Draft status for editing.";
         }
         
         // 4. Update Quote Settings
@@ -531,9 +543,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
             
             $claimId = !empty($_POST['claim_id']) ? (int)$_POST['claim_id'] : null;
-            $exc = (float)$_POST['amount_exc_vat'];
-            $vat = (float)$_POST['vat_rate'];
-            $inc = $exc + ($exc * ($vat/100));
+            
+            $qStmt = $pdo->prepare("SELECT total_inc_vat, vat_rate FROM sales_quotes WHERE id = ?");
+            $qStmt->execute([$qId]);
+            $qData = $qStmt->fetch(PDO::FETCH_ASSOC);
+            $totalQuoteIncVat = (float)$qData['total_inc_vat'];
+            $vatRate = (float)$qData['vat_rate'];
+            
+            $claimMethod = $_POST['claim_method'] ?? 'fixed';
+            $claimValue = (float)$_POST['claim_value'];
+            
+            if ($claimMethod === 'percent') {
+                $inc = $totalQuoteIncVat * ($claimValue / 100);
+            } else {
+                $inc = $claimValue;
+            }
+            
+            $exc = $inc / (1 + ($vatRate / 100));
             
             if ($claimId) {
                 $stmt = $pdo->prepare("UPDATE sales_claims SET claim_type = ?, description = ?, amount_exc_vat = ?, amount_inc_vat = ?, status = ? WHERE id = ?");
@@ -619,17 +645,46 @@ if ($viewQuoteId) {
     }
     if (empty($currentTab)) die("No access.");
 
+    $filterStatus = $_GET['filter_status'] ?? '';
+    $filterProject = $_GET['filter_project'] ?? '';
+    $sortBy = $_GET['sort_by'] ?? 'recent';
+    
+    // Get unique projects for the filter dropdown
+    $filterProjectsStmt = $pdo->prepare("SELECT DISTINCT p.id, p.name FROM projects p JOIN sales_quotes sq ON p.id = sq.project_id WHERE sq.contractor_id = ? AND sq.quote_type = ? ORDER BY p.name ASC");
+    $filterProjectsStmt->execute([$selected_contractor_id, $currentTab]);
+    $availableFilterProjects = $filterProjectsStmt->fetchAll(PDO::FETCH_ASSOC);
+
     $quotesList = [];
     if ($selected_contractor_id) {
-        $stmt = $pdo->prepare("
+        $query = "
             SELECT sq.*, c.name as linked_client_name, p.name as project_name,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id) as total_claimed,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id AND status = 'Paid') as total_paid,
             (SELECT COALESCE(SUM(amount_inc_vat), 0) FROM sales_claims WHERE quote_id = sq.id AND status = 'Pending') as total_pending
             FROM sales_quotes sq LEFT JOIN clients c ON sq.client_id = c.id LEFT JOIN projects p ON sq.project_id = p.id 
-            WHERE sq.quote_type = ? AND sq.contractor_id = ? ORDER BY sq.created_at DESC
-        ");
-        $stmt->execute([$currentTab, $selected_contractor_id]);
+            WHERE sq.quote_type = ? AND sq.contractor_id = ?
+        ";
+        $params = [$currentTab, $selected_contractor_id];
+        
+        if ($filterStatus) {
+            $query .= " AND sq.status = ?";
+            $params[] = $filterStatus;
+        }
+        if ($filterProject) {
+            $query .= " AND sq.project_id = ?";
+            $params[] = $filterProject;
+        }
+        
+        if ($sortBy === 'project') {
+            $query .= " ORDER BY p.name ASC, sq.created_at DESC";
+        } elseif ($sortBy === 'status') {
+            $query .= " ORDER BY sq.status ASC, sq.created_at DESC";
+        } else {
+            $query .= " ORDER BY sq.created_at DESC";
+        }
+
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($params);
         $quotesList = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
@@ -735,6 +790,51 @@ require_once 'header.php';
                 <?php endif; ?>
             </div>
 
+            <form method="GET" style="display:flex; gap:10px; margin-bottom: 1.5rem; background: var(--bg-panel); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-glass); align-items: flex-end;">
+                <input type="hidden" name="contractor_id" value="<?= $selected_contractor_id ?>">
+                <input type="hidden" name="tab" value="<?= $currentTab ?>">
+                
+                <div style="flex:1;">
+                    <label style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">Quotation Status</label>
+                    <select name="filter_status" style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-glass); background:var(--bg-card); color:#fff;">
+                        <option value="">All Statuses</option>
+                        <option value="Draft" <?= $filterStatus==='Draft'?'selected':'' ?>>Draft</option>
+                        <option value="Pending Approval" <?= $filterStatus==='Pending Approval'?'selected':'' ?>>Pending Approval</option>
+                        <option value="Approved" <?= $filterStatus==='Approved'?'selected':'' ?>>Approved</option>
+                        <option value="Sent" <?= $filterStatus==='Sent'?'selected':'' ?>>Sent</option>
+                        <option value="Accepted" <?= $filterStatus==='Accepted'?'selected':'' ?>>Accepted</option>
+                        <option value="Declined" <?= $filterStatus==='Declined'?'selected':'' ?>>Declined</option>
+                        <option value="Completed" <?= $filterStatus==='Completed'?'selected':'' ?>>Completed</option>
+                    </select>
+                </div>
+                
+                <div style="flex:2;">
+                    <label style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">Project Filter</label>
+                    <select name="filter_project" style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-glass); background:var(--bg-card); color:#fff;">
+                        <option value="">All Projects</option>
+                        <?php foreach($availableFilterProjects as $afp): ?>
+                            <option value="<?= $afp['id'] ?>" <?= $filterProject==$afp['id']?'selected':'' ?>><?= htmlspecialchars($afp['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div style="flex:1;">
+                    <label style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">Sort By</label>
+                    <select name="sort_by" style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-glass); background:var(--bg-card); color:#fff;">
+                        <option value="recent" <?= $sortBy==='recent'?'selected':'' ?>>Most Recent First</option>
+                        <option value="project" <?= $sortBy==='project'?'selected':'' ?>>Project Name (A-Z)</option>
+                        <option value="status" <?= $sortBy==='status'?'selected':'' ?>>Quote Status</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <button type="submit" class="btn btn-secondary" style="margin:0; padding:0.5rem 1.5rem;">Filter Quotes</button>
+                    <?php if($filterStatus || $filterProject || $sortBy !== 'recent'): ?>
+                        <a href="?contractor_id=<?= $selected_contractor_id ?>&tab=<?= $currentTab ?>" class="btn btn-sm" style="background: rgba(239,68,68,0.2); color: #ef4444; border:none; text-decoration:none; padding:0.5rem 1rem; margin-left: 5px;">Clear Filters</a>
+                    <?php endif; ?>
+                </div>
+            </form>
+
             <?php
             $global_order = 0; $global_claimed = 0; $global_pending = 0; $global_paid = 0;
             foreach ($quotesList as $q) {
@@ -788,7 +888,7 @@ require_once 'header.php';
                     </thead>
                     <tbody>
                         <?php if (empty($quotesList)): ?>
-                            <tr><td colspan="9" style="text-align: center; padding: 2rem;">No quotes found for this contractor in this category.</td></tr>
+                            <tr><td colspan="9" style="text-align: center; padding: 2rem;">No quotes found matching your criteria.</td></tr>
                         <?php else: foreach ($quotesList as $q): 
                             $effName = !empty($q['linked_client_name']) ? $q['linked_client_name'] : $q['client_name_free'];
                         ?>
@@ -1093,6 +1193,15 @@ require_once 'header.php';
                                 </select>
                                 <button type="submit" class="btn btn-secondary">Update</button>
                             </form>
+                            
+                            <?php if ($isQuoteLocked && $canApproveQuotes): ?>
+                                <form method="POST" style="margin-top: 15px;" onsubmit="return confirm('Are you sure you want to unlock this quote? It will be reverted to Draft status to allow changes.');">
+                                    <input type="hidden" name="action" value="unlock_quote">
+                                    <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                                    <button type="submit" class="btn btn-sm btn-danger" style="width:100%; border:none; background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444;">🔓 Unlock Quote for Editing (Revert to Draft)</button>
+                                </form>
+                            <?php endif; ?>
+                            
                         <?php endif; ?>
                     </div>
                     <?php endif; ?>
@@ -1284,7 +1393,7 @@ require_once 'header.php';
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
                             <div class="form-group"><label>Project Management Fee (%) *</label><input type="number" step="0.01" name="fc_pm_pct" value="<?= fcv('fc_pm_pct', '15.00') ?>" required></div>
                             <div class="form-group"><label>Cleaning / Logistics Fee (€) *</label><input type="number" step="0.01" name="fc_cleaning_fee" value="<?= fcv('fc_cleaning_fee', '400.00') ?>" required></div>
-                            <div class="form-group"><label>Special Discount (€)</label><input type="number" step="0.01" name="fc_discount" value="<?= fcv('fc_discount', '0.00') ?>" <?= $canApproveQuotes ? '' : 'readonly title="Requires Approval Access"' ?>></div>
+                            <div class="form-group"><label>Special Discount (Inc VAT) (€)</label><input type="number" step="0.01" name="fc_discount" value="<?= fcv('fc_discount', '0.00') ?>" <?= $canApproveQuotes ? '' : 'readonly title="Requires Approval Access"' ?>></div>
                         </div>
 
                         <button type="submit" class="btn" style="background: #8b5cf6; color: white; border: none; width: 100%; padding: 15px; font-size: 1.1rem; font-weight: bold; margin-top: 20px;">Generate Full BoQ</button>
@@ -1397,7 +1506,6 @@ require_once 'header.php';
                         <input type="hidden" name="action" value="save_claim">
                         <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
                         <input type="hidden" name="quote_type" value="<?= $quote['quote_type'] ?>">
-                        <input type="hidden" name="vat_rate" value="<?= $quote['vat_rate'] ?>">
                         <input type="hidden" name="claim_id" id="mod_claim_id">
                         
                         <div class="form-group">
@@ -1413,9 +1521,16 @@ require_once 'header.php';
                             <input type="text" name="description" id="mod_claim_desc" placeholder="e.g. M&E 1st and 2nd Fix (50%)" required>
                         </div>
                         <div class="form-group">
-                            <label>Amount to Claim (Exc VAT)</label>
-                            <input type="number" step="0.01" name="amount_exc_vat" id="mod_claim_amount" required>
-                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">System will auto-add <?= $quote['vat_rate'] ?>% VAT.</div>
+                            <label>Claim Method</label>
+                            <select name="claim_method" id="mod_claim_method" onchange="updateClaimLabel()">
+                                <option value="fixed">Fixed Amount (Inc VAT)</option>
+                                <option value="percent">Percentage of Total Quote (%)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label id="mod_claim_value_label">Amount to Claim (Inc VAT) €</label>
+                            <input type="number" step="0.01" name="claim_value" id="mod_claim_value" required>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Quote Total (Inc VAT): €<?= number_format($quote['total_inc_vat'], 2) ?></div>
                         </div>
                         <div class="form-group">
                             <label>Status</label>
@@ -1458,17 +1573,30 @@ require_once 'header.php';
                     document.getElementById('mod_claim_id').value = data.id;
                     document.getElementById('mod_claim_type').value = data.claim_type;
                     document.getElementById('mod_claim_desc').value = data.description;
-                    document.getElementById('mod_claim_amount').value = data.amount_exc_vat;
+                    document.getElementById('mod_claim_method').value = 'fixed';
+                    document.getElementById('mod_claim_value').value = data.amount_inc_vat;
                     document.getElementById('mod_claim_status').value = data.status;
                 } else {
                     document.getElementById('claimModalTitle').innerText = 'Issue Claim';
                     document.getElementById('mod_claim_id').value = '';
                     document.getElementById('mod_claim_type').value = 'Interim';
                     document.getElementById('mod_claim_desc').value = '';
-                    document.getElementById('mod_claim_amount').value = '';
+                    document.getElementById('mod_claim_method').value = 'fixed';
+                    document.getElementById('mod_claim_value').value = '';
                     document.getElementById('mod_claim_status').value = 'Pending';
                 }
+                updateClaimLabel();
                 document.getElementById('claimModal').style.display = 'block'; 
+            }
+            
+            function updateClaimLabel() {
+                const method = document.getElementById('mod_claim_method').value;
+                const label = document.getElementById('mod_claim_value_label');
+                if (method === 'percent') {
+                    label.innerText = 'Percentage to Claim (%)';
+                } else {
+                    label.innerText = 'Amount to Claim (Inc VAT) €';
+                }
             }
             
             window.addEventListener('click', function(event) {
