@@ -889,6 +889,40 @@ require_once 'header.php';
         exit;
     }
     ?>
+
+    // ========================================================
+    // DAILY SYNC ENGINE
+    // ========================================================
+    function processDailySync(input) {
+        if (input.files.length === 0) return;
+        
+        const file = input.files[0];
+        const formData = new FormData();
+        formData.append('sync_csv', file);
+    
+        showToast("Syncing data... Please wait.", "success");
+    
+        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                let alertMsg = data.message;
+                if (data.not_found.length > 0) {
+                    alertMsg += `\n\nCould not auto-match the following ${data.not_found.length} rows:\n` + data.not_found.slice(0,10).join("\n") + (data.not_found.length > 10 ? "\n..." : "");
+                }
+                alert(alertMsg);
+                location.reload(); 
+            } else {
+                alert("Error: " + data.message);
+            }
+        })
+        .catch(e => {
+            console.error(e);
+            alert("A network error occurred during sync.");
+        });
+    
+        input.value = ''; // Reset input so you can upload the same file again if needed
+    }
 </script>
 
 <?php require_once 'footer.php'; ?>
