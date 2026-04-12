@@ -215,7 +215,7 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
 
     <div class="terms">
         <strong>Billing & Implementation Terms:</strong><br>
-        1. <strong>Commencement:</strong> Formal billing and the 12-month pilot phase period will tentatively commence at the <strong>End of June 2026</strong>.<br>
+        1. <strong>Commencement:</strong> Formal billing and the 12-month pilot phase period will tentatively commence at the <strong>End of June 2026</strong>. Prices are Exc. VAT.<br>
         2. <strong>Users & Projects:</strong> Subscriptions are flat-rate per group. There are no per-user or per-project limits.<br>
         3. <strong>Sponsor License:</strong> The zero-invoice license for Blue Clay and Joseph Agius & Sons is granted in perpetuity as a gesture of appreciation for supporting the incubation and initial development of the platform.<br>
         4. <strong>Post-Pilot:</strong> At the conclusion of the 12-month pilot phase (June 2027), standard rates will automatically apply unless renegotiated.
