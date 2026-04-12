@@ -227,6 +227,11 @@ require_once 'header.php';
         
         <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
             <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px;">
+                
+                <button class="sh-btn" style="background: rgba(168, 85, 247, 0.1); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="document.getElementById('dailySyncInput').click()">
+                    <i class="fas fa-sync-alt"></i> 1-Click Daily Sync
+                </button>
+                <input type="file" id="dailySyncInput" accept=".csv" style="display:none;" onchange="processDailySync(this)">
                 <button id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
                     <i class="fas fa-eye"></i> View as Agent
                 </button>
