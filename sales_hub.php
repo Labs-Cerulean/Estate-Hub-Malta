@@ -21,9 +21,13 @@ require_once 'header.php';
 <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
 <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
 
+<script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js'></script>
+<link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css' type='text/css' />
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
 <style>
     /* ==========================================
-       SCOPED SALES HUB CSS (Native Override)
+       SCOPED SALES HUB CSS
        ========================================== */
     :root {
         --sh-bg-base: #0f172a;
@@ -51,15 +55,20 @@ require_once 'header.php';
     
     /* Overlay Controls */
     .sh-overlay {
-        position: absolute; top: 20px; left: 20px; z-index: 10; width: 320px;
+        position: absolute; top: 20px; left: 20px; z-index: 10; width: 340px;
         background: var(--sh-bg-glass); backdrop-filter: blur(12px);
         border: 1px solid var(--sh-border-light); border-radius: 16px;
         padding: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        max-height: 90vh; overflow-y: auto;
     }
+    .sh-overlay::-webkit-scrollbar { width: 4px; }
+    .sh-overlay::-webkit-scrollbar-thumb { background: var(--sh-border); }
+
     .sh-overlay-title { font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0 0 15px 0; display: flex; align-items: center; justify-content: space-between; }
     
     .sh-label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--sh-text-muted); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px; }
     .sh-select { width: 100%; background: var(--sh-bg-base); color: #fff; border: 1px solid var(--sh-border); padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 15px; outline: none; cursor: pointer; }
+    .sh-input { width: 100%; background: var(--sh-bg-base); color: #fff; border: 1px solid var(--sh-border); padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; outline: none; }
     
     .sh-btn { width: 100%; padding: 10px; border-radius: 8px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; transition: 0.2s; margin-bottom: 10px; }
     .sh-btn-warning { background: rgba(245, 158, 11, 0.1); color: var(--sh-proc); border: 1px solid rgba(245, 158, 11, 0.3); }
@@ -149,6 +158,10 @@ require_once 'header.php';
     #sh-toast-container { position: fixed; bottom: 30px; right: 30px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
     .sh-toast { padding: 15px 25px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 12px; color: #fff; animation: shToastIn 0.3s forwards; }
     @keyframes shToastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    
+    /* Mapbox Draw Overrides */
+    .mapboxgl-ctrl-group { background: var(--sh-bg-panel); border: 1px solid var(--sh-border); }
+    .mapboxgl-ctrl-group button { filter: invert(1); }
 </style>
 
 <div id="sh-toast-container"></div>
@@ -175,35 +188,49 @@ require_once 'header.php';
             <option value="">-- Select Map Pin --</option>
         </select>
 
-        <label class="sh-label">Filter Type</label>
-        <select class="sh-select" id="typeFilter">
-            <option value="all">All Property Types</option>
-            <option value="apartment">Apartments</option>
-            <option value="penthouse">Penthouses</option>
-            <option value="maisonette">Maisonettes</option>
-            <option value="house">Houses</option>
-            <option value="villa">Villas</option>
-            <option value="commercial">Commercial</option>
-            <option value="garage">Garages</option>
-            <option value="parking space">Car Spaces</option>
-        </select>
-        
-        <div style="text-align: center; color: var(--sh-text-muted); font-size: 0.7rem; margin-bottom: 20px;">
-            <i class="fas fa-mouse"></i> Right-Click & Drag to Rotate 3D Map
+        <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px;">
+            <label class="sh-label" style="color: var(--sh-avail);">Advanced Search & Filters</label>
+            
+            <select class="sh-select" id="typeFilter" onchange="applySidebarFilters()">
+                <option value="all">All Property Types</option>
+                <option value="apartment">Apartments</option>
+                <option value="penthouse">Penthouses</option>
+                <option value="maisonette">Maisonettes</option>
+                <option value="house">Houses</option>
+                <option value="villa">Villas</option>
+                <option value="commercial">Commercial</option>
+                <option value="garage">Garages</option>
+                <option value="parking space">Car Spaces</option>
+            </select>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <div style="flex: 1;">
+                    <label class="sh-label" style="font-size: 0.65rem;">Min Budget (€)</label>
+                    <input type="number" id="minBudget" class="sh-input" placeholder="0" oninput="applySidebarFilters()">
+                </div>
+                <div style="flex: 1;">
+                    <label class="sh-label" style="font-size: 0.65rem;">Max Budget (€)</label>
+                    <input type="number" id="maxBudget" class="sh-input" placeholder="Any" oninput="applySidebarFilters()">
+                </div>
+            </div>
+            
+            <div style="text-align: center; color: var(--sh-text-muted); font-size: 0.7rem; margin-bottom: 10px;">
+                <i class="fas fa-draw-polygon"></i> Use the polygon tool on the map to draw your area of interest.
+            </div>
         </div>
         
         <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
-            <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px;"></div>
-            
-            <button id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
-                <i class="fas fa-eye"></i> View as Agent
-            </button>
-            <button class="sh-btn sh-btn-info" onclick="document.getElementById('uploadFrameModal').style.display='block'">
-                <i class="fas fa-file-csv"></i> Upload Frame (CSV)
-            </button>
-            <button class="sh-btn sh-btn-success" style="margin-bottom: 0;" onclick="document.getElementById('uploadMediaModal').style.display='block'">
-                <i class="fas fa-cloud-upload-alt"></i> Upload Media
-            </button>
+            <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px;">
+                <button id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
+                    <i class="fas fa-eye"></i> View as Agent
+                </button>
+                <button class="sh-btn sh-btn-info" onclick="document.getElementById('uploadFrameModal').style.display='block'">
+                    <i class="fas fa-file-csv"></i> Upload Frame (CSV)
+                </button>
+                <button class="sh-btn sh-btn-success" style="margin-bottom: 0;" onclick="document.getElementById('uploadMediaModal').style.display='block'">
+                    <i class="fas fa-cloud-upload-alt"></i> Upload Media
+                </button>
+            </div>
         <?php endif; ?>
     </div>
 </div>
@@ -230,8 +257,8 @@ require_once 'header.php';
     
     <div class="sh-filter-row">
         <div class="sh-tabs">
-            <div class="sh-tab active" id="btnFilterAll" onclick="setFilter('All')">All</div>
-            <div class="sh-tab" id="btnFilterAvail" onclick="setFilter('Available')">Available Only</div>
+            <div class="sh-tab active" id="btnFilterAll" onclick="setStatusTab('All')">All</div>
+            <div class="sh-tab" id="btnFilterAvail" onclick="setStatusTab('Available')">Available Only</div>
         </div>
         <button class="sh-pdf-btn" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Pricelist</button>
     </div>
@@ -320,7 +347,7 @@ require_once 'header.php';
 
 <script>
     // ========================================================
-    // MANAGER vs AGENT VIEW MODE ENGINE
+    // VIEW MODE ENGINE
     // ========================================================
     const userRole = '<?= $_SESSION['role'] ?>';
     const isManagerUser = ['admin', 'director', 'system_manager', 'sales_manager'].includes(userRole);
@@ -342,8 +369,7 @@ require_once 'header.php';
         
         const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
         if (pid && mapProjectsData[pid]) {
-            // Re-fetch without panning to keep experience smooth
-            openProjectSidebar(mapProjectsData[pid], false);
+            openProjectSidebar(mapProjectsData[pid], false); // Reload without panning
         }
     }
 
@@ -362,7 +388,7 @@ require_once 'header.php';
 
     function closeGallery() {
         document.getElementById('sh-lightbox').style.display = 'none';
-        document.getElementById('sh-lightbox-media').innerHTML = ''; // Stops videos playing
+        document.getElementById('sh-lightbox-media').innerHTML = ''; 
     }
 
     function changeSlide(dir) {
@@ -384,6 +410,36 @@ require_once 'header.php';
     }
 
     // ========================================================
+    // SIDEBAR FILTER ENGINE (Unified)
+    // ========================================================
+    function setStatusTab(filterType) {
+        document.getElementById('btnFilterAll').className = filterType === 'All' ? 'sh-tab active' : 'sh-tab';
+        document.getElementById('btnFilterAvail').className = filterType === 'Available' ? 'sh-tab active' : 'sh-tab';
+        applySidebarFilters();
+    }
+
+    function applySidebarFilters() {
+        const typeFilter = document.getElementById('typeFilter').value.toLowerCase();
+        const minPrice = parseFloat(document.getElementById('minBudget').value) || 0;
+        const maxPrice = parseFloat(document.getElementById('maxBudget').value) || Infinity;
+        const statusFilter = document.getElementById('btnFilterAll').classList.contains('active') ? 'All' : 'Available';
+
+        const cards = document.querySelectorAll('.sh-card');
+        cards.forEach(card => {
+            const cardType = (card.getAttribute('data-type') || '').toLowerCase();
+            const cardPrice = parseFloat(card.getAttribute('data-price')) || 0;
+            const cardStatus = card.getAttribute('data-status');
+
+            let show = true;
+            if (typeFilter !== 'all' && !cardType.includes(typeFilter)) show = false;
+            if (cardPrice > 0 && (cardPrice < minPrice || cardPrice > maxPrice)) show = false; // Only filter by budget if unit has a price
+            if (statusFilter === 'Available' && cardStatus !== 'Available' && cardStatus !== 'BOM') show = false;
+
+            card.style.display = show ? 'block' : 'none';
+        });
+    }
+
+    // ========================================================
     // STANDARD UI FUNCTIONS
     // ========================================================
     function showToast(message, type = 'success') {
@@ -397,28 +453,15 @@ require_once 'header.php';
         setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
     }
 
-    function setFilter(filterType) {
-        document.getElementById('btnFilterAll').className = filterType === 'All' ? 'sh-tab active' : 'sh-tab';
-        document.getElementById('btnFilterAvail').className = filterType === 'Available' ? 'sh-tab active' : 'sh-tab';
-
-        const cards = document.querySelectorAll('.sh-card');
-        cards.forEach(card => {
-            if (filterType === 'All') card.style.display = 'block'; 
-            else card.style.display = card.getAttribute('data-status') === 'Available' ? 'block' : 'none';
-        });
-    }
-
     let currentPlanZoom = 1;
     function openPlanModal(url) { document.getElementById('viewPlanModal').style.display = 'block'; document.getElementById('planIframe').src = url; resetPlan(); }
     function closePlanModal() { document.getElementById('viewPlanModal').style.display = 'none'; document.getElementById('planIframe').src = ''; }
     function zoomPlan(amount) { currentPlanZoom = Math.max(0.25, Math.min(4, currentPlanZoom + amount)); document.getElementById('planTransformContainer').style.transform = `scale(${currentPlanZoom})`; }
     function resetPlan() { currentPlanZoom = 1; document.getElementById('planTransformContainer').style.transform = `scale(1)`; }
     function closeSidebar() { document.getElementById('custom-sidebar').classList.remove('open'); }
-    function openUploadModal() { document.getElementById('uploadFrameModal').style.display = 'block'; }
-    function closeUploadModal() { document.getElementById('uploadFrameModal').style.display = 'none'; }
 
     // ========================================================
-    // MAPBOX INTEGRATION 
+    // MAPBOX INTEGRATION & DRAW TOOL
     // ========================================================
     let mapProjectsData = {};
     const defaultCenter = [14.38, 35.92];
@@ -436,8 +479,42 @@ require_once 'header.php';
     });
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
 
+    // Add Freehand Draw Tool
+    const draw = new MapboxDraw({
+        displayControlsDefault: false,
+        controls: { polygon: true, trash: true },
+        defaultMode: 'draw_polygon'
+    });
+    map.addControl(draw, 'top-left');
+
+    map.on('draw.create', filterMapByPolygon);
+    map.on('draw.delete', filterMapByPolygon);
+    map.on('draw.update', filterMapByPolygon);
+
+    function filterMapByPolygon() {
+        const data = draw.getAll();
+        if (data.features.length > 0) {
+            const polygon = data.features[0];
+            Object.values(mapProjectsData).forEach(project => {
+                if (project.markerEl) {
+                    const pt = turf.point([project.longitude, project.latitude]);
+                    const isInside = turf.booleanPointInPolygon(pt, polygon);
+                    project.markerEl.style.display = isInside ? 'block' : 'none';
+                }
+            });
+        } else {
+            Object.values(mapProjectsData).forEach(p => { if(p.markerEl) p.markerEl.style.display = 'block'; });
+        }
+    }
+
     function resetMap() {
         map.flyTo({ center: defaultCenter, zoom: defaultZoom, pitch: defaultPitch, bearing: 0, duration: 1500 });
+        if (draw) draw.deleteAll();
+        document.getElementById('typeFilter').value = 'all';
+        document.getElementById('minBudget').value = '';
+        document.getElementById('maxBudget').value = '';
+        setStatusTab('All');
+        filterMapByPolygon();
         closeSidebar();
     }
 
@@ -449,9 +526,13 @@ require_once 'header.php';
                     if(project.latitude && project.longitude) {
                         mapProjectsData[project.project_id] = project;
                         dropdown.add(new Option(project.project_name, project.project_id));
+                        
                         const el = document.createElement('div');
                         el.style.cssText = `background-color: ${project.available_units > 0 ? '#10B981' : '#EF4444'}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8); cursor: pointer;`;
+                        
                         new mapboxgl.Marker(el).setLngLat([project.longitude, project.latitude]).addTo(map);
+                        
+                        project.markerEl = el; // Store reference for polygon filtering
                         el.addEventListener('click', () => openProjectSidebar(project, true));
                     }
                 });
@@ -460,11 +541,10 @@ require_once 'header.php';
     });
 
     // ========================================================
-    // SURGICAL HTML INTERCEPTOR (Data Integrity Guaranteed)
+    // SURGICAL HTML INTERCEPTOR & BUILDER
     // ========================================================
     function openProjectSidebar(project, shouldPan = true) {
         
-        // Gentle Pan (No auto-zoom jump unless specifically requested)
         if (shouldPan) {
             map.panTo([project.longitude, project.latitude], { duration: 1000 });
         }
@@ -475,7 +555,6 @@ require_once 'header.php';
         document.getElementById('sidebarHold').innerText = project.held_units;
         document.getElementById('sidebarSold').innerText = project.sold_units;
 
-        setFilter('All');
         document.getElementById('custom-sidebar').classList.add('open');
         document.getElementById('unitListContainer').innerHTML = '<div class="text-center p-4 text-light"><div class="spinner-border text-info"></div><div class="mt-2">Loading units...</div></div>';
 
@@ -486,125 +565,146 @@ require_once 'header.php';
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = unitData.html;
                     
-                    const unitCards = tempDiv.querySelectorAll('.card, .unit-card');
+                    const unitCards = tempDiv.querySelectorAll('.card, .unit-card'); 
+                    const newContainer = document.createElement('div');
+                    
                     unitCards.forEach(card => {
-                        
-                        let unitId = card.getAttribute('data-unit-id');
-                        if (!unitId) {
-                            const sel = card.querySelector('select');
-                            if (sel && sel.getAttribute('onchange')) {
-                                const match = sel.getAttribute('onchange').match(/\d+/);
-                                if (match) unitId = match[0];
+                        try {
+                            // 1. EXTRACT DATA Safely
+                            let unitId = card.getAttribute('data-unit-id');
+                            if (!unitId) {
+                                const sel = card.querySelector('select');
+                                if (sel && sel.getAttribute('onchange')) { const m = sel.getAttribute('onchange').match(/\d+/); if (m) unitId = m[0]; }
                             }
-                        }
+                            if (!unitId) unitId = Math.floor(Math.random() * 1000000); 
 
-                        let status = card.getAttribute('data-status') || '';
-                        if (!status) {
-                            const badge = card.querySelector('.badge');
-                            if (badge) status = badge.innerText.trim();
-                        }
-                        
-                        // Clean status
-                        if (status === 'Reserved') status = 'Proceeding';
-                        if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
-                        card.setAttribute('data-status', status);
+                            let rawStatus = card.getAttribute('data-status') || card.querySelector('.badge')?.innerText || 'Available';
+                            let status = rawStatus.trim();
+                            if (status === 'Reserved') status = 'Proceeding';
+                            if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
 
-                        const cardBody = card.querySelector('.card-body') || card;
+                            const unitName = card.querySelector('h5')?.innerText.trim() || card.querySelector('h4')?.innerText.trim() || 'Unit';
+                            const unitType = card.querySelector('small')?.innerText.trim() || '';
 
-                        // ============================================
-                        // VIEW MODE OVERRIDES
-                        // ============================================
-                        if (currentViewMode === 'agent') {
-                            
-                            // 1. Hide prices securely via Text Node replacement
-                            if (status.includes('Sold')) {
-                                const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
-                                let nodesToReplace = [];
-                                let node;
-                                while (node = walker.nextNode()) {
-                                    if (node.nodeValue.includes('€') || node.nodeValue.includes('POA')) {
-                                        nodesToReplace.push(node);
-                                    }
+                            // Extract Price for both Display and the Filter Logic
+                            let priceHtml = '';
+                            let pureNumericPrice = 0;
+                            const priceCandidates = card.querySelectorAll('.text-success, h5, .sh-price-row, .font-weight-bold');
+                            priceCandidates.forEach(el => {
+                                if (el.innerText.includes('€') || el.innerText.includes('POA')) {
+                                    priceHtml = el.innerHTML; 
+                                    pureNumericPrice = parseFloat(el.innerText.replace(/[^0-9.]/g, '')) || 0;
                                 }
-                                nodesToReplace.forEach(n => {
-                                    const span = document.createElement('span');
-                                    span.className = 'text-secondary small';
-                                    span.style.fontStyle = 'italic';
-                                    span.innerText = '🔒 Price Confidential';
-                                    n.parentNode.replaceChild(span, n);
-                                });
+                            });
+                            if (!priceHtml) priceHtml = 'POA';
+
+                            let resalePrice = card.querySelector('input[placeholder*="Resale"]')?.value || '';
+
+                            let specsHtml = '';
+                            const badges = card.querySelectorAll('.badge');
+                            let badgeFound = false;
+                            badges.forEach(b => {
+                                const txt = b.innerText.trim();
+                                if (!['Available','On Hold','Resale','BOM','Proceeding','Sold','Sold Pending Approval','Proceeding Pending Approval'].includes(txt)) {
+                                    specsHtml += `<span style="font-size:0.75rem; background:rgba(255,255,255,0.08); padding:5px 10px; border-radius:6px; color:var(--sh-text-main); font-weight:600;">${b.innerHTML}</span>`;
+                                    badgeFound = true;
+                                }
+                            });
+                            if(badgeFound) specsHtml = `<div style="display:flex; gap:8px; margin-bottom:15px; flex-wrap:wrap;">${specsHtml}</div>`;
+
+                            // 2. ENFORCE AGENT RESTRICTIONS
+                            if (currentViewMode === 'agent') {
+                                if (status.includes('Sold')) {
+                                    priceHtml = '<span style="color:var(--sh-text-muted); font-style:italic; font-size:0.85rem;">🔒 Price Confidential</span>';
+                                }
                             }
 
-                            // 2. Strip out all manager controls without affecting core layout
-                            card.querySelectorAll('select, input, textarea').forEach(el => el.remove());
-                            card.querySelectorAll('button[onclick*="togglePriceEdit"]').forEach(el => el.remove());
-                            card.querySelectorAll('div[id^="price_edit_"]').forEach(el => el.remove());
-                            card.querySelectorAll('button[onclick*="managerUpdateStatus"]').forEach(el => el.remove());
+                            // 3. BUILD CARD
+                            const newCard = document.createElement('div');
+                            newCard.className = 'sh-card';
+                            newCard.setAttribute('data-status', status);
+                            newCard.setAttribute('data-type', unitType.toLowerCase());
+                            newCard.setAttribute('data-price', pureNumericPrice);
+                            newCard.style.marginBottom = '15px';
 
-                            // 3. Inject Agent Action Buttons
-                            const actionWrapper = document.createElement('div');
-                            actionWrapper.className = 'mt-3 pt-2';
-                            actionWrapper.style.borderTop = '1px solid var(--sh-border)';
+                            if (status.includes('Available') || status === 'BOM') newCard.style.borderLeft = '4px solid var(--sh-avail)';
+                            else if (status.includes('Proceeding')) newCard.style.borderLeft = '4px solid var(--sh-proc)';
+                            else if (status.includes('Sold')) newCard.style.borderLeft = '4px solid var(--sh-sold)';
+                            else if (status === 'Resale') newCard.style.borderLeft = '4px solid var(--sh-resale)';
+                            else newCard.style.borderLeft = '4px solid var(--sh-hold)';
 
-                            if (status === 'Available' || status === 'BOM') {
-                                actionWrapper.innerHTML = `
-                                    <div style="display:flex; gap:10px; margin-top: 15px;">
-                                        <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Hold</button>
-                                        <button class="sh-btn sh-btn-success" onclick="requestReserve(${unitId})"><i class="fas fa-check"></i> Proceed</button>
+                            let cardContent = `
+                                <div class="sh-card-header">
+                                    <div>
+                                        <h4 class="sh-card-title">${unitName}</h4>
+                                        <div style="font-size:0.75rem; color:var(--sh-text-muted); text-transform:uppercase; font-weight:700;">${unitType}</div>
+                                    </div>
+                                    <div><span class="sh-badge ${status.replace(/ /g, '-')}">${status}</span></div>
+                                </div>
+                                <div class="sh-price-row">${priceHtml}</div>
+                                ${specsHtml}
+                            `;
+
+                            const planBtn = card.querySelector(`button[onclick*="openPlanModal"]`);
+                            if (planBtn) cardContent += `<button class="sh-btn sh-btn-info" onclick="${planBtn.getAttribute('onclick')}" style="margin-bottom:15px;"><i class="fas fa-map"></i> View Floor Plan</button>`;
+
+                            // 4. INJECT CONTROLS
+                            cardContent += `<div style="border-top: 1px solid var(--sh-border); padding-top: 15px; margin-top: 10px;">`;
+
+                            if (currentViewMode === 'manager') {
+                                cardContent += `
+                                    <label class="sh-label">Update Status</label>
+                                    <select class="sh-status-select" id="status-${unitId}" onchange="handleStatusChange(${unitId}, this)">
+                                        <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
+                                        <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
+                                        <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
+                                        <option value="BOM" ${status === 'BOM' ? 'selected' : ''}>BOM</option>
+                                        <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
+                                        <option value="Proceeding Pending Approval" ${status === 'Proceeding Pending Approval' ? 'selected' : ''}>Proceeding Pending Approval</option>
+                                        <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
+                                        <option value="Sold Pending Approval" ${status === 'Sold Pending Approval' ? 'selected' : ''}>Sold Pending Approval</option>
+                                    </select>
+                                    <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" style="display: ${status === 'Resale' ? 'block' : 'none'};">
+                                    
+                                    <button class="sh-btn sh-btn-warning" style="background:transparent; border:1px dashed var(--sh-border);" onclick="togglePriceEdit(${unitId})">✎ Modify Pricing</button>
+                                    
+                                    <div id="price_edit_${unitId}" style="display:none; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; border:1px solid var(--sh-border); margin-top:10px;">
+                                        <label class="sh-label">Shell Price (€)</label>
+                                        <input type="number" id="inp_sh_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
+                                        <label class="sh-label">Finishes Price (€)</label>
+                                        <input type="number" id="inp_fn_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
+                                        <button class="sh-btn sh-btn-success" onclick="savePrice(${unitId})">Save Prices</button>
                                     </div>
                                 `;
                             } else {
-                                actionWrapper.innerHTML = `
-                                    <div style="text-align:center; color:var(--sh-text-muted); font-size:0.8rem; font-weight:bold; text-transform:uppercase; margin-top: 15px;">
-                                        Current Status: <span style="color:#fff;">${status}</span>
-                                    </div>
-                                `;
+                                if (status === 'Available' || status === 'BOM') {
+                                    cardContent += `
+                                        <div style="display:flex; gap:10px;">
+                                            <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Hold</button>
+                                            <button class="sh-btn sh-btn-success" onclick="requestReserve(${unitId})"><i class="fas fa-check"></i> Proceed</button>
+                                        </div>
+                                    `;
+                                } else {
+                                    cardContent += `<div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; padding: 5px 0;">Current Status: <span style="color:#fff;">${status}</span></div>`;
+                                }
                             }
-                            cardBody.appendChild(actionWrapper);
 
-                        } else {
-                            // MANAGER VIEW
-                            const selectEl = card.querySelector('select[onchange*="managerUpdateStatus"]');
-                            if (selectEl && !card.querySelector('.resale-input')) {
-                                
-                                // Expand options safely
-                                selectEl.innerHTML = `
-                                    <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
-                                    <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
-                                    <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
-                                    <option value="BOM" ${status === 'BOM' ? 'selected' : ''}>BOM</option>
-                                    <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
-                                    <option value="Proceeding Pending Approval" ${status === 'Proceeding Pending Approval' ? 'selected' : ''}>Proceeding Pending Approval</option>
-                                    <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
-                                    <option value="Sold Pending Approval" ${status === 'Sold Pending Approval' ? 'selected' : ''}>Sold Pending Approval</option>
-                                `;
-
-                                const resaleInput = document.createElement('input');
-                                resaleInput.type = 'number';
-                                resaleInput.step = '0.01';
-                                resaleInput.className = 'sh-resale-input';
-                                resaleInput.id = 'resale_input_' + unitId;
-                                resaleInput.placeholder = 'Resale Asking Price (€)';
-                                resaleInput.style.display = status === 'Resale' ? 'block' : 'none';
-                                selectEl.parentNode.insertBefore(resaleInput, selectEl.nextSibling);
-                                
-                                selectEl.setAttribute('onchange', `executeStatusUpdate(${unitId}, this)`);
-                            }
-                        }
+                            cardContent += `</div>`;
+                            newCard.innerHTML = cardContent;
+                            newContainer.appendChild(newCard);
+                        } catch (e) { console.error('Fallback', e); newContainer.appendChild(card); }
                     });
 
-                    document.getElementById('unitListContainer').innerHTML = tempDiv.innerHTML;
+                    document.getElementById('unitListContainer').innerHTML = '';
+                    document.getElementById('unitListContainer').appendChild(newContainer);
+                    applySidebarFilters(); // Fire filters after units are built
                     
                     // ============================================
-                    // RENDER MEDIA LIGHTBOX GALLERY
+                    // RENDER LIGHTBOX GALLERY
                     // ============================================
                     currentGallery = [];
-                    if (unitData.media && unitData.media.videos) {
-                        unitData.media.videos.forEach(v => currentGallery.push({type: 'video', src: v}));
-                    }
-                    if (unitData.media && unitData.media.renders) {
-                        unitData.media.renders.forEach(r => currentGallery.push({type: 'image', src: r}));
-                    }
+                    if (unitData.media && unitData.media.videos) unitData.media.videos.forEach(v => currentGallery.push({type: 'video', src: v}));
+                    if (unitData.media && unitData.media.renders) unitData.media.renders.forEach(r => currentGallery.push({type: 'image', src: r}));
 
                     let mediaHtml = '';
                     if (currentGallery.length > 0) {
@@ -615,12 +715,8 @@ require_once 'header.php';
                         mediaHtml = `
                         <div style="padding:20px; position:relative; width: 100%;">
                             ${coverHtml}
-                            <div style="position:absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none;">
-                                <i class="fas fa-search-plus" style="font-size: 3rem; color: rgba(255,255,255,0.5);"></i>
-                            </div>
-                            <div style="position:absolute; bottom:30px; right:30px; background:var(--sh-sold); color:#fff; padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold; pointer-events:none; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
-                                <i class="fas fa-images"></i> ${currentGallery.length} Media
-                            </div>
+                            <div style="position:absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none;"><i class="fas fa-search-plus" style="font-size: 3rem; color: rgba(255,255,255,0.5);"></i></div>
+                            <div style="position:absolute; bottom:30px; right:30px; background:var(--sh-sold); color:#fff; padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold; pointer-events:none; box-shadow: 0 4px 10px rgba(0,0,0,0.5);"><i class="fas fa-images"></i> ${currentGallery.length} Media</div>
                         </div>`;
                     } else {
                         mediaHtml = `<div style="text-align:center; padding:40px; color:var(--sh-text-muted);"><i class="fas fa-image fa-3x mb-2"></i><div style="font-size:0.85rem;">No media uploaded</div></div>`;
@@ -633,65 +729,41 @@ require_once 'header.php';
             });
     }
 
-    function executeStatusUpdate(unitId, selectElement) {
+    function handleStatusChange(unitId, selectElement) {
         const newStatus = selectElement.value;
         const resaleInput = document.getElementById('resale_input_' + unitId);
         
         if (newStatus === 'Resale') {
-            resaleInput.style.display = 'block';
-            resaleInput.focus();
-            resaleInput.onblur = () => {
-                if(resaleInput.value) sendStatusToServer(unitId, newStatus, selectElement, resaleInput.value);
-            };
+            resaleInput.style.display = 'block'; resaleInput.focus();
+            resaleInput.onblur = () => { if(resaleInput.value) sendStatusToServer(unitId, newStatus, selectElement, resaleInput.value); };
         } else {
-            resaleInput.style.display = 'none';
-            sendStatusToServer(unitId, newStatus, selectElement, null);
+            resaleInput.style.display = 'none'; sendStatusToServer(unitId, newStatus, selectElement, null);
         }
     }
 
     function sendStatusToServer(propertyId, newStatus, selectElement, resalePrice) {
         selectElement.disabled = true;
-        let formData = new FormData(); 
-        formData.append('action', 'update_unit_status');
-        formData.append('unit_id', propertyId); 
-        formData.append('status', newStatus);
-        if (resalePrice) formData.append('resale_price', resalePrice);
-
-        fetch('sales_hub.php', { method: 'POST', body: formData })
-        .then(r => r.text()).then(data => {
+        let formData = new FormData(); formData.append('action', 'update_unit_status'); formData.append('unit_id', propertyId); formData.append('status', newStatus); if (resalePrice) formData.append('resale_price', resalePrice);
+        fetch('sales_hub.php', { method: 'POST', body: formData }).then(r => r.text()).then(data => {
             selectElement.disabled = false;
-            if(data === 'OK') { 
-                showToast(`Status updated to ${newStatus}`, 'success');
-                const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
-                if(pid) setTimeout(() => openProjectSidebar(mapProjectsData[pid], false), 500);
-            } else { showToast("Error updating status.", 'error'); }
+            if(data === 'OK') { showToast(`Status updated to ${newStatus}`, 'success'); const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); if(pid) setTimeout(() => openProjectSidebar(mapProjectsData[pid], false), 500); } 
+            else { showToast("Error updating status.", 'error'); }
         });
     }
 
-    function jumpToSelectedProject(projectId) {
-        if(projectId && mapProjectsData[projectId]) openProjectSidebar(mapProjectsData[projectId], true);
-    }
-
-    function togglePriceEdit(id) {
-        const editBox = document.getElementById('price_edit_' + id);
-        editBox.style.display = editBox.style.display === 'none' ? 'block' : 'none';
-    }
-
+    function jumpToSelectedProject(projectId) { if(projectId && mapProjectsData[projectId]) openProjectSidebar(mapProjectsData[projectId], true); }
+    function togglePriceEdit(id) { const e = document.getElementById('price_edit_' + id); e.style.display = e.style.display === 'none' ? 'block' : 'none'; }
+    
     function savePrice(id) {
-        const shell = document.getElementById('inp_sh_' + id).value;
-        const fin = document.getElementById('inp_fn_' + id).value;
+        const shell = document.getElementById('inp_sh_' + id).value; const fin = document.getElementById('inp_fn_' + id).value;
         let formData = new FormData(); formData.append('property_id', id); formData.append('shell_price', shell); formData.append('finishes_price', fin);
-        fetch('api/update_unit_price.php', { method: 'POST', body: formData })
-        .then(r => r.json()).then(data => {
+        fetch('api/update_unit_price.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
             if(data.success) { showToast("Price updated!", "success"); const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); if(pid) setTimeout(() => openProjectSidebar(mapProjectsData[pid], false), 500); } 
             else { showToast("Error: " + data.message, "error"); }
         });
     }
 
-    function generateLivePricelist() {
-        const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
-        if(pid) window.open('print_pricelist.php?project_id=' + pid, '_blank');
-    }
+    function generateLivePricelist() { const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); if(pid) window.open('print_pricelist.php?project_id=' + pid, '_blank'); }
     
     // Agent Actions
     function holdProperty(propertyId) {
