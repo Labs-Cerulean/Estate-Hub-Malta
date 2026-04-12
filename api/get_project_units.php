@@ -53,6 +53,7 @@ try {
         foreach ($units as $u) {
             $total_price = floatval($u['shell_price']) + floatval($u['finishes_price']);
             $status = trim($u['status']);
+            $unitTypeSafe = htmlspecialchars($u['unit_type'], ENT_QUOTES, 'UTF-8');
             
             $icon = 'fa-home';
             if($u['unit_type'] == 'garage') $icon = 'fa-car';
@@ -88,8 +89,8 @@ try {
 
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
-            // --- START BEAUTIFUL CARD ---
-            $html .= "<div class='card shadow unit-card' data-status='{$status}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
+            // --- START BEAUTIFUL CARD (Added data-type for strict filtering) ---
+            $html .= "<div class='card shadow unit-card' data-status='{$status}' data-type='{$unitTypeSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---
