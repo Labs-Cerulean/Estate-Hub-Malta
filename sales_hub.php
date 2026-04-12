@@ -53,10 +53,11 @@ require_once 'header.php';
     #sh-wrapper { position: relative; height: 100vh; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; color: var(--sh-text-main); }
     #sales-map { position: absolute; top: 0; bottom: 0; width: 100%; left: 0; }
     
-    /* Mapbox Overrides */
-    .mapboxgl-ctrl-top-right { top: 20px; right: 20px; z-index: 20; }
-    .mapboxgl-ctrl-group { background: var(--sh-bg-panel); border: 1px solid var(--sh-border); }
-    .mapboxgl-ctrl-group button { filter: invert(1); }
+    /* Mapbox Overrides (Top Center Polygon Tool) */
+    .mapboxgl-ctrl-top-right { top: 20px; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 20; display: flex; }
+    .mapboxgl-ctrl-group { display: flex !important; flex-direction: row !important; background: var(--sh-bg-panel); border: 2px solid var(--sh-avail); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); overflow: hidden; }
+    .mapboxgl-ctrl-group button { filter: invert(1); width: 45px; height: 45px; transition: 0.2s; }
+    .mapboxgl-ctrl-group button:hover { background: rgba(255,255,255,0.1); }
     
     /* Overlay Controls */
     .sh-overlay {
@@ -82,8 +83,8 @@ require_once 'header.php';
     .sh-btn-info:hover { background: var(--sh-sold); color: #fff; }
     .sh-btn-success { background: rgba(16, 185, 129, 0.1); color: var(--sh-avail); border: 1px solid rgba(16, 185, 129, 0.3); }
     .sh-btn-success:hover { background: var(--sh-avail); color: #fff; }
-    .sh-btn-icon { background: rgba(255,255,255,0.1); color: #fff; border: none; border-radius: 8px; padding: 8px 12px; cursor: pointer; transition: 0.2s; font-size: 1rem; }
-    .sh-btn-icon:hover { background: #fff; color: var(--sh-bg-base); }
+    .sh-btn-danger { background: rgba(239, 68, 68, 0.1); color: var(--sh-danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .sh-btn-danger:hover { background: var(--sh-danger); color: #fff; }
     
     /* Sidebar */
     .sh-sidebar {
@@ -181,7 +182,6 @@ require_once 'header.php';
     <div class="sh-overlay">
         <h5 class="sh-overlay-title">
             <span><i class="fas fa-map-marked-alt text-info"></i> Sales Hub</span>
-            <button class="sh-btn-icon" onclick="resetMap()" title="Reset Map View"><i class="fas fa-globe-europe"></i></button>
         </h5>
         
         <label class="sh-label">Jump to Project</label>
@@ -215,9 +215,13 @@ require_once 'header.php';
                 </div>
             </div>
             
+            <button class="sh-btn sh-btn-danger" style="margin-bottom: 15px;" onclick="resetMap()">
+                <i class="fas fa-undo-alt"></i> Reset Map & Clear Filters
+            </button>
+
             <div style="text-align: center; color: var(--sh-text-muted); font-size: 0.75rem; margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
                 <i class="fas fa-draw-polygon text-info mb-2" style="font-size: 1.5rem;"></i><br>
-                Click the Polygon icon top-right to outline an area. <br><b>Double-click</b> to close the shape.
+                Click the Polygon icon top-center to outline an area. <br><b>Double-click</b> to close the shape.
             </div>
         </div>
         
@@ -362,7 +366,7 @@ require_once 'header.php';
     const userRole = '<?= $_SESSION['role'] ?>';
     const isManagerUser = ['admin', 'director', 'system_manager', 'sales_manager'].includes(userRole);
     let currentViewMode = isManagerUser ? 'manager' : 'agent';
-    let lastLoadedProjects = []; // Store the context for refreshing
+    let lastLoadedProjects = [];
 
     function toggleViewMode() {
         const btn = document.getElementById('viewToggleBtn');
@@ -377,11 +381,7 @@ require_once 'header.php';
             btn.classList.replace('sh-btn-success', 'sh-btn-warning');
             btn.classList.remove('active');
         }
-        
-        // Refresh currently open project(s)
-        if (lastLoadedProjects.length > 0) {
-            loadMultipleProjects(lastLoadedProjects, false);
-        }
+        if (lastLoadedProjects.length > 0) loadMultipleProjects(lastLoadedProjects, false);
     }
 
     // ========================================================
@@ -459,19 +459,16 @@ require_once 'header.php';
 
         const cards = document.querySelectorAll('.sh-card');
         cards.forEach(card => {
-            const cardText = card.innerText.toLowerCase(); // Full text scan for robust matching
+            const rawType = (card.getAttribute('data-type') || '').toLowerCase();
+            const cardStatus = card.getAttribute('data-status');
             
-            // Extract price securely from text
+            // Safe Numeric Extraction
             let pureNumericPrice = 0;
             const priceMatch = card.innerText.match(/€[\d,]+/);
-            if (priceMatch) {
-                pureNumericPrice = parseFloat(priceMatch[0].replace(/[€,]/g, ''));
-            }
-
-            const cardStatus = card.getAttribute('data-status');
+            if (priceMatch) pureNumericPrice = parseFloat(priceMatch[0].replace(/[€,]/g, ''));
 
             let show = true;
-            if (typeFilter !== 'all' && !cardText.includes(typeFilter)) show = false;
+            if (typeFilter !== 'all' && !rawType.includes(typeFilter)) show = false;
             if (pureNumericPrice > 0 && (pureNumericPrice < minPrice || pureNumericPrice > maxPrice)) show = false; 
             if (statusFilter === 'Available' && cardStatus !== 'Available' && cardStatus !== 'BOM') show = false;
 
@@ -519,11 +516,10 @@ require_once 'header.php';
     });
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
 
-    // Add Freehand Draw Tool
     const draw = new MapboxDraw({
         displayControlsDefault: false,
         controls: { polygon: true, trash: true },
-        defaultMode: 'simple_select' // Requires clicking to start drawing
+        defaultMode: 'simple_select'
     });
     map.addControl(draw, 'top-right'); 
 
@@ -546,12 +542,8 @@ require_once 'header.php';
                 }
             });
             
-            // Load all projects inside the drawn area into the sidebar
-            if (projectsInPolygon.length > 0) {
-                loadMultipleProjects(projectsInPolygon, false);
-            } else {
-                closeSidebar();
-            }
+            if (projectsInPolygon.length > 0) loadMultipleProjects(projectsInPolygon, false);
+            else closeSidebar();
 
         } else {
             Object.values(mapProjectsData).forEach(p => { if(p.markerEl) p.markerEl.style.display = 'block'; });
@@ -601,7 +593,7 @@ require_once 'header.php';
 
     async function loadMultipleProjects(projects, shouldPan = false) {
         if (projects.length === 0) return;
-        lastLoadedProjects = projects; // Store for view toggle refresh
+        lastLoadedProjects = projects;
 
         if (shouldPan && projects.length === 1) {
             map.panTo([projects[0].longitude, projects[0].latitude], { duration: 1000 });
@@ -617,7 +609,6 @@ require_once 'header.php';
         let totalAvail = 0, totalHold = 0, totalSold = 0;
         let allMedia = { renders: [], videos: [] };
 
-        // Fetch all concurrently
         const promises = projects.map(p => fetch('api/get_project_units.php?project_id=' + p.project_id).then(r => r.json()));
         const results = await Promise.all(promises);
 
@@ -649,9 +640,8 @@ require_once 'header.php';
         tempDiv.innerHTML = allHtml;
         Array.from(tempDiv.children).forEach(child => document.getElementById('unitListContainer').appendChild(child));
         
-        applySidebarFilters(); // Fire filters after injection
+        applySidebarFilters();
 
-        // Render Combined Media Lightbox
         currentGallery = [];
         if (allMedia.videos) allMedia.videos.forEach(v => currentGallery.push({type: 'video', src: v}));
         if (allMedia.renders) allMedia.renders.forEach(r => currentGallery.push({type: 'image', src: r}));
@@ -674,7 +664,6 @@ require_once 'header.php';
         document.getElementById('sidebarMediaContainer').innerHTML = mediaHtml;
     }
 
-    // The Safe Parser (Modifies the existing DOM without destroying inner HTML elements)
     function processUnitHtmlSafely(rawHtml) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = rawHtml;
@@ -693,8 +682,12 @@ require_once 'header.php';
             if (status === 'Reserved') status = 'Proceeding';
             if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
 
+            // Preserve data-type if passed from backend
+            let unitTypeAttr = card.getAttribute('data-type') || '';
+
             card.className = 'sh-card';
             card.setAttribute('data-status', status);
+            card.setAttribute('data-type', unitTypeAttr);
             card.style.marginBottom = '15px';
 
             if (status.includes('Available') || status === 'BOM') card.style.borderLeft = '4px solid var(--sh-avail)';
@@ -703,7 +696,6 @@ require_once 'header.php';
             else if (status === 'Resale') card.style.borderLeft = '4px solid var(--sh-resale)';
             else card.style.borderLeft = '4px solid var(--sh-hold)';
 
-            // Hide Prices if Agent and Sold
             if (currentViewMode === 'agent' && status.includes('Sold')) {
                 const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
                 let nodesToReplace = [];
@@ -722,7 +714,6 @@ require_once 'header.php';
             let resalePrice = card.querySelector('.resale-input')?.value || card.querySelector('input[placeholder*="Resale"]')?.value || '';
             const oldControls = card.querySelector('select[onchange^="managerUpdateStatus"]')?.parentNode || card.querySelector('.action-buttons') || card.querySelector('form');
             
-            // Remove existing form/select/inputs
             card.querySelectorAll('select, input, button[onclick*="togglePriceEdit"], .resale-input').forEach(el => el.remove());
 
             const controlWrapper = document.createElement('div');
@@ -817,7 +808,6 @@ require_once 'header.php';
         else if(pid) window.open('print_pricelist.php?project_id=' + pid, '_blank'); 
     }
     
-    // Agent Actions
     function holdProperty(propertyId) {
         if(!confirm("Are you sure you want to put this unit on hold?")) return;
         let formData = new FormData(); formData.append('action', 'hold_property'); formData.append('property_id', propertyId);
@@ -834,7 +824,6 @@ require_once 'header.php';
         });
     }
 
-    // Upload Processing
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
         e.preventDefault();
         let formData = new FormData(this); this.querySelector('button[type="submit"]').disabled = true;
@@ -849,12 +838,12 @@ require_once 'header.php';
         
         let btn = this.querySelector('button[type="submit"]');
         let originalText = btn.innerHTML;
-        btn.innerHTML = 'Connecting to Cloudflare...'; btn.disabled = true;
+        btn.innerHTML = 'Connecting...'; btn.disabled = true;
 
         try {
             for (let i = 0; i < mediaFileInput.files.length; i++) {
                 let file = mediaFileInput.files[i];
-                btn.innerHTML = `Uploading (${i+1}/${mediaFileInput.files.length}): ${file.name}...`;
+                btn.innerHTML = `Uploading (${i+1}/${mediaFileInput.files.length})...`;
 
                 let authData = new FormData(); authData.append('action', 'get_upload_url'); authData.append('filename', file.name); authData.append('mime_type', file.type || 'application/octet-stream');
                 let authRes = await fetch('api/upload_sales_media.php', { method: 'POST', body: authData });
