@@ -8,20 +8,6 @@ if (!in_array($_SESSION['role'], $allowed_roles)) {
     exit;
 }
 
-// ==========================================
-// AUTO-DEPLOY DATABASE UPDATES (SALES HUB V2)
-// ==========================================
-try {
-    $pdo->exec("ALTER TABLE project_units ADD COLUMN resale_price DECIMAL(10,2) DEFAULT NULL");
-} catch(PDOException $e) {}
-
-try {
-    // Safe Migration of old statuses to new director-approved statuses
-    $pdo->exec("UPDATE project_units SET status = 'Proceeding' WHERE status = 'Reserved'");
-    $pdo->exec("UPDATE project_units SET status = 'Sold' WHERE status IN ('Sold POS', 'Sold Contract')");
-    $pdo->exec("UPDATE project_units SET status = 'Available' WHERE status = 'BOM'");
-} catch(PDOException $e) {}
-
 require_once 'header.php';
 ?>
 
@@ -126,10 +112,7 @@ require_once 'header.php';
                 <option value="penthouse">Penthouses</option>
                 <option value="commercial">Commercial</option>
                 <option value="garage">Garages</option>
-                <option value="parking space">Car Spaces</option>
-                <option value="maisonette">Maisonettes</option>
-                <option value="house">Houses</option>
-                <option value="villa">Villas</option>
+                <option value="parking_space">Car Spaces</option>
             </select>
             
             <div class="text-center text-secondary small mb-3" style="font-size: 0.75rem;">
@@ -138,6 +121,9 @@ require_once 'header.php';
             
             <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
                 <hr style="border-color: rgba(255,255,255,0.2);">
+                <button id="viewToggleBtn" class="btn btn-outline-warning btn-sm btn-block w-100 mb-3 shadow-sm" style="border-radius: 20px; font-weight: bold;" onclick="toggleViewMode()">
+                    <i class="fas fa-eye"></i> View as Agent
+                </button>
                 <button class="btn btn-outline-info btn-sm btn-block w-100 mb-2" style="border-radius: 20px;" onclick="openUploadModal()">
                     <i class="fas fa-file-csv"></i> Upload Frame (CSV)
                 </button>
@@ -298,6 +284,34 @@ require_once 'header.php';
 </div>
 
 <script>
+    // ========================================================
+    // MANAGER vs AGENT VIEW MODE ENGINE
+    // ========================================================
+    const userRole = '<?= $_SESSION['role'] ?>';
+    const isManagerUser = ['admin', 'director', 'system_manager', 'sales_manager'].includes(userRole);
+    let currentViewMode = isManagerUser ? 'manager' : 'agent';
+
+    function toggleViewMode() {
+        if (currentViewMode === 'manager') {
+            currentViewMode = 'agent';
+            document.getElementById('viewToggleBtn').innerHTML = '<i class="fas fa-user-tie"></i> Revert to Manager View';
+            document.getElementById('viewToggleBtn').classList.replace('btn-outline-warning', 'btn-warning');
+        } else {
+            currentViewMode = 'manager';
+            document.getElementById('viewToggleBtn').innerHTML = '<i class="fas fa-eye"></i> View as Agent';
+            document.getElementById('viewToggleBtn').classList.replace('btn-warning', 'btn-outline-warning');
+        }
+        
+        // Refresh currently open project to apply new view restrictions
+        const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
+        if (pid && mapProjectsData[pid]) {
+            openProjectSidebar(mapProjectsData[pid]);
+        }
+    }
+
+    // ========================================================
+    // STANDARD UI FUNCTIONS
+    // ========================================================
     function showToast(message, type = 'success') {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
@@ -410,6 +424,9 @@ require_once 'header.php';
 
     function closeSidebar() { document.getElementById('custom-sidebar').classList.remove('show-sidebar'); }
 
+    // ========================================================
+    // MAPBOX INTEGRATION
+    // ========================================================
     let mapProjectsData = {};
 
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
@@ -443,6 +460,9 @@ require_once 'header.php';
         }, labelLayerId);
     });
 
+    // ========================================================
+    // DATA FETCHING & DYNAMIC INTERCEPTOR
+    // ========================================================
     function openProjectSidebar(project) {
         map.flyTo({ center: [project.longitude, project.latitude], zoom: 17, pitch: 50, essential: true });
         
@@ -463,11 +483,11 @@ require_once 'header.php';
             .then(response => response.json())
             .then(unitData => {
                 if(unitData.success) {
-                    // Inject Unit Data with New Manager Update Status Hook logic
-                    let generatedHtml = unitData.html;
                     
-                    // We modify the API returned HTML dynamically to implement the new "Price Confidential" and "Resale" logic
-                    // We do this by creating a temporary DOM element, parsing it, modifying it, and inserting it back.
+                    // -----------------------------------------------------
+                    // THE DYNAMIC HTML INTERCEPTOR (Applies View Mode Logic)
+                    // -----------------------------------------------------
+                    let generatedHtml = unitData.html;
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = generatedHtml;
                     
@@ -501,41 +521,61 @@ require_once 'header.php';
                                 (status === 'Resale' ? 'border-info' : 
                                 (status === 'On Hold' ? 'border-secondary' : 'border-danger'))));
                                 
-                        // Modify Manager Dropdown if it exists
                         const managerSelect = card.querySelector('select[onchange^="managerUpdateStatus"]');
-                        if (managerSelect) {
-                            // Rebuild options
-                            managerSelect.innerHTML = `
-                                <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
-                                <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
-                                <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
-                                <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
-                                <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
-                            `;
-                            
-                            // Add Resale Input
-                            const resaleInputHtml = `
-                                <input type="number" step="0.01" class="form-control form-control-sm mt-2 bg-dark text-info border-info resale-input" 
-                                       id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" 
-                                       style="display: ${status === 'Resale' ? 'block' : 'none'}; font-weight:bold;">
-                            `;
-                            managerSelect.insertAdjacentHTML('afterend', resaleInputHtml);
-                            
-                            // Override the onchange event
-                            managerSelect.setAttribute('onchange', `handleStatusChange(${unitId}, this)`);
-                        }
                         
-                        // Price Confidentiality Logic
-                        const priceContainer = card.querySelector('h5.text-success'); // Assuming this is where price lives
-                        if (priceContainer) {
+                        // --- ENFORCE AGENT VIEW RESTRICTIONS ---
+                        if (currentViewMode === 'agent') {
+                            
+                            // 1. Hide Pricing if Sold
                             if (status === 'Sold') {
-                                priceContainer.innerHTML = '<span class="text-secondary" style="font-style:italic; font-size:0.9rem;">🔒 Price Confidential</span>';
+                                // Find any text containing '€' and replace it with Confidential
+                                const priceElements = card.querySelectorAll('h5, h6, span');
+                                priceElements.forEach(el => {
+                                    if (el.innerHTML.includes('€')) {
+                                        el.innerHTML = '<span class="text-secondary" style="font-style:italic; font-size:0.9rem;">🔒 Price Confidential</span>';
+                                    }
+                                });
+                                
+                                // Remove any manual edit buttons
+                                const editPriceBtn = card.querySelector('button[onclick^="togglePriceEdit"]');
+                                if (editPriceBtn) editPriceBtn.remove();
+                            }
+                            
+                            // 2. Hide Manager Status Dropdowns (Replace with Text Badge)
+                            if (managerSelect) {
+                                const statusText = document.createElement('div');
+                                statusText.className = 'mt-2 mb-2 font-weight-bold text-uppercase small';
+                                statusText.innerHTML = `Status: <span class="text-info">${status}</span>`;
+                                managerSelect.parentNode.replaceChild(statusText, managerSelect);
+                            }
+                            
+                        } else {
+                            // --- ENFORCE MANAGER VIEW LOGIC ---
+                            if (managerSelect) {
+                                // Rebuild options
+                                managerSelect.innerHTML = `
+                                    <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
+                                    <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
+                                    <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
+                                    <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
+                                    <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
+                                `;
+                                
+                                // Add Resale Input 
+                                const resaleInputHtml = `
+                                    <input type="number" step="0.01" class="form-control form-control-sm mt-2 bg-dark text-info border-info resale-input" 
+                                           id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" 
+                                           style="display: ${status === 'Resale' ? 'block' : 'none'}; font-weight:bold;">
+                                `;
+                                managerSelect.insertAdjacentHTML('afterend', resaleInputHtml);
+                                managerSelect.setAttribute('onchange', `handleStatusChange(${unitId}, this)`);
                             }
                         }
                     });
 
                     document.getElementById('unitListContainer').innerHTML = tempDiv.innerHTML;
                     
+                    // Render Media
                     let slides = [];
                     if (unitData.media && unitData.media.videos) {
                         unitData.media.videos.forEach(v => { slides.push(`<video src="${v}" controls style="width:100%; height:250px; object-fit:cover;"></video>`); });
@@ -573,7 +613,6 @@ require_once 'header.php';
             });
     }
 
-    // New Handlers for the Modded Dropdown
     function handleStatusChange(unitId, selectElement) {
         const newStatus = selectElement.value;
         const resaleInput = document.getElementById('resale_input_' + unitId);
@@ -581,7 +620,6 @@ require_once 'header.php';
         if (newStatus === 'Resale') {
             resaleInput.style.display = 'block';
             resaleInput.focus();
-            // Don't auto-save immediately, wait for them to blur/enter price
             resaleInput.onblur = () => {
                 if(resaleInput.value) {
                     managerUpdateStatusWithResale(unitId, newStatus, selectElement, resaleInput.value);
@@ -607,7 +645,6 @@ require_once 'header.php';
         selectElement.style.color = '#9ca3af';
         selectElement.disabled = true;
 
-        // Custom local fetch to handle the new resale price parameter
         fetch('sales_hub.php', { 
             method: 'POST', 
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
