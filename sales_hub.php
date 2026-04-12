@@ -63,7 +63,6 @@ require_once 'header.php';
     .sh-btn { width: 100%; padding: 10px; border-radius: 8px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; transition: 0.2s; margin-bottom: 10px; }
     .sh-btn-warning { background: rgba(245, 158, 11, 0.1); color: var(--sh-proc); border: 1px solid rgba(245, 158, 11, 0.3); }
     .sh-btn-warning:hover { background: var(--sh-proc); color: #fff; }
-    .sh-btn-warning.active { background: var(--sh-proc); color: #fff; }
     .sh-btn-info { background: rgba(59, 130, 246, 0.1); color: var(--sh-sold); border: 1px solid rgba(59, 130, 246, 0.3); }
     .sh-btn-info:hover { background: var(--sh-sold); color: #fff; }
     .sh-btn-success { background: rgba(16, 185, 129, 0.1); color: var(--sh-avail); border: 1px solid rgba(16, 185, 129, 0.3); }
@@ -110,18 +109,19 @@ require_once 'header.php';
 
     /* Clean Unit Cards */
     .sh-units { padding: 20px; display: flex; flex-direction: column; gap: 15px; }
-    .sh-card { background: var(--sh-bg-base) !important; border: 1px solid var(--sh-border) !important; border-radius: 12px !important; padding: 15px !important; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important; color: #fff; }
+    .sh-card { background: var(--sh-bg-base); border: 1px solid var(--sh-border); border-radius: 12px; padding: 15px; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: #fff; }
     
     .sh-card-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
     .sh-card-title { font-size: 1.1rem; font-weight: 800; margin: 0; color: #fff; }
     .sh-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; border: 1px solid; text-align: center; }
+    
     .sh-badge.Available, .sh-badge.BOM { background: rgba(16,185,129,0.1); color: var(--sh-avail); border-color: rgba(16,185,129,0.3); }
     .sh-badge.Proceeding, .sh-badge.Proceeding-Pending-Approval { background: rgba(245,158,11,0.1); color: var(--sh-proc); border-color: rgba(245,158,11,0.3); }
     .sh-badge.Sold, .sh-badge.Sold-Pending-Approval { background: rgba(59,130,246,0.1); color: var(--sh-sold); border-color: rgba(59,130,246,0.3); }
     .sh-badge.Resale { background: rgba(168,85,247,0.1); color: var(--sh-resale); border-color: rgba(168,85,247,0.3); }
-    .sh-badge.On-Hold { background: rgba(100,116,139,0.1); color: var(--sh-hold); border-color: rgba(100,116,139,0.3); }
+    .sh-badge.On-Hold, .sh-badge.On-Hold { background: rgba(100,116,139,0.1); color: var(--sh-hold); border-color: rgba(100,116,139,0.3); }
     
-    .sh-price-row { font-size: 1.25rem; font-weight: 800; color: var(--sh-text-main); margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
+    .sh-price-row { font-size: 1.25rem; font-weight: 800; color: var(--sh-avail); margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
     
     /* Control overrides */
     .sh-status-select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-border); background: var(--sh-bg-panel); color: #fff; font-weight: bold; cursor: pointer; font-size: 0.85rem; margin-bottom: 10px; outline: none; }
@@ -429,134 +429,150 @@ require_once 'header.php';
                     const newContainer = document.createElement('div');
                     
                     unitCards.forEach(card => {
-                        // 1. EXTRACT ALL RAW DATA
-                        const unitId = card.getAttribute('data-unit-id') || card.querySelector('[data-unit-id]')?.getAttribute('data-unit-id');
-                        if (!unitId) return;
-
-                        let rawStatus = card.getAttribute('data-status') || card.querySelector('.badge')?.innerText || 'Available';
-                        let status = rawStatus.trim();
-                        
-                        if (status === 'Reserved') status = 'Proceeding';
-                        if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
-
-                        const unitName = card.querySelector('h5')?.innerText.trim() || card.querySelector('h4')?.innerText.trim() || 'Unit';
-                        const unitType = card.querySelector('small')?.innerText.trim() || '';
-
-                        // Extract Price Safely
-                        let priceHtml = '';
-                        const priceCandidates = card.querySelectorAll('.text-success, h5, .sh-price-row');
-                        priceCandidates.forEach(el => {
-                            if ((el.innerText.includes('€') || el.innerText.includes('POA') || /\d/.test(el.innerText)) && el.innerText.trim() !== unitName) {
-                                priceHtml = el.innerHTML; 
+                        try {
+                            // 1. EXTRACT DATA (Bulletproof Extraction)
+                            let unitId = card.getAttribute('data-unit-id');
+                            if (!unitId) {
+                                const sel = card.querySelector('select[onchange^="managerUpdateStatus"]');
+                                if (sel) { const m = sel.getAttribute('onchange').match(/\d+/); if (m) unitId = m[0]; }
                             }
-                        });
-                        if (!priceHtml) priceHtml = '<span style="color:var(--sh-text-muted); font-size:0.9rem;">POA</span>';
+                            if (!unitId) {
+                                const btn = card.querySelector('button[onclick*="holdProperty"], button[onclick*="requestReserve"]');
+                                if (btn) { const m = btn.getAttribute('onclick').match(/\d+/); if (m) unitId = m[0]; }
+                            }
+                            if (!unitId) unitId = Math.floor(Math.random() * 1000000); // Safety fallback
 
-                        // Extract Resale
-                        let resalePrice = '';
-                        const resaleInput = card.querySelector('input[placeholder*="Resale"]');
-                        if (resaleInput) resalePrice = resaleInput.value;
+                            let rawStatus = card.getAttribute('data-status') || card.querySelector('.badge')?.innerText || 'Available';
+                            let status = rawStatus.trim();
+                            
+                            // Map old statuses to Enums
+                            if (status === 'Reserved') status = 'Proceeding';
+                            if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
 
-                        // Extract SQM Specs
-                        let specsHtml = '';
-                        const specs = card.querySelectorAll('.badge-secondary');
-                        if (specs.length > 0) {
-                            specsHtml += `<div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">`;
-                            specs.forEach(sp => {
-                                specsHtml += `<span style="font-size:0.7rem; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px; color:var(--sh-text-muted); font-weight:bold;">${sp.innerText}</span>`;
+                            const unitName = card.querySelector('h5')?.innerText.trim() || card.querySelector('h4')?.innerText.trim() || 'Unit';
+                            const unitType = card.querySelector('small')?.innerText.trim() || '';
+
+                            // Safely Extract Pricing
+                            let priceHtml = '';
+                            const priceCandidates = card.querySelectorAll('.text-success, h5, .sh-price-row, .font-weight-bold');
+                            priceCandidates.forEach(el => {
+                                if (el.innerText.includes('€') || el.innerText.includes('POA')) {
+                                    priceHtml = el.innerHTML; 
+                                }
                             });
-                            specsHtml += `</div>`;
-                        }
+                            if (!priceHtml) priceHtml = 'POA';
 
-                        // 2. ENFORCE VIEW MODE RESTRICTIONS
-                        if (currentViewMode === 'agent') {
-                            if (status.includes('Sold')) {
-                                priceHtml = '<span style="color:var(--sh-text-muted); font-style:italic; font-size:0.85rem;">🔒 Price Confidential</span>';
+                            // Safely Extract Resale Input if it exists
+                            let resalePrice = '';
+                            const resaleInput = card.querySelector('input[placeholder*="Resale"]');
+                            if (resaleInput) resalePrice = resaleInput.value;
+
+                            // Safely Extract Badges (SQM, Info)
+                            let specsHtml = '';
+                            const badges = card.querySelectorAll('.badge');
+                            let badgeFound = false;
+                            badges.forEach(b => {
+                                const txt = b.innerText.trim();
+                                if (!['Available','On Hold','Resale','BOM','Proceeding','Sold','Sold Pending Approval','Proceeding Pending Approval'].includes(txt)) {
+                                    specsHtml += `<span style="font-size:0.75rem; background:rgba(255,255,255,0.08); padding:5px 10px; border-radius:6px; color:var(--sh-text-main); font-weight:600;">${b.innerHTML}</span>`;
+                                    badgeFound = true;
+                                }
+                            });
+                            if(badgeFound) specsHtml = `<div style="display:flex; gap:8px; margin-bottom:15px; flex-wrap:wrap;">${specsHtml}</div>`;
+
+                            // 2. ENFORCE AGENT RESTRICTIONS
+                            if (currentViewMode === 'agent') {
+                                if (status.includes('Sold')) {
+                                    priceHtml = '<span style="color:var(--sh-text-muted); font-style:italic; font-size:0.85rem;">🔒 Price Confidential</span>';
+                                }
                             }
-                        }
 
-                        // 3. BUILD A BRAND NEW CARD ELEMENT
-                        const newCard = document.createElement('div');
-                        newCard.className = 'sh-card';
-                        newCard.setAttribute('data-status', status);
-                        newCard.style.marginBottom = '15px';
+                            // 3. BUILD A BRAND NEW CARD
+                            const newCard = document.createElement('div');
+                            newCard.className = 'sh-card';
+                            newCard.setAttribute('data-status', status);
+                            newCard.style.marginBottom = '15px';
 
-                        if (status.includes('Available') || status === 'BOM') newCard.style.borderLeft = '4px solid var(--sh-avail)';
-                        else if (status.includes('Proceeding')) newCard.style.borderLeft = '4px solid var(--sh-proc)';
-                        else if (status.includes('Sold')) newCard.style.borderLeft = '4px solid var(--sh-sold)';
-                        else if (status === 'Resale') newCard.style.borderLeft = '4px solid var(--sh-resale)';
-                        else newCard.style.borderLeft = '4px solid var(--sh-hold)';
+                            if (status.includes('Available') || status === 'BOM') newCard.style.borderLeft = '4px solid var(--sh-avail)';
+                            else if (status.includes('Proceeding')) newCard.style.borderLeft = '4px solid var(--sh-proc)';
+                            else if (status.includes('Sold')) newCard.style.borderLeft = '4px solid var(--sh-sold)';
+                            else if (status === 'Resale') newCard.style.borderLeft = '4px solid var(--sh-resale)';
+                            else newCard.style.borderLeft = '4px solid var(--sh-hold)';
 
-                        let cardContent = `
-                            <div class="sh-card-header">
-                                <div>
-                                    <h4 class="sh-card-title">${unitName}</h4>
-                                    <div style="font-size:0.75rem; color:var(--sh-text-muted); text-transform:uppercase; font-weight:700;">${unitType}</div>
+                            let cardContent = `
+                                <div class="sh-card-header">
+                                    <div>
+                                        <h4 class="sh-card-title">${unitName}</h4>
+                                        <div style="font-size:0.75rem; color:var(--sh-text-muted); text-transform:uppercase; font-weight:700;">${unitType}</div>
+                                    </div>
+                                    <div><span class="sh-badge ${status.replace(/ /g, '-')}">${status}</span></div>
                                 </div>
-                                <div><span class="sh-badge ${status.replace(/ /g, '-')}">${status}</span></div>
-                            </div>
-                            <div class="sh-price-row">${priceHtml}</div>
-                            ${specsHtml}
-                        `;
-
-                        // Inject original Floor Plan button if it existed
-                        const planBtn = card.querySelector(`button[onclick*="openPlanModal"]`);
-                        if (planBtn) {
-                            cardContent += `<button class="sh-btn sh-btn-info" onclick="${planBtn.getAttribute('onclick')}" style="margin-bottom:15px;"><i class="fas fa-map"></i> View Floor Plan</button>`;
-                        }
-
-                        // 4. INJECT CONTROLS (Strictly based on View Mode)
-                        cardContent += `<div style="border-top: 1px solid var(--sh-border); padding-top: 15px; margin-top: 10px;">`;
-
-                        if (currentViewMode === 'manager') {
-                            cardContent += `
-                                <label class="sh-label">Update Status</label>
-                                <select class="sh-status-select" id="status-${unitId}" onchange="handleStatusChange(${unitId}, this)">
-                                    <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
-                                    <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
-                                    <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
-                                    <option value="BOM" ${status === 'BOM' ? 'selected' : ''}>BOM</option>
-                                    <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
-                                    <option value="Proceeding Pending Approval" ${status === 'Proceeding Pending Approval' ? 'selected' : ''}>Proceeding Pending Approval</option>
-                                    <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
-                                    <option value="Sold Pending Approval" ${status === 'Sold Pending Approval' ? 'selected' : ''}>Sold Pending Approval</option>
-                                </select>
-                                <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" style="display: ${status === 'Resale' ? 'block' : 'none'};">
-                                
-                                <button class="sh-btn sh-btn-warning" style="background:transparent; border:1px dashed var(--sh-border);" onclick="togglePriceEdit(${unitId})">✎ Modify Pricing</button>
-                                
-                                <div id="price_edit_${unitId}" style="display:none; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; border:1px solid var(--sh-border); margin-top:10px;">
-                                    <label class="sh-label">Shell Price (€)</label>
-                                    <input type="number" id="inp_sh_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
-                                    <label class="sh-label">Finishes Price (€)</label>
-                                    <input type="number" id="inp_fn_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
-                                    <button class="sh-btn sh-btn-success" onclick="savePrice(${unitId})">Save Prices</button>
-                                </div>
+                                <div class="sh-price-row">${priceHtml}</div>
+                                ${specsHtml}
                             `;
-                        } else {
-                            // Agent View Controls
-                            if (status === 'Available' || status === 'BOM') {
+
+                            // Re-inject Floor Plan if found
+                            const planBtn = card.querySelector(`button[onclick*="openPlanModal"]`);
+                            if (planBtn) {
+                                cardContent += `<button class="sh-btn sh-btn-info" onclick="${planBtn.getAttribute('onclick')}" style="margin-bottom:15px;"><i class="fas fa-map"></i> View Floor Plan</button>`;
+                            }
+
+                            // 4. INJECT STRICT CONTROLS
+                            cardContent += `<div style="border-top: 1px solid var(--sh-border); padding-top: 15px; margin-top: 10px;">`;
+
+                            if (currentViewMode === 'manager') {
                                 cardContent += `
-                                    <div style="display:flex; gap:10px;">
-                                        <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Hold</button>
-                                        <button class="sh-btn sh-btn-success" onclick="requestReserve(${unitId})"><i class="fas fa-check"></i> Proceed</button>
+                                    <label class="sh-label">Update Status</label>
+                                    <select class="sh-status-select" id="status-${unitId}" onchange="handleStatusChange(${unitId}, this)">
+                                        <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
+                                        <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
+                                        <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
+                                        <option value="BOM" ${status === 'BOM' ? 'selected' : ''}>BOM</option>
+                                        <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
+                                        <option value="Proceeding Pending Approval" ${status === 'Proceeding Pending Approval' ? 'selected' : ''}>Proceeding Pending Approval</option>
+                                        <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
+                                        <option value="Sold Pending Approval" ${status === 'Sold Pending Approval' ? 'selected' : ''}>Sold Pending Approval</option>
+                                    </select>
+                                    <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" style="display: ${status === 'Resale' ? 'block' : 'none'};">
+                                    
+                                    <button class="sh-btn sh-btn-warning" style="background:transparent; border:1px dashed var(--sh-border);" onclick="togglePriceEdit(${unitId})">✎ Modify Pricing</button>
+                                    
+                                    <div id="price_edit_${unitId}" style="display:none; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; border:1px solid var(--sh-border); margin-top:10px;">
+                                        <label class="sh-label">Shell Price (€)</label>
+                                        <input type="number" id="inp_sh_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
+                                        <label class="sh-label">Finishes Price (€)</label>
+                                        <input type="number" id="inp_fn_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
+                                        <button class="sh-btn sh-btn-success" onclick="savePrice(${unitId})">Save Prices</button>
                                     </div>
                                 `;
                             } else {
-                                cardContent += `
-                                    <div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; padding: 5px 0;">
-                                        Current Status: <span style="color:#fff;">${status}</span>
-                                    </div>
-                                `;
+                                // AGENT VIEW LOGIC
+                                if (status === 'Available' || status === 'BOM') {
+                                    cardContent += `
+                                        <div style="display:flex; gap:10px;">
+                                            <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Hold</button>
+                                            <button class="sh-btn sh-btn-success" onclick="requestReserve(${unitId})"><i class="fas fa-check"></i> Proceed</button>
+                                        </div>
+                                    `;
+                                } else {
+                                    cardContent += `
+                                        <div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; padding: 5px 0;">
+                                            Current Status: <span style="color:#fff;">${status}</span>
+                                        </div>
+                                    `;
+                                }
                             }
-                        }
 
-                        cardContent += `</div>`;
-                        newCard.innerHTML = cardContent;
-                        newContainer.appendChild(newCard);
+                            cardContent += `</div>`;
+                            newCard.innerHTML = cardContent;
+                            newContainer.appendChild(newCard);
+
+                        } catch (e) {
+                            console.error('Error rebuilding card. Attempting raw fallback.', e);
+                            newContainer.appendChild(card);
+                        }
                     });
 
-                    // Completely overwrite the old list with the newly built HTML
                     document.getElementById('unitListContainer').innerHTML = '';
                     document.getElementById('unitListContainer').appendChild(newContainer);
                     
