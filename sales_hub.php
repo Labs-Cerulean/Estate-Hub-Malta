@@ -112,6 +112,17 @@ require_once 'header.php';
     .sh-units { padding: 20px; display: flex; flex-direction: column; gap: 15px; }
     .sh-card { background: var(--sh-bg-base) !important; border: 1px solid var(--sh-border) !important; border-radius: 12px !important; padding: 15px !important; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important; color: #fff; }
     
+    .sh-card-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+    .sh-card-title { font-size: 1.1rem; font-weight: 800; margin: 0; color: #fff; }
+    .sh-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; border: 1px solid; text-align: center; }
+    .sh-badge.Available, .sh-badge.BOM { background: rgba(16,185,129,0.1); color: var(--sh-avail); border-color: rgba(16,185,129,0.3); }
+    .sh-badge.Proceeding, .sh-badge.Proceeding-Pending-Approval { background: rgba(245,158,11,0.1); color: var(--sh-proc); border-color: rgba(245,158,11,0.3); }
+    .sh-badge.Sold, .sh-badge.Sold-Pending-Approval { background: rgba(59,130,246,0.1); color: var(--sh-sold); border-color: rgba(59,130,246,0.3); }
+    .sh-badge.Resale { background: rgba(168,85,247,0.1); color: var(--sh-resale); border-color: rgba(168,85,247,0.3); }
+    .sh-badge.On-Hold { background: rgba(100,116,139,0.1); color: var(--sh-hold); border-color: rgba(100,116,139,0.3); }
+    
+    .sh-price-row { font-size: 1.25rem; font-weight: 800; color: var(--sh-text-main); margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
+    
     /* Control overrides */
     .sh-status-select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-border); background: var(--sh-bg-panel); color: #fff; font-weight: bold; cursor: pointer; font-size: 0.85rem; margin-bottom: 10px; outline: none; }
     .sh-resale-input { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-resale); background: rgba(168,85,247,0.1); color: #fff; font-weight: bold; margin-bottom: 10px; outline: none; }
@@ -353,26 +364,6 @@ require_once 'header.php';
 
     function closeSidebar() { document.getElementById('custom-sidebar').classList.remove('open'); }
 
-    // Recursive function to hide price text nodes securely without breaking HTML structure
-    function hidePricesInDOM(element) {
-        if (element.hasChildNodes()) {
-            Array.from(element.childNodes).forEach(child => {
-                if (child.nodeType === Node.TEXT_NODE) {
-                    if (child.nodeValue.includes('€')) {
-                        let span = document.createElement('span');
-                        span.innerHTML = ' <span style="color:var(--sh-text-muted); font-style:italic; font-size:0.85rem;">🔒 Price Confidential</span> ';
-                        element.replaceChild(span, child);
-                    }
-                } else if (child.nodeType === Node.ELEMENT_NODE) {
-                    // Do not parse input/select tags to avoid breaking inputs
-                    if (child.tagName !== 'INPUT' && child.tagName !== 'SELECT' && child.tagName !== 'TEXTAREA') {
-                        hidePricesInDOM(child);
-                    }
-                }
-            });
-        }
-    }
-
     // ========================================================
     // MAPBOX INTEGRATION
     // ========================================================
@@ -409,7 +400,7 @@ require_once 'header.php';
     });
 
     // ========================================================
-    // DATA FETCHING & DYNAMIC INTERCEPTOR (THE FIX)
+    // ABSOLUTE DOM REBUILD ENGINE (THE FIX)
     // ========================================================
     function openProjectSidebar(project) {
         map.flyTo({ center: [project.longitude, project.latitude], zoom: 17, pitch: 50, essential: true });
@@ -434,53 +425,91 @@ require_once 'header.php';
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = unitData.html;
                     
-                    const unitCards = tempDiv.querySelectorAll('.card, .unit-card'); // Support original API output
+                    const unitCards = tempDiv.querySelectorAll('.card, .unit-card'); 
+                    const newContainer = document.createElement('div');
                     
                     unitCards.forEach(card => {
+                        // 1. EXTRACT ALL RAW DATA
                         const unitId = card.getAttribute('data-unit-id') || card.querySelector('[data-unit-id]')?.getAttribute('data-unit-id');
                         if (!unitId) return;
 
-                        let status = card.getAttribute('data-status') || 'Available';
+                        let rawStatus = card.getAttribute('data-status') || card.querySelector('.badge')?.innerText || 'Available';
+                        let status = rawStatus.trim();
                         
-                        // Clean Statuses
                         if (status === 'Reserved') status = 'Proceeding';
                         if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
-                        if (status === 'BOM') status = 'Available';
-                        
-                        // Convert to new Scoped CSS Structure
-                        card.className = `sh-card`;
-                        card.setAttribute('data-status', status);
-                        card.style.marginBottom = '15px';
-                        
-                        // Color borders
-                        if (status.includes('Available')) card.style.borderLeft = '4px solid var(--sh-avail)';
-                        else if (status.includes('Proceeding')) card.style.borderLeft = '4px solid var(--sh-proc)';
-                        else if (status.includes('Sold')) card.style.borderLeft = '4px solid var(--sh-sold)';
-                        else if (status === 'Resale') card.style.borderLeft = '4px solid var(--sh-resale)';
-                        else card.style.borderLeft = '4px solid var(--sh-hold)';
 
-                        // 1. Determine Agent view overrides
+                        const unitName = card.querySelector('h5')?.innerText.trim() || card.querySelector('h4')?.innerText.trim() || 'Unit';
+                        const unitType = card.querySelector('small')?.innerText.trim() || '';
+
+                        // Extract Price Safely
+                        let priceHtml = '';
+                        const priceCandidates = card.querySelectorAll('.text-success, h5, .sh-price-row');
+                        priceCandidates.forEach(el => {
+                            if ((el.innerText.includes('€') || el.innerText.includes('POA') || /\d/.test(el.innerText)) && el.innerText.trim() !== unitName) {
+                                priceHtml = el.innerHTML; 
+                            }
+                        });
+                        if (!priceHtml) priceHtml = '<span style="color:var(--sh-text-muted); font-size:0.9rem;">POA</span>';
+
+                        // Extract Resale
+                        let resalePrice = '';
+                        const resaleInput = card.querySelector('input[placeholder*="Resale"]');
+                        if (resaleInput) resalePrice = resaleInput.value;
+
+                        // Extract SQM Specs
+                        let specsHtml = '';
+                        const specs = card.querySelectorAll('.badge-secondary');
+                        if (specs.length > 0) {
+                            specsHtml += `<div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">`;
+                            specs.forEach(sp => {
+                                specsHtml += `<span style="font-size:0.7rem; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px; color:var(--sh-text-muted); font-weight:bold;">${sp.innerText}</span>`;
+                            });
+                            specsHtml += `</div>`;
+                        }
+
+                        // 2. ENFORCE VIEW MODE RESTRICTIONS
                         if (currentViewMode === 'agent') {
                             if (status.includes('Sold')) {
-                                hidePricesInDOM(card);
+                                priceHtml = '<span style="color:var(--sh-text-muted); font-style:italic; font-size:0.85rem;">🔒 Price Confidential</span>';
                             }
                         }
 
-                        // 2. Identify old control areas from original API html and replace with proper controls
-                        const oldControls = card.querySelector('select[onchange^="managerUpdateStatus"]')?.parentNode 
-                                         || card.querySelector('.action-buttons') 
-                                         || card.querySelector('form');
+                        // 3. BUILD A BRAND NEW CARD ELEMENT
+                        const newCard = document.createElement('div');
+                        newCard.className = 'sh-card';
+                        newCard.setAttribute('data-status', status);
+                        newCard.style.marginBottom = '15px';
 
-                        const controlWrapper = document.createElement('div');
-                        controlWrapper.style.marginTop = '15px';
-                        controlWrapper.style.paddingTop = '15px';
-                        controlWrapper.style.borderTop = '1px solid var(--sh-border)';
+                        if (status.includes('Available') || status === 'BOM') newCard.style.borderLeft = '4px solid var(--sh-avail)';
+                        else if (status.includes('Proceeding')) newCard.style.borderLeft = '4px solid var(--sh-proc)';
+                        else if (status.includes('Sold')) newCard.style.borderLeft = '4px solid var(--sh-sold)';
+                        else if (status === 'Resale') newCard.style.borderLeft = '4px solid var(--sh-resale)';
+                        else newCard.style.borderLeft = '4px solid var(--sh-hold)';
 
-                        // Extract resale if it exists
-                        let resalePrice = card.querySelector('.resale-input')?.value || '';
+                        let cardContent = `
+                            <div class="sh-card-header">
+                                <div>
+                                    <h4 class="sh-card-title">${unitName}</h4>
+                                    <div style="font-size:0.75rem; color:var(--sh-text-muted); text-transform:uppercase; font-weight:700;">${unitType}</div>
+                                </div>
+                                <div><span class="sh-badge ${status.replace(/ /g, '-')}">${status}</span></div>
+                            </div>
+                            <div class="sh-price-row">${priceHtml}</div>
+                            ${specsHtml}
+                        `;
+
+                        // Inject original Floor Plan button if it existed
+                        const planBtn = card.querySelector(`button[onclick*="openPlanModal"]`);
+                        if (planBtn) {
+                            cardContent += `<button class="sh-btn sh-btn-info" onclick="${planBtn.getAttribute('onclick')}" style="margin-bottom:15px;"><i class="fas fa-map"></i> View Floor Plan</button>`;
+                        }
+
+                        // 4. INJECT CONTROLS (Strictly based on View Mode)
+                        cardContent += `<div style="border-top: 1px solid var(--sh-border); padding-top: 15px; margin-top: 10px;">`;
 
                         if (currentViewMode === 'manager') {
-                            controlWrapper.innerHTML = `
+                            cardContent += `
                                 <label class="sh-label">Update Status</label>
                                 <select class="sh-status-select" id="status-${unitId}" onchange="handleStatusChange(${unitId}, this)">
                                     <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
@@ -505,33 +534,31 @@ require_once 'header.php';
                                 </div>
                             `;
                         } else {
-                            // Agent View
+                            // Agent View Controls
                             if (status === 'Available' || status === 'BOM') {
-                                controlWrapper.innerHTML = `
+                                cardContent += `
                                     <div style="display:flex; gap:10px;">
                                         <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Hold</button>
                                         <button class="sh-btn sh-btn-success" onclick="requestReserve(${unitId})"><i class="fas fa-check"></i> Proceed</button>
                                     </div>
                                 `;
                             } else {
-                                controlWrapper.innerHTML = `
-                                    <div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center;">
+                                cardContent += `
+                                    <div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; padding: 5px 0;">
                                         Current Status: <span style="color:#fff;">${status}</span>
                                     </div>
                                 `;
                             }
                         }
 
-                        // Inject the new controls
-                        if (oldControls) {
-                            oldControls.parentNode.replaceChild(controlWrapper, oldControls);
-                        } else {
-                            card.appendChild(controlWrapper);
-                        }
+                        cardContent += `</div>`;
+                        newCard.innerHTML = cardContent;
+                        newContainer.appendChild(newCard);
                     });
 
+                    // Completely overwrite the old list with the newly built HTML
                     document.getElementById('unitListContainer').innerHTML = '';
-                    unitCards.forEach(c => document.getElementById('unitListContainer').appendChild(c));
+                    document.getElementById('unitListContainer').appendChild(newContainer);
                     
                     // Render Media
                     let slides = [];
@@ -671,14 +698,19 @@ require_once 'header.php';
         window.open('print_pricelist.php?project_id=' + pid, '_blank');
     }
     
-    // Fallback bindings for API actions
+    // API Actions for Agent
     function holdProperty(propertyId) {
         if(!confirm("Are you sure you want to put this unit on hold? You will have 7 days to finalize.")) return;
         let formData = new FormData(); formData.append('action', 'hold_property'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
-            if(data.success) { showToast("Property put on hold!", "success"); const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); if(pid && mapProjectsData[pid]) setTimeout(() => openProjectSidebar(mapProjectsData[pid]), 500); } 
-            else { showToast("Error: " + data.message, "error"); }
+            if(data.success) { 
+                showToast("Property put on hold!", "success"); 
+                const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); 
+                if(pid && mapProjectsData[pid]) setTimeout(() => openProjectSidebar(mapProjectsData[pid]), 500); 
+            } else { 
+                showToast("Error: " + data.message, "error"); 
+            }
         });
     }
 
@@ -687,8 +719,13 @@ require_once 'header.php';
         let formData = new FormData(); formData.append('action', 'request_reserved'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
-            if(data.success) { showToast("Status updated to Proceeding!", "success"); const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); if(pid && mapProjectsData[pid]) setTimeout(() => openProjectSidebar(mapProjectsData[pid]), 500); } 
-            else { showToast("Error: " + data.message, "error"); }
+            if(data.success) { 
+                showToast("Status updated to Proceeding!", "success"); 
+                const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); 
+                if(pid && mapProjectsData[pid]) setTimeout(() => openProjectSidebar(mapProjectsData[pid]), 500); 
+            } else { 
+                showToast("Error: " + data.message, "error"); 
+            }
         });
     }
 
