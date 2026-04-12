@@ -82,12 +82,28 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
         /* Terms */
         .terms { font-size: 0.75rem; color: var(--text-light); background: var(--bg-light); padding: 10px 15px; border-radius: 6px; border-left: 3px solid var(--brand-blue); page-break-inside: avoid; }
         
+        /* Page 2: Comparison Chart */
+        .page-break { margin-top: 40px; }
+        
+        .comp-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-bottom: 20px; page-break-inside: avoid; }
+        .comp-table th { background: var(--brand-dark); color: #fff; text-align: left; padding: 10px; border: 1px solid var(--border); }
+        .comp-table th.highlight { background: var(--brand-blue); }
+        .comp-table td { padding: 10px; border: 1px solid var(--border); vertical-align: top; }
+        .comp-table tr:nth-child(even) { background: var(--bg-light); }
+        .comp-table td:nth-child(2) { background: rgba(14, 165, 233, 0.05); font-weight: 600; color: var(--brand-dark); border-left: 2px solid var(--brand-blue); border-right: 2px solid var(--brand-blue); }
+        
+        .strat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; page-break-inside: avoid; }
+        .strat-box { border-left: 3px solid var(--brand-blue); padding: 12px; background: var(--bg-light); }
+        .strat-box h4 { margin: 0 0 5px 0; font-size: 0.85rem; color: var(--brand-dark); }
+        .strat-box p { margin: 0; font-size: 0.75rem; color: var(--text-light); }
+
         .btn-print { position: fixed; bottom: 30px; right: 30px; background: var(--brand-blue); color: white; border: none; padding: 15px 25px; border-radius: 30px; font-weight: bold; font-size: 1rem; cursor: pointer; box-shadow: 0 10px 25px rgba(14, 165, 233, 0.4); z-index: 1000; }
         
         @media print {
             body { background: #fff; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .document-container { box-shadow: none; max-width: 100%; padding: 0; border-top: none; }
             .btn-print { display: none !important; }
+            .page-break { page-break-before: always; margin-top: 0; padding-top: 10mm; }
             @page { size: A4; margin: 12mm; }
         }
     </style>
@@ -167,7 +183,6 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
         </p>
 
         <div class="pricing-grid">
-            
             <div class="price-card">
                 <div class="price-title">Invoice 1: PRA & Excel Group</div>
                 <div class="price-entities">Billed to: PRA Construction Ltd<br>Covers: PRA + All Excel Subsidiaries<br>Modules: 1, 2, 3, 4, 5, 6, 7, 8</div>
@@ -177,7 +192,7 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
 
             <div class="price-card">
                 <div class="price-title">Invoice 2: Next Group</div>
-                <div class="price-entities">Billed to: Next Construction Ltd<br>Covers: Next Construction + Next Developers<br>Modules: 1, 2, 3, 4, 5, 6, 7, 8</div>
+                <div class="price-entities">Billed to: Next Construction Ltd<br>Covers: Next Const. + Next Developers<br>Modules: 1, 2, 3, 4, 5, 6, 7, 8</div>
                 <div class="price-old">Standard Value: €800 / month</div>
                 <div class="price-cost">€400 / month</div>
             </div>
@@ -195,7 +210,6 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
                 <div class="price-old" style="color: #7dd3fc;">Standard Value: €800+ / month</div>
                 <div class="price-cost" style="color: #fff;">€0.00 (Lifetime Waiver)</div>
             </div>
-
         </div>
     </div>
 
@@ -207,7 +221,89 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
         4. <strong>Post-Pilot:</strong> At the conclusion of the 12-month pilot phase (June 2027), standard rates will automatically apply unless renegotiated.
     </div>
 
+    <div class="page-break"></div>
+    
+    <div class="header">
+        <div class="header-left">
+            <h1 style="font-size: 1.4rem;">Appendix A: Market & Value Analysis</h1>
+        </div>
+        <div class="header-right">
+            <div><strong>Cerulean Labs Ltd.</strong></div>
+        </div>
+    </div>
+
+    <div class="intro">
+        <p>To contextualize the proposed licensing fees, the following matrix compares <strong>Estate Hub</strong> against the prevailing open-market alternatives available to Maltese construction and real estate firms. The analysis demonstrates the significant operational and financial advantages of utilizing a natively developed system.</p>
+    </div>
+
+    <div class="section-title">Competitive Pricing & Capability Matrix</div>
+
+    <table class="comp-table">
+        <thead>
+            <tr>
+                <th style="width: 20%;">Feature / Aspect</th>
+                <th class="highlight" style="width: 26%;">Estate Hub (Proposed)</th>
+                <th style="width: 27%;">Tier 1 Construction Software<br><span style="font-size:0.7rem; font-weight:normal;">(e.g., Procore)</span></th>
+                <th style="width: 27%;">Generic Cloud ERP<br><span style="font-size:0.7rem; font-weight:normal;">(e.g., Odoo, MS Dynamics)</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Pricing Model</strong></td>
+                <td>Flat Fee per Subsidiary.<br>Unlimited Users.</td>
+                <td>Percentage of Annual Construction Volume (Revenue).</td>
+                <td>Per-User / Per-Month License.<br>Penalizes team growth.</td>
+            </tr>
+            <tr>
+                <td><strong>Setup / Implementation Fees</strong></td>
+                <td><strong>€0</strong></td>
+                <td>€5,000 - €10,000+</td>
+                <td>€15,000 - €40,000+ (Requires local agency custom development).</td>
+            </tr>
+            <tr>
+                <td><strong>Estimated Monthly Cost</strong><br><span style="font-size:0.7rem; font-weight:normal;">(For a 20-person group)</span></td>
+                <td><strong>€600 - €1,200</strong><br><span style="font-size:0.7rem;">(Fixed)</span></td>
+                <td>€2,000 - €4,000+<br><span style="font-size:0.7rem;">(Scales up with your revenue)</span></td>
+                <td>€1,000 - €3,000+<br><span style="font-size:0.7rem;">(Scales up with headcount)</span></td>
+            </tr>
+            <tr>
+                <td><strong>Malta-Specific Logic</strong><br><span style="font-size:0.7rem; font-weight:normal;">(BCA, OHSA, Eapps)</span></td>
+                <td><strong>Native.</strong> Built specifically around Maltese law and local bottlenecks.</td>
+                <td><strong>None.</strong> Uses generic US/UK compliance frameworks.</td>
+                <td><strong>None.</strong> Must be custom-built from scratch by expensive local developers.</td>
+            </tr>
+            <tr>
+                <td><strong>Sales & Real Estate Integration</strong></td>
+                <td><strong>Native.</strong> Connects live site finishes directly to the Real Estate Sales Hub.</td>
+                <td><strong>None.</strong> Requires a secondary subscription (e.g., Arthur Online) at €500+/mo.</td>
+                <td>Requires expensive custom API bridges between the ERP and the website.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">Strategic Advantages (The "Why Estate Hub?")</div>
+    
+    <div class="strat-grid">
+        <div class="strat-box">
+            <h4>1. No "Per-Seat" Penalty</h4>
+            <p>Traditional ERPs charge per user. If the group hires a new site manager, QS, or sales agent, the monthly software bill increases immediately. Estate Hub’s flat-fee model encourages total company adoption without budget anxiety.</p>
+        </div>
+        <div class="strat-box">
+            <h4>2. Zero Customization Traps</h4>
+            <p>Off-the-shelf software forces construction firms to change their operational habits to fit the software's limitations. Estate Hub was built ground-up to reflect exactly how PRA, Excel, and Blue Clay calculate turnkey finishes, track BCA clearances, and manage local subcontractors.</p>
+        </div>
+        <div class="strat-box">
+            <h4>3. Avoiding Five-Figure Setup Costs</h4>
+            <p>To achieve the custom workflow Estate Hub provides (e.g., the Finishes Calculator or PA sync), a local tech agency implementing a generic ERP would charge tens of thousands of Euros in upfront development fees before the system even launches.</p>
+        </div>
+    </div>
+
 </div>
+
+<script>
+    // Automatically trigger print dialog on load (optional, you can remove this if you prefer manual clicking)
+    // window.onload = function() { window.print(); }
+</script>
 
 </body>
 </html>
