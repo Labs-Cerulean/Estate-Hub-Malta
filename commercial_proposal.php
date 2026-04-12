@@ -193,15 +193,15 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
             <div class="price-card">
                 <div class="price-title">Invoice 2: Next Group</div>
                 <div class="price-entities">Billed to: Next Construction Ltd<br>Covers: Next Const. + Next Developers<br>Modules: 1, 2, 3, 4, 5, 6, 7, 8</div>
-                <div class="price-old">Standard Value: €800 / month</div>
-                <div class="price-cost">€400 / month</div>
+                <div class="price-old">Standard Value: €1000 / month</div>
+                <div class="price-cost">€500 / month</div>
             </div>
 
             <div class="price-card">
                 <div class="price-title">Invoice 3: PRAX Concrete</div>
                 <div class="price-entities">Billed to: PRAX Concrete Ltd<br>Covers: PRAX Concrete Only<br>Modules: 5 (Commercial Quoting)</div>
-                <div class="price-old">Standard Value: €149 / month</div>
-                <div class="price-cost">€75 / month</div>
+                <div class="price-old">Standard Value: €180 / month</div>
+                <div class="price-cost">€90 / month</div>
             </div>
 
             <div class="price-card sponsor">
