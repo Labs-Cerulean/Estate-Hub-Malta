@@ -9,17 +9,10 @@ if (!in_array($_SESSION['role'], $allowed_roles)) {
 }
 
 // ==========================================
-// AUTO-DEPLOY DATABASE UPDATES (SALES HUB V2)
+// AUTO-DEPLOY DATABASE UPDATES
 // ==========================================
 try {
     $pdo->exec("ALTER TABLE project_units ADD COLUMN resale_price DECIMAL(10,2) DEFAULT NULL");
-} catch(PDOException $e) {}
-
-try {
-    // Safe Migration of old statuses
-    $pdo->exec("UPDATE project_units SET status = 'Proceeding' WHERE status = 'Reserved'");
-    $pdo->exec("UPDATE project_units SET status = 'Sold' WHERE status IN ('Sold POS', 'Sold Contract')");
-    $pdo->exec("UPDATE project_units SET status = 'Available' WHERE status = 'BOM'");
 } catch(PDOException $e) {}
 
 require_once 'header.php';
@@ -30,7 +23,7 @@ require_once 'header.php';
 
 <style>
     /* ==========================================
-       SCOPED SALES HUB CSS (NO NATIVE BLEED)
+       SCOPED SALES HUB CSS
        ========================================== */
     :root {
         --sh-bg-base: #0f172a;
@@ -66,7 +59,6 @@ require_once 'header.php';
     .sh-overlay-title { font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0 0 15px 0; display: flex; align-items: center; gap: 8px; }
     .sh-label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--sh-text-muted); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px; }
     .sh-select { width: 100%; background: var(--sh-bg-base); color: #fff; border: 1px solid var(--sh-border); padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 15px; outline: none; cursor: pointer; }
-    .sh-select:focus { border-color: var(--sh-accent); }
     
     .sh-btn { width: 100%; padding: 10px; border-radius: 8px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; transition: 0.2s; margin-bottom: 10px; }
     .sh-btn-warning { background: rgba(245, 158, 11, 0.1); color: var(--sh-proc); border: 1px solid rgba(245, 158, 11, 0.3); }
@@ -118,30 +110,11 @@ require_once 'header.php';
 
     /* Clean Unit Cards */
     .sh-units { padding: 20px; display: flex; flex-direction: column; gap: 15px; }
-    .sh-card { background: var(--sh-bg-base); border: 1px solid var(--sh-border); border-radius: 12px; padding: 15px; position: relative; overflow: hidden; }
-    .sh-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
-    
-    .sh-card[data-status="Available"]::before { background: var(--sh-avail); }
-    .sh-card[data-status="Proceeding"]::before { background: var(--sh-proc); }
-    .sh-card[data-status="Sold"]::before { background: var(--sh-sold); }
-    .sh-card[data-status="Resale"]::before { background: var(--sh-resale); }
-    .sh-card[data-status="On Hold"]::before { background: var(--sh-hold); }
-    
-    .sh-card-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .sh-card-title { font-size: 1.1rem; font-weight: 800; margin: 0; color: #fff; }
-    .sh-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; border: 1px solid; }
-    .sh-badge.Available { background: rgba(16,185,129,0.1); color: var(--sh-avail); border-color: rgba(16,185,129,0.3); }
-    .sh-badge.Proceeding { background: rgba(245,158,11,0.1); color: var(--sh-proc); border-color: rgba(245,158,11,0.3); }
-    .sh-badge.Sold { background: rgba(59,130,246,0.1); color: var(--sh-sold); border-color: rgba(59,130,246,0.3); }
-    .sh-badge.Resale { background: rgba(168,85,247,0.1); color: var(--sh-resale); border-color: rgba(168,85,247,0.3); }
-    .sh-badge.On-Hold { background: rgba(100,116,139,0.1); color: var(--sh-hold); border-color: rgba(100,116,139,0.3); }
-    
-    .sh-price-row { font-size: 1.25rem; font-weight: 800; color: var(--sh-text-main); margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
+    .sh-card { background: var(--sh-bg-base) !important; border: 1px solid var(--sh-border) !important; border-radius: 12px !important; padding: 15px !important; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important; color: #fff; }
     
     /* Control overrides */
     .sh-status-select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-border); background: var(--sh-bg-panel); color: #fff; font-weight: bold; cursor: pointer; font-size: 0.85rem; margin-bottom: 10px; outline: none; }
     .sh-resale-input { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-resale); background: rgba(168,85,247,0.1); color: #fff; font-weight: bold; margin-bottom: 10px; outline: none; }
-    .sh-resale-input::placeholder { color: rgba(168,85,247,0.6); }
     
     /* Toast */
     #sh-toast-container { position: fixed; bottom: 30px; right: 30px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
@@ -174,9 +147,12 @@ require_once 'header.php';
             <option value="all">All Property Types</option>
             <option value="apartment">Apartments</option>
             <option value="penthouse">Penthouses</option>
+            <option value="maisonette">Maisonettes</option>
+            <option value="house">Houses</option>
+            <option value="villa">Villas</option>
             <option value="commercial">Commercial</option>
             <option value="garage">Garages</option>
-            <option value="parking_space">Car Spaces</option>
+            <option value="parking space">Car Spaces</option>
         </select>
         
         <div style="text-align: center; color: var(--sh-text-muted); font-size: 0.7rem; margin-bottom: 20px;">
@@ -377,6 +353,26 @@ require_once 'header.php';
 
     function closeSidebar() { document.getElementById('custom-sidebar').classList.remove('open'); }
 
+    // Recursive function to hide price text nodes securely without breaking HTML structure
+    function hidePricesInDOM(element) {
+        if (element.hasChildNodes()) {
+            Array.from(element.childNodes).forEach(child => {
+                if (child.nodeType === Node.TEXT_NODE) {
+                    if (child.nodeValue.includes('€')) {
+                        let span = document.createElement('span');
+                        span.innerHTML = ' <span style="color:var(--sh-text-muted); font-style:italic; font-size:0.85rem;">🔒 Price Confidential</span> ';
+                        element.replaceChild(span, child);
+                    }
+                } else if (child.nodeType === Node.ELEMENT_NODE) {
+                    // Do not parse input/select tags to avoid breaking inputs
+                    if (child.tagName !== 'INPUT' && child.tagName !== 'SELECT' && child.tagName !== 'TEXTAREA') {
+                        hidePricesInDOM(child);
+                    }
+                }
+            });
+        }
+    }
+
     // ========================================================
     // MAPBOX INTEGRATION
     // ========================================================
@@ -438,10 +434,13 @@ require_once 'header.php';
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = unitData.html;
                     
-                    const unitCards = tempDiv.querySelectorAll('.unit-card');
+                    const unitCards = tempDiv.querySelectorAll('.card, .unit-card'); // Support original API output
+                    
                     unitCards.forEach(card => {
-                        const unitId = card.getAttribute('data-unit-id');
-                        let status = card.getAttribute('data-status');
+                        const unitId = card.getAttribute('data-unit-id') || card.querySelector('[data-unit-id]')?.getAttribute('data-unit-id');
+                        if (!unitId) return;
+
+                        let status = card.getAttribute('data-status') || 'Available';
                         
                         // Clean Statuses
                         if (status === 'Reserved') status = 'Proceeding';
@@ -451,99 +450,83 @@ require_once 'header.php';
                         // Convert to new Scoped CSS Structure
                         card.className = `sh-card`;
                         card.setAttribute('data-status', status);
+                        card.style.marginBottom = '15px';
                         
-                        // Rebuild Header
-                        const nameEl = card.querySelector('h5');
-                        const typeEl = card.querySelector('small');
-                        const unitName = nameEl ? nameEl.innerText : 'Unit';
-                        const unitType = typeEl ? typeEl.innerText : '';
-                        
-                        // Rebuild Price Row
-                        const priceContainer = card.querySelector('.text-success') || card.querySelector('h5.mb-3'); 
-                        let priceHtml = priceContainer ? priceContainer.innerHTML : '';
-                        
-                        // Determine Resale details
-                        const managerSelect = card.querySelector('select[onchange^="managerUpdateStatus"]');
-                        let resalePrice = '';
-                        if (managerSelect) {
-                            // Extract if it was injected previously
-                            const possibleInput = card.querySelector('.resale-input');
-                            if(possibleInput) resalePrice = possibleInput.value;
-                        }
+                        // Color borders
+                        if (status.includes('Available')) card.style.borderLeft = '4px solid var(--sh-avail)';
+                        else if (status.includes('Proceeding')) card.style.borderLeft = '4px solid var(--sh-proc)';
+                        else if (status.includes('Sold')) card.style.borderLeft = '4px solid var(--sh-sold)';
+                        else if (status === 'Resale') card.style.borderLeft = '4px solid var(--sh-resale)';
+                        else card.style.borderLeft = '4px solid var(--sh-hold)';
 
-                        let cardInnerHtml = `
-                            <div class="sh-card-header">
-                                <div>
-                                    <h4 class="sh-card-title">${unitName}</h4>
-                                    <div style="font-size:0.75rem; color:var(--sh-text-muted); text-transform:uppercase; font-weight:700;">${unitType}</div>
-                                </div>
-                                <div><span class="sh-badge ${status.replace(' ','-')}">${status}</span></div>
-                            </div>
-                            <div class="sh-price-row">${priceHtml}</div>
-                        `;
-                        
-                        // Extract Specs (Internal/External)
-                        const specs = card.querySelectorAll('.badge-secondary');
-                        if (specs.length > 0) {
-                            cardInnerHtml += `<div style="display:flex; gap:10px; margin-bottom:15px;">`;
-                            specs.forEach(sp => {
-                                cardInnerHtml += `<span style="font-size:0.7rem; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px; color:var(--sh-text-muted);">${sp.innerText}</span>`;
-                            });
-                            cardInnerHtml += `</div>`;
-                        }
-
-                        // --- THE AGENT VIEW RESTRICTION LOGIC ---
+                        // 1. Determine Agent view overrides
                         if (currentViewMode === 'agent') {
-                            card.innerHTML = cardInnerHtml; // Wipes out all old buttons/forms implicitly
-                            
-                            // Hide price if sold
-                            if (status === 'Sold') {
-                                const pRow = card.querySelector('.sh-price-row');
-                                if (pRow) pRow.innerHTML = '<span style="color:var(--sh-text-muted); font-style:italic; font-size:0.85rem;">🔒 Price Confidential</span>';
+                            if (status.includes('Sold')) {
+                                hidePricesInDOM(card);
                             }
-                            
-                            // Add floor plan button back if it exists in original
-                            const btnGroup = tempDiv.querySelector(`button[onclick*="openPlanModal"]`);
-                            if (btnGroup) {
-                                card.innerHTML += `<button class="sh-btn sh-btn-info" onclick="${btnGroup.getAttribute('onclick')}"><i class="fas fa-map"></i> View Floor Plan</button>`;
-                            }
+                        }
 
+                        // 2. Identify old control areas from original API html and replace with proper controls
+                        const oldControls = card.querySelector('select[onchange^="managerUpdateStatus"]')?.parentNode 
+                                         || card.querySelector('.action-buttons') 
+                                         || card.querySelector('form');
+
+                        const controlWrapper = document.createElement('div');
+                        controlWrapper.style.marginTop = '15px';
+                        controlWrapper.style.paddingTop = '15px';
+                        controlWrapper.style.borderTop = '1px solid var(--sh-border)';
+
+                        // Extract resale if it exists
+                        let resalePrice = card.querySelector('.resale-input')?.value || '';
+
+                        if (currentViewMode === 'manager') {
+                            controlWrapper.innerHTML = `
+                                <label class="sh-label">Update Status</label>
+                                <select class="sh-status-select" id="status-${unitId}" onchange="handleStatusChange(${unitId}, this)">
+                                    <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
+                                    <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
+                                    <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
+                                    <option value="BOM" ${status === 'BOM' ? 'selected' : ''}>BOM</option>
+                                    <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
+                                    <option value="Proceeding Pending Approval" ${status === 'Proceeding Pending Approval' ? 'selected' : ''}>Proceeding Pending Approval</option>
+                                    <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
+                                    <option value="Sold Pending Approval" ${status === 'Sold Pending Approval' ? 'selected' : ''}>Sold Pending Approval</option>
+                                </select>
+                                <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" style="display: ${status === 'Resale' ? 'block' : 'none'};">
+                                
+                                <button class="sh-btn sh-btn-warning" style="background:transparent; border:1px dashed var(--sh-border);" onclick="togglePriceEdit(${unitId})">✎ Modify Pricing</button>
+                                
+                                <div id="price_edit_${unitId}" style="display:none; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; border:1px solid var(--sh-border); margin-top:10px;">
+                                    <label class="sh-label">Shell Price (€)</label>
+                                    <input type="number" id="inp_sh_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
+                                    <label class="sh-label">Finishes Price (€)</label>
+                                    <input type="number" id="inp_fn_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
+                                    <button class="sh-btn sh-btn-success" onclick="savePrice(${unitId})">Save Prices</button>
+                                </div>
+                            `;
                         } else {
-                            // --- MANAGER VIEW LOGIC ---
-                            card.innerHTML = cardInnerHtml;
-                            
-                            // Add Floor Plan Button
-                            const btnGroup = tempDiv.querySelector(`button[onclick*="openPlanModal"]`);
-                            if (btnGroup) {
-                                card.innerHTML += `<button class="sh-btn sh-btn-info" onclick="${btnGroup.getAttribute('onclick')}" style="margin-bottom:15px;"><i class="fas fa-map"></i> View Floor Plan</button>`;
-                            }
-                            
-                            // Rebuild Status Select & Edit buttons
-                            if (isManagerUser) {
-                                card.innerHTML += `
-                                    <div style="border-top: 1px solid var(--sh-border); padding-top: 15px; margin-top: 10px;">
-                                        <label class="sh-label">Update Status</label>
-                                        <select class="sh-status-select" id="status-${unitId}" onchange="handleStatusChange(${unitId}, this)">
-                                            <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
-                                            <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
-                                            <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
-                                            <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
-                                            <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
-                                        </select>
-                                        <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" style="display: ${status === 'Resale' ? 'block' : 'none'};">
-                                        
-                                        <button class="sh-btn sh-btn-warning" style="background:transparent; border:1px dashed var(--sh-border);" onclick="togglePriceEdit(${unitId})">✎ Modify Pricing</button>
-                                        
-                                        <div id="price_edit_${unitId}" style="display:none; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; border:1px solid var(--sh-border); margin-top:10px;">
-                                            <label class="sh-label">Shell Price (€)</label>
-                                            <input type="number" id="inp_sh_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
-                                            <label class="sh-label">Finishes Price (€)</label>
-                                            <input type="number" id="inp_fn_${unitId}" class="sh-select" style="margin-bottom:10px; padding:6px;">
-                                            <button class="sh-btn sh-btn-success" onclick="savePrice(${unitId})">Save Prices</button>
-                                        </div>
+                            // Agent View
+                            if (status === 'Available' || status === 'BOM') {
+                                controlWrapper.innerHTML = `
+                                    <div style="display:flex; gap:10px;">
+                                        <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Hold</button>
+                                        <button class="sh-btn sh-btn-success" onclick="requestReserve(${unitId})"><i class="fas fa-check"></i> Proceed</button>
+                                    </div>
+                                `;
+                            } else {
+                                controlWrapper.innerHTML = `
+                                    <div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center;">
+                                        Current Status: <span style="color:#fff;">${status}</span>
                                     </div>
                                 `;
                             }
+                        }
+
+                        // Inject the new controls
+                        if (oldControls) {
+                            oldControls.parentNode.replaceChild(controlWrapper, oldControls);
+                        } else {
+                            card.appendChild(controlWrapper);
                         }
                     });
 
@@ -686,6 +669,27 @@ require_once 'header.php';
         const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
         if(!pid) { alert("Project ID not found."); return; }
         window.open('print_pricelist.php?project_id=' + pid, '_blank');
+    }
+    
+    // Fallback bindings for API actions
+    function holdProperty(propertyId) {
+        if(!confirm("Are you sure you want to put this unit on hold? You will have 7 days to finalize.")) return;
+        let formData = new FormData(); formData.append('action', 'hold_property'); formData.append('property_id', propertyId);
+        fetch('api/sales_actions.php', { method: 'POST', body: formData })
+        .then(r => r.json()).then(data => {
+            if(data.success) { showToast("Property put on hold!", "success"); const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); if(pid && mapProjectsData[pid]) setTimeout(() => openProjectSidebar(mapProjectsData[pid]), 500); } 
+            else { showToast("Error: " + data.message, "error"); }
+        });
+    }
+
+    function requestReserve(propertyId) {
+        if(!confirm("Are you sure you want to transition this unit to Proceeding?")) return;
+        let formData = new FormData(); formData.append('action', 'request_reserved'); formData.append('property_id', propertyId);
+        fetch('api/sales_actions.php', { method: 'POST', body: formData })
+        .then(r => r.json()).then(data => {
+            if(data.success) { showToast("Status updated to Proceeding!", "success"); const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid'); if(pid && mapProjectsData[pid]) setTimeout(() => openProjectSidebar(mapProjectsData[pid]), 500); } 
+            else { showToast("Error: " + data.message, "error"); }
+        });
     }
 
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
