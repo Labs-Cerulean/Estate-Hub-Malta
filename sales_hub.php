@@ -433,9 +433,9 @@ require_once 'header.php';
     const map = new mapboxgl.Map({
         container: 'sales-map',
         style: 'mapbox://styles/mapbox/satellite-streets-v12', 
-        center: [14.405, 35.937], 
-        zoom: 12,
-        pitch: 40, 
+        center: [14.38, 35.92], 
+        zoom: 9.5, 
+        pitch: 25, 
         bearing: 0 
     });
 
