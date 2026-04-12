@@ -121,7 +121,7 @@ $pageTitle = 'Estate Hub - Commercial Proposal';
         </div>
         <div class="header-right">
             <div><strong>Enterprise Licensing Agreement</strong></div>
-            <div><strong>Prepared For:</strong> Board of Directors</div>
+            <div><strong>Prepared For:</strong> Mark Agius - Director</div>
             <div><strong>Date:</strong> <?= date('F Y') ?></div>
         </div>
     </div>
