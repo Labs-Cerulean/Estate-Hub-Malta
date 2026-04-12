@@ -123,8 +123,13 @@ require_once 'header.php';
             <select class="form-control form-select mb-3 rounded-pill shadow-sm bg-dark text-light border-secondary" id="typeFilter">
                 <option value="all">All Property Types</option>
                 <option value="apartment">Apartments</option>
+                <option value="penthouse">Penthouses</option>
                 <option value="commercial">Commercial</option>
                 <option value="garage">Garages</option>
+                <option value="parking space">Car Spaces</option>
+                <option value="maisonette">Maisonettes</option>
+                <option value="house">Houses</option>
+                <option value="villa">Villas</option>
             </select>
             
             <div class="text-center text-secondary small mb-3" style="font-size: 0.75rem;">
