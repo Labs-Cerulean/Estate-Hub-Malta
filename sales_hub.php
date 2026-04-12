@@ -8,6 +8,20 @@ if (!in_array($_SESSION['role'], $allowed_roles)) {
     exit;
 }
 
+// ==========================================
+// AUTO-DEPLOY DATABASE UPDATES (SALES HUB V2)
+// ==========================================
+try {
+    $pdo->exec("ALTER TABLE project_units ADD COLUMN resale_price DECIMAL(10,2) DEFAULT NULL");
+} catch(PDOException $e) {}
+
+try {
+    // Safe Migration of old statuses to new director-approved statuses
+    $pdo->exec("UPDATE project_units SET status = 'Proceeding' WHERE status = 'Reserved'");
+    $pdo->exec("UPDATE project_units SET status = 'Sold' WHERE status IN ('Sold POS', 'Sold Contract')");
+    $pdo->exec("UPDATE project_units SET status = 'Available' WHERE status = 'BOM'");
+} catch(PDOException $e) {}
+
 require_once 'header.php';
 ?>
 
@@ -444,7 +458,78 @@ require_once 'header.php';
             .then(response => response.json())
             .then(unitData => {
                 if(unitData.success) {
-                    document.getElementById('unitListContainer').innerHTML = unitData.html;
+                    // Inject Unit Data with New Manager Update Status Hook logic
+                    let generatedHtml = unitData.html;
+                    
+                    // We modify the API returned HTML dynamically to implement the new "Price Confidential" and "Resale" logic
+                    // We do this by creating a temporary DOM element, parsing it, modifying it, and inserting it back.
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = generatedHtml;
+                    
+                    const unitCards = tempDiv.querySelectorAll('.unit-card');
+                    unitCards.forEach(card => {
+                        const unitId = card.getAttribute('data-unit-id');
+                        const rawStatus = card.getAttribute('data-status');
+                        
+                        // Clean statuses to director spec
+                        let status = rawStatus;
+                        if (status === 'Reserved') status = 'Proceeding';
+                        if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
+                        if (status === 'BOM') status = 'Available';
+                        
+                        card.setAttribute('data-status', status);
+                        
+                        // Update Badges & Borders
+                        const badge = card.querySelector('.badge');
+                        if (badge) {
+                            badge.innerText = status;
+                            badge.className = 'badge float-right ' + 
+                                (status === 'Available' ? 'badge-success bg-success' : 
+                                (status === 'Proceeding' ? 'badge-warning bg-warning text-dark' : 
+                                (status === 'Resale' ? 'badge-info bg-info text-dark' : 
+                                (status === 'On Hold' ? 'badge-secondary bg-secondary' : 'badge-danger bg-danger'))));
+                        }
+                        
+                        card.className = 'card mb-3 shadow-sm border-left-4 unit-card ' + 
+                                (status === 'Available' ? 'border-success' : 
+                                (status === 'Proceeding' ? 'border-warning' : 
+                                (status === 'Resale' ? 'border-info' : 
+                                (status === 'On Hold' ? 'border-secondary' : 'border-danger'))));
+                                
+                        // Modify Manager Dropdown if it exists
+                        const managerSelect = card.querySelector('select[onchange^="managerUpdateStatus"]');
+                        if (managerSelect) {
+                            // Rebuild options
+                            managerSelect.innerHTML = `
+                                <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
+                                <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
+                                <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
+                                <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
+                                <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
+                            `;
+                            
+                            // Add Resale Input
+                            const resaleInputHtml = `
+                                <input type="number" step="0.01" class="form-control form-control-sm mt-2 bg-dark text-info border-info resale-input" 
+                                       id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" 
+                                       style="display: ${status === 'Resale' ? 'block' : 'none'}; font-weight:bold;">
+                            `;
+                            managerSelect.insertAdjacentHTML('afterend', resaleInputHtml);
+                            
+                            // Override the onchange event
+                            managerSelect.setAttribute('onchange', `handleStatusChange(${unitId}, this)`);
+                        }
+                        
+                        // Price Confidentiality Logic
+                        const priceContainer = card.querySelector('h5.text-success'); // Assuming this is where price lives
+                        if (priceContainer) {
+                            if (status === 'Sold') {
+                                priceContainer.innerHTML = '<span class="text-secondary" style="font-style:italic; font-size:0.9rem;">🔒 Price Confidential</span>';
+                            }
+                        }
+                    });
+
+                    document.getElementById('unitListContainer').innerHTML = tempDiv.innerHTML;
                     
                     let slides = [];
                     if (unitData.media && unitData.media.videos) {
@@ -481,6 +566,69 @@ require_once 'header.php';
                     document.getElementById('unitListContainer').innerHTML = '<div class="p-3 text-center text-danger">Error loading units.</div>';
                 }
             });
+    }
+
+    // New Handlers for the Modded Dropdown
+    function handleStatusChange(unitId, selectElement) {
+        const newStatus = selectElement.value;
+        const resaleInput = document.getElementById('resale_input_' + unitId);
+        
+        if (newStatus === 'Resale') {
+            resaleInput.style.display = 'block';
+            resaleInput.focus();
+            // Don't auto-save immediately, wait for them to blur/enter price
+            resaleInput.onblur = () => {
+                if(resaleInput.value) {
+                    managerUpdateStatusWithResale(unitId, newStatus, selectElement, resaleInput.value);
+                }
+            };
+        } else {
+            resaleInput.style.display = 'none';
+            managerUpdateStatusWithResale(unitId, newStatus, selectElement, null);
+        }
+    }
+
+    function managerUpdateStatusWithResale(propertyId, newStatus, selectElement, resalePrice) {
+        let formData = new FormData(); 
+        formData.append('property_id', propertyId); 
+        formData.append('new_status', newStatus);
+        if (resalePrice !== null) {
+            formData.append('resale_price', resalePrice);
+        }
+        
+        let originalBg = selectElement.style.backgroundColor;
+        let originalColor = selectElement.style.color;
+        selectElement.style.backgroundColor = '#374151'; 
+        selectElement.style.color = '#9ca3af';
+        selectElement.disabled = true;
+
+        // Custom local fetch to handle the new resale price parameter
+        fetch('sales_hub.php', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `action=update_unit_status&unit_id=${propertyId}&status=${encodeURIComponent(newStatus)}&resale_price=${resalePrice || ''}`
+        })
+        .then(r => r.text()).then(data => {
+            selectElement.disabled = false;
+            if(data === 'OK') { 
+                selectElement.style.backgroundColor = '#065f46';
+                selectElement.style.color = '#fff';
+                
+                showToast(`Status successfully updated to ${newStatus}`, 'success');
+                
+                setTimeout(() => {
+                    const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
+                    if(pid && mapProjectsData[pid]) openProjectSidebar(mapProjectsData[pid]);
+                }, 800);
+            } else { 
+                showToast("Error updating status.", 'error');
+                selectElement.style.backgroundColor = originalBg;
+                selectElement.style.color = originalColor;
+            }
+        }).catch(err => {
+            selectElement.disabled = false;
+            showToast("Network error occurred.", 'error');
+        });
     }
 
     function jumpToSelectedProject(projectId) {
@@ -521,39 +669,9 @@ require_once 'header.php';
             });
     });
 
+    // Fallback for older api calls
     function managerUpdateStatus(propertyId, newStatus, selectElement) {
-        let formData = new FormData(); 
-        formData.append('property_id', propertyId); 
-        formData.append('new_status', newStatus);
-        
-        let originalBg = selectElement.style.backgroundColor;
-        let originalColor = selectElement.style.color;
-        selectElement.style.backgroundColor = '#374151'; 
-        selectElement.style.color = '#9ca3af';
-        selectElement.disabled = true;
-
-        fetch('api/manager_update_status.php', { method: 'POST', body: formData })
-        .then(r => r.json()).then(data => {
-            selectElement.disabled = false;
-            if(data.success) { 
-                selectElement.style.backgroundColor = '#065f46';
-                selectElement.style.color = '#fff';
-                
-                showToast(`Status successfully updated to ${newStatus}`, 'success');
-                
-                setTimeout(() => {
-                    const pid = document.getElementById('sidebarProjectName').getAttribute('data-pid');
-                    if(pid && mapProjectsData[pid]) openProjectSidebar(mapProjectsData[pid]);
-                }, 800);
-            } else { 
-                showToast("Error: " + data.message, 'error');
-                selectElement.style.backgroundColor = originalBg;
-                selectElement.style.color = originalColor;
-            }
-        }).catch(err => {
-            selectElement.disabled = false;
-            showToast("Network error occurred.", 'error');
-        });
+        managerUpdateStatusWithResale(propertyId, newStatus, selectElement, null);
     }
 
     function togglePriceEdit(id) {
@@ -606,11 +724,11 @@ require_once 'header.php';
     }
 
     function requestReserve(propertyId) {
-        if(!confirm("Are you sure you want to transition this unit to Reserved?")) return;
+        if(!confirm("Are you sure you want to transition this unit to Proceeding?")) return;
         let formData = new FormData(); formData.append('action', 'request_reserved'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json()).then(data => {
-            if(data.success) { showToast("Reservation status updated!", "success"); setTimeout(() => location.reload(), 800); } 
+            if(data.success) { showToast("Status updated to Proceeding!", "success"); setTimeout(() => location.reload(), 800); } 
             else { showToast("Error: " + data.message, "error"); }
         });
     }
@@ -687,6 +805,25 @@ require_once 'header.php';
             btn.disabled = false;
         }
     });
+
+    // Handle AJAX status updates from the dynamic HTML interceptor
+    <?php
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_unit_status') {
+        if (!in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])) { http_response_code(403); exit; }
+        
+        $unitId = (int)$_POST['unit_id'];
+        $status = $_POST['status'];
+        $resale = !empty($_POST['resale_price']) ? (float)$_POST['resale_price'] : null;
+        
+        if ($status !== 'Resale') {
+            $resale = null;
+        }
+        
+        $pdo->prepare("UPDATE project_units SET status = ?, resale_price = ? WHERE id = ?")->execute([$status, $resale, $unitId]);
+        echo "OK";
+        exit;
+    }
+    ?>
 </script>
 
 <?php require_once 'footer.php'; ?>
