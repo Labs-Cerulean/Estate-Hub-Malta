@@ -106,7 +106,7 @@ $isAdmin = isAdmin();
 // Filtering Logic
 $filterClient = $_GET['filter_client'] ?? 'all';
 $filterCity = $_GET['filter_city'] ?? 'all';
-$filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; 
+$filterDbStatus = $_GET['filter_db_status'] ?? 'Active_Completed'; // Changed default
 
 $projects = getAccessibleProjects($pdo, $userId);
 
@@ -122,7 +122,14 @@ if (!empty($clientIds)) {
 
 // Apply Filters
 foreach ($projects as $key => $p) {
-    if ($filterDbStatus !== 'All' && ($p['project_status'] ?? 'Active') !== $filterDbStatus) unset($projects[$key]);
+    $pStatus = $p['project_status'] ?? 'Active';
+    
+    if ($filterDbStatus === 'Active_Completed' && !in_array($pStatus, ['Active', 'Completed'])) {
+        unset($projects[$key]);
+    } elseif ($filterDbStatus !== 'All' && $filterDbStatus !== 'Active_Completed' && $pStatus !== $filterDbStatus) {
+        unset($projects[$key]);
+    }
+    
     if ($filterCity !== 'all' && $p['city'] !== $filterCity) unset($projects[$key]);
     if ($filterClient !== 'all' && $p['clientid'] != $filterClient) unset($projects[$key]);
 }
@@ -290,15 +297,17 @@ require_once 'header.php';
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <?php if (in_array($userRole, ['admin', 'director'])): ?>
+                
                 <div class="filter-group">
                     <label>Status</label>
                     <select name="filter_db_status">
+                        <option value="Active_Completed" <?= $filterDbStatus === 'Active_Completed' ? 'selected' : '' ?>>Active & Completed</option>
                         <option value="Active" <?= $filterDbStatus === 'Active' ? 'selected' : '' ?>>Active Only</option>
+                        <option value="Completed" <?= $filterDbStatus === 'Completed' ? 'selected' : '' ?>>Completed Only</option>
                         <option value="All" <?= $filterDbStatus === 'All' ? 'selected' : '' ?>>All Projects</option>
                     </select>
                 </div>
-                <?php endif; ?>
+                
                 <div class="filter-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
                     <label style="visibility: hidden;">Apply</label>
                     <button type="submit" class="btn btn-sm" style="width: 100%; height: 35px;">Apply Filters</button>
