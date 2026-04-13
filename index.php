@@ -5,7 +5,7 @@ session_start();
 // 1. If user is already logged in, redirect them immediately so they don't see the login screen
 if (isset($_SESSION['user_id'])) {
     $normalizedRole = strtolower(trim(str_replace(' ', '_', $_SESSION['role'] ?? '')));
-    if ($normalizedRole === 'sales_agent') {
+    if (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
         header("Location: sales_hub.php");
     } else {
         header("Location: dashboard.php");
@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     // --- ROLE-BASED REDIRECT ---
                     $normalizedRole = strtolower(trim(str_replace(' ', '_', $user['role'])));
-                    if ($normalizedRole === 'sales_agent') {
+                    if (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
                         header('Location: sales_hub.php');
                     } else {
                         header('Location: dashboard.php');
