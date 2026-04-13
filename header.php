@@ -28,8 +28,8 @@ if (isLoggedIn() && isset($pdo)) {
     $pendingActionsCount = $stmtAct->fetchColumn();
 }
 
-// Determine Home Link based on Role
-$homeLink = ($userRole === 'sales_agent') ? 'sales_hub.php' : 'dashboard.php';
+// Determine Home Link based on Role (Sales Managers and Agents go to Sales Hub)
+$homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.php' : 'dashboard.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -55,7 +55,7 @@ $homeLink = ($userRole === 'sales_agent') ? 'sales_hub.php' : 'dashboard.php';
                 
                 <div class="header-right">
                     
-                    <?php if ($userRole !== 'sales_agent'): ?>
+                    <?php if (!in_array($userRole, ['sales_agent', 'sales_manager'])): ?>
                         <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
                     <?php endif; ?>
 
@@ -63,119 +63,123 @@ $homeLink = ($userRole === 'sales_agent') ? 'sales_hub.php' : 'dashboard.php';
                         <a href="sales_hub.php" class="nav-link <?= $currentPage === 'sales_hub' ? 'active' : '' ?>">Sales Hub</a>
                     <?php endif; ?>
                     
-                    <?php if ($showProjects): ?>
-                    <div class="nav-dropdown">
-                        <span class="nav-link <?= in_array($currentPage, ['projects', 'mobilization', 'engineering']) ? 'active' : '' ?>">
-                            Projects ▾
-                        </span>
-                        <div class="dropdown-content">
-                            <?php if (hasPermission('view_projects') || isAdmin()): ?>
-                                <a href="projects.php" class="<?= $currentPage === 'projects' ? 'active' : '' ?>">Project Dashboard</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('view_mobilisation') || isAdmin()): ?>
-                                <a href="mobilization.php" class="<?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilisation Dashboard</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('edit_services') || isAdmin()): ?>
-                                <a href="engineering.php" class="<?= $currentPage === 'engineering' ? 'active' : '' ?>">Engineering Dashboard</a>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
-
-                    <?php if ($showSiteDocs): ?>
-                    <div class="nav-dropdown">
-                        <span class="nav-link <?= in_array($currentPage, ['ohsa', 'documentation', 'drawings']) ? 'active' : '' ?>">
-                            Site & Docs ▾
-                        </span>
-                        <div class="dropdown-content">
-                            <?php if (hasPermission('view_ohsa') || isAdmin()): ?>
-                                <a href="ohsa.php" class="<?= $currentPage === 'ohsa' ? 'active' : '' ?>">OHSA</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('view_documentation') || isAdmin()): ?>
-                                <a href="documentation.php" class="<?= $currentPage === 'documentation' ? 'active' : '' ?>">Documentation</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('view_drawings') || isAdmin()): ?>
-                                <a href="drawings.php" class="<?= $currentPage === 'drawings' ? 'active' : '' ?>">Drawings</a>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
-
-                    <?php if ($showCommercial): ?>
-                    <div class="nav-dropdown">
-                        <span class="nav-link <?= in_array($currentPage, ['work_sales', 'works_sales', 'property_sales', 'capital_projects', 'subcontractor_accounts']) ? 'active' : '' ?>">
-                            Commercial ▾
-                        </span>
-                        <div class="dropdown-content">
-                            <?php if ($hasWorkSalesAccess || isAdmin()): ?>
-                                <a href="work_sales.php" class="<?= in_array($currentPage, ['work_sales', 'works_sales']) ? 'active' : '' ?>">Works Sales</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('view_property_sales') || isAdmin()): ?>
-                                <a href="property_sales.php" class="<?= $currentPage === 'property_sales' ? 'active' : '' ?>">Property Sales</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('view_capital_projects') || isAdmin()): ?>
-                                <a href="capital_projects.php" class="<?= $currentPage === 'capital_projects' ? 'active' : '' ?>">Capital Projects</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('view_nav_subcontractors') || isAdmin()): ?>
-                                <a href="subcontractor_accounts.php" class="<?= $currentPage === 'subcontractor_accounts' ? 'active' : '' ?>">Subcontractor Accounts</a>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
-
-                    <?php if ($showManagement): ?>
-                    <div class="nav-dropdown">
-                        <span class="nav-link <?= in_array($currentPage, ['clients', 'professionals-management', 'subcontractors', 'users-management']) ? 'active' : '' ?>">
-                            Management ▾
-                        </span>
-                        <div class="dropdown-content">
-                            <?php if (hasPermission('manage_clients') || isAdmin()): ?>
-                                <a href="clients.php" class="<?= $currentPage === 'clients' ? 'active' : '' ?>">Clients & Developers</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('manage_professionals') || isAdmin()): ?>
-                                <a href="professionals-management.php" class="<?= $currentPage === 'professionals-management' ? 'active' : '' ?>">Professionals</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('manage_subcontractors') || isAdmin()): ?>
-                                <a href="subcontractors.php" class="<?= $currentPage === 'subcontractors' ? 'active' : '' ?>">Subcontractors</a>
-                            <?php endif; ?>
-                            <?php if (hasPermission('manage_users') || isAdmin()): ?>
-                                <a href="users-management.php" class="<?= $currentPage === 'users-management' ? 'active' : '' ?>">System Users</a>
-                            <?php endif; ?>
-                            <?php if (isAdmin()): ?>
-                                <a href="backup_db.php" target="_blank" style="color: #10B981; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 10px;">
-                                    💾 Download Database Backup
-                                </a>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
+                    <?php if (!in_array($userRole, ['sales_agent', 'sales_manager'])): ?>
                     
-                    <?php 
-                    $unreadCount = getUnreadNotificationCount($pdo, getCurrentUserId());
-                    $badgeColor = $unreadCount > 0 ? '#EF4444' : '#6B7280';
-                    ?>
-                    <a href="notifications.php" class="nav-link <?= $currentPage === 'notifications' ? 'active' : '' ?>" style="position: relative;">
-                        Notifications
-                        <?php if ($unreadCount > 0): ?>
-                            <span class="notification-badge" style="position: absolute; top: -8px; right: -8px; background: <?= $badgeColor ?>; color: white; border-radius: 50%; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; padding: 0 5px;">
-                                <?= $unreadCount ?>
+                        <?php if ($showProjects): ?>
+                        <div class="nav-dropdown">
+                            <span class="nav-link <?= in_array($currentPage, ['projects', 'mobilization', 'engineering']) ? 'active' : '' ?>">
+                                Projects ▾
                             </span>
-                        <?php else: ?>
-                            <span class="notification-badge-zero" style="position: absolute; top: -8px; right: -8px; background: <?= $badgeColor ?>; color: white; border-radius: 50%; width: 10px; height: 10px;"></span>
+                            <div class="dropdown-content">
+                                <?php if (hasPermission('view_projects') || isAdmin()): ?>
+                                    <a href="projects.php" class="<?= $currentPage === 'projects' ? 'active' : '' ?>">Project Dashboard</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('view_mobilisation') || isAdmin()): ?>
+                                    <a href="mobilization.php" class="<?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilisation Dashboard</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('edit_services') || isAdmin()): ?>
+                                    <a href="engineering.php" class="<?= $currentPage === 'engineering' ? 'active' : '' ?>">Engineering Dashboard</a>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                         <?php endif; ?>
-                    </a>
+
+                        <?php if ($showSiteDocs): ?>
+                        <div class="nav-dropdown">
+                            <span class="nav-link <?= in_array($currentPage, ['ohsa', 'documentation', 'drawings']) ? 'active' : '' ?>">
+                                Site & Docs ▾
+                            </span>
+                            <div class="dropdown-content">
+                                <?php if (hasPermission('view_ohsa') || isAdmin()): ?>
+                                    <a href="ohsa.php" class="<?= $currentPage === 'ohsa' ? 'active' : '' ?>">OHSA</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('view_documentation') || isAdmin()): ?>
+                                    <a href="documentation.php" class="<?= $currentPage === 'documentation' ? 'active' : '' ?>">Documentation</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('view_drawings') || isAdmin()): ?>
+                                    <a href="drawings.php" class="<?= $currentPage === 'drawings' ? 'active' : '' ?>">Drawings</a>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if ($showCommercial): ?>
+                        <div class="nav-dropdown">
+                            <span class="nav-link <?= in_array($currentPage, ['work_sales', 'works_sales', 'property_sales', 'capital_projects', 'subcontractor_accounts']) ? 'active' : '' ?>">
+                                Commercial ▾
+                            </span>
+                            <div class="dropdown-content">
+                                <?php if ($hasWorkSalesAccess || isAdmin()): ?>
+                                    <a href="work_sales.php" class="<?= in_array($currentPage, ['work_sales', 'works_sales']) ? 'active' : '' ?>">Works Sales</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('view_property_sales') || isAdmin()): ?>
+                                    <a href="property_sales.php" class="<?= $currentPage === 'property_sales' ? 'active' : '' ?>">Property Sales</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('view_capital_projects') || isAdmin()): ?>
+                                    <a href="capital_projects.php" class="<?= $currentPage === 'capital_projects' ? 'active' : '' ?>">Capital Projects</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('view_nav_subcontractors') || isAdmin()): ?>
+                                    <a href="subcontractor_accounts.php" class="<?= $currentPage === 'subcontractor_accounts' ? 'active' : '' ?>">Subcontractor Accounts</a>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if ($showManagement): ?>
+                        <div class="nav-dropdown">
+                            <span class="nav-link <?= in_array($currentPage, ['clients', 'professionals-management', 'subcontractors', 'users-management']) ? 'active' : '' ?>">
+                                Management ▾
+                            </span>
+                            <div class="dropdown-content">
+                                <?php if (hasPermission('manage_clients') || isAdmin()): ?>
+                                    <a href="clients.php" class="<?= $currentPage === 'clients' ? 'active' : '' ?>">Clients & Developers</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('manage_professionals') || isAdmin()): ?>
+                                    <a href="professionals-management.php" class="<?= $currentPage === 'professionals-management' ? 'active' : '' ?>">Professionals</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('manage_subcontractors') || isAdmin()): ?>
+                                    <a href="subcontractors.php" class="<?= $currentPage === 'subcontractors' ? 'active' : '' ?>">Subcontractors</a>
+                                <?php endif; ?>
+                                <?php if (hasPermission('manage_users') || isAdmin()): ?>
+                                    <a href="users-management.php" class="<?= $currentPage === 'users-management' ? 'active' : '' ?>">System Users</a>
+                                <?php endif; ?>
+                                <?php if (isAdmin()): ?>
+                                    <a href="backup_db.php" target="_blank" style="color: #10B981; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 10px;">
+                                        💾 Download Database Backup
+                                    </a>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <?php 
+                        $unreadCount = getUnreadNotificationCount($pdo, getCurrentUserId());
+                        $badgeColor = $unreadCount > 0 ? '#EF4444' : '#6B7280';
+                        ?>
+                        <a href="notifications.php" class="nav-link <?= $currentPage === 'notifications' ? 'active' : '' ?>" style="position: relative;">
+                            Notifications
+                            <?php if ($unreadCount > 0): ?>
+                                <span class="notification-badge" style="position: absolute; top: -8px; right: -8px; background: <?= $badgeColor ?>; color: white; border-radius: 50%; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; padding: 0 5px;">
+                                    <?= $unreadCount ?>
+                                </span>
+                            <?php else: ?>
+                                <span class="notification-badge-zero" style="position: absolute; top: -8px; right: -8px; background: <?= $badgeColor ?>; color: white; border-radius: 50%; width: 10px; height: 10px;"></span>
+                            <?php endif; ?>
+                        </a>
+                        
+                        <?php $actBadgeColor = $pendingActionsCount > 0 ? '#F59E0B' : '#6B7280'; ?>
+                        <a href="actions.php" class="nav-link <?= $currentPage === 'actions' ? 'active' : '' ?>" style="position: relative;">
+                            Actions
+                            <?php if ($pendingActionsCount > 0): ?>
+                                <span class="notification-badge" style="position: absolute; top: -8px; right: -8px; background: <?= $actBadgeColor ?>; color: white; border-radius: 50%; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; padding: 0 5px;">
+                                    <?= $pendingActionsCount ?>
+                                </span>
+                            <?php else: ?>
+                                <span class="notification-badge-zero" style="position: absolute; top: -8px; right: -8px; background: <?= $actBadgeColor ?>; color: white; border-radius: 50%; width: 10px; height: 10px;"></span>
+                            <?php endif; ?>
+                        </a>
                     
-                    <?php $actBadgeColor = $pendingActionsCount > 0 ? '#F59E0B' : '#6B7280'; ?>
-                    <a href="actions.php" class="nav-link <?= $currentPage === 'actions' ? 'active' : '' ?>" style="position: relative;">
-                        Actions
-                        <?php if ($pendingActionsCount > 0): ?>
-                            <span class="notification-badge" style="position: absolute; top: -8px; right: -8px; background: <?= $actBadgeColor ?>; color: white; border-radius: 50%; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; padding: 0 5px;">
-                                <?= $pendingActionsCount ?>
-                            </span>
-                        <?php else: ?>
-                            <span class="notification-badge-zero" style="position: absolute; top: -8px; right: -8px; background: <?= $actBadgeColor ?>; color: white; border-radius: 50%; width: 10px; height: 10px;"></span>
-                        <?php endif; ?>
-                    </a>
+                    <?php endif; /* END RESTRICTION WRAPPER */ ?>
                     
                     <div style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem; padding-left: 1rem; border-left: 1px solid rgba(255,255,255,0.1);">
                         <a href="profile.php" style="text-align: right; text-decoration: none; color: inherit; display: block;" class="profile-nav-item">
