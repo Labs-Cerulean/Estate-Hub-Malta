@@ -302,7 +302,7 @@ function renderStatusBadge($status) {
         'NA' => 'background: rgba(255, 255, 255, 0.05); color: #6b7280; border: 1px solid #374151;'
     ];
     $style = $colors[$status] ?? $colors['Pending'];
-    return "<span style='display: inline-flex; justify-content: center; min-width: 75px; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
+    return "<span class='badge' style='display: inline-flex; justify-content: center; min-width: 75px; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; $style'>$status</span>";
 }
 
 function renderDemoExcBadge($badgeHtml, $pId, $pName, $type, $status, $canUpdateStatus) {
@@ -423,6 +423,36 @@ require_once 'header.php';
 .tag-option { padding: 10px 12px; font-size: 0.85rem; color: var(--text-primary); cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.02); }
 .tag-option:hover { background: rgba(99, 102, 241, 0.2); }
 .tag-empty { padding: 10px 12px; font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
+
+/* ==========================================
+   PRINT / PDF EXPORT STYLES
+   ========================================== */
+@media print {
+    @page { size: landscape; margin: 1cm; }
+    body { background: #fff !important; color: #000 !important; }
+    
+    /* Hide UI Elements */
+    .header, .sidebar, .filters-section, .edit-icon, .close-modal, .sort-indicator, .modal { display: none !important; }
+    button, .btn { display: none !important; }
+    
+    /* Adjust Containers for PDF */
+    .main-container { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
+    .matrix-wrapper { max-height: none !important; overflow: visible !important; border: none !important; box-shadow: none !important; background: transparent !important; }
+    
+    /* Adjust Table for PDF */
+    .matrix-table { width: 100% !important; border-collapse: collapse !important; page-break-inside: auto; }
+    .matrix-table th { position: static !important; background: #f3f4f6 !important; color: #111827 !important; border: 1px solid #d1d5db !important; padding: 8px !important; font-size: 10pt !important; }
+    .matrix-table td { position: static !important; background: #fff !important; color: #1f2937 !important; border: 1px solid #d1d5db !important; padding: 8px !important; font-size: 9pt !important; }
+    
+    /* Preserve Badge Colors via Webkit extension */
+    .badge, .info-tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; border-color: #d1d5db !important; }
+    
+    /* Reset layout quirks for printing */
+    .normal-cell, .clickable-cell { padding: 4px !important; }
+    a { text-decoration: none !important; color: inherit !important; }
+    h1.page-title { color: #000 !important; margin-bottom: 20px !important; }
+    p { color: #4b5563 !important; }
+}
 </style>
 
 <div class="main-container" style="max-width: 100%; padding: 1.5rem;">
@@ -431,6 +461,11 @@ require_once 'header.php';
         <div>
             <h1 class="page-title" style="margin-bottom: 0;">Project Execution Matrix</h1>
             <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Live operational dashboard. Click on any project, status, or team member to manage them directly.</p>
+        </div>
+        <div>
+            <button onclick="window.print()" class="btn" style="background: var(--primary-color); color: white; display: flex; align-items: center; gap: 8px;">
+                <i class="fas fa-file-pdf"></i> Export PDF Report
+            </button>
         </div>
     </div>
 
@@ -443,6 +478,16 @@ require_once 'header.php';
                 <div class="filter-group"><label>Finish Req</label><select name="filter_finish"><option value="all">All Levels</option><option value="Shell" <?= $filterFinish === 'Shell' ? 'selected' : '' ?>>Shell</option><option value="Common Parts Only" <?= $filterFinish === 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option><option value="Semi Finished" <?= $filterFinish === 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option><option value="Finished" <?= $filterFinish === 'Finished' ? 'selected' : '' ?>>Finished</option></select></div>
                 <div class="filter-group"><label>Project Type</label><select name="filter_type"><option value="all">All Types</option><option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option><option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party</option></select></div>
                 <div class="filter-group"><label>Client</label><select name="filter_client"><option value="all">All Clients</option><optgroup label="Groups"><option value="group_excel" <?= $filterClient === 'group_excel' ? 'selected' : '' ?>>Excel Group</option><option value="group_blue_clay" <?= $filterClient === 'group_blue_clay' ? 'selected' : '' ?>>Blue Clay</option></optgroup><optgroup label="Individual"><?php foreach ($clients as $client): ?><option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option><?php endforeach; ?></optgroup></select></div>
+                
+                <div class="filter-group">
+                    <label>Island</label>
+                    <select name="filter_island">
+                        <option value="all">All Islands</option>
+                        <option value="Malta" <?= $filterIsland === 'Malta' ? 'selected' : '' ?>>Malta</option>
+                        <option value="Gozo" <?= $filterIsland === 'Gozo' ? 'selected' : '' ?>>Gozo</option>
+                    </select>
+                </div>
+                
                 <div class="filter-group"><label>PM</label><select name="filter_pm"><option value="all">All PMs</option><?php foreach ($pms as $pm): ?><option value="<?= $pm['id'] ?>" <?= $filterPm == $pm['id'] ? 'selected' : '' ?>><?= htmlspecialchars($pm['first_name'] . ' ' . $pm['last_name']) ?></option><?php endforeach; ?></select></div>
                 <div class="filter-group"><label>Subcontractor</label><select name="filter_sub"><option value="all">All Subcontractors</option><?php foreach ($subs as $sub): ?><option value="<?= $sub['id'] ?>" <?= $filterSub == $sub['id'] ? 'selected' : '' ?>><?= htmlspecialchars($sub['name']) ?></option><?php endforeach; ?></select></div>
             </div>
