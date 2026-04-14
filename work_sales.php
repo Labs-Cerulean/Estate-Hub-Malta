@@ -78,6 +78,14 @@ try {
     
     // 2. Add storage column for calculator memory
     $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN finishes_calc_data TEXT DEFAULT NULL");
+
+    // 3. Add External Project & Location fields & Attachments
+    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN project_name_free VARCHAR(255) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN pa_number VARCHAR(100) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN location_lat DECIMAL(10,8) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN location_lng DECIMAL(11,8) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN attachments TEXT DEFAULT NULL");
+
 } catch(PDOException $e) {}
 
 
@@ -93,6 +101,24 @@ $canApproveQuotes = hasPermission('approve_quotes') || $isAdmin;
 if (!$access['Demolition_Excavation']['view'] && !$access['Construction']['view'] && !$access['Finishes']['view']) {
     header('Location: dashboard.php?error=unauthorized');
     exit;
+}
+
+// Global Helper to Auto-Recalculate 10% Contingency
+function recalculateDemoContingency($pdo, $qId) {
+    $subStmt = $pdo->prepare("SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = ? AND description != '10% Contingency'");
+    $subStmt->execute([$qId]);
+    $subTotal = (float)$subStmt->fetchColumn();
+    $contingency = $subTotal * 0.10;
+    
+    $cCheck = $pdo->prepare("SELECT id FROM sales_quote_items WHERE quote_id = ? AND description = '10% Contingency'");
+    $cCheck->execute([$qId]);
+    $cId = $cCheck->fetchColumn();
+    
+    if ($cId) {
+        $pdo->prepare("UPDATE sales_quote_items SET unit_rate = ?, estimated_qty = 1 WHERE id = ?")->execute([$contingency, $cId]);
+    } else {
+        $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, 'Contingency', '10% Contingency', 'lump_sum', 1, ?, 90)")->execute([$qId, $contingency]);
+    }
 }
 
 $message = ''; $error = '';
@@ -121,20 +147,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'create_quote') {
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
-            if (empty($_POST['project_id'])) throw new Exception("A project MUST be selected for this quote.");
             
             $contractor_id = (int)$_POST['contractor_id'];
             $client_id = !empty($_POST['client_id']) ? (int)$_POST['client_id'] : null;
             $client_name_free = !empty($_POST['client_name_free']) ? trim($_POST['client_name_free']) : null;
             if (!$client_id && !$client_name_free) throw new Exception("You must select an existing client OR enter a free-text client name.");
             
+            $project_id = (!empty($_POST['project_id']) && $_POST['project_id'] !== 'external') ? (int)$_POST['project_id'] : null;
+            $project_name_free = $_POST['project_name_free'] ?? null;
+            if (!$project_id && empty($project_name_free)) throw new Exception("A project MUST be selected or an external project name entered.");
+            $pa_number = !empty($_POST['pa_number']) ? trim($_POST['pa_number']) : null;
+
+            // Auto-fetch Internal Map Coordinates
+            $lat = null; $lng = null;
+            if ($project_id) {
+                $pStmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?");
+                $pStmt->execute([$project_id]);
+                $pData = $pStmt->fetch(PDO::FETCH_ASSOC);
+                if ($pData) { $lat = $pData['latitude']; $lng = $pData['longitude']; }
+            }
+
             $termStmt = $pdo->prepare("SELECT terms_text FROM sales_default_terms WHERE quote_type = ?");
             $termStmt->execute([$type]);
             $defTerms = $termStmt->fetchColumn();
             
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("INSERT INTO sales_quotes (contractor_id, client_id, client_name_free, project_id, quote_type, reference_number, vat_rate, created_by, terms_conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([ $contractor_id, $client_id, $client_name_free, $_POST['project_id'], $type, trim($_POST['reference_number']), $_POST['vat_rate'] ?? 18.00, $userId, $defTerms ?: '' ]);
+            $stmt = $pdo->prepare("INSERT INTO sales_quotes (contractor_id, client_id, client_name_free, project_id, project_name_free, pa_number, location_lat, location_lng, quote_type, reference_number, vat_rate, created_by, terms_conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([ $contractor_id, $client_id, $client_name_free, $project_id, $project_name_free, $pa_number, $lat, $lng, $type, trim($_POST['reference_number']), $_POST['vat_rate'] ?? 18.00, $userId, $defTerms ?: '' ]);
             $newQuoteId = $pdo->lastInsertId();
             
             if ($type !== 'Finishes') { 
@@ -145,6 +184,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
                     foreach ($stdItems as $item) { $stmtItem->execute([$newQuoteId, $item['category'], $item['description'], $item['unit'], $item['default_rate'], $item['sort_order']]); }
                 }
+            }
+
+            if ($type === 'Demolition_Excavation') {
+                recalculateDemoContingency($pdo, $newQuoteId);
             }
             
             $pdo->commit();
@@ -339,7 +382,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // --- CATEGORY 7: PM & LOGISTICS ---
             $pmFee = $runningTotalExc * ($pmPct / 100);
-            $pmFee += $cleaningFee; // Add dynamic cleaning/logistics fee
+            $pmFee += $cleaningFee; 
             
             $insertItem->execute([$qId, '7 - Project Management', 'Project Management, Coordination & Site Logistics', 'lump_sum', 1, $pmFee, $sortIdx]);
             $sortIdx += 10; 
@@ -455,8 +498,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Quote settings updated.";
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
         }
+
+        // 4B. Update Location Details
+        elseif ($action === 'update_project_details') {
+            $qId = (int)$_POST['quote_id'];
+            $stmt = $pdo->prepare("UPDATE sales_quotes SET pa_number = ?, location_lat = ?, location_lng = ? WHERE id = ?");
+            $stmt->execute([$_POST['pa_number'], $_POST['location_lat'], $_POST['location_lng'], $qId]);
+            $message = "Project details and location updated.";
+        }
         
-        // 5. Save BoQ Item (WITH DYNAMIC PM HOOK)
+        // 5. Save BoQ Item 
         elseif ($action === 'save_item') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
@@ -475,7 +526,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$qId, $_POST['category'], $_POST['description'], $_POST['unit'], $qty, $rate, $sort]);
             }
             
-            // DYNAMIC PM RECALCULATION
+            // DYNAMIC PM RECALCULATION FOR FINISHES
             if ($type === 'Finishes') {
                 $stmtQ = $pdo->prepare("SELECT finishes_calc_data FROM sales_quotes WHERE id = ?");
                 $stmtQ->execute([$qId]);
@@ -495,6 +546,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->prepare("UPDATE sales_quote_items SET unit_rate = ?, estimated_qty = 1 WHERE quote_id = ? AND category = '7 - Project Management'")->execute([$newPmFee, $qId]);
                     }
                 }
+            }
+
+            // DYNAMIC CONTINGENCY RECALCULATION FOR DEMO/EXC
+            if ($type === 'Demolition_Excavation') {
+                recalculateDemoContingency($pdo, $qId);
             }
             
             $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
@@ -502,14 +558,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Item saved and quote totals recalculated.";
         }
         
-        // 6. Delete BoQ Item (WITH DYNAMIC PM HOOK)
+        // 6. Delete BoQ Item
         elseif ($action === 'delete_item') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
             
             $pdo->prepare("DELETE FROM sales_quote_items WHERE id=?")->execute([$_POST['item_id']]);
             
-            // DYNAMIC PM RECALCULATION
             if ($type === 'Finishes') {
                 $stmtQ = $pdo->prepare("SELECT finishes_calc_data FROM sales_quotes WHERE id = ?");
                 $stmtQ->execute([$qId]);
@@ -531,12 +586,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            if ($type === 'Demolition_Excavation') {
+                recalculateDemoContingency($pdo, $qId);
+            }
+
             $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
             $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
             $message = "Item deleted.";
         }
         
-        // 7. Save or Update Claim
+        // 7. Save Claim
         elseif ($action === 'save_claim') {
             $qId = (int)$_POST['quote_id'];
             $type = $_POST['quote_type'];
@@ -572,7 +631,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // 8. Update Claim Status Directly
+        // 8. Update Claim Status
         elseif ($action === 'update_claim_status') {
             $qId = (int)$_POST['quote_id'];
             $date = $_POST['status'] === 'Paid' ? date('Y-m-d') : null;
@@ -589,6 +648,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $pdo->prepare("DELETE FROM sales_claims WHERE id=?")->execute([$_POST['claim_id']]);
             $message = "Claim deleted securely.";
+        }
+        
+        // 10. Attachment AJAX Handlers
+        elseif ($action === 'save_attachment') {
+            $qId = (int)$_POST['quote_id'];
+            $stmt = $pdo->prepare("SELECT attachments FROM sales_quotes WHERE id = ?");
+            $stmt->execute([$qId]);
+            $current = json_decode($stmt->fetchColumn(), true) ?: [];
+            $current[] = ['name' => $_POST['file_name'], 'key' => $_POST['file_key']];
+            $pdo->prepare("UPDATE sales_quotes SET attachments = ? WHERE id = ?")->execute([json_encode($current), $qId]);
+            exit(json_encode(['success' => true]));
+        }
+        elseif ($action === 'delete_attachment') {
+            $qId = (int)$_POST['quote_id'];
+            $key = $_POST['file_key'];
+            $stmt = $pdo->prepare("SELECT attachments FROM sales_quotes WHERE id = ?");
+            $stmt->execute([$qId]);
+            $current = json_decode($stmt->fetchColumn(), true) ?: [];
+            $new = array_filter($current, function($v) use ($key) { return $v['key'] !== $key; });
+            $pdo->prepare("UPDATE sales_quotes SET attachments = ? WHERE id = ?")->execute([json_encode(array_values($new)), $qId]);
+            $message = "Attachment deleted.";
         }
 
     } catch (Exception $e) {
@@ -624,6 +704,7 @@ if ($viewQuoteId) {
     
     $selected_contractor_id = $quote['contractor_id']; 
     $effectiveClientName = !empty($quote['linked_client_name']) ? $quote['linked_client_name'] : $quote['client_name_free'];
+    $effectiveProjectName = !empty($quote['project_name']) ? $quote['project_name'] : $quote['project_name_free'];
     
     $items = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ? ORDER BY sort_order ASC, category ASC, id ASC");
     $items->execute([$viewQuoteId]);
@@ -700,6 +781,9 @@ function displayUnit($u) {
 require_once 'header.php';
 ?>
 
+<script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+<link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+
 <style>
 .client-bar { background: rgba(99, 102, 241, 0.1); border: 1px solid var(--primary-color); padding: 1rem 1.5rem; border-radius: 8px; display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }
 .client-bar select { padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); font-size: 1rem; min-width: 250px; }
@@ -729,6 +813,8 @@ require_once 'header.php';
 .boq-table th { background: rgba(255,255,255,0.05); padding: 10px; text-align: left; color: var(--text-muted); font-weight: 600; }
 .boq-table td { padding: 10px; border-bottom: 1px solid var(--border-glass); }
 .boq-input { width: 100%; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 6px; border-radius: 4px; font-size: 0.8rem; }
+.drop-zone { border: 2px dashed var(--border-glass); border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; background: rgba(0,0,0,0.2); transition: 0.2s; }
+.drop-zone:hover { border-color: var(--primary-color); background: rgba(99, 102, 241, 0.1); }
 </style>
 
 <div class="main-container">
@@ -811,7 +897,7 @@ require_once 'header.php';
                 <div style="flex:2;">
                     <label style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">Project Filter</label>
                     <select name="filter_project" style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-glass); background:var(--bg-card); color:#fff;">
-                        <option value="">All Projects</option>
+                        <option value="">All Internal Projects</option>
                         <?php foreach($availableFilterProjects as $afp): ?>
                             <option value="<?= $afp['id'] ?>" <?= $filterProject==$afp['id']?'selected':'' ?>><?= htmlspecialchars($afp['name']) ?></option>
                         <?php endforeach; ?>
@@ -891,18 +977,19 @@ require_once 'header.php';
                             <tr><td colspan="9" style="text-align: center; padding: 2rem;">No quotes found matching your criteria.</td></tr>
                         <?php else: foreach ($quotesList as $q): 
                             $effName = !empty($q['linked_client_name']) ? $q['linked_client_name'] : $q['client_name_free'];
+                            $effProject = !empty($q['project_name']) ? $q['project_name'] : $q['project_name_free'];
                         ?>
                             <tr>
                                 <td>
                                     <?php 
                                         $dispStat = str_replace(' Approval', '', $q['status']); 
-                                        $statusText = $q['status'] === 'Approved' ? 'Internally Approved - To Send' : $q['status'];
+                                        $statusText = $q['status'] === 'Approved' ? 'Internally Approved' : $q['status'];
                                     ?>
                                     <span class="status-badge status-<?= $dispStat ?>"><?= $statusText ?></span>
                                 </td>
                                 <td style="font-weight: bold; color: var(--text-primary);"><?= htmlspecialchars($q['reference_number']) ?></td>
                                 <td>
-                                    <div><?= htmlspecialchars($q['project_name']) ?></div>
+                                    <div><?= htmlspecialchars($effProject) ?></div>
                                     <div style="font-size: 0.75rem; color: var(--text-muted);">Billed To: <?= htmlspecialchars($effName) ?></div>
                                 </td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($q['total_inc_vat'], 2) ?></td>
@@ -963,12 +1050,24 @@ require_once 'header.php';
                         </div>
 
                         <div class="form-group">
-                            <label>2. Project (Required) *</label>
-                            <select name="project_id" required onchange="autoGenRef()">
+                            <label>2. Project *</label>
+                            <select name="project_id" required onchange="toggleExternalProject(); autoGenRef();">
                                 <option value="">-- Select Project --</option>
+                                <option value="external">-- External / 3rd Party Project --</option>
                                 <?php foreach($projectsDb as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['client_name']) ?>)</option><?php endforeach; ?>
                             </select>
                         </div>
+                        
+                        <div id="ext_project_div" style="display:none; margin-bottom: 15px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                            <label style="font-size: 0.8rem; color: var(--primary-color);">External Project Name *</label>
+                            <input type="text" name="project_name_free" id="project_name_free" onkeyup="autoGenRef()">
+                        </div>
+
+                        <div class="form-group" style="margin-top: 10px;">
+                            <label>PA Number (Optional)</label>
+                            <input type="text" name="pa_number" placeholder="e.g. PA 1234/25">
+                        </div>
+
                         <div class="form-grid" style="grid-template-columns: 2fr 1fr; gap: 10px;">
                             <div class="form-group">
                                 <label>Quote Reference / Number *</label>
@@ -980,7 +1079,7 @@ require_once 'header.php';
                             </div>
                         </div>
                         <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create Quote</button>
-                        <p style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 10px;">Standard BoQ rates & Terms will be auto-populated upon creation with a quantity of 0.</p>
+                        <p style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 10px;">Standard BoQ rates & Terms will be auto-populated upon creation.</p>
                     </form>
                 </div>
             </div>
@@ -998,12 +1097,28 @@ require_once 'header.php';
                 document.getElementById('createQuoteModal').style.display = 'block';
             }
             
+            function toggleExternalProject() {
+                const sel = document.querySelector('select[name="project_id"]').value;
+                const div = document.getElementById('ext_project_div');
+                const inp = document.getElementById('project_name_free');
+                if (sel === 'external') {
+                    div.style.display = 'block';
+                    inp.required = true;
+                } else {
+                    div.style.display = 'none';
+                    inp.required = false;
+                }
+            }
+
             function autoGenRef() {
                 let contractor = document.getElementById('gen_contractor_prefix').value;
                 
                 let projSel = document.querySelector('select[name="project_id"]');
                 let projText = projSel.options[projSel.selectedIndex]?.text || '';
-                let projPrefix = projText.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
+                let projFree = document.getElementById('project_name_free').value;
+                
+                let effProj = (projSel.value && projSel.value !== 'external') ? projText : projFree;
+                let projPrefix = effProj.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
                 if (!projPrefix || projPrefix === '-- S') projPrefix = 'PRJ';
                 
                 let clientSel = document.querySelector('select[name="client_id"]');
@@ -1050,7 +1165,7 @@ require_once 'header.php';
                     <h1 class="page-title" style="margin-bottom: 0.25rem; margin-top: 0.5rem;"><?= htmlspecialchars($quote['reference_number']) ?></h1>
                     <div style="color: var(--text-secondary); font-size: 0.9rem;">
                         <strong>Billed To:</strong> <?= htmlspecialchars($effectiveClientName) ?> | 
-                        <strong>Project:</strong> <?= htmlspecialchars($quote['project_name']) ?>
+                        <strong>Project:</strong> <?= htmlspecialchars($effectiveProjectName) ?>
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center;">
@@ -1134,7 +1249,9 @@ require_once 'header.php';
                                     <td style="text-align: right; font-weight: bold;">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
                                     <?php if($canManageQuote && !$isQuoteLocked): ?>
                                         <td style="text-align: right; min-width: 75px;">
-                                            <button class="btn btn-sm btn-secondary" style="padding: 2px 6px;" onclick='openItemModal(<?= json_encode($i, JSON_HEX_APOS) ?>)'>✎</button>
+                                            <?php if ($i['description'] !== '10% Contingency'): ?>
+                                                <button class="btn btn-sm btn-secondary" style="padding: 2px 6px;" onclick='openItemModal(<?= json_encode($i, JSON_HEX_APOS) ?>)'>✎</button>
+                                            <?php endif; ?>
                                             <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this line item?');">
                                                 <input type="hidden" name="action" value="delete_item"><input type="hidden" name="quote_id" value="<?= $quote['id'] ?>"><input type="hidden" name="quote_type" value="<?= $quote['quote_type'] ?>"><input type="hidden" name="item_id" value="<?= $i['id'] ?>">
                                                 <button type="submit" class="btn btn-sm btn-danger" style="padding: 2px 6px;">X</button>
@@ -1145,6 +1262,12 @@ require_once 'header.php';
                             <?php endforeach; endif; ?>
                         </tbody>
                     </table>
+                    
+                    <?php if ($quote['quote_type'] === 'Demolition_Excavation'): ?>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 10px; text-align: right;">
+                            * Note: A 10% Contingency is automatically calculated and maintained for Demolition & Excavation quotes based on the subtotal.
+                        </div>
+                    <?php endif; ?>
                 </div>
 
                 <div>
@@ -1203,6 +1326,28 @@ require_once 'header.php';
                             <?php endif; ?>
                             
                         <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($canManageQuote): ?>
+                    <div class="section-card" style="margin-bottom: 1.5rem;">
+                        <h2 style="margin-top: 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Project & Location Details</h2>
+                        <form method="POST">
+                            <input type="hidden" name="action" value="update_project_details">
+                            <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                            
+                            <div class="form-group">
+                                <label>PA Number</label>
+                                <input type="text" name="pa_number" value="<?= htmlspecialchars($quote['pa_number']) ?>" placeholder="e.g. PA 3446/25">
+                            </div>
+                            
+                            <label>Site Location (Drag pin to set)</label>
+                            <div id="quote-map" style="width: 100%; height: 250px; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-glass);"></div>
+                            <input type="hidden" name="location_lat" id="location_lat" value="<?= $quote['location_lat'] ?>">
+                            <input type="hidden" name="location_lng" id="location_lng" value="<?= $quote['location_lng'] ?>">
+                            
+                            <button type="submit" class="btn btn-secondary" style="width: 100%;">Save Details & Map</button>
+                        </form>
                     </div>
                     <?php endif; ?>
 
@@ -1274,6 +1419,35 @@ require_once 'header.php';
                     </div>
 
                     <?php if ($canManageQuote): ?>
+                    <div class="section-card" style="margin-bottom: 1.5rem;">
+                        <h2 style="margin-top: 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Attachments (PDFs)</h2>
+                        
+                        <?php $attachments = json_decode($quote['attachments'], true) ?: []; ?>
+                        <?php if(!empty($attachments)): ?>
+                            <ul style="list-style:none; padding:0; margin:0 0 15px 0;">
+                                <?php foreach($attachments as $att): ?>
+                                    <li style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:6px; margin-bottom:5px; font-size:0.8rem;">
+                                        <span><i class="fas fa-file-pdf" style="color: #ef4444; margin-right:8px;"></i> <?= htmlspecialchars($att['name']) ?></span>
+                                        <form method="POST" style="margin:0;" onsubmit="return confirm('Remove attachment?');">
+                                            <input type="hidden" name="action" value="delete_attachment">
+                                            <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                                            <input type="hidden" name="file_key" value="<?= htmlspecialchars($att['key']) ?>">
+                                            <button type="submit" class="btn btn-sm btn-danger" style="padding:2px 8px;">X</button>
+                                        </form>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+
+                        <div class="drop-zone" id="drop-zone-att">
+                            <i class="fas fa-cloud-upload-alt" style="font-size: 2rem; color: var(--text-muted); margin-bottom: 10px;"></i>
+                            <div style="font-weight: bold; font-size: 0.9rem;">Drag & Drop PDFs here</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">or click to browse</div>
+                            <input type="file" id="attFileInput" accept=".pdf" multiple style="display:none;">
+                        </div>
+                        <button id="attUploadBtn" class="btn btn-secondary" style="width: 100%; margin-top: 10px; display:none;">Upload Selected</button>
+                    </div>
+
                     <div class="section-card">
                         <h2 style="margin-top: 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Settings & Terms</h2>
                         <form method="POST">
@@ -1421,7 +1595,6 @@ require_once 'header.php';
                 const tot = b + s + ba;
                 document.getElementById('fc_door_calc').innerText = tot;
                 
-                // Only auto-fill if the user hasn't explicitly entered doors yet, to avoid overwriting their manual input
                 if (document.getElementById('fc_door_hinged').value == '2' && document.getElementById('fc_door_sliding').value == '0' && document.getElementById('fc_door_pocket').value == '0') {
                     document.getElementById('fc_door_hinged').value = tot; 
                 }
@@ -1439,7 +1612,6 @@ require_once 'header.php';
                 tb.appendChild(tr);
             }
             
-            // Initialize calculator UI state safely
             setTimeout(() => { toggleFcSections(); calcFcDoors(); }, 100);
             </script>
             <?php endif; ?>
@@ -1546,6 +1718,95 @@ require_once 'header.php';
             <?php endif; ?>
             
             <script>
+            // --- Mapbox Interactive Selector ---
+            mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
+            let initialLat = <?= $quote['location_lat'] ? $quote['location_lat'] : '35.92' ?>;
+            let initialLng = <?= $quote['location_lng'] ? $quote['location_lng'] : '14.38' ?>;
+            let hasLocation = <?= $quote['location_lat'] ? 'true' : 'false' ?>;
+
+            let quoteMap = new mapboxgl.Map({
+                container: 'quote-map',
+                style: 'mapbox://styles/mapbox/satellite-streets-v12',
+                center: [initialLng, initialLat],
+                zoom: hasLocation ? 16 : 9.5
+            });
+            quoteMap.addControl(new mapboxgl.NavigationControl(), 'top-right');
+            
+            let quoteMarker = new mapboxgl.Marker({draggable: true, color: '#ef4444'})
+                .setLngLat([initialLng, initialLat])
+                .addTo(quoteMap);
+
+            quoteMarker.on('dragend', function() {
+                let lngLat = quoteMarker.getLngLat();
+                document.getElementById('location_lat').value = lngLat.lat;
+                document.getElementById('location_lng').value = lngLat.lng;
+            });
+
+            // If it didn't have a location, update on first click
+            quoteMap.on('click', function(e) {
+                quoteMarker.setLngLat(e.lngLat);
+                document.getElementById('location_lat').value = e.lngLat.lat;
+                document.getElementById('location_lng').value = e.lngLat.lng;
+            });
+
+            // --- Attachments Drag & Drop Logic ---
+            const dropZoneAtt = document.getElementById('drop-zone-att');
+            const attInput = document.getElementById('attFileInput');
+            
+            if (dropZoneAtt) {
+                dropZoneAtt.addEventListener('click', () => attInput.click());
+                dropZoneAtt.addEventListener('dragover', (e) => { e.preventDefault(); dropZoneAtt.style.borderColor = 'var(--primary-color)'; });
+                dropZoneAtt.addEventListener('dragleave', () => { dropZoneAtt.style.borderColor = 'var(--border-glass)'; });
+                dropZoneAtt.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZoneAtt.style.borderColor = 'var(--border-glass)';
+                    uploadAttachments(e.dataTransfer.files);
+                });
+                attInput.addEventListener('change', () => { uploadAttachments(attInput.files); });
+            }
+
+            async function uploadAttachments(files) {
+                if(files.length === 0) return;
+                const btn = document.getElementById('attUploadBtn');
+                btn.style.display = 'block';
+                btn.innerHTML = 'Connecting to Cloudflare...'; btn.disabled = true;
+
+                try {
+                    for (let i = 0; i < files.length; i++) {
+                        let file = files[i];
+                        btn.innerHTML = `Uploading (${i+1}/${files.length}): ${file.name}...`;
+
+                        let authData = new FormData(); 
+                        authData.append('action', 'get_upload_url'); 
+                        authData.append('filename', file.name); 
+                        authData.append('mime_type', file.type || 'application/pdf');
+                        
+                        let authRes = await fetch('api/upload_sales_media.php', { method: 'POST', body: authData });
+                        let authJson = await authRes.json();
+                        if(!authJson.success) throw new Error(authJson.message);
+
+                        await new Promise((resolve, reject) => {
+                            const xhr = new XMLHttpRequest(); xhr.open('PUT', authJson.url, true); 
+                            xhr.setRequestHeader('Content-Type', file.type || 'application/pdf');
+                            xhr.onload = function() { if (xhr.status >= 200 && xhr.status < 300) { resolve(); } else { reject(new Error('Cloudflare rejected the upload.')); } };
+                            xhr.onerror = () => reject(new Error('Network Error')); xhr.send(file);
+                        });
+
+                        let saveForm = new FormData();
+                        saveForm.append('action', 'save_attachment');
+                        saveForm.append('quote_id', <?= $viewQuoteId ?? 0 ?>);
+                        saveForm.append('file_name', file.name);
+                        saveForm.append('file_key', authJson.key);
+                        await fetch('work_sales.php', { method: 'POST', body: saveForm });
+                    }
+                    alert(`Successfully uploaded ${files.length} file(s)!`);
+                    location.reload(); 
+                } catch (err) {
+                    alert('Error: ' + err.message); btn.innerHTML = 'Upload Failed';
+                }
+            }
+
+            // --- Modals ---
             function openItemModal(data = null) {
                 if(data) {
                     document.getElementById('itemModalTitle').innerText = 'Edit Line Item';
@@ -1592,11 +1853,8 @@ require_once 'header.php';
             function updateClaimLabel() {
                 const method = document.getElementById('mod_claim_method').value;
                 const label = document.getElementById('mod_claim_value_label');
-                if (method === 'percent') {
-                    label.innerText = 'Percentage to Claim (%)';
-                } else {
-                    label.innerText = 'Amount to Claim (Inc VAT) €';
-                }
+                if (method === 'percent') { label.innerText = 'Percentage to Claim (%)'; } 
+                else { label.innerText = 'Amount to Claim (Inc VAT) €'; }
             }
             
             window.addEventListener('click', function(event) {
