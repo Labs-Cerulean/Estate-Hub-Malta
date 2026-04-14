@@ -698,7 +698,7 @@ require_once 'header.php';
                                 <td style="font-size: 0.85rem; color: var(--text-secondary);"><?= htmlspecialchars($t['work_reference'] ?? 'Global / Unlinked') ?></td>
                                 <td><?= htmlspecialchars($t['reference']) ?></td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($t['amount'], 2) ?></td>
-                                <td><span style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($t['notes']) ?></span></td>
+                                <td><span style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($t['notes'] ?? '') ?></span></td>
                                 <td style="text-align: right; min-width: 150px;">
                                     <?php if ($t['transaction_type'] === 'Certification' && $t['work_id']): ?>
                                         <a href="print_certificate.php?tx_id=<?= $t['id'] ?>" target="_blank" class="btn btn-sm" style="background: #3B82F6; color: white; margin-right: 5px;">PDF Cert</a>
