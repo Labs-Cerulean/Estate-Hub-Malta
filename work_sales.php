@@ -87,6 +87,10 @@ try {
     try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN location_lng DECIMAL(11,8) DEFAULT NULL"); } catch(Exception $e) {}
     try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN attachments TEXT DEFAULT NULL"); } catch(Exception $e) {}
 
+    // 4. Relax strict database rules to allow External Projects and External Clients
+    try { $pdo->exec("ALTER TABLE sales_quotes MODIFY COLUMN project_id INT NULL DEFAULT NULL"); } catch(Exception $e) {}
+    try { $pdo->exec("ALTER TABLE sales_quotes MODIFY COLUMN client_id INT NULL DEFAULT NULL"); } catch(Exception $e) {}
+
 } catch(PDOException $e) {}
 
 
