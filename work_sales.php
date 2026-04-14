@@ -76,15 +76,16 @@ try {
         foreach ($defaultRates as $r) { $s->execute($r); }
     }
     
-    // 2. Add storage column for calculator memory
-    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN finishes_calc_data TEXT DEFAULT NULL");
+   // 2. Add storage column for calculator memory
+    try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN finishes_calc_data TEXT DEFAULT NULL"); } catch(Exception $e) {}
 
-    // 3. Add External Project & Location fields & Attachments
-    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN project_name_free VARCHAR(255) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN pa_number VARCHAR(100) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN location_lat DECIMAL(10,8) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN location_lng DECIMAL(11,8) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN attachments TEXT DEFAULT NULL");
+    // 3. Add External Project, Location fields, Free-text Client & Attachments
+    try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN client_name_free VARCHAR(255) DEFAULT NULL"); } catch(Exception $e) {}
+    try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN project_name_free VARCHAR(255) DEFAULT NULL"); } catch(Exception $e) {}
+    try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN pa_number VARCHAR(100) DEFAULT NULL"); } catch(Exception $e) {}
+    try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN location_lat DECIMAL(10,8) DEFAULT NULL"); } catch(Exception $e) {}
+    try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN location_lng DECIMAL(11,8) DEFAULT NULL"); } catch(Exception $e) {}
+    try { $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN attachments TEXT DEFAULT NULL"); } catch(Exception $e) {}
 
 } catch(PDOException $e) {}
 
