@@ -53,15 +53,20 @@ if (!empty($quote['contractor_logo'])) {
     }
 }
 
-$effectiveClientName = !empty($quote['linked_client_name']) ? $quote['linked_client_name'] : $quote['client_name_free'];
-$effectiveClientCity = !empty($quote['linked_client_city']) ? $quote['linked_client_city'] : '';
+// SAFE HTML HELPER (Fixes PHP 8.1+ htmlspecialchars null deprecation warning)
+function safe_html($str) {
+    return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
+}
+
+$effectiveClientName = $quote['linked_client_name'] ?? $quote['client_name_free'] ?? '';
+$effectiveProjectName = $quote['project_name'] ?? $quote['project_name_free'] ?? '';
+$paNumber = $quote['pa_number'] ?? '';
 
 function displayUnit($u) {
     $m = ['lump_sum'=>'Lump Sum', 'sqm'=>'sq.m', 'lm'=>'lm', 'cum'=>'cu.m', 'cu.yd'=>'cu.yd', 'hrs'=>'Hours', 'qty'=>'Qty / Pcs'];
     return $m[$u] ?? $u;
 }
 
-// Determine if we should hide individual pricing (Turnkey Finishes rule)
 $isFinishes = ($quote['quote_type'] === 'Finishes');
 $colSpan = $isFinishes ? 3 : 5;
 ?>
@@ -69,47 +74,59 @@ $colSpan = $isFinishes ? 3 : 5;
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Quotation - <?= htmlspecialchars($quote['reference_number']) ?></title>
+    <title>Quotation - <?= safe_html($quote['reference_number']) ?></title>
     <style>
         body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111827; background: #fff; line-height: 1.5; margin: 0; padding: 20px; font-size: 12px; }
-        .page-container { max-width: 1000px; margin: 0 auto; }
+        .page-container { max-width: 900px; margin: 0 auto; }
         
-        .header-section { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; margin-bottom: 20px; }
-        .logo-box { max-width: 250px; max-height: 80px; }
-        .logo-box img { max-width: 100%; max-height: 80px; object-fit: contain; }
+        /* Typography & Structure */
+        h1, h2, h3 { color: #1f2937; margin: 0; }
+        .no-print { display: flex; justify-content: space-between; align-items: center; background: #f3f4f6; padding: 15px; border-radius: 8px; border: 1px solid #d1d5db; margin-bottom: 20px; }
         
-        .title-box { text-align: right; }
-        .title-box h1 { margin: 0; font-size: 24px; color: #1f2937; letter-spacing: 0.5px; text-transform: uppercase; }
-        .title-box p { margin: 5px 0 0 0; color: #6b7280; font-size: 12px; }
+        /* Front Page Layout */
+        .front-page { min-height: 90vh; display: flex; flex-direction: column; }
+        .logo-box { max-width: 250px; max-height: 100px; margin-bottom: 40px; }
+        .logo-box img { max-width: 100%; max-height: 100px; object-fit: contain; }
         
-        .info-grid { display: flex; justify-content: space-between; margin-bottom: 30px; }
-        .info-block { width: 48%; }
-        .info-block h3 { margin: 0 0 5px 0; font-size: 11px; color: #6b7280; text-transform: uppercase; border-bottom: 1px solid #e5e7eb; padding-bottom: 3px; }
-        .info-block p { margin: 3px 0; font-size: 14px; font-weight: bold; color: #111827; }
-        .info-block span { font-weight: normal; font-size: 12px; color: #4b5563; }
+        .fp-title { font-size: 32px; text-transform: uppercase; border-bottom: 3px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 30px; letter-spacing: 1px; }
+        
+        .fp-grid { width: 100%; font-size: 16px; line-height: 2.2; margin-bottom: 40px; }
+        .fp-grid td { vertical-align: top; }
+        .fp-label { font-weight: bold; width: 120px; color: #4b5563; }
+        .fp-value { color: #111827; font-weight: 500; }
 
+        .fp-map-container { flex-grow: 1; border: 2px solid #e5e7eb; border-radius: 8px; overflow: hidden; max-height: 500px; }
+        .fp-map-container img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        
+        /* Page Break */
+        .page-break { page-break-before: always; padding-top: 40px; }
+
+        /* Secondary Page Header */
+        .sec-header { display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px; }
+        
+        /* Table */
         .print-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 11px; }
         .print-table th { background: #f3f4f6; padding: 10px; text-align: left; font-weight: bold; border-bottom: 2px solid #d1d5db; color: #374151; }
         .print-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
         .print-table .num { text-align: right; }
         .print-table .strong { font-weight: bold; }
 
+        /* Totals */
         .totals-box { float: right; width: 300px; margin-bottom: 30px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
         .totals-row { display: flex; justify-content: space-between; padding: 8px 15px; border-bottom: 1px solid #e5e7eb; }
         .totals-row.grand { background: #f3f4f6; font-weight: bold; font-size: 14px; border-bottom: none; }
         
+        /* Terms & Signatures */
         .terms-box { clear: both; margin-top: 40px; padding: 15px; border: 1px solid #e5e7eb; background: #f9fafb; font-size: 10px; color: #4b5563; border-radius: 6px; }
-
         .signatures-grid { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
         .signature-block { width: 30%; text-align: center; }
         .signature-line { border-bottom: 1px solid #111827; height: 40px; margin-bottom: 10px; }
-
         .footer { margin-top: 40px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #9ca3af; }
 
         @media print {
             body { padding: 0; }
             .page-container { width: 100%; max-width: 100%; }
-            @page { margin: 1.5cm; }
+            @page { margin: 1cm 1.5cm; }
             .no-print { display: none !important; }
         }
     </style>
@@ -118,126 +135,201 @@ $colSpan = $isFinishes ? 3 : 5;
 
 <div class="page-container">
 
-    <div class="no-print" style="margin-bottom: 20px; padding: 15px; background: #f3f4f6; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #d1d5db;">
+    <div class="no-print">
         <div>
-            <h3 style="margin: 0; color: #1f2937;">PDF Print Preview</h3>
-            <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 12px;">Review the document below. Click 'Print' when ready to generate the PDF.</p>
+            <h3>PDF Print Preview</h3>
+            <p style="margin: 0; color: #6b7280;">Review the document below. Click 'Print' when ready to generate the PDF.</p>
         </div>
         <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Print / Save as PDF</button>
     </div>
 
-    <div class="header-section">
+    <div class="front-page">
         <div class="logo-box">
             <?php if (!empty($logoSrc)): ?>
-                <img src="<?= htmlspecialchars($logoSrc) ?>" alt="Contractor Logo">
+                <img src="<?= safe_html($logoSrc) ?>" alt="Contractor Logo">
             <?php else: ?>
-                <h2 style="margin:0; color:#374151; font-size: 20px;"><?= htmlspecialchars($quote['contractor_name']) ?></h2>
+                <h2><?= safe_html($quote['contractor_name']) ?></h2>
             <?php endif; ?>
         </div>
-        <div class="title-box">
-            <h1>Quotation</h1>
-            <p>Date: <?= date('d F Y', strtotime($quote['created_at'])) ?></p>
-        </div>
+
+        <h1 class="fp-title">
+            Quotation <?= $quote['quote_type'] === 'Demolition_Excavation' ? '& Methodology' : '' ?>
+        </h1>
+
+        <table class="fp-grid">
+            <tr><td class="fp-label">To:</td><td class="fp-value"><?= safe_html($effectiveClientName) ?></td></tr>
+            <tr><td class="fp-label">Date:</td><td class="fp-value"><?= date('d F Y', strtotime($quote['created_at'])) ?></td></tr>
+            <tr><td class="fp-label">Re:</td><td class="fp-value"><?= safe_html(str_replace('_', ' & ', $quote['quote_type'])) ?></td></tr>
+            <tr><td class="fp-label">Our Ref:</td><td class="fp-value"><?= safe_html($quote['reference_number']) ?></td></tr>
+            <tr><td class="fp-label">Site:</td><td class="fp-value"><?= safe_html($effectiveProjectName) ?></td></tr>
+            <?php if ($paNumber): ?>
+            <tr><td class="fp-label">PA:</td><td class="fp-value"><?= safe_html($paNumber) ?></td></tr>
+            <?php endif; ?>
+            <tr><td class="fp-label">Prepared By:</td><td class="fp-value"><?= safe_html($quote['author_fname'] . ' ' . $quote['author_lname']) ?></td></tr>
+        </table>
+
+        <?php if ($quote['location_lat'] && $quote['location_lng']): ?>
+            <h3 style="margin-bottom: 10px; font-size: 16px; color: #4b5563;">Site Location Map:</h3>
+            <div class="fp-map-container">
+                <img src="https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/pin-l+ef4444(<?= $quote['location_lng'] ?>,<?= $quote['location_lat'] ?>)/<?= $quote['location_lng'] ?>,<?= $quote['location_lat'] ?>,18,0/800x500@2x?access_token=pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw" alt="Site Map">
+            </div>
+        <?php endif; ?>
     </div>
 
-    <div class="info-grid">
-        <div class="info-block">
-            <h3>Billed To (Client)</h3>
-            <p><?= htmlspecialchars($effectiveClientName) ?></p>
-            <span><?= htmlspecialchars($effectiveClientCity) ?></span>
+    <div class="page-break">
+        
+        <div class="sec-header">
+            <div>
+                <h3 style="margin-bottom: 5px;">Bill of Quantities</h3>
+                <span style="color: #6b7280; font-size: 11px;">Ref: <?= safe_html($quote['reference_number']) ?> | Site: <?= safe_html($effectiveProjectName) ?></span>
+            </div>
+            <?php if (!empty($logoSrc)): ?>
+                <img src="<?= safe_html($logoSrc) ?>" alt="Logo" style="max-height: 40px; object-fit: contain;">
+            <?php endif; ?>
         </div>
-        <div class="info-block" style="text-align: right;">
-            <h3>Quote Reference</h3>
-            <p><?= htmlspecialchars($quote['reference_number']) ?></p>
-            <span>Project: <?= htmlspecialchars($quote['project_name']) ?></span><br>
-            <span>Scope: <?= str_replace('_', ' & ', $quote['quote_type']) ?></span>
-        </div>
-    </div>
 
-    <table class="print-table">
-        <thead>
-            <tr>
-                <th style="width: <?= $isFinishes ? '70%' : '50%' ?>;">Description</th>
-                <th>Unit</th>
-                <th class="num">Est. Qty</th>
-                <?php if (!$isFinishes): ?>
-                    <th class="num">Unit Rate</th>
-                    <th class="num">Amount (€)</th>
+        <table class="print-table">
+            <thead>
+                <tr>
+                    <th style="width: <?= $isFinishes ? '70%' : '50%' ?>;">Description</th>
+                    <th>Unit</th>
+                    <th class="num">Est. Qty</th>
+                    <?php if (!$isFinishes): ?>
+                        <th class="num">Unit Rate</th>
+                        <th class="num">Amount (€)</th>
+                    <?php endif; ?>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($items)): ?>
+                    <tr><td colspan="<?= $colSpan ?>" style="text-align:center; padding: 20px;">No items specified in this quote.</td></tr>
+                <?php else: 
+                    $currentCat = '';
+                    foreach($items as $i): 
+                        if ($i['category'] !== $currentCat) {
+                            echo "<tr><td colspan='{$colSpan}' style='background: #f9fafb; color: #1f2937; font-weight: bold;'>".safe_html($i['category'])."</td></tr>";
+                            $currentCat = $i['category'];
+                        }
+                ?>
+                <tr>
+                    <td><?= nl2br(safe_html($i['description'])) ?></td>
+                    <td><?= displayUnit($i['unit']) ?></td>
+                    <td class="num"><?= (float)$i['estimated_qty'] ?></td>
+                    <?php if (!$isFinishes): ?>
+                        <td class="num">€<?= number_format($i['unit_rate'], 2) ?></td>
+                        <td class="num strong">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
+                    <?php endif; ?>
+                </tr>
+                <?php endforeach; endif; ?>
+            </tbody>
+        </table>
+
+        <div class="totals-box">
+            <div class="totals-row">
+                <span>Subtotal (Exc. VAT)</span>
+                <span>€<?= number_format($quote['total_exc_vat'], 2) ?></span>
+            </div>
+            <div class="totals-row">
+                <span>VAT (<?= (float)$quote['vat_rate'] ?>%)</span>
+                <span>€<?= number_format($quote['total_inc_vat'] - $quote['total_exc_vat'], 2) ?></span>
+            </div>
+            <div class="totals-row grand">
+                <span>Total (Inc. VAT)</span>
+                <span>€<?= number_format($quote['total_inc_vat'], 2) ?></span>
+            </div>
+        </div>
+        
+        <?php if(!empty($quote['terms_conditions'])): ?>
+        <div class="terms-box">
+            <strong style="display:block; margin-bottom: 5px; color:#111827; text-transform:uppercase;">Terms & Conditions</strong>
+            <?= nl2br(safe_html($quote['terms_conditions'])) ?>
+        </div>
+        <?php endif; ?>
+
+        <div class="signatures-grid">
+            <div class="signature-block">
+                <div class="signature-line"></div>
+                <strong>Prepared By</strong><br>
+                <?= safe_html($quote['author_fname'] . ' ' . $quote['author_lname']) ?>
+            </div>
+            <div class="signature-block">
+                <div class="signature-line"></div>
+                <strong>Approved By</strong><br>
+                <?php if (!empty($quote['approver_fname'])): ?>
+                    <?= safe_html($quote['approver_fname'] . ' ' . $quote['approver_lname']) ?>
+                <?php else: ?>
+                    <span style="color: #ef4444;">System Approved</span>
                 <?php endif; ?>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (empty($items)): ?>
-                <tr><td colspan="<?= $colSpan ?>" style="text-align:center; padding: 20px;">No items specified in this quote.</td></tr>
-            <?php else: 
-                $currentCat = '';
-                foreach($items as $i): 
-                    if ($i['category'] !== $currentCat) {
-                        echo "<tr><td colspan='{$colSpan}' style='background: #f9fafb; color: #1f2937; font-weight: bold;'>".htmlspecialchars($i['category'])."</td></tr>";
-                        $currentCat = $i['category'];
+            </div>
+            <div class="signature-block">
+                <div class="signature-line"></div>
+                <strong>Accepted By (Client)</strong><br>
+                Signature & Date
+            </div>
+        </div>
+
+        <div class="footer">
+            Issued by <?= safe_html($quote['contractor_name']) ?> <br>
+            Estate Hub Commercial Management
+        </div>
+    </div>
+
+    <?php $attachments = json_decode($quote['attachments'], true) ?: []; ?>
+    <?php if (count($attachments) > 0): ?>
+        <div class="page-break">
+            <h2 style="color: #1f2937; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px;">Quotation Attachments</h2>
+            <div id="pdf-render-container">
+                <div id="pdf-loading-indicator" style="text-align: center; color: #6b7280; padding: 20px;">
+                    Loading attachments for printing...
+                </div>
+            </div>
+        </div>
+        
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+        <script>
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            const pdfUrls = [
+                <?php foreach($attachments as $att): ?>
+                    "<?= $s3->getPresignedUrl($att['key'], '+60 minutes') ?>",
+                <?php endforeach; ?>
+            ];
+
+            async function renderPDFs() {
+                const container = document.getElementById('pdf-render-container');
+                try {
+                    for (let url of pdfUrls) {
+                        const loadingTask = pdfjsLib.getDocument(url);
+                        const pdf = await loadingTask.promise;
+                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                            const page = await pdf.getPage(pageNum);
+                            // Scale 1.5 provides high-res output suited for A4 printing
+                            const viewport = page.getViewport({scale: 1.5});
+                            
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+                            canvas.style.width = '100%';
+                            canvas.style.marginBottom = '20px';
+                            canvas.style.pageBreakInside = 'avoid';
+                            canvas.style.border = '1px solid #e5e7eb';
+                            canvas.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+                            
+                            container.appendChild(canvas);
+                            
+                            const renderContext = { canvasContext: context, viewport: viewport };
+                            await page.render(renderContext).promise;
+                        }
                     }
-            ?>
-            <tr>
-                <td><?= nl2br(htmlspecialchars($i['description'])) ?></td>
-                <td><?= displayUnit($i['unit']) ?></td>
-                <td class="num"><?= (float)$i['estimated_qty'] ?></td>
-                <?php if (!$isFinishes): ?>
-                    <td class="num">€<?= number_format($i['unit_rate'], 2) ?></td>
-                    <td class="num strong">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
-                <?php endif; ?>
-            </tr>
-            <?php endforeach; endif; ?>
-        </tbody>
-    </table>
-
-    <div class="totals-box">
-        <div class="totals-row">
-            <span>Subtotal (Exc. VAT)</span>
-            <span>€<?= number_format($quote['total_exc_vat'], 2) ?></span>
-        </div>
-        <div class="totals-row">
-            <span>VAT (<?= (float)$quote['vat_rate'] ?>%)</span>
-            <span>€<?= number_format($quote['total_inc_vat'] - $quote['total_exc_vat'], 2) ?></span>
-        </div>
-        <div class="totals-row grand">
-            <span>Total (Inc. VAT)</span>
-            <span>€<?= number_format($quote['total_inc_vat'], 2) ?></span>
-        </div>
-    </div>
-    
-    <?php if(!empty($quote['terms_conditions'])): ?>
-    <div class="terms-box">
-        <strong style="display:block; margin-bottom: 5px; color:#111827; text-transform:uppercase;">Terms & Conditions</strong>
-        <?= nl2br(htmlspecialchars($quote['terms_conditions'])) ?>
-    </div>
+                    document.getElementById('pdf-loading-indicator').style.display = 'none';
+                } catch(e) { 
+                    console.error("Error rendering PDF:", e);
+                    document.getElementById('pdf-loading-indicator').innerText = "Failed to load attachment preview for printing. Ensure attachments are standard PDFs.";
+                }
+            }
+            renderPDFs();
+        </script>
     <?php endif; ?>
-
-    <div class="signatures-grid">
-        <div class="signature-block">
-            <div class="signature-line"></div>
-            <strong>Prepared By</strong><br>
-            <?= htmlspecialchars($quote['author_fname'] . ' ' . $quote['author_lname']) ?>
-        </div>
-        <div class="signature-block">
-            <div class="signature-line"></div>
-            <strong>Approved By</strong><br>
-            <?php if (!empty($quote['approver_fname'])): ?>
-                <?= htmlspecialchars($quote['approver_fname'] . ' ' . $quote['approver_lname']) ?>
-            <?php else: ?>
-                <span style="color: #ef4444;">System Approved</span>
-            <?php endif; ?>
-        </div>
-        <div class="signature-block">
-            <div class="signature-line"></div>
-            <strong>Accepted By (Client)</strong><br>
-            Signature & Date
-        </div>
-    </div>
-
-    <div class="footer">
-        Issued by <?= htmlspecialchars($quote['contractor_name']) ?> <br>
-        Estate Hub Commercial Management
-    </div>
 
 </div>
 
