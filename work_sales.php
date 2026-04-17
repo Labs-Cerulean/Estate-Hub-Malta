@@ -62,11 +62,12 @@ try {
             ['ap_hinged_door', '6 - Semi Finishes', 'Hinged Door', 'sqm', 300.00],
             ['ap_sliding_door', '6 - Semi Finishes', 'Sliding Door', 'sqm', 250.00],
             ['fire_door', '6 - Semi Finishes', '30 Minute Fire rated door', 'qty', 600.00],
+            ['timber_door', '6 - Semi Finishes', 'External Timber Door', 'qty', 800.00],
             ['sills', '6 - Semi Finishes', 'Sills', 'lm', 40.00],
             ['rail_alu', '6 - Semi Finishes', 'Railing (Aluminium vertical)', 'lm', 150.00],
             ['rail_glass', '6 - Semi Finishes', 'Railing (Glass)', 'lm', 250.00],
             ['rail_iron', '6 - Semi Finishes', 'Railing (Wrought iron)', 'lm', 180.00],
-            ['balc_tile', '6 - Semi Finishes', 'Balcony Tiling including waterproofing', 'sqm', 30.00],
+            ['balc_tile', '6 - Semi Finishes', 'Balcony/Terrace Tiling including waterproofing', 'sqm', 30.00],
             ['balc_skirt', '6 - Semi Finishes', 'Balcony Skirting', 'lm', 8.00],
             ['main_cable', '6 - Semi Finishes', 'Main cable to apartment and balcony light', 'lump_sum', 400.00],
             ['water_tank', '6 - Semi Finishes', 'Water tank supply, installation and connection', 'lump_sum', 600.00]
@@ -152,7 +153,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        // 2. FINISHES CALCULATOR ENGINE
+        // 2A. SEMI-FINISHES CALCULATOR ENGINE
+        elseif ($action === 'generate_semi_finishes_boq') {
+            $qId = (int)$_POST['quote_id'];
+            if (!$access['Finishes']['manage']) throw new Exception("Unauthorized.");
+            
+            $pdo->beginTransaction();
+            
+            // 1. Clear existing BoQ
+            $pdo->prepare("DELETE FROM sales_quote_items WHERE quote_id = ?")->execute([$qId]);
+            
+            // 2. Fetch Rates Dictionary
+            $ratesDb = $pdo->query("SELECT item_key, rate FROM sales_finishes_rates")->fetchAll(PDO::FETCH_KEY_PAIR);
+            
+            // 3. Read Inputs
+            $propType = $_POST['sf_prop_type'];
+            $extSqm = (float)$_POST['sf_ext_sqm'];
+            $sillsLm = (float)$_POST['sf_sills_lm'];
+            $railType = $_POST['sf_rail_type'];
+            $railLm = (float)$_POST['sf_rail_lm'];
+            
+            $sortIdx = 10;
+            $runningTotalExc = 0;
+            
+            $insertItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            
+            $add = function($cat, $desc, $unit, $qty, $rateKey) use ($insertItem, $qId, &$sortIdx, &$runningTotalExc, $ratesDb) {
+                $rate = isset($ratesDb[$rateKey]) ? (float)$ratesDb[$rateKey] : 0;
+                if ($unit === 'lump_sum') { $qty = 1; }
+                $insertItem->execute([$qId, $cat, $desc, $unit, $qty, $rate, $sortIdx]);
+                $sortIdx += 10;
+                $runningTotalExc += ($qty * $rate);
+            };
+
+            // Apertures
+            if (isset($_POST['ap_type'])) {
+                for($i=0; $i < count($_POST['ap_type']); $i++) {
+                    $apT = $_POST['ap_type'][$i];
+                    $apW = (float)$_POST['ap_w'][$i];
+                    $apH = (float)$_POST['ap_h'][$i];
+                    $apSqm = $apW * $apH;
+                    
+                    if ($apSqm > 0) {
+                        $typeText = str_replace(['ap_', '_'], ['', ' '], $apT);
+                        $add('6 - Semi Finishes', "Aperture: ".ucwords($typeText)." ({$apW}m x {$apH}m)", 'sqm', $apSqm, $apT);
+                    }
+                }
+            }
+
+            // Main Door
+            if ($propType === 'maisonette') {
+                $add('6 - Semi Finishes', 'External Timber Door', 'qty', 1, 'timber_door'); 
+            } else {
+                $add('6 - Semi Finishes', '30 Minute Fire rated door', 'qty', 1, 'fire_door');
+            }
+
+            // Sills
+            if ($sillsLm > 0) {
+                $add('6 - Semi Finishes', 'Sills', 'lm', $sillsLm, 'sills');
+            }
+
+            // Railing
+            if ($railLm > 0 && $railType !== 'none') {
+                $railDesc = [
+                    'rail_alu' => 'Railing (Aluminium vertical)',
+                    'rail_glass' => 'Railing (Glass)',
+                    'rail_iron' => 'Railing (Wrought iron)'
+                ][$railType] ?? 'Railing';
+                $add('6 - Semi Finishes', $railDesc, 'lm', $railLm, $railType);
+            }
+
+            // External Terraces/Balconies (Tiling & Waterproofing)
+            if ($extSqm > 0) {
+                $add('6 - Semi Finishes', 'Balcony/Terrace Tiling including waterproofing', 'sqm', $extSqm, 'balc_tile');
+            }
+
+            // Always include Water tank and main cable
+            $add('6 - Semi Finishes', 'Main cable to apartment and balcony light', 'lump_sum', 1, 'main_cable');
+            $add('6 - Semi Finishes', 'Water tank supply, installation and connection', 'lump_sum', 1, 'water_tank');
+
+            // Apply 17-Point Semi-Finishes T&Cs
+            $semiTerms = "1. Payment terms strictly 30 days from invoice.
+2. Price is based on standard finishes. Bespoke finishes will be charged at a premium.
+3. Excludes specific light fittings and loose furniture.
+4. Final measurements will be verified on site.
+5. Any additional structural modifications are subject to a separate quote.
+6. All works are to be completed during standard working hours.
+7. Client is responsible for providing access to the site.
+8. Water and Electricity application fees are to be paid by the client.
+9. Electricity works exclude the installation of specific light fittings.
+10. Tile laying is on torba, not screed.
+11. Shower glass enclosures are to be supplied by the client.
+12. Gypsum or bulkheads can be added upon bespoke design request. Bespoke design is NOT included in this price and a design fee may apply.
+13. Internal doors are assumed to be hinged and of standard size (800mm x 900mm) unless specific sizes, sliding, or pocket doors are specified in the quote.
+14. This quote is against a standard design. If bespoke design is required, the quote must be amended.
+15. The \"Contribution for Supply\" line item covers unit tiles, bathroom tiles, and bathroom sanitaryware/accessories (inclusive of VAT) from PRA selected suppliers.
+16. When semi-finishes are included, specifications are to be annexed to this quote.
+17. If water supply is required for the garage. It will be charged at €68.00 per linear metre.";
+
+            $pdo->prepare("UPDATE sales_quotes SET terms_conditions = ? WHERE id = ?")->execute([$semiTerms, $qId]);
+
+            // Finalize Master Totals
+            $pdo->exec("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = $qId) WHERE id = $qId");
+            $pdo->exec("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = $qId");
+
+            $pdo->commit();
+            $message = "Semi-Finishes BoQ generated successfully!";
+        }
+
+        // 2B. FULL FINISHES CALCULATOR ENGINE
         elseif ($action === 'generate_finishes_boq') {
             $qId = (int)$_POST['quote_id'];
             if (!$access['Finishes']['manage']) throw new Exception("Unauthorized.");
@@ -161,7 +270,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             // Save Memory Payload
             $memoryPayload = [
-                'fc_semi_only' => isset($_POST['fc_semi_only']) ? 1 : 0,
                 'fc_state' => $_POST['fc_state'] ?? 'semi_finished',
                 'fc_garage' => isset($_POST['fc_garage']) ? 1 : 0,
                 'fc_area_int' => $_POST['fc_area_int'] ?? '',
@@ -204,7 +312,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ratesDb = $pdo->query("SELECT item_key, rate FROM sales_finishes_rates")->fetchAll(PDO::FETCH_KEY_PAIR);
             
             // 3. Read Inputs
-            $isSemiOnly = isset($_POST['fc_semi_only']);
             $state = $_POST['fc_state'];
             $hasGarage = isset($_POST['fc_garage']) ? true : false;
             $A = (float)$_POST['fc_area_int'];
@@ -240,102 +347,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $runningTotalExc += ($qty * $rate);
             };
 
-            // =======================================================
-            // NEW LOGIC: SEMI-FINISHES ONLY OVERRIDE
-            // =======================================================
-            if ($isSemiOnly) {
-                
-                $insertItem->execute([$qId, '1 - Preparations & Layout', 'Water & Electricity (Prep & Roughing)', 'lump_sum', 1, 45 * $A, $sortIdx]); 
-                $sortIdx += 10; $runningTotalExc += 45 * $A;
-                
-                $insertItem->execute([$qId, '2 - Tiling', 'Floor Tiles Laying (Internal & External on Torba)', 'sqm', $A + $B, 22, $sortIdx]); 
-                $sortIdx += 10; $runningTotalExc += 22 * ($A + $B);
-                
-                $insertItem->execute([$qId, '3 - Bathrooms', 'Bathrooms (Plumbing & Tile Laying Only)', 'qty', $F + $G, 1200, $sortIdx]); 
-                $sortIdx += 10; $runningTotalExc += 1200 * ($F + $G);
-                
-                $insertItem->execute([$qId, '4 - Apertures', 'External Apertures (Standard Aluminium/PVC)', 'lump_sum', 1, 3500, $sortIdx]); 
-                $sortIdx += 10; $runningTotalExc += 3500;
-                
-                $insertItem->execute([$qId, '5 - Materials Supply', 'Contribution for Supply (Unit tiles, bathroom tiles, sanitaryware)', 'lump_sum', 1, 2500, $sortIdx]); 
-                $sortIdx += 10; $runningTotalExc += 2500;
-
-                // Update T&Cs specifically for Semi-Finishes
-                $semiTerms = "1. Water and Electricity application fees are to be paid by the client.\n2. Electricity works exclude the installation of specific light fittings.\n3. Tile laying is on torba, not screed.\n4. Shower glass enclosures are to be supplied by the client.\n5. Gypsum or bulkheads can be added upon bespoke design request. Bespoke design is NOT included in this price and a design fee may apply.\n6. Internal doors are assumed to be hinged and of standard size (800mm x 900mm) unless specific sizes, sliding, or pocket doors are specified in the quote.\n7. This quote is against a standard design. If bespoke design is required, the quote must be amended.\n8. The \"Contribution for Supply\" line item covers unit tiles, bathroom tiles, and bathroom sanitaryware/accessories (inclusive of VAT) from PRA selected suppliers.\n9. When semi-finishes are included, specifications are to be annexed to this quote.\n10. If water supply is required for the garage, it will be charged at €68.00 per linear metre.";
-                
-                $pdo->prepare("UPDATE sales_quotes SET terms_conditions = ? WHERE id = ?")->execute([$semiTerms, $qId]);
-
-            } else {
-
-                // =======================================================
-                // EXISTING LOGIC: FULL FINISHES 
-                // =======================================================
-                
-                // Re-apply Default Full Terms
-                $termStmt = $pdo->prepare("SELECT terms_text FROM sales_default_terms WHERE quote_type = 'Finishes'");
-                $termStmt->execute();
-                $defTerms = $termStmt->fetchColumn();
-                if ($defTerms) {
-                    $pdo->prepare("UPDATE sales_quotes SET terms_conditions = ? WHERE id = ?")->execute([$defTerms, $qId]);
-                }
-
-                // --- CATEGORY 1: TILING ---
-                $K = max(0, $A - $H); // Net floor area
-                $L = $H; // Bath floor area
-                $M = $I * $C; // Bath wall area
-                
-                // Calculate Supply Quantities (Include 10% breakage contingency + Skirting material where 1lm = 0.1sqm)
-                $K_supply = ($K + ($E * 0.1)) * 1.10;
-                $L_supply = $L * 1.10;
-                $M_supply = $M * 1.10;
-                
-                // Calc Supply Lump Sum (Unrounded for quote logic, Rounded for client display text)
-                $rawSupVal = ($K_supply * $ratesDb['sup_floor']) + ($L_supply * $ratesDb['sup_bath_floor']) + ($M_supply * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
-                $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
-                
-                // Add internal €6/lm skirting supply contribution to the actual DB value (Does not affect client allowance text)
-                $rawSupVal += ($E * 6.00);
-                
-                $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Client Allowance: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
-                
-                $insertItem->execute([$qId, '1 - Tiling', $supDesc, 'lump_sum', 1, $rawSupVal, $sortIdx]);
-                $sortIdx += 10; 
-                $runningTotalExc += $rawSupVal;
-                
-                $add('1 - Tiling', 'Installation of Floor tiles (Inc. sand/cement/grouting)', 'sqm', $K, 'inst_floor');
-                $add('1 - Tiling', 'Installation of Bathroom Floor tiles (Inc. sand/cement/grouting)', 'sqm', $L, 'inst_bath_floor');
-                $add('1 - Tiling', 'Installation of Bathroom wall tiles (Inc. glue/grouting)', 'sqm', $M, 'inst_bath_wall');
-                $add('1 - Tiling', 'Installation of Skirting (Inc. sand/cement/grouting)', 'lm', $E, 'inst_skirt');
-
-                // --- CATEGORY 2: PLASTERING & PAINT ---
-                $plasterVol = $A + ($C * $E);
-                $add('2 - Plastering & Paint', 'Plastering Walls/Ceilings Monocote (Including Material)', 'sqm', $plasterVol, 'plast_mono');
-                $add('2 - Plastering & Paint', 'Painting of Walls/Ceilings (white)', 'sqm', $plasterVol, 'paint_white');
-                $add('2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Normal Board) - if needed', 'sqm', 0, 'gyp_flat_n');
-                $add('2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Humidity Board) - if needed', 'sqm', 0, 'gyp_flat_h');
-                $add('2 - Plastering & Paint', 'Bulkheads (Normal Board) - if needed', 'lm', 0, 'bulk_n');
-                $add('2 - Plastering & Paint', 'Bulkheads (Humidity Board) - if needed', 'lm', 0, 'bulk_h');
-                $add('2 - Plastering & Paint', 'Gypsum Partition Walls (if indicated on plan)', 'sqm', 0, 'gyp_part');
-                if ($X3 > 0) $add('2 - Plastering & Paint', 'Gypsum Partition Walls (for pocket doors only)', 'qty', $X3, 'gyp_pocket');
-
-                // --- CATEGORY 3: DOORS ---
-                $add('3 - Internal Doors', 'Internal doors hinged', 'qty', $X1, 'door_hinged');
-                $add('3 - Internal Doors', 'Internal doors sliding', 'qty', $X2, 'door_sliding');
-                $add('3 - Internal Doors', 'Internal doors pocket', 'qty', $X3, 'door_pocket');
-
-                // --- CATEGORY 4: ELEC & PLUMBING ---
-                if ($D == 1) { $eKey = 'elec_1b'; $eDesc = "Sub-DB with OVR, 1x 10 way consumer unit, 12x double sockets, 3 x 2 way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 1x TV point with draw wire and 1x Tel. Point with draw wire, 2x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
-                elseif ($D == 2) { $eKey = 'elec_2b'; $eDesc = "Sub-DB with OVR, 1x 12 way consumer unit, 16x double sockets, 4 x 2 way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point, 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 2x TV point with draw wire and 2x Tel. Point with draw wire, 3x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
-                else { $eKey = 'elec_3b'; $eDesc = "Sub-DB with OVR, 1x 12-way consumer unit, 20x double sockets, 4 x 2-way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point, 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 3x TV point with draw wire and 3x Tel. Point with draw wire, 4x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
-                
-                $add('4 - Electrical & Plumbing', $eDesc, 'lump_sum', 1, $eKey);
-                $add('4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Bath/Shower room: 7x wall plates plus 1/2" angle valves, 12 meters PB 15mm2 pipes, 6 meters of 50mm drain pipe and fittings... PER BATHROOM', 'qty', $F+$G, 'plumb_bath');
-                $add('4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Kitchen: 4x wall plates plus 1/2" angle valves, 12 meters of PB 15mm2 pipes, 6 meters of 50mm drain pipe... ', 'qty', 1, 'plumb_kitch');
-                $add('4 - Electrical & Plumbing', '3rd Fix installation of shower cubicles/glass', 'qty', $F, 'shower_inst');
+            // Re-apply Default Full Terms
+            $termStmt = $pdo->prepare("SELECT terms_text FROM sales_default_terms WHERE quote_type = 'Finishes'");
+            $termStmt->execute();
+            $defTerms = $termStmt->fetchColumn();
+            if ($defTerms) {
+                $pdo->prepare("UPDATE sales_quotes SET terms_conditions = ? WHERE id = ?")->execute([$defTerms, $qId]);
             }
 
+            // --- CATEGORY 1: TILING ---
+            $K = max(0, $A - $H); // Net floor area
+            $L = $H; // Bath floor area
+            $M = $I * $C; // Bath wall area
+            
+            // Calculate Supply Quantities (Include 10% breakage contingency + Skirting material where 1lm = 0.1sqm)
+            $K_supply = ($K + ($E * 0.1)) * 1.10;
+            $L_supply = $L * 1.10;
+            $M_supply = $M * 1.10;
+            
+            // Calc Supply Lump Sum (Unrounded for quote logic, Rounded for client display text)
+            $rawSupVal = ($K_supply * $ratesDb['sup_floor']) + ($L_supply * $ratesDb['sup_bath_floor']) + ($M_supply * $ratesDb['sup_bath_wall']) + (($F+$G) * $ratesDb['sup_sanitary']);
+            $supValRoundedIncVat = floor($rawSupVal / 250) * 250;
+            
+            // Add internal €6/lm skirting supply contribution to the actual DB value (Does not affect client allowance text)
+            $rawSupVal += ($E * 6.00);
+            
+            $supDesc = "Contribution for supply of unit tiles, bathroom tiles and bathroom sanitaryware (Total Client Allowance: €" . number_format($supValRoundedIncVat, 2) . " Inc. VAT)";
+            
+            $insertItem->execute([$qId, '1 - Tiling', $supDesc, 'lump_sum', 1, $rawSupVal, $sortIdx]);
+            $sortIdx += 10; 
+            $runningTotalExc += $rawSupVal;
+            
+            $add('1 - Tiling', 'Installation of Floor tiles (Inc. sand/cement/grouting)', 'sqm', $K, 'inst_floor');
+            $add('1 - Tiling', 'Installation of Bathroom Floor tiles (Inc. sand/cement/grouting)', 'sqm', $L, 'inst_bath_floor');
+            $add('1 - Tiling', 'Installation of Bathroom wall tiles (Inc. glue/grouting)', 'sqm', $M, 'inst_bath_wall');
+            $add('1 - Tiling', 'Installation of Skirting (Inc. sand/cement/grouting)', 'lm', $E, 'inst_skirt');
 
-            // --- CATEGORY 5: GARAGE (Applies to both modes) ---
+            // --- CATEGORY 2: PLASTERING & PAINT ---
+            $plasterVol = $A + ($C * $E);
+            $add('2 - Plastering & Paint', 'Plastering Walls/Ceilings Monocote (Including Material)', 'sqm', $plasterVol, 'plast_mono');
+            $add('2 - Plastering & Paint', 'Painting of Walls/Ceilings (white)', 'sqm', $plasterVol, 'paint_white');
+            $add('2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Normal Board) - if needed', 'sqm', 0, 'gyp_flat_n');
+            $add('2 - Plastering & Paint', 'Gypsum board flat ceiling supply and install (Humidity Board) - if needed', 'sqm', 0, 'gyp_flat_h');
+            $add('2 - Plastering & Paint', 'Bulkheads (Normal Board) - if needed', 'lm', 0, 'bulk_n');
+            $add('2 - Plastering & Paint', 'Bulkheads (Humidity Board) - if needed', 'lm', 0, 'bulk_h');
+            $add('2 - Plastering & Paint', 'Gypsum Partition Walls (if indicated on plan)', 'sqm', 0, 'gyp_part');
+            if ($X3 > 0) $add('2 - Plastering & Paint', 'Gypsum Partition Walls (for pocket doors only)', 'qty', $X3, 'gyp_pocket');
+
+            // --- CATEGORY 3: DOORS ---
+            $add('3 - Internal Doors', 'Internal doors hinged', 'qty', $X1, 'door_hinged');
+            $add('3 - Internal Doors', 'Internal doors sliding', 'qty', $X2, 'door_sliding');
+            $add('3 - Internal Doors', 'Internal doors pocket', 'qty', $X3, 'door_pocket');
+
+            // --- CATEGORY 4: ELEC & PLUMBING ---
+            if ($D == 1) { $eKey = 'elec_1b'; $eDesc = "Sub-DB with OVR, 1x 10 way consumer unit, 12x double sockets, 3 x 2 way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 1x TV point with draw wire and 1x Tel. Point with draw wire, 2x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
+            elseif ($D == 2) { $eKey = 'elec_2b'; $eDesc = "Sub-DB with OVR, 1x 12 way consumer unit, 16x double sockets, 4 x 2 way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point, 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 2x TV point with draw wire and 2x Tel. Point with draw wire, 3x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
+            else { $eKey = 'elec_3b'; $eDesc = "Sub-DB with OVR, 1x 12-way consumer unit, 20x double sockets, 4 x 2-way ceiling light switch, 3x 1 way ceiling light switch, 1x Water heater point, 1 x electric oven point, 1x electric hob point, 1x microwave point, 1x hood point, 1x cooker unit, 1x W/Machine point, 3x TV point with draw wire and 3x Tel. Point with draw wire, 4x AC points with double pole switches including drain but excluding copper pipes, bathroom wall lights"; }
+            
+            $add('4 - Electrical & Plumbing', $eDesc, 'lump_sum', 1, $eKey);
+            $add('4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Bath/Shower room: 7x wall plates plus 1/2" angle valves, 12 meters PB 15mm2 pipes, 6 meters of 50mm drain pipe and fittings... PER BATHROOM', 'qty', $F+$G, 'plumb_bath');
+            $add('4 - Electrical & Plumbing', 'Plumbing Installation with PB of 1x Kitchen: 4x wall plates plus 1/2" angle valves, 12 meters of PB 15mm2 pipes, 6 meters of 50mm drain pipe... ', 'qty', 1, 'plumb_kitch');
+            $add('4 - Electrical & Plumbing', '3rd Fix installation of shower cubicles/glass', 'qty', $F, 'shower_inst');
+
+            // --- CATEGORY 5: GARAGE ---
             if ($hasGarage) {
                 $gSqm = (float)$_POST['fc_garage_sqm'];
                 $add('5 - Garage', 'Plaster of ceiling and walls', 'sqm', $gSqm, 'gar_plast');
@@ -347,7 +421,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $sortIdx += 10;
             }
 
-            // --- CATEGORY 6: SEMI FINISHES ENVELOPE (Applies to both modes) ---
+            // --- CATEGORY 6: SEMI FINISHES ---
             if ($state === 'common_parts') {
                 $balcPerim = (float)$_POST['fc_balcony_perim'];
                 $sills = $balcPerim;
@@ -374,20 +448,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ((float)$_POST['fc_rail_glass'] > 0) $add('6 - Semi Finishes', 'Railing (Glass)', 'lm', (float)$_POST['fc_rail_glass'], 'rail_glass');
                 if ((float)$_POST['fc_rail_iron'] > 0) $add('6 - Semi Finishes', 'Railing (Wrought iron)', 'lm', (float)$_POST['fc_rail_iron'], 'rail_iron');
                 
-                $add('6 - Semi Finishes', 'Balcony Tiling including waterproofing', 'sqm', $B, 'balc_tile');
+                $add('6 - Semi Finishes', 'Balcony/Terrace Tiling including waterproofing', 'sqm', $B, 'balc_tile');
                 $add('6 - Semi Finishes', 'Balcony Skirting', 'lm', $balcPerim, 'balc_skirt');
                 $add('6 - Semi Finishes', 'Main cable to apartment and balcony light', 'lump_sum', 1, 'main_cable');
                 $add('6 - Semi Finishes', 'Water tank supply, installation and connection', 'lump_sum', 1, 'water_tank');
             }
 
-            // --- CATEGORY 7: PM & LOGISTICS (Applies to both modes) ---
+            // --- CATEGORY 7: PM & LOGISTICS ---
             $pmFee = $runningTotalExc * ($pmPct / 100);
-            $pmFee += $cleaningFee; 
+            $pmFee += $cleaningFee; // Add dynamic cleaning/logistics fee
             
             $insertItem->execute([$qId, '7 - Project Management', 'Project Management, Coordination & Site Logistics', 'lump_sum', 1, $pmFee, $sortIdx]);
             $sortIdx += 10; 
             
-            // --- CATEGORY 8: DISCOUNTS ---
             if ($discountExcVat > 0) {
                 $insertItem->execute([$qId, '8 - Discounts', 'Senior Management Discount', 'lump_sum', 1, -$discountExcVat, $sortIdx]);
             }
@@ -1139,7 +1212,8 @@ require_once 'header.php';
                         <?php if ($canManageQuote && !$isQuoteLocked): ?>
                             <div style="display: flex; gap: 5px;">
                                 <?php if ($quote['quote_type'] === 'Finishes'): ?>
-                                    <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid #8b5cf6;" onclick="document.getElementById('fcModal').style.display='block'">⚡ Launch Finishes Calculator</button>
+                                    <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid #8b5cf6;" onclick="document.getElementById('fcModal').style.display='block'">⚡ Full Finishes Calc</button>
+                                    <button class="btn btn-sm" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid #f59e0b;" onclick="document.getElementById('sfModal').style.display='block'">🔨 Semi-Finishes Quote Only</button>
                                 <?php endif; ?>
                                 <button class="btn btn-sm btn-primary" onclick="openItemModal()">+ Add Line Item</button>
                             </div>
@@ -1347,7 +1421,7 @@ require_once 'header.php';
             <div id="fcModal" class="modal">
                 <div class="modal-content" style="max-width: 800px; padding: 0;">
                     <div style="background: rgba(139, 92, 246, 0.1); border-bottom: 1px solid rgba(139, 92, 246, 0.3); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-radius: 12px 12px 0 0;">
-                        <h2 style="margin: 0; color: #8b5cf6;">⚡ Finishes Calculator Engine</h2>
+                        <h2 style="margin: 0; color: #8b5cf6;">⚡ Full Finishes Calculator Engine</h2>
                         <span class="close-modal" onclick="document.getElementById('fcModal').style.display='none'" style="position: static;">&times;</span>
                     </div>
                     
@@ -1357,12 +1431,6 @@ require_once 'header.php';
                         
                         <div style="background: rgba(239, 68, 68, 0.05); padding: 10px; border-left: 4px solid #ef4444; margin-bottom: 20px; font-size: 0.85rem;">
                             <strong>Warning:</strong> Generating a calculated BoQ will completely overwrite and delete any existing items in this quote.
-                        </div>
-
-                        <div class="form-check form-switch mb-4 p-3 rounded" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                            <input class="form-check-input" type="checkbox" name="fc_semi_only" id="fc_semi_only" onchange="toggleSemiFinishesMode()" <?= !empty($fcData['fc_semi_only']) ? 'checked' : '' ?> style="transform: scale(1.3); margin-left: -1.5rem; margin-top: 0.3rem;">
-                            <label class="form-check-label text-warning fw-bold ms-2" for="fc_semi_only" style="font-size: 1.1rem;">Semi-Finishes Only Quote</label>
-                            <div class="text-muted ms-2 mt-1" style="font-size: 0.85rem;">Replaces full internal finishes with prep, roughing, and torba-laid tiles. Applies simplified T&Cs automatically.</div>
                         </div>
 
                         <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px;">1. Project Scope</h4>
@@ -1385,8 +1453,8 @@ require_once 'header.php';
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
                             <div class="form-group"><label>Internal Area [A] (sqm) *</label><input type="number" step="0.01" name="fc_area_int" value="<?= fcv('fc_area_int') ?>" required></div>
                             <div class="form-group"><label>External Area [B] (sqm) *</label><input type="number" step="0.01" name="fc_area_ext" value="<?= fcv('fc_area_ext') ?>" required></div>
-                            <div class="form-group hide-on-semi"><label>Floor-to-Ceiling [C] (m) *</label><input type="number" step="0.01" name="fc_height" value="<?= fcv('fc_height', '2.65') ?>" required></div>
-                            <div class="form-group hide-on-semi"><label>Skirting Length [E] (lm) *</label><input type="number" step="0.01" name="fc_skirting" value="<?= fcv('fc_skirting') ?>" required></div>
+                            <div class="form-group"><label>Floor-to-Ceiling [C] (m) *</label><input type="number" step="0.01" name="fc_height" value="<?= fcv('fc_height', '2.65') ?>" required></div>
+                            <div class="form-group"><label>Skirting Length [E] (lm) *</label><input type="number" step="0.01" name="fc_skirting" value="<?= fcv('fc_skirting') ?>" required></div>
                             <div class="form-group" id="fc_balc_perim_group"><label>Balcony Perimeter (lm) *</label><input type="number" step="0.01" name="fc_balcony_perim" id="fc_balcony_perim" value="<?= fcv('fc_balcony_perim') ?>"></div>
                         </div>
 
@@ -1395,18 +1463,16 @@ require_once 'header.php';
                             <div class="form-group"><label>Total Bedrooms [D] (inc. study/gym) *</label><input type="number" name="fc_beds" id="fc_beds" value="<?= fcv('fc_beds', '1') ?>" required onchange="calcFcDoors()"></div>
                             <div class="form-group"><label>Bathrooms WITH Shower [F] *</label><input type="number" name="fc_bath_shower" id="fc_bath_shower" value="<?= fcv('fc_bath_shower', '1') ?>" required onchange="calcFcDoors()"></div>
                             <div class="form-group"><label>Bathrooms WITH Bath [G] *</label><input type="number" name="fc_bath_bath" id="fc_bath_bath" value="<?= fcv('fc_bath_bath', '0') ?>" required onchange="calcFcDoors()"></div>
-                            <div class="form-group hide-on-semi"><label>Total Bathrooms Area [H] (sqm) *</label><input type="number" step="0.01" name="fc_bath_sqm" value="<?= fcv('fc_bath_sqm') ?>" required></div>
-                            <div class="form-group hide-on-semi"><label>Total Bath Walls Perimeter [I] (lm) *</label><input type="number" step="0.01" name="fc_bath_perim" value="<?= fcv('fc_bath_perim') ?>" required></div>
+                            <div class="form-group"><label>Total Bathrooms Area [H] (sqm) *</label><input type="number" step="0.01" name="fc_bath_sqm" value="<?= fcv('fc_bath_sqm') ?>" required></div>
+                            <div class="form-group"><label>Total Bath Walls Perimeter [I] (lm) *</label><input type="number" step="0.01" name="fc_bath_perim" value="<?= fcv('fc_bath_perim') ?>" required></div>
                         </div>
 
-                        <div class="hide-on-semi">
-                            <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">4. Doors Configuration</h4>
-                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">Total doors naturally required: <span id="fc_door_calc" style="font-weight:bold; color:var(--text-primary);">0</span>. Distribute them below, adding extras for box rooms if needed.</div>
-                            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                                <div class="form-group"><label>Hinged Doors [X1]</label><input type="number" name="fc_door_hinged" id="fc_door_hinged" value="<?= fcv('fc_door_hinged', '2') ?>" required></div>
-                                <div class="form-group"><label>Sliding Doors [X2]</label><input type="number" name="fc_door_sliding" id="fc_door_sliding" value="<?= fcv('fc_door_sliding', '0') ?>" required></div>
-                                <div class="form-group"><label>Pocket Doors [X3]</label><input type="number" name="fc_door_pocket" id="fc_door_pocket" value="<?= fcv('fc_door_pocket', '0') ?>" required></div>
-                            </div>
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">4. Doors Configuration</h4>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">Total doors naturally required: <span id="fc_door_calc" style="font-weight:bold; color:var(--text-primary);">0</span>. Distribute them below, adding extras for box rooms if needed.</div>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                            <div class="form-group"><label>Hinged Doors [X1]</label><input type="number" name="fc_door_hinged" id="fc_door_hinged" value="<?= fcv('fc_door_hinged', '2') ?>" required></div>
+                            <div class="form-group"><label>Sliding Doors [X2]</label><input type="number" name="fc_door_sliding" id="fc_door_sliding" value="<?= fcv('fc_door_sliding', '0') ?>" required></div>
+                            <div class="form-group"><label>Pocket Doors [X3]</label><input type="number" name="fc_door_pocket" id="fc_door_pocket" value="<?= fcv('fc_door_pocket', '0') ?>" required></div>
                         </div>
 
                         <div id="fc_garage_section">
@@ -1452,24 +1518,74 @@ require_once 'header.php';
                     </form>
                 </div>
             </div>
+
+            <div id="sfModal" class="modal">
+                <div class="modal-content" style="max-width: 800px; padding: 0;">
+                    <div style="background: rgba(245, 158, 11, 0.1); border-bottom: 1px solid rgba(245, 158, 11, 0.3); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-radius: 12px 12px 0 0;">
+                        <h2 style="margin: 0; color: #f59e0b;">🔨 Semi-Finishes Calculator</h2>
+                        <span class="close-modal" onclick="document.getElementById('sfModal').style.display='none'" style="position: static;">&times;</span>
+                    </div>
+
+                    <form method="POST" style="padding: 1.5rem; max-height: 70vh; overflow-y: auto;" id="sfForm">
+                        <input type="hidden" name="action" value="generate_semi_finishes_boq">
+                        <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+
+                        <div style="background: rgba(239, 68, 68, 0.05); padding: 10px; border-left: 4px solid #ef4444; margin-bottom: 20px; font-size: 0.85rem;">
+                            <strong>Warning:</strong> Generating this BoQ will completely overwrite and delete any existing items in this quote.
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px;">1. Property Type</h4>
+                        <div class="form-group">
+                            <select name="sf_prop_type" required>
+                                <option value="apartment">Apartment / Penthouse (Fire Rated Door)</option>
+                                <option value="maisonette">Maisonette (External Timber Door)</option>
+                            </select>
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">2. Measurements & Balconies</h4>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group"><label>External Terraces / Balconies (sqm)</label><input type="number" step="0.01" name="sf_ext_sqm" value="0.00" required></div>
+                            <div class="form-group"><label>Window / Door Sills (lm)</label><input type="number" step="0.01" name="sf_sills_lm" value="0.00" required></div>
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">3. Railings</h4>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group">
+                                <label>Railing Type</label>
+                                <select name="sf_rail_type" required>
+                                    <option value="none">None / Not Applicable</option>
+                                    <option value="rail_alu">Aluminium Vertical</option>
+                                    <option value="rail_glass">Glass</option>
+                                    <option value="rail_iron">Wrought Iron</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Railing Length (lm)</label><input type="number" step="0.01" name="sf_rail_lm" value="0.00" required></div>
+                        </div>
+
+                        <h4 style="border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-top: 20px;">4. External Apertures</h4>
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" id="sf_ap_table">
+                            <thead><tr><th style="text-align:left; padding-bottom:5px;">Type</th><th style="text-align:left;">Width (m)</th><th style="text-align:left;">Height (m)</th><th></th></tr></thead>
+                            <tbody id="sf_ap_body">
+                                <tr>
+                                    <td style="padding: 4px 0;"><select name="ap_type[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);"><option value="ap_hinged_win">Hinged Window</option><option value="ap_sliding_win">Sliding Window</option><option value="ap_hinged_door">Hinged Door</option><option value="ap_sliding_door">Sliding Door</option></select></td>
+                                    <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_w[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" required></td>
+                                    <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_h[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" required></td>
+                                    <td style="padding: 4px 0; text-align:right;"><button type="button" class="btn btn-sm btn-danger" style="padding:4px 8px;" onclick="this.parentElement.parentElement.remove()">X</button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <button type="button" class="btn btn-sm" style="background: rgba(255,255,255,0.1);" onclick="addSfAperture()">+ Add Aperture</button>
+
+                        <div style="margin-top: 20px; font-size: 0.85rem; color: var(--text-muted);">
+                            * Water tank and main cable will be automatically included.
+                        </div>
+
+                        <button type="submit" class="btn" style="background: #f59e0b; color: white; border: none; width: 100%; padding: 15px; font-size: 1.1rem; font-weight: bold; margin-top: 20px;">Generate Semi-Finishes BoQ</button>
+                    </form>
+                </div>
+            </div>
             
             <script>
-            function toggleSemiFinishesMode() {
-                const isSemi = document.getElementById('fc_semi_only') && document.getElementById('fc_semi_only').checked;
-                document.querySelectorAll('.hide-on-semi').forEach(el => {
-                    el.style.display = isSemi ? 'none' : 'block';
-                    const inputs = el.querySelectorAll('input');
-                    inputs.forEach(input => {
-                        if (isSemi) {
-                            input.removeAttribute('required');
-                            if (input.type === 'number') input.value = 0;
-                        } else {
-                            input.setAttribute('required', 'required');
-                        }
-                    });
-                });
-            }
-
             function toggleFcSections() {
                 const state = document.getElementById('fc_state').value;
                 const garage = document.getElementById('fc_garage').checked;
@@ -1489,7 +1605,6 @@ require_once 'header.php';
                 const tot = b + s + ba;
                 document.getElementById('fc_door_calc').innerText = tot;
                 
-                // Only auto-fill if the user hasn't explicitly entered doors yet
                 if (document.getElementById('fc_door_hinged').value == '2' && document.getElementById('fc_door_sliding').value == '0' && document.getElementById('fc_door_pocket').value == '0') {
                     document.getElementById('fc_door_hinged').value = tot; 
                 }
@@ -1506,9 +1621,21 @@ require_once 'header.php';
                 `;
                 tb.appendChild(tr);
             }
+
+            function addSfAperture() {
+                const tb = document.getElementById('sf_ap_body');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="padding: 4px 0;"><select name="ap_type[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);"><option value="ap_hinged_win">Hinged Window</option><option value="ap_sliding_win">Sliding Window</option><option value="ap_hinged_door">Hinged Door</option><option value="ap_sliding_door">Sliding Door</option></select></td>
+                    <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_w[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" required></td>
+                    <td style="padding: 4px 5px;"><input type="number" step="0.01" name="ap_h[]" style="width:100%; padding: 6px; border-radius:4px; background:var(--bg-panel); color:white; border:1px solid rgba(255,255,255,0.1);" required></td>
+                    <td style="padding: 4px 0; text-align:right;"><button type="button" class="btn btn-sm btn-danger" style="padding:4px 8px;" onclick="this.parentElement.parentElement.remove()">X</button></td>
+                `;
+                tb.appendChild(tr);
+            }
             
             // Initialize calculator UI state safely
-            setTimeout(() => { toggleFcSections(); calcFcDoors(); toggleSemiFinishesMode(); }, 100);
+            setTimeout(() => { toggleFcSections(); calcFcDoors(); }, 100);
             </script>
             <?php endif; ?>
 
@@ -1671,9 +1798,11 @@ require_once 'header.php';
                 let iModal = document.getElementById('itemModal');
                 let cModal = document.getElementById('claimModal');
                 let fcModal = document.getElementById('fcModal');
+                let sfModal = document.getElementById('sfModal');
                 if (iModal && event.target == iModal) iModal.style.display = "none";
                 if (cModal && event.target == cModal) cModal.style.display = "none";
                 if (fcModal && event.target == fcModal) fcModal.style.display = "none";
+                if (sfModal && event.target == sfModal) sfModal.style.display = "none";
             });
             </script>
 
