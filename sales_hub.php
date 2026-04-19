@@ -890,140 +890,140 @@ require_once 'header.php';
     }
     ?>
 
-   // DAILY SYNC ENGINE
-    function processDailySync(input) {
-        if (input.files.length === 0) return;
-        
-        const file = input.files[0];
-        const formData = new FormData();
-        formData.append('sync_csv', file);
+// DAILY SYNC ENGINE
+function processDailySync(input) {
+    if (input.files.length === 0) return;
     
-        showToast("Syncing data... Please wait.", "success");
-    
-        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                if (data.not_found && data.not_found.length > 0) {
-                    // Show Translation UI
-                    showTranslationModal(data.message, data.not_found, data.all_db_units);
-                } else {
-                    alert(data.message + "\n\n100% Match Rate!");
-                    location.reload(); 
-                }
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('sync_csv', file);
+
+    showToast("Syncing data... Please wait.", "success");
+
+    fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            if (data.not_found && data.not_found.length > 0) {
+                // Show Translation UI
+                showTranslationModal(data.message, data.not_found, data.all_db_units);
             } else {
-                alert("Error: " + data.message);
+                alert(data.message + "\n\n100% Match Rate!");
+                location.reload(); 
             }
-        })
-        .catch(err => {
-            console.error(err);
-            alert("A network error occurred during sync.");
-        });
-        
-        input.value = ""; // Reset input
-    }
-    
-    function showTranslationModal(successMessage, missingItems, dbUnits) {
-        let modalHtml = `
-        <div id="translatorModal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:flex; align-items:center; justify-content:center;">
-            <div style="background:var(--sh-card-bg); padding:25px; border-radius:12px; max-width:800px; width:90%; max-height:85vh; overflow-y:auto; border:1px solid var(--sh-border);">
-                <h2 style="margin-top:0; color:var(--sh-text);">Sync Complete, but some items need mapping</h2>
-                <p style="color:var(--sh-success); font-weight:bold;">${successMessage}</p>
-                <p style="color:var(--sh-text-muted); font-size:0.9rem;">The system couldn't automatically match the items below. Link them to the correct Database Unit, and the system will remember this translation for next time.</p>
-                
-                <table style="width:100%; border-collapse: collapse; margin-top:15px;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid var(--sh-border); text-align:left;">
-                            <th style="padding:10px; color:var(--sh-text);">Unrecognized Name from CSV</th>
-                            <th style="padding:10px; color:var(--sh-text);">Link to Database Unit</th>
-                            <th style="padding:10px; color:var(--sh-text);">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="translatorTableBody">
-                    </tbody>
-                </table>
-                
-                <div style="margin-top: 25px; text-align: right;">
-                    <button class="sh-btn sh-btn-success" onclick="location.reload();">Done & Refresh Map</button>
-                </div>
-            </div>
-        </div>`;
-    
-        // Remove old modal if exists
-        let oldModal = document.getElementById('translatorModal');
-        if (oldModal) oldModal.remove();
-    
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    
-        // Build Options string for dropdown
-        let optionsHtml = `<option value="">-- Select DB Unit --</option>`;
-        dbUnits.forEach(u => {
-            optionsHtml += `<option value="${u.id}">${u.project_name} - ${u.unit_name}</option>`;
-        });
-    
-        const tbody = document.getElementById('translatorTableBody');
-        missingItems.forEach((item, index) => {
-            let safeCsvName = item.csv_name.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-            let tr = document.createElement('tr');
-            tr.style.borderBottom = "1px solid var(--sh-border)";
-            tr.innerHTML = `
-                <td style="padding:10px; color:var(--sh-danger); font-weight:bold; font-size:0.9rem;">${item.csv_name}</td>
-                <td style="padding:10px;">
-                    <select id="trans_select_${index}" class="sh-input" style="width:100%; margin:0;">
-                        ${optionsHtml}
-                    </select>
-                </td>
-                <td style="padding:10px; white-space: nowrap;">
-                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px;" onclick="saveTranslation('${safeCsvName}', ${index}, this, false)">Save Link</button>
-                    <button class="sh-btn sh-btn-warning" style="margin:0 0 0 5px; padding: 6px 12px; background: #6c757d; border:none; color:white;" onclick="saveTranslation('${safeCsvName}', ${index}, this, true)">Ignore</button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-    }
-    
-    function saveTranslation(csvName, index, btnElement, isIgnore) {
-        let unitId = -1; // Default to ignore
-        const selectEl = document.getElementById(`trans_select_${index}`);
-        
-        if (!isIgnore) {
-            unitId = selectEl.value;
-            if (!unitId) {
-                alert("Please select a unit from the dropdown first.");
-                return;
-            }
+        } else {
+            alert("Error: " + data.message);
         }
+    })
+    .catch(err => {
+        console.error(err);
+        alert("A network error occurred during sync.");
+    });
     
-        const originalText = btnElement.innerHTML;
-        btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        btnElement.disabled = true;
+    input.value = ""; // Reset input
+}
+
+function showTranslationModal(successMessage, missingItems, dbUnits) {
+    let modalHtml = `
+    <div id="translatorModal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:flex; align-items:center; justify-content:center;">
+        <div style="background:var(--sh-card-bg); padding:25px; border-radius:12px; max-width:800px; width:90%; max-height:85vh; overflow-y:auto; border:1px solid var(--sh-border); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <h2 style="margin-top:0; color:var(--sh-text);">Sync Complete, but some items need mapping</h2>
+            <p style="color:var(--sh-success); font-weight:bold; font-size:1.1rem;">${successMessage}</p>
+            <p style="color:var(--sh-text-muted); font-size:0.9rem;">The system couldn't automatically match the items below. Link them to the correct Database Unit, and the system will remember this translation for next time.</p>
+            
+            <table style="width:100%; border-collapse: collapse; margin-top:15px;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--sh-border); text-align:left;">
+                        <th style="padding:10px; color:var(--sh-text);">Unrecognized Name from CSV</th>
+                        <th style="padding:10px; color:var(--sh-text);">Link to Database Unit</th>
+                        <th style="padding:10px; color:var(--sh-text);">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="translatorTableBody">
+                </tbody>
+            </table>
+            
+            <div style="margin-top: 25px; text-align: right;">
+                <button class="sh-btn sh-btn-success" onclick="location.reload();">Done & Refresh Map</button>
+            </div>
+        </div>
+    </div>`;
+
+    // Remove old modal if exists
+    let oldModal = document.getElementById('translatorModal');
+    if (oldModal) oldModal.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Build Options string for dropdown
+    let optionsHtml = `<option value="">-- Select DB Unit --</option>`;
+    dbUnits.forEach(u => {
+        optionsHtml += `<option value="${u.id}">${u.project_name} - ${u.unit_name}</option>`;
+    });
+
+    const tbody = document.getElementById('translatorTableBody');
+    missingItems.forEach((item, index) => {
+        let safeCsvName = item.csv_name.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        let tr = document.createElement('tr');
+        tr.style.borderBottom = "1px solid var(--sh-border)";
+        tr.innerHTML = `
+            <td style="padding:10px; color:var(--sh-danger); font-weight:bold; font-size:0.9rem;">${item.csv_name}</td>
+            <td style="padding:10px;">
+                <select id="trans_select_${index}" class="sh-input" style="width:100%; margin:0;">
+                    ${optionsHtml}
+                </select>
+            </td>
+            <td style="padding:10px; white-space: nowrap;">
+                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px;" onclick="saveTranslation('${safeCsvName}', ${index}, this, false)">Save Link</button>
+                <button class="sh-btn sh-btn-warning" style="margin:0 0 0 5px; padding: 6px 12px; background: #6c757d; border:none; color:white;" onclick="saveTranslation('${safeCsvName}', ${index}, this, true)">Ignore</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function saveTranslation(csvName, index, btnElement, isIgnore) {
+    let unitId = -1; // Default to ignore
+    const selectEl = document.getElementById(`trans_select_${index}`);
     
-        const formData = new FormData();
-        formData.append('action', 'save_translation');
-        formData.append('csv_name', csvName);
-        formData.append('unit_id', unitId);
-    
-        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                btnElement.className = "sh-btn sh-btn-success";
-                btnElement.innerHTML = isIgnore ? '<i class="fas fa-eye-slash"></i> Ignored!' : '<i class="fas fa-check"></i> Linked!';
-                selectEl.disabled = true;
-                
-                // Disable the other button in that row
-                const siblingBtn = isIgnore ? btnElement.previousElementSibling : btnElement.nextElementSibling;
-                if (siblingBtn) {
-                    siblingBtn.style.opacity = '0.5';
-                    siblingBtn.disabled = true;
-                }
-            } else {
-                alert("Failed to save action.");
-                btnElement.innerHTML = originalText;
-                btnElement.disabled = false;
-            }
-        });
+    if (!isIgnore) {
+        unitId = selectEl.value;
+        if (!unitId) {
+            alert("Please select a unit from the dropdown first.");
+            return;
+        }
     }
+
+    const originalText = btnElement.innerHTML;
+    btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btnElement.disabled = true;
+
+    const formData = new FormData();
+    formData.append('action', 'save_translation');
+    formData.append('csv_name', csvName);
+    formData.append('unit_id', unitId);
+
+    fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            btnElement.className = "sh-btn sh-btn-success";
+            btnElement.innerHTML = isIgnore ? '<i class="fas fa-eye-slash"></i> Ignored!' : '<i class="fas fa-check"></i> Linked!';
+            selectEl.disabled = true;
+            
+            // Disable the sibling button
+            const siblingBtn = isIgnore ? btnElement.previousElementSibling : btnElement.nextElementSibling;
+            if (siblingBtn) {
+                siblingBtn.style.opacity = '0.5';
+                siblingBtn.disabled = true;
+            }
+        } else {
+            alert("Failed to save action.");
+            btnElement.innerHTML = originalText;
+            btnElement.disabled = false;
+        }
+    });
+}
 </script>
 
 <?php require_once 'footer.php'; ?>
