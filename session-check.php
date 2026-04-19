@@ -23,3 +23,12 @@ if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 
     header('Location: index.php?timeout=1');
     exit;
 }
+
+// Auto-Redirect Plant Staff to their specific app
+if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['plant_manager', 'plant_driver'])) {
+    $current_file = basename($_SERVER['PHP_SELF']);
+    if ($current_file !== 'plant_bookings.php' && strpos($_SERVER['PHP_SELF'], '/api/') === false && $current_file !== 'logout.php') {
+        header("Location: plant_bookings.php");
+        exit;
+    }
+}
