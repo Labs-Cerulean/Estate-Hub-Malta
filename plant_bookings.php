@@ -1,13 +1,20 @@
 <?php
 require_once 'config.php';
 require_once 'session-check.php';
+require_once 'user-functions.php'; // Required to use hasPermission()
 
 $role = $_SESSION['role'];
-if (!in_array($role, ['admin', 'director', 'system_manager', 'plant_manager', 'plant_driver'])) {
+
+// Check if they are a dedicated plant user OR have the new permission
+$isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
+$hasAccess = hasPermission('view_plant_bookings') || $isPlantUser;
+
+if (!$hasAccess) {
     die("Unauthorized Access.");
 }
 
-$isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
+// Check if they have manager rights within the app (to create bookings)
+$isManager = hasPermission('view_plant_bookings') || $role === 'plant_manager';
 $userId = $_SESSION['user_id'];
 ?>
 <!DOCTYPE html>
