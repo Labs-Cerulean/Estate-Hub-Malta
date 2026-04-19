@@ -8,6 +8,26 @@ if (!in_array($_SESSION['role'], ['admin', 'sales_manager', 'director', 'system_
     exit;
 }
 
+// ---------------------------------------------------------
+// ACTION: SAVE NEW TRANSLATION (Called from the popup UI)
+// ---------------------------------------------------------
+if (isset($_POST['action']) && $_POST['action'] === 'save_translation') {
+    $csvName = trim($_POST['csv_name'] ?? '');
+    $dbUnitId = intval($_POST['unit_id'] ?? 0);
+
+    if ($csvName && $dbUnitId > 0) {
+        $stmt = $pdo->prepare("INSERT INTO sync_translations (csv_name, db_unit_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE db_unit_id = ?");
+        $stmt->execute([$csvName, $dbUnitId, $dbUnitId]);
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Invalid data']);
+    }
+    exit;
+}
+
+// ---------------------------------------------------------
+// ACTION: PROCESS CSV UPLOAD
+// ---------------------------------------------------------
 if (!isset($_FILES['sync_csv']) || $_FILES['sync_csv']['error'] !== UPLOAD_ERR_OK) {
     echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error.']);
     exit;
@@ -20,12 +40,18 @@ if (!$handle) {
     exit;
 }
 
-// Fetch all existing units from the database to build our Smart Matching index
-$stmt = $pdo->query("SELECT sp.id, sp.unit_name, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id");
+// 1. Fetch all DB Units for Smart Matching & UI Dropdowns
+$stmt = $pdo->query("SELECT sp.id, sp.unit_name, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
 $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Words to ignore when matching to ensure high accuracy (e.g., matching "Apt A01" to "Apartment A01")
-$ignoreWords = ['apt', 'apartment', 'blk', 'block', 'ph', 'penthouse', 'mais', 'maisonette', 'garage', 'car', 'space', 'house', 'pt', 'level', 'lv', 'cs', 'gr'];
+// 2. Fetch Saved Translations from Database
+$stmtTrans = $pdo->query("SELECT csv_name, db_unit_id FROM sync_translations");
+$savedTranslations = [];
+while ($row = $stmtTrans->fetch(PDO::FETCH_ASSOC)) {
+    $savedTranslations[strtolower($row['csv_name'])] = $row['db_unit_id'];
+}
+
+$ignoreWords = ['apt', 'apartment', 'blk', 'block', 'ph', 'penthouse', 'mais', 'maisonette', 'garage', 'car', 'space', 'house', 'pt', 'level', 'lv', 'cs', 'gr', 'residences'];
 
 $updatedCount = 0;
 $notFound = [];
@@ -35,10 +61,9 @@ $colStatus = -1;
 $colPrice = -1;
 $isHeaderFound = false;
 
-// Process the CSV
 while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
     
-    // 1. Dynamically find the columns (allows for empty rows at the top of the CSV)
+    // Find Columns
     if (!$isHeaderFound) {
         foreach ($data as $index => $val) {
             $valStr = strtolower(trim($val));
@@ -50,19 +75,15 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
         continue;
     }
 
-    // 2. Extract Row Data
     if (!isset($data[$colUnit]) || !isset($data[$colStatus])) continue;
     
-    $csvUnitString = trim($data[$colUnit]);
+    $csvUnitStringRaw = trim($data[$colUnit]);
     $csvStatus = trim($data[$colStatus]);
     $csvPriceRaw = isset($data[$colPrice]) ? trim($data[$colPrice]) : '';
 
-    if (empty($csvUnitString) || empty($csvStatus)) continue;
+    if (empty($csvUnitStringRaw) || empty($csvStatus)) continue;
 
-    // Clean price formatting
     $price = floatval(preg_replace('/[^0-9.]/', '', $csvPriceRaw));
-
-    // Map 3rd-Party Statuses to Internal Statuses
     $dbStatus = 'Available';
     $csvStatusLower = strtolower($csvStatus);
     
@@ -72,63 +93,80 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
     elseif (strpos($csvStatusLower, 'progress') !== false) $dbStatus = 'Proceeding';
     elseif (strpos($csvStatusLower, 'hold') !== false) $dbStatus = 'On Hold';
 
-    // 3. Smart Token Matching Engine
+    $searchString = strtolower($csvUnitStringRaw);
     $matchedId = null;
-    $searchString = strtolower($csvUnitString);
 
-    foreach ($dbUnits as $dbU) {
-        $projParts = explode(' ', $dbU['project_name']);
-        $searchProj = strtolower($projParts[0]); // e.g., "Avanti"
+    // --- MATCHER LOGIC ---
+    
+    // Check 1: Do we have a saved translation in the DB?
+    if (isset($savedTranslations[$searchString])) {
+        $matchedId = $savedTranslations[$searchString];
+    } else {
+        // Check 2: Hardcoded Project Name Aliases Fixes (Catch-all for typos)
+        $projectAliases = [
+            'harbeia' => 'harbea',
+            'tal-gruwa' => 'gruwa'
+        ];
+        foreach ($projectAliases as $wrong => $right) {
+            $searchString = str_replace($wrong, $right, $searchString);
+        }
 
-        // First, check if the CSV row belongs to this project
-        if (strpos($searchString, $searchProj) !== false) {
-            
-            // Extract the core unit ID (e.g., "M01 - Blk A (Avanti)" -> "M01", "A")
-            $coreUnitName = preg_replace('/\(.*?\)/', '', $dbU['unit_name']); 
-            preg_match_all('/[a-zA-Z0-9]+/', $coreUnitName, $matches);
-            
-            $unitTokens = [];
-            foreach ($matches[0] as $t) {
-                if (!in_array(strtolower($t), $ignoreWords)) $unitTokens[] = strtolower($t);
-            }
+        // Check 3: Smart Token Matching Engine
+        foreach ($dbUnits as $dbU) {
+            $dbProjNameLower = strtolower($dbU['project_name']);
+            $projParts = explode(' ', $dbProjNameLower);
+            $searchProj = $projParts[0]; 
 
-            // Check if all core identifying tokens exist in the CSV string
-            $allTokensMatch = true;
-            foreach ($unitTokens as $token) {
-                if (strpos($searchString, $token) === false) {
-                    $allTokensMatch = false;
-                    break;
+            if (strpos($searchString, $searchProj) !== false) {
+                $coreUnitName = preg_replace('/\(.*?\)/', '', $dbU['unit_name']); 
+                preg_match_all('/[a-zA-Z0-9]+/', $coreUnitName, $matches);
+                
+                $unitTokens = [];
+                foreach ($matches[0] as $t) {
+                    if (!in_array(strtolower($t), $ignoreWords)) $unitTokens[] = strtolower($t);
                 }
-            }
 
-            if ($allTokensMatch && count($unitTokens) > 0) {
-                $matchedId = $dbU['id'];
-                break; // Match found!
+                $allTokensMatch = true;
+                foreach ($unitTokens as $token) {
+                    if (strpos($searchString, $token) === false) {
+                        $allTokensMatch = false;
+                        break;
+                    }
+                }
+
+                if ($allTokensMatch && count($unitTokens) > 0) {
+                    $matchedId = $dbU['id'];
+                    break; 
+                }
             }
         }
     }
 
-    // 4. Execute Update
+    // --- EXECUTE UPDATE ---
     if ($matchedId) {
         if ($price > 0) {
-            // Overwrite Shell Price with Stock Value, and zero out finishes so the Total matches the CSV
             $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = 0 WHERE id = ?");
             $updateStmt->execute([$dbStatus, $price, $matchedId]);
         } else {
-            // Just update the status if no price is provided
             $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
             $updateStmt->execute([$dbStatus, $matchedId]);
         }
         $updatedCount++;
     } else {
-        $notFound[] = $csvUnitString;
+        // Keep track of what failed, sending it back to the UI
+        $notFound[] = [
+            'csv_name' => $csvUnitStringRaw,
+            'status' => $csvStatus,
+            'price' => $price
+        ];
     }
 }
 fclose($handle);
 
 echo json_encode([
     'success' => true,
-    'message' => "Sync complete! Successfully updated {$updatedCount} units.",
-    'not_found' => $notFound
+    'message' => "Successfully updated {$updatedCount} units.",
+    'not_found' => $notFound,
+    'all_db_units' => $dbUnits // Pass units back to populate the UI dropdowns
 ]);
 ?>
