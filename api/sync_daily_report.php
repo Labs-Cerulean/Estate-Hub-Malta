@@ -13,7 +13,7 @@ if (!in_array($_SESSION['role'], ['admin', 'sales_manager', 'director', 'system_
 // ---------------------------------------------------------
 if (isset($_POST['action']) && $_POST['action'] === 'save_translation') {
     $csvName = trim($_POST['csv_name'] ?? '');
-    $dbUnitId = isset($_POST['unit_id']) ? intval($_POST['unit_id']) : null; // Changed to allow -1
+    $dbUnitId = isset($_POST['unit_id']) ? intval($_POST['unit_id']) : null;
 
     if ($csvName && $dbUnitId !== null) {
         $stmt = $pdo->prepare("INSERT INTO sync_translations (csv_name, db_unit_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE db_unit_id = ?");
@@ -59,6 +59,7 @@ $notFound = [];
 $colUnit = -1;
 $colStatus = -1;
 $colPrice = -1;
+$colFinishes = -1; // NEW: Finishes Column
 $isHeaderFound = false;
 
 while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
@@ -69,7 +70,10 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
             $valStr = strtolower(trim($val));
             if (strpos($valStr, 'apartment no') !== false || strpos($valStr, 'project') !== false) $colUnit = $index;
             if ($valStr === 'status') $colStatus = $index;
-            if (strpos($valStr, 'stock value') !== false || strpos($valStr, 'price') !== false) $colPrice = $index;
+            
+            // Differentiate between "Stock Value" and "Stock C/P Value"
+            if (strpos($valStr, 'stock value') !== false && strpos($valStr, 'c/p') === false) $colPrice = $index;
+            if (strpos($valStr, 'stock c/p value') !== false || strpos($valStr, 'c/p value') !== false) $colFinishes = $index;
         }
         if ($colUnit !== -1 && $colStatus !== -1) $isHeaderFound = true;
         continue;
@@ -79,11 +83,16 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
     
     $csvUnitStringRaw = trim($data[$colUnit]);
     $csvStatus = trim($data[$colStatus]);
+    
+    // Extract Prices
     $csvPriceRaw = isset($data[$colPrice]) ? trim($data[$colPrice]) : '';
+    $csvFinishesRaw = isset($data[$colFinishes]) ? trim($data[$colFinishes]) : '';
 
     if (empty($csvUnitStringRaw) || empty($csvStatus)) continue;
 
     $price = floatval(preg_replace('/[^0-9.]/', '', $csvPriceRaw));
+    $finishesPrice = floatval(preg_replace('/[^0-9.]/', '', $csvFinishesRaw)); // NEW
+    
     $dbStatus = 'Available';
     $csvStatusLower = strtolower($csvStatus);
     
@@ -97,12 +106,9 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
     $matchedId = null;
 
     // --- MATCHER LOGIC ---
-    
-    // Check 1: Do we have a saved translation in the DB?
     if (isset($savedTranslations[$searchString])) {
         $matchedId = $savedTranslations[$searchString];
     } else {
-        // Check 2: Hardcoded Project Name Aliases Fixes (Catch-all for typos)
         $projectAliases = [
             'harbeia' => 'harbea',
             'tal-gruwa' => 'gruwa'
@@ -111,7 +117,6 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
             $searchString = str_replace($wrong, $right, $searchString);
         }
 
-        // Check 3: Smart Token Matching Engine
         foreach ($dbUnits as $dbU) {
             $dbProjNameLower = strtolower($dbU['project_name']);
             $projParts = explode(' ', $dbProjNameLower);
@@ -142,33 +147,35 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
         }
     }
 
-   // --- EXECUTE UPDATE ---
-    if ($matchedId && $matchedId > 0) { // Make sure it's a valid ID, not -1
-        if ($price > 0) {
-            $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = 0 WHERE id = ?");
-            $updateStmt->execute([$dbStatus, $price, $matchedId]);
+    // --- EXECUTE UPDATE ---
+    if ($matchedId && $matchedId > 0) {
+        if ($price > 0 || $finishesPrice > 0) {
+            // Update Status, Shell Price, AND Finishes Price
+            $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
+            $updateStmt->execute([$dbStatus, $price, $finishesPrice, $matchedId]);
         } else {
+            // Just update status if no prices provided
             $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
             $updateStmt->execute([$dbStatus, $matchedId]);
         }
         $updatedCount++;
     } elseif ($matchedId == -1) {
-        // EXPLICITLY IGNORED: Do nothing, and don't add it to the 'not found' list
+        // EXPLICITLY IGNORED: Skip entirely
         continue;
     } else {
-        // Keep track of what failed, sending it back to the UI
         $notFound[] = [
             'csv_name' => $csvUnitStringRaw,
             'status' => $csvStatus,
             'price' => $price
         ];
     }
+}
 fclose($handle);
 
 echo json_encode([
     'success' => true,
     'message' => "Successfully updated {$updatedCount} units.",
     'not_found' => $notFound,
-    'all_db_units' => $dbUnits // Pass units back to populate the UI dropdowns
+    'all_db_units' => $dbUnits 
 ]);
 ?>
