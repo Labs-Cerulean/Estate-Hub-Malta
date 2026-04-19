@@ -7,6 +7,42 @@ $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
 
+// --- FLEET MANAGEMENT ENDPOINTS ---
+
+// 1. Fetch Clients for the Owner Dropdown
+if ($action == 'get_clients' && $isManager) {
+    $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+    echo json_encode($clients);
+    exit;
+}
+
+// 2. Fetch the Active Fleet List
+if ($action == 'get_fleet' && $isManager) {
+    $fleet = $pdo->query("
+        SELECT p.*, c.name as owner_name 
+        FROM plants p 
+        LEFT JOIN clients c ON p.developer_client_id = c.id 
+        WHERE p.status = 'Active' 
+        ORDER BY p.name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    echo json_encode($fleet);
+    exit;
+}
+
+// 3. Save a New Plant to the Database
+if ($action == 'save_plant' && $canManageFleet) { // Make sure this checks $canManageFleet
+    $stmt = $pdo->prepare("INSERT INTO plants (name, registration_plate, developer_client_id, inhouse_rate, external_rate) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([
+        $_POST['name'],
+        $_POST['reg'],
+        $_POST['owner_id'],
+        empty($_POST['rate_in']) ? 0.00 : $_POST['rate_in'],
+        empty($_POST['rate_ext']) ? 0.00 : $_POST['rate_ext']
+    ]);
+    echo "OK";
+    exit;
+}
+
 if ($action == 'form_data') {
     $plants = $pdo->query("SELECT id, name, registration_plate FROM plants WHERE status='Active'")->fetchAll(PDO::FETCH_ASSOC);
     $drivers = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role='plant_driver'")->fetchAll(PDO::FETCH_ASSOC);
