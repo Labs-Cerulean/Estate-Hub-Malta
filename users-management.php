@@ -535,7 +535,9 @@ const roleDefaults = {
     'subcontractor': ['assign_actions', 'view_projects', 'view_drawings'],
     'sales_manager': ['view_works_sales', 'view_property_sales'],
     'sales_agent': ['view_property_sales'],
-    'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects']
+    'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects'],
+    'plant_manager': ['view_plant_bookings'],
+    'plant_driver': ['view_plant_bookings']
 };
 
 const docDefaults = {
@@ -553,7 +555,10 @@ const docDefaults = {
     'ohsa_rep': { doc_bca: 0, doc_ohsa: 3, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 3 },
     'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
     'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 4, doc_training: 0 },
-    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2, doc_training: 0 }
+    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2, doc_training: 0 },
+    'plant_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'plant_driver': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 }
+};
 };
 
 function toggleAccessSections(type) {
