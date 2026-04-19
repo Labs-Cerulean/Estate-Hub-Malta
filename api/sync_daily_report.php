@@ -142,8 +142,8 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
         }
     }
 
-    // --- EXECUTE UPDATE ---
-    if ($matchedId) {
+   // --- EXECUTE UPDATE ---
+    if ($matchedId && $matchedId > 0) { // Make sure it's a valid ID, not -1
         if ($price > 0) {
             $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = 0 WHERE id = ?");
             $updateStmt->execute([$dbStatus, $price, $matchedId]);
@@ -152,6 +152,9 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
             $updateStmt->execute([$dbStatus, $matchedId]);
         }
         $updatedCount++;
+    } elseif ($matchedId == -1) {
+        // EXPLICITLY IGNORED: Do nothing, and don't add it to the 'not found' list
+        continue;
     } else {
         // Keep track of what failed, sending it back to the UI
         $notFound[] = [
@@ -160,7 +163,6 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
             'price' => $price
         ];
     }
-}
 fclose($handle);
 
 echo json_encode([
