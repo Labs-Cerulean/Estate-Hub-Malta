@@ -485,7 +485,7 @@ require_once 'header.php';
     // STANDARD UI FUNCTIONS
     // ========================================================
     function showToast(message, type = 'success') {
-        const container = document.getElementById('toast-container');
+        const container = document.getElementById('sh-toast-container');
         const toast = document.createElement('div');
         toast.className = 'sh-toast';
         toast.style.background = type === 'success' ? '#10B981' : '#EF4444';
