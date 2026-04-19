@@ -13,9 +13,9 @@ if (!in_array($_SESSION['role'], ['admin', 'sales_manager', 'director', 'system_
 // ---------------------------------------------------------
 if (isset($_POST['action']) && $_POST['action'] === 'save_translation') {
     $csvName = trim($_POST['csv_name'] ?? '');
-    $dbUnitId = intval($_POST['unit_id'] ?? 0);
+    $dbUnitId = isset($_POST['unit_id']) ? intval($_POST['unit_id']) : null; // Changed to allow -1
 
-    if ($csvName && $dbUnitId > 0) {
+    if ($csvName && $dbUnitId !== null) {
         $stmt = $pdo->prepare("INSERT INTO sync_translations (csv_name, db_unit_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE db_unit_id = ?");
         $stmt->execute([$csvName, $dbUnitId, $dbUnitId]);
         echo json_encode(['success' => true]);
