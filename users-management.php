@@ -47,6 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Approval Workflow Bypass
         'approve_quotes' => isset($_POST['approve_quotes']) ? 1 : 0,
+
+        // NEW: Plant Bookings Access
+        'view_plant_bookings' => isset($_POST['view_plant_bookings']) ? 1 : 0,
     ];
 
     if ($action === 'create_user') {
@@ -185,7 +188,8 @@ $rolesList = [
     'admin', 'director', 'system_manager', 'project_manager', 'accountant', 'architect', 'structural_engineer', 
     'services_engineer', 'quality_controller', 'pmo_staff', 'ohsa_rep', 
     'site_technical_officer', 'subcontractor', 'condominium_agent', 
-    'sales_manager', 'sales_agent', 'end_customer', 'viewer'
+    'sales_manager', 'sales_agent', 'end_customer', 'viewer',
+    'plant_manager', 'plant_driver' // NEW ROLES
 ];
 
 $pageTitle = 'User Management';
@@ -294,6 +298,7 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_property_sales" id="edit_cap_view_property_sales" <?= !empty($selectedUser['view_property_sales']) ? 'checked' : '' ?>> Property Sales</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_capital_projects" id="edit_cap_view_capital_projects" <?= !empty($selectedUser['view_capital_projects']) ? 'checked' : '' ?>> Capital Projects</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_nav_subcontractors" id="edit_cap_view_nav_subcontractors" <?= !empty($selectedUser['view_nav_subcontractors']) ? 'checked' : '' ?>> Subcon. Accounts</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_plant_bookings" id="edit_cap_view_plant_bookings" <?= !empty($selectedUser['view_plant_bookings']) ? 'checked' : '' ?>> <span style="color: #FF9800; font-weight: bold;">Plant Bookings Hub</span></label>
                         </div>
 
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Document Vault Access Levels</h4>
