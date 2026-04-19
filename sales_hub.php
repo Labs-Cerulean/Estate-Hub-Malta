@@ -963,7 +963,7 @@ function showTranslationModal(successMessage, missingItems, dbUnits) {
 
     const tbody = document.getElementById('translatorTableBody');
     missingItems.forEach((item, index) => {
-        let safeCsvName = item.csv_name.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        let safeCsvName = encodeURIComponent(item.csv_name);
         let tr = document.createElement('tr');
         tr.style.borderBottom = "1px solid var(--sh-border)";
         tr.innerHTML = `
@@ -983,6 +983,7 @@ function showTranslationModal(successMessage, missingItems, dbUnits) {
 }
 
 function saveTranslation(csvName, index, btnElement, isIgnore) {
+    csvName = decodeURIComponent(csvName);
     let unitId = -1; // Default to ignore
     const selectEl = document.getElementById(`trans_select_${index}`);
     
