@@ -46,7 +46,8 @@ if ($action == 'save_plant' && $canManageFleet) { // Make sure this checks $canM
 if ($action == 'form_data') {
     $plants = $pdo->query("SELECT id, name, registration_plate FROM plants WHERE status='Active'")->fetchAll(PDO::FETCH_ASSOC);
     $drivers = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role='plant_driver'")->fetchAll(PDO::FETCH_ASSOC);
-    $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+    require_once '../user-functions.php';
+    $projects = getAccessibleProjects($pdo, $userId); // <-- Uses your built-in security!
     echo json_encode(['plants' => $plants, 'drivers' => $drivers, 'projects' => $projects]);
     exit;
 }
