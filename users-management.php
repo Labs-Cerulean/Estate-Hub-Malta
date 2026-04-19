@@ -572,10 +572,16 @@ function toggleAccessSections(type) {
     
     const level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
     const level3Roles = ['subcontractor', 'condominium_agent', 'end_customer', 'project_manager'];
-    const level0Roles = ['admin']; 
+    const level0Roles = ['admin']; // Only Admin is Level 0
+    const pureIsolatedRoles = ['plant_driver']; // Drivers don't need ANY project access
     
     if (level1Div) level1Div.style.display = level1Roles.includes(role) ? 'block' : 'none';
-    if (level2Div) level2Div.style.display = (level0Roles.includes(role) || level1Roles.includes(role) || level3Roles.includes(role)) ? 'none' : 'block';
+    
+    // Plant Managers see Level 2 (Clients) and Level 3 (Projects). Drivers see nothing.
+    if (level2Div) level2Div.style.display = (level0Roles.includes(role) || level1Roles.includes(role) || level3Roles.includes(role) || pureIsolatedRoles.includes(role)) ? 'none' : 'block';
+    
+    // Plant Managers DO NOT see Level 3 (Explicit Projects) by default unless you want them to.
+    // If you want them to assign specific projects, you can add 'plant_manager' here.
     if (level3Div) level3Div.style.display = level3Roles.includes(role) ? 'block' : 'none';
 }
 
