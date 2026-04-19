@@ -963,27 +963,28 @@ function showTranslationModal(successMessage, missingItems, dbUnits) {
 
     const tbody = document.getElementById('translatorTableBody');
     missingItems.forEach((item, index) => {
-        let safeCsvName = encodeURIComponent(item.csv_name);
         let tr = document.createElement('tr');
         tr.style.borderBottom = "1px solid var(--sh-border)";
         tr.innerHTML = `
-            <td style="padding:10px; color:var(--sh-danger); font-weight:bold; font-size:0.9rem;">${item.csv_name}</td>
+            <td id="missing_name_${index}" style="padding:10px; color:var(--sh-danger); font-weight:bold; font-size:0.9rem;">${item.csv_name}</td>
             <td style="padding:10px;">
                 <select id="trans_select_${index}" class="sh-input" style="width:100%; margin:0;">
                     ${optionsHtml}
                 </select>
             </td>
             <td style="padding:10px; white-space: nowrap;">
-                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px;" onclick="saveTranslation('${safeCsvName}', ${index}, this, false)">Save Link</button>
-                <button class="sh-btn sh-btn-warning" style="margin:0 0 0 5px; padding: 6px 12px; background: #6c757d; border:none; color:white;" onclick="saveTranslation('${safeCsvName}', ${index}, this, true)">Ignore</button>
+                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px;" onclick="saveTranslation(${index}, this, false)">Save Link</button>
+                <button class="sh-btn sh-btn-warning" style="margin:0 0 0 5px; padding: 6px 12px; background: #6c757d; border:none; color:white;" onclick="saveTranslation(${index}, this, true)">Ignore</button>
             </td>
         `;
         tbody.appendChild(tr);
     });
 }
 
-function saveTranslation(csvName, index, btnElement, isIgnore) {
-    csvName = decodeURIComponent(csvName);
+function saveTranslation(index, btnElement, isIgnore) {
+    // Safely grab the exact text from the table row!
+    let csvName = document.getElementById(`missing_name_${index}`).innerText;
+    
     let unitId = -1; // Default to ignore
     const selectEl = document.getElementById(`trans_select_${index}`);
     
