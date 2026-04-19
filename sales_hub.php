@@ -973,23 +973,28 @@ require_once 'header.php';
                         ${optionsHtml}
                     </select>
                 </td>
-                <td style="padding:10px;">
-                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px;" onclick="saveTranslation('${safeCsvName}', ${index}, this)">Save Link</button>
+                <td style="padding:10px; white-space: nowrap;">
+                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px;" onclick="saveTranslation('${safeCsvName}', ${index}, this, false)">Save Link</button>
+                    <button class="sh-btn sh-btn-warning" style="margin:0 0 0 5px; padding: 6px 12px; background: #6c757d; border:none; color:white;" onclick="saveTranslation('${safeCsvName}', ${index}, this, true)">Ignore</button>
                 </td>
             `;
             tbody.appendChild(tr);
         });
     }
     
-    function saveTranslation(csvName, index, btnElement) {
+    function saveTranslation(csvName, index, btnElement, isIgnore) {
+        let unitId = -1; // Default to ignore
         const selectEl = document.getElementById(`trans_select_${index}`);
-        const unitId = selectEl.value;
-    
-        if (!unitId) {
-            alert("Please select a unit from the dropdown first.");
-            return;
+        
+        if (!isIgnore) {
+            unitId = selectEl.value;
+            if (!unitId) {
+                alert("Please select a unit from the dropdown first.");
+                return;
+            }
         }
     
+        const originalText = btnElement.innerHTML;
         btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         btnElement.disabled = true;
     
@@ -1003,12 +1008,18 @@ require_once 'header.php';
         .then(data => {
             if (data.success) {
                 btnElement.className = "sh-btn sh-btn-success";
-                btnElement.innerHTML = '<i class="fas fa-check"></i> Linked!';
+                btnElement.innerHTML = isIgnore ? '<i class="fas fa-eye-slash"></i> Ignored!' : '<i class="fas fa-check"></i> Linked!';
                 selectEl.disabled = true;
-                showToast("Translation saved for future syncs!", "success");
+                
+                // Disable the other button in that row
+                const siblingBtn = isIgnore ? btnElement.previousElementSibling : btnElement.nextElementSibling;
+                if (siblingBtn) {
+                    siblingBtn.style.opacity = '0.5';
+                    siblingBtn.disabled = true;
+                }
             } else {
-                alert("Failed to save link.");
-                btnElement.innerHTML = 'Save Link';
+                alert("Failed to save action.");
+                btnElement.innerHTML = originalText;
                 btnElement.disabled = false;
             }
         });
