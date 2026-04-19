@@ -4,8 +4,9 @@ require_once 'session-check.php';
 
 $bookingId = $_GET['booking_id'] ?? 0;
 
+// Fetch the job, including BOTH rates
 $stmt = $pdo->prepare("
-    SELECT pb.*, p.name as plant_name, p.registration_plate, p.hourly_rate, 
+    SELECT pb.*, p.name as plant_name, p.registration_plate, p.inhouse_rate, p.external_rate, 
            c.name as developer_name, c.logo_path as developer_logo,
            prj.name as project_name, drv.first_name, drv.last_name
     FROM plant_bookings pb 
@@ -20,16 +21,14 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-// Calculations
+// Calculate the Default Auto-Rate
 $inTime = new DateTime($job['punch_in_time']);
 $outTime = new DateTime($job['punch_out_time']);
 $interval = $inTime->diff($outTime);
-$hoursWorked = $interval->h + ($interval->i / 60);
+$hoursWorked = round($interval->h + ($interval->i / 60), 2);
 
-$subtotal = round($hoursWorked * $job['hourly_rate'], 2);
-$vat = round($subtotal * 0.18, 2); // Assuming 18% Malta VAT
-$total = $subtotal + $vat;
-
+// Determine which rate applies natively
+$applicableRate = $job['booking_type'] == 'in-house' ? $job['inhouse_rate'] : $job['external_rate'];
 $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $job['client_name'];
 ?>
 <!DOCTYPE html>
@@ -44,16 +43,30 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         .title { font-size: 2rem; font-weight: 900; text-transform: uppercase; }
         .grid { display: flex; justify-content: space-between; margin-bottom: 30px; }
         .box { padding: 15px; border: 1px solid #ccc; width: 45%; }
+        
         table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
         th, td { border: 1px solid #000; padding: 12px; text-align: left; }
         th { background: #f1f5f9; }
+        
         .totals { text-align: right; font-size: 1.2rem; }
-        .signature-box { margin-top: 50px; border-top: 1px solid #000; padding-top: 10px; width: 300px; }
-        @media print { .no-print { display: none; } }
+        
+        /* The magic inputs that look like text when printed */
+        .live-calc { border: none; font-size: 1rem; font-family: inherit; background: transparent; width: 80px; font-weight: bold; border-bottom: 1px dashed #cbd5e1; outline: none; }
+        .live-calc:focus { border-bottom: 2px solid #3b82f6; }
+        
+        @media print { 
+            .no-print { display: none; } 
+            .live-calc { border: none; margin: 0; padding: 0; width: auto; }
+            body { padding: 0; }
+        }
     </style>
 </head>
 <body>
-    <button class="no-print" onclick="window.print()" style="padding:15px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; margin-bottom:20px; width:100%;">Print to PDF</button>
+    <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 0.9rem; color: #475569;">
+        <i class="fas fa-info-circle text-blue-500"></i> <b>Accountant Note:</b> The numbers below are auto-calculated based on the punch times and the <b><?= $job['booking_type'] == 'in-house' ? 'In-House' : 'External' ?></b> rate of the plant. You may click on the Hours or the Rate to manually adjust them before printing.
+        
+        <button onclick="window.print()" style="display:block; padding:15px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; margin-top:15px; width:100%; border-radius: 8px; font-size: 1.1rem;">Finalize & Print to PDF</button>
+    </div>
 
     <div class="header">
         <div>
@@ -66,7 +79,7 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         <div style="text-align: right;">
             <div class="title">Request for Payment</div>
             <div>Date: <?= date('d M Y') ?></div>
-            <div>Job Reference: #<?= $bookingId ?></div>
+            <div>Job Ref: #<?= $bookingId ?></div>
         </div>
     </div>
 
@@ -100,17 +113,17 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
                     Punch In: <?= date('H:i', strtotime($job['punch_in_time'])) ?><br>
                     Punch Out: <?= date('H:i', strtotime($job['punch_out_time'])) ?>
                 </td>
-                <td><?= number_format($hoursWorked, 2) ?> Hrs</td>
-                <td>€<?= number_format($job['hourly_rate'], 2) ?></td>
-                <td>€<?= number_format($subtotal, 2) ?></td>
+                <td><input type="number" class="live-calc" id="calc_hours" value="<?= $hoursWorked ?>" step="0.5" oninput="recalc()"> Hrs</td>
+                <td>€ <input type="number" class="live-calc" id="calc_rate" value="<?= $applicableRate ?>" step="0.01" oninput="recalc()"></td>
+                <td>€ <span id="display_subtotal">0.00</span></td>
             </tr>
         </tbody>
     </table>
 
     <div class="totals">
-        <b>Subtotal:</b> €<?= number_format($subtotal, 2) ?><br>
-        <b>VAT (18%):</b> €<?= number_format($vat, 2) ?><br>
-        <b style="font-size: 1.5rem;">Total Due: €<?= number_format($total, 2) ?></b>
+        <b>Subtotal:</b> € <span id="tot_subtotal">0.00</span><br>
+        <b>VAT (18%):</b> € <span id="tot_vat">0.00</span><br>
+        <b style="font-size: 1.5rem;">Total Due: € <span id="tot_final">0.00</span></b>
     </div>
 
     <div style="margin-top: 50px; display: flex; justify-content: space-between;">
@@ -130,5 +143,23 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
             </div>
         </div>
     </div>
+
+    <script>
+        function recalc() {
+            const hrs = parseFloat(document.getElementById('calc_hours').value) || 0;
+            const rate = parseFloat(document.getElementById('calc_rate').value) || 0;
+            const subtotal = hrs * rate;
+            const vat = subtotal * 0.18;
+            const total = subtotal + vat;
+
+            document.getElementById('display_subtotal').innerText = subtotal.toFixed(2);
+            document.getElementById('tot_subtotal').innerText = subtotal.toFixed(2);
+            document.getElementById('tot_vat').innerText = vat.toFixed(2);
+            document.getElementById('tot_final').innerText = total.toFixed(2);
+        }
+        
+        // Run once on load
+        recalc();
+    </script>
 </body>
 </html>
