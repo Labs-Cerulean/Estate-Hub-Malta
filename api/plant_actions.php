@@ -200,8 +200,10 @@ if ($action == 'get_job') {
 }
 
 // Punch In
+// Punch In & Auto-Claim Job
 if ($action == 'punch_in') {
-    $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW() WHERE id=?")->execute([$_GET['id']]);
+    // We add driver_id=? to instantly assign the job to whoever clicked the button
+    $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=? WHERE id=?")->execute([$userId, $_GET['id']]);
     echo "OK";
     exit;
 }
