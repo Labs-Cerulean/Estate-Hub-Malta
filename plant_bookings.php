@@ -31,103 +31,48 @@ $userId = $_SESSION['user_id'];
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
 
-    <style>
-        body { font-family: 'Inter', sans-serif; background: #e2e8f0; color: #1e293b; margin: 0; padding: 0; overscroll-behavior-y: none; }
-        .app-container { max-width: 600px; margin: 0 auto; background: #fff; min-height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
-        .header { background: #0f172a; color: #fff; padding: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); z-index: 10; position: sticky; top: 0; }
-        .header h2 { margin: 0; font-weight: 900; font-size: 1.5rem; }
+   <style>
+        body { font-family: 'Inter', sans-serif; background: #f3f4f6; color: #0f172a; margin: 0; padding: 0; overscroll-behavior-y: none; }
+        .app-container { max-width: 600px; margin: 0 auto; background: #f8fafc; min-height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 40px rgba(0,0,0,0.05); }
+        .header { background: #0f172a; color: #fff; padding: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.1); z-index: 10; position: sticky; top: 0; }
+        .header h2 { margin: 0; font-weight: 900; font-size: 1.5rem; letter-spacing: -0.5px; }
         .content { flex: 1; padding: 20px; overflow-y: auto; }
         
-        .btn-heavy { padding: 18px 20px; font-size: 1.25rem; font-weight: 900; border-radius: 12px; width: 100%; margin-bottom: 15px; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; color: #fff; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 10px; }
-        .btn-green { background: #10b981; } .btn-green:active { background: #059669; }
-        .btn-blue { background: #3b82f6; } .btn-blue:active { background: #2563eb; }
-        .btn-gray { background: #94a3b8; } .btn-gray:active { background: #64748b; }
-        .btn-red { background: #ef4444; } .btn-red:active { background: #dc2626; }
+        /* Modernized Buttons */
+        .btn-heavy { padding: 16px 20px; font-size: 1.15rem; font-weight: 800; border-radius: 12px; width: 100%; margin-bottom: 15px; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; color: #fff; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .btn-heavy:active { transform: translateY(2px); box-shadow: none; }
+        .btn-green { background: linear-gradient(135deg, #14b8a6, #0d9488); } /* Premium Teal */
+        .btn-blue { background: linear-gradient(135deg, #6366f1, #4f46e5); } /* Premium Indigo */
+        .btn-gray { background: #64748b; color: #fff; box-shadow: none; } 
+        .btn-red { background: linear-gradient(135deg, #f43f5e, #e11d48); } /* Premium Rose */
 
-        .input-heavy { width: 100%; padding: 15px; font-size: 1.1rem; border-radius: 10px; border: 2px solid #cbd5e1; margin-bottom: 15px; box-sizing: border-box; background: #f8fafc; color: #1e293b; }
-        .input-heavy:focus { border-color: #3b82f6; outline: none; background: #fff; }
+        .input-heavy { width: 100%; padding: 15px; font-size: 1.1rem; border-radius: 12px; border: 2px solid #e2e8f0; margin-bottom: 18px; box-sizing: border-box; background: #fff; color: #1e293b; transition: all 0.2s ease; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+        .input-heavy:focus { border-color: #6366f1; outline: none; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
         
-        label { font-weight: 700; color: #64748b; margin-bottom: 5px; display: block; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        label { font-weight: 800; color: #475569; margin-bottom: 6px; display: block; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
         
-        #signature-pad { border: 2px dashed #94a3b8; border-radius: 12px; width: 100%; height: 250px; background: #f8fafc; touch-action: none; margin-bottom: 15px; }
+        #signature-pad { border: 2px dashed #94a3b8; border-radius: 16px; width: 100%; height: 250px; background: #fff; touch-action: none; margin-bottom: 15px; box-shadow: inset 0 2px 10px rgba(0,0,0,0.02); }
         .view { display: none; animation: fadeIn 0.3s ease; }
         .view.active { display: block; }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        .fc-toolbar-title { font-size: 1.2rem !important; font-weight: 900 !important; }
-        .fc-button { padding: 10px !important; border-radius: 8px !important; text-transform: capitalize !important; font-weight: bold !important; }
-        .fc-event { cursor: pointer; border-radius: 6px !important; padding: 2px; }
-
         /* ==========================================
-           FULLCALENDAR MODERNIZATION & BEAUTIFICATION
+           FULLCALENDAR PREMIUM STYLING
            ========================================== */
+        #calendar { background: #ffffff; padding: 15px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.04); margin-bottom: 20px; border: 1px solid #f1f5f9; }
         
-        /* Make the calendar a sleek floating card */
-        #calendar {
-            background: #ffffff;
-            padding: 15px 15px 25px 15px;
-            border-radius: 16px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-            margin-bottom: 20px;
-        }
-
-        /* Modernize the Title */
-        .fc .fc-toolbar-title { 
-            font-size: 1.3rem !important; 
-            font-weight: 900 !important; 
-            color: #0f172a; 
-        }
-
-        /* Modernize the Gray Buttons to match your app */
-        .fc .fc-button-primary { 
-            background-color: #f1f5f9 !important; 
-            border: none !important; 
-            color: #475569 !important; 
-            font-weight: 700 !important; 
-            border-radius: 8px !important; 
-            text-transform: capitalize !important; 
-            padding: 8px 12px !important; 
-            box-shadow: none !important; 
-            transition: 0.2s; 
-        }
-        .fc .fc-button-primary:hover { 
-            background-color: #e2e8f0 !important; 
-            color: #0f172a !important; 
-        }
+        /* The Gray Nav Buttons */
+        .fc .fc-button-primary { background-color: #f1f5f9 !important; border: none !important; color: #475569 !important; font-weight: 700 !important; border-radius: 8px !important; text-transform: capitalize !important; padding: 8px 12px !important; box-shadow: none !important; transition: 0.2s; }
+        .fc .fc-button-primary:hover { background-color: #e2e8f0 !important; color: #0f172a !important; }
         
-        /* Active button state (Blue) */
-        .fc .fc-button-primary:not(:disabled).fc-button-active, 
-        .fc .fc-button-primary:not(:disabled):active { 
-            background-color: #3b82f6 !important; 
-            color: #fff !important; 
-        }
+        /* The Active Nav Button (Indigo) */
+        .fc .fc-button-primary:not(:disabled).fc-button-active, .fc .fc-button-primary:not(:disabled):active { background-color: #6366f1 !important; color: #fff !important; box-shadow: 0 4px 10px rgba(99, 102, 241, 0.2) !important; }
 
-        /* Soften the harsh grid lines */
-        .fc-theme-standard td, .fc-theme-standard th { 
-            border-color: #f1f5f9 !important; 
-        }
-        .fc-theme-standard .fc-scrollgrid { 
-            border: none !important; 
-        }
-
-        /* Clean up the day headers (Mon, Tue, Wed...) */
-        .fc-col-header-cell-cushion { 
-            padding: 10px 0 !important; 
-            color: #64748b !important; 
-            font-weight: 800 !important; 
-            text-transform: uppercase; 
-            font-size: 0.8rem; 
-            letter-spacing: 0.5px;
-        }
-        
-        /* Add slight rounding to the actual events */
-        .fc-event {
-            border-radius: 6px !important;
-            border: none !important;
-            padding: 3px !important;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+        .fc-theme-standard td, .fc-theme-standard th { border-color: #f1f5f9 !important; }
+        .fc-theme-standard .fc-scrollgrid { border: none !important; }
+        .fc-col-header-cell-cushion { padding: 12px 0 !important; color: #64748b !important; font-weight: 800 !important; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
+        .fc-event { border-radius: 6px !important; border: none !important; padding: 3px 5px !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-weight: 700; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -152,6 +97,10 @@ $userId = $_SESSION['user_id'];
 
     <div class="content">
         <div id="view-calendar" class="view active">
+            <div style="background: #fff; padding: 15px 20px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; border: 1px solid #e2e8f0;">
+                <h3 id="custom-cal-title" style="margin:0; font-weight:900; font-size:1.4rem; color: #0f172a; text-align: center;">Loading...</h3>
+            </div>
+            
             <div id="calendar"></div>
         </div>
 
