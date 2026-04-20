@@ -6,6 +6,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
+$canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']);
 
 // --- FLEET MANAGEMENT ENDPOINTS ---
 
