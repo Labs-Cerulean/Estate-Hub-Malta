@@ -562,7 +562,7 @@ const docDefaults = {
     'plant_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
     'plant_driver': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 }
 };
-};
+
 
 function toggleAccessSections(type) {
     const roleSelect = document.getElementById(type + 'Role');
