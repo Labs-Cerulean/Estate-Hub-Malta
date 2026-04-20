@@ -46,6 +46,9 @@ if ($job['final_hours'] !== null) {
 }
 
 $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $job['client_name'];
+// --- NEW: Generate Professional Job Reference ---
+$jobYear = date('Y', strtotime($job['booking_date']));
+$jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
 ?>
 <!DOCTYPE html>
 <html>
@@ -96,7 +99,7 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         <div style="text-align: right;">
             <div class="title">Request for Payment</div>
             <div>Date: <?= date('d M Y') ?></div>
-            <div>Job Ref: #<?= $bookingId ?></div>
+            <div>Job Ref: <b><?= $jobRef ?></b></div>
         </div>
     </div>
 
@@ -105,6 +108,7 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
             <b>Billed To:</b><br>
             <?= htmlspecialchars($clientDisplay) ?><br>
             <i><?= $job['booking_type'] == 'in-house' ? 'Internal Project Allocation' : 'External Client' ?></i>
+            
         </div>
         <div class="box">
             <b>Job Details:</b><br>
