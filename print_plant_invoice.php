@@ -21,11 +21,14 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-// --- LOGO PATH FIX ---
+// --- CLOUDFLARE R2 LOGO PATH FIX ---
+require_once 'S3FileManager.php';
+$s3 = new S3FileManager();
+
 $logoPath = $job['developer_logo'];
-if (!empty($logoPath) && !preg_match('/^http/', $logoPath)) {
-    $domain = "https://" . $_SERVER['HTTP_HOST'] . "/"; 
-    $logoPath = $domain . ltrim($logoPath, '/');
+if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
+    // Generate the presigned URL so the PDF can read it
+    $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
 }
 
 // Calculate Default Auto-Rate vs Saved Rate
