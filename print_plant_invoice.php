@@ -155,7 +155,7 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
             IBAN: <?= !empty($job['iban']) ? htmlspecialchars($job['iban']) : '<i>Not Provided</i>' ?><br>
             SWIFT/BIC: <?= !empty($job['swift_bic']) ? htmlspecialchars($job['swift_bic']) : '<i>Not Provided</i>' ?><br>
             <br>
-            <i>Please quote Job Ref #<?= $bookingId ?> in the transfer.</i>
+            <i>Please quote Job Ref <b><?= $jobRef ?></b> in the transfer.</i>
         </div>
         
         <div>
