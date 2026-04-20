@@ -8,40 +8,73 @@ $role = $_SESSION['role'];
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
 $canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']);
 
-// --- FLEET MANAGEMENT ENDPOINTS ---
-
-// 1. Fetch Clients for the Owner Dropdown
-if ($action == 'get_clients' && $isManager) {
-    $clients = $pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
-    echo json_encode($clients);
+// 1. Fetch Bookings (FIX: Drivers can now see unassigned jobs)
+if ($action == 'fetch_bookings') {
+    $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
+    if (!$isManager) { 
+        // Drivers see their own jobs OR unassigned jobs
+        $query .= " WHERE (pb.driver_id = $userId OR pb.driver_id IS NULL OR pb.driver_id = 0)"; 
+    }
+    
+    $bookings = $pdo->query($query)->fetchAll(PDO::FETCH_ASSOC);
+    $events = [];
+    foreach ($bookings as $b) {
+        $color = '#3b82f6'; // Pending (Blue)
+        if ($b['status'] == 'In Progress') $color = '#f59e0b'; // Orange
+        if ($b['status'] == 'Completed') $color = '#10b981'; // Green
+        
+        $events[] = [
+            'id' => $b['id'],
+            'title' => $b['plant_name'],
+            'start' => $b['booking_date'] . 'T' . $b['start_time'],
+            'end' => $b['booking_date'] . 'T' . $b['end_time'],
+            'backgroundColor' => $color,
+            'borderColor' => $color
+        ];
+    }
+    echo json_encode($events);
     exit;
 }
 
-// 2. Fetch the Active Fleet List
-if ($action == 'get_fleet' && $isManager) {
-    $fleet = $pdo->query("
-        SELECT p.*, c.name as owner_name 
-        FROM plants p 
-        LEFT JOIN clients c ON p.developer_client_id = c.id 
-        WHERE p.status = 'Active' 
-        ORDER BY p.name ASC
-    ")->fetchAll(PDO::FETCH_ASSOC);
-    echo json_encode($fleet);
-    exit;
-}
+// 2. Create Driver (FIX: Automatically grants the database permission)
+if ($action == 'save_driver' && $canManageFleet) {
+    $email = trim($_POST['email']);
+    $username = explode('@', $email)[0];
+    $hashedPassword = password_hash(trim($_POST['pass']), PASSWORD_DEFAULT);
 
-// 3. Save a New Plant to the Database
-if ($action == 'save_plant' && $canManageFleet) { // Make sure this checks $canManageFleet
-    $stmt = $pdo->prepare("INSERT INTO plants (name, registration_plate, developer_client_id, inhouse_rate, external_rate) VALUES (?, ?, ?, ?, ?)");
-    $stmt->execute([
-        $_POST['name'],
-        $_POST['reg'],
-        $_POST['owner_id'],
-        empty($_POST['rate_in']) ? 0.00 : $_POST['rate_in'],
-        empty($_POST['rate_ext']) ? 0.00 : $_POST['rate_ext']
-    ]);
+    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? OR username = ?");
+    $stmt->execute([$email, $username]);
+    if ($stmt->fetch()) { echo "A user with this email or username already exists."; exit; }
+
+    $stmt = $pdo->prepare("INSERT INTO users (first_name, last_name, username, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?, 'plant_driver', 'Yes')");
+    $stmt->execute([trim($_POST['first']), trim($_POST['last']), $username, $email, $hashedPassword]);
+    
+    // NEW: Automatically grant the Plant Booking UI capability
+    $newId = $pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO user_capabilities (user_id, view_plant_bookings) VALUES (?, 1)")->execute([$newId]);
+
     echo "OK";
     exit;
+}
+
+// 3. Create Booking
+if ($action == 'create_booking' && $isManager) {
+    $stmt = $pdo->prepare("INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, location_lat, location_lng, booking_date, start_time, end_time, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$_POST['plant_id'], empty($_POST['driver_id']) ? null : $_POST['driver_id'], $_POST['booking_type'], empty($_POST['project_id']) ? null : $_POST['project_id'], $_POST['client_name'], empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $userId]);
+    echo "OK"; exit;
+}
+
+// 4. Update Existing Booking (NEW: For the Manager Edit feature)
+if ($action == 'update_booking' && $isManager) {
+    $stmt = $pdo->prepare("UPDATE plant_bookings SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=? WHERE id=?");
+    $stmt->execute([$_POST['plant_id'], empty($_POST['driver_id']) ? null : $_POST['driver_id'], $_POST['booking_type'], empty($_POST['project_id']) ? null : $_POST['project_id'], $_POST['client_name'], empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $_POST['edit_id']]);
+    echo "OK"; exit;
+}
+
+// 5. Cancel Booking (NEW: For the Manager Edit feature)
+if ($action == 'cancel_booking' && $isManager) {
+    $pdo->prepare("DELETE FROM plant_bookings WHERE id=?")->execute([$_POST['id']]);
+    echo "OK"; exit;
 }
 
 if ($action == 'form_data') {
