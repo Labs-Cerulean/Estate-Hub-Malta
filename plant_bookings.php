@@ -7,7 +7,8 @@ $role = $_SESSION['role'];
 
 // 1. Check Baseline Access
 $isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
-$hasAccess = hasPermission('view_plant_bookings') || $isPlantUser;
+$isAccountant = ($role === 'accountant');
+$hasAccess = hasPermission('view_plant_bookings') || $isPlantUser || $isAccountant;
 
 if (!$hasAccess) {
     die("Unauthorized Access.");
@@ -16,6 +17,7 @@ if (!$hasAccess) {
 // 2. Define App Capabilities
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']); 
 $canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']); 
+$canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
 $userId = $_SESSION['user_id'];
 ?>
 <!DOCTYPE html>
@@ -83,6 +85,10 @@ $userId = $_SESSION['user_id'];
     <div class="header">
         <h2 onclick="showView('view-calendar')" style="cursor:pointer;"><i class="fas fa-tractor text-teal-400"></i> Plant Hub</h2>
         <div style="display: flex; gap: 10px;">
+            <?php if ($canViewLedger): ?>
+                <button class="btn-heavy btn-gray" style="padding: 10px 15px; margin: 0; font-size: 1rem;" onclick="loadLedger()" title="Billing Ledger"><i class="fas fa-file-invoice-dollar"></i></button>
+            <?php endif; ?>
+
             <?php if ($canManageFleet): ?>
                 <button class="btn-heavy btn-gray" style="padding: 10px 15px; margin: 0; font-size: 1rem;" onclick="loadFleetView()"><i class="fas fa-truck-monster"></i></button>
             <?php endif; ?>
@@ -168,6 +174,17 @@ $userId = $_SESSION['user_id'];
 
             <h4 style="color: #64748b; text-transform: uppercase;">Active Drivers</h4>
             <div id="driver-list"></div>
+            
+            <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')" style="margin-top: 30px;"><i class="fas fa-arrow-left"></i> Back to Calendar</button>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($canViewLedger): ?>
+        <div id="view-ledger" class="view">
+            <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-book text-indigo-500"></i> Billing Ledger</h3>
+            <p style="color: #64748b; margin-bottom: 20px;">Track job statuses, view RFPs, and mark invoices as settled.</p>
+            
+            <div id="ledger-list"></div>
             
             <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')" style="margin-top: 30px;"><i class="fas fa-arrow-left"></i> Back to Calendar</button>
         </div>
@@ -266,6 +283,7 @@ $userId = $_SESSION['user_id'];
     let calendar, mapboxMap, marker, signaturePad;
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
+    const canViewLedger = <?= $canViewLedger ? 'true' : 'false' ?>;
     
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
 
@@ -294,7 +312,7 @@ $userId = $_SESSION['user_id'];
             initialView: isManager ? 'timeGridWeek' : 'listDay',
             headerToolbar: { 
                 left: 'prev,next today', 
-                center: '', // Empty space for buttons
+                center: '', 
                 right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' 
             },
             slotMinTime: '06:00:00',
@@ -304,7 +322,6 @@ $userId = $_SESSION['user_id'];
             events: 'api/plant_actions.php?action=fetch_bookings',
             eventClick: (info) => loadJob(info.event.id),
             
-            // Updates custom banner
             datesSet: function(info) {
                 document.getElementById('custom-cal-title').innerText = info.view.title;
             }
@@ -415,7 +432,7 @@ $userId = $_SESSION['user_id'];
             document.getElementById('fleet-list').innerHTML = html;
         });
         
-        loadDriversList(); // Load drivers list as well
+        loadDriversList();
         showView('view-fleet');
     }
 
@@ -534,8 +551,8 @@ $userId = $_SESSION['user_id'];
                 controlsHtml += `<button class="btn-heavy btn-blue" onclick='editJob(${JSON.stringify(job)})'><i class="fas fa-edit"></i> Edit / Assign Booking</button>`;
                 controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`;
             }
-
-            // NEW: View Delivery Note / RFP for Completed Jobs
+            
+            // View Delivery Note / RFP for Completed Jobs
             if (isManager && job.status === 'Completed') {
                 controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> View Delivery Note & RFP</button>`;
             }
@@ -614,6 +631,63 @@ $userId = $_SESSION['user_id'];
                 alert("Error: " + res);
                 btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Punch Out & Finalize';
             }
+        });
+    }
+
+    // --- BILLING LEDGER (Admin / Accounts) ---
+    function loadLedger() {
+        if (!canViewLedger) return;
+        
+        fetch('api/plant_actions.php?action=get_ledger').then(r=>r.json()).then(jobs => {
+            let html = '';
+            if (jobs.length === 0) { html = '<p style="color:#64748b; font-style:italic;">No bookings found in the ledger.</p>'; }
+            
+            jobs.forEach(j => {
+                let statusBadge = `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
+                if (j.payment_status === 'Invoiced') statusBadge = `<span style="background:#fef08a; color:#854d0e; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">Invoiced</span>`;
+                if (j.payment_status === 'Settled') statusBadge = `<span style="background:#d1fae5; color:#065f46; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">Settled</span>`;
+
+                let locText = j.booking_type === 'in-house' ? j.project_name : j.client_name;
+                
+                // Calculate Total if it was invoiced
+                let finTotal = "TBD";
+                if (j.final_hours !== null && j.final_rate !== null) {
+                    let sub = parseFloat(j.final_hours) * parseFloat(j.final_rate);
+                    finTotal = "€" + (sub * 1.18).toFixed(2); // Incl VAT
+                }
+
+                html += `
+                <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+                        <div>
+                            <div style="font-weight:900; font-size:1.1rem; color:#0f172a;">#${j.id} - ${j.plant_name}</div>
+                            <div style="color:#64748b; font-size:0.85rem;"><i class="fas fa-calendar"></i> ${j.booking_date} | ${locText}</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-weight:900; font-size:1.2rem; color:#10b981;">${finTotal}</div>
+                            ${statusBadge}
+                        </div>
+                    </div>
+                    
+                    <div style="border-top: 1px solid #f1f5f9; padding-top: 10px; display:flex; gap:10px;">
+                        ${j.status === 'Completed' ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-file-pdf"></i> View RFP</button>` : `<span style="color:#94a3b8; font-size:0.85rem; padding-top:5px;"><i>Job Not Yet Completed</i></span>`}
+                        
+                        ${j.payment_status === 'Invoiced' ? `<button onclick="markSettled(${j.id})" style="background:#10b981; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-check-double"></i> Mark Settled</button>` : ''}
+                    </div>
+                </div>`;
+            });
+            document.getElementById('ledger-list').innerHTML = html;
+        });
+        showView('view-ledger');
+    }
+
+    function markSettled(id) {
+        if (!confirm("Are you sure you want to mark this invoice as Paid/Settled?")) return;
+        const fd = new FormData();
+        fd.append('action', 'mark_settled');
+        fd.append('id', id);
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
+            if (res === 'OK') { loadLedger(); } // Refresh ledger visually
         });
     }
 </script>
