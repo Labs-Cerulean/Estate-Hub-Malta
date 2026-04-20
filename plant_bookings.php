@@ -14,8 +14,8 @@ if (!$hasAccess) {
 }
 
 // 2. Define App Capabilities
-$isManager = hasPermission('view_plant_bookings') || $role === 'plant_manager'; // Can create bookings
-$canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']); // Strict fleet control
+$isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']); 
+$canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']); 
 $userId = $_SESSION['user_id'];
 ?>
 <!DOCTYPE html>
@@ -23,15 +23,17 @@ $userId = $_SESSION['user_id'];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Plant Bookings</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <title>Plant Bookings Hub</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
 
-   <style>
+    <style>
         body { font-family: 'Inter', sans-serif; background: #f3f4f6; color: #0f172a; margin: 0; padding: 0; overscroll-behavior-y: none; }
         .app-container { max-width: 600px; margin: 0 auto; background: #f8fafc; min-height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 40px rgba(0,0,0,0.05); }
         .header { background: #0f172a; color: #fff; padding: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.1); z-index: 10; position: sticky; top: 0; }
@@ -72,21 +74,21 @@ $userId = $_SESSION['user_id'];
         .fc-theme-standard td, .fc-theme-standard th { border-color: #f1f5f9 !important; }
         .fc-theme-standard .fc-scrollgrid { border: none !important; }
         .fc-col-header-cell-cushion { padding: 12px 0 !important; color: #64748b !important; font-weight: 800 !important; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
-        .fc-event { border-radius: 6px !important; border: none !important; padding: 3px 5px !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-weight: 700; font-size: 0.85rem; }
+        .fc-event { border-radius: 6px !important; border: none !important; padding: 3px 5px !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-weight: 700; font-size: 0.85rem; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div class="app-container">
     <div class="header">
-        <h2 onclick="showView('view-calendar')" style="cursor:pointer;"><i class="fas fa-tractor"></i> Plant Hub</h2>
+        <h2 onclick="showView('view-calendar')" style="cursor:pointer;"><i class="fas fa-tractor text-teal-400"></i> Plant Hub</h2>
         <div style="display: flex; gap: 10px;">
             <?php if ($canManageFleet): ?>
                 <button class="btn-heavy btn-gray" style="padding: 10px 15px; margin: 0; font-size: 1rem;" onclick="loadFleetView()"><i class="fas fa-truck-monster"></i></button>
             <?php endif; ?>
             
             <?php if ($isManager): ?>
-                <button class="btn-heavy btn-blue" style="padding: 10px 15px; margin: 0; font-size: 1rem;" onclick="showView('view-create')"><i class="fas fa-plus"></i></button>
+                <button class="btn-heavy btn-blue" style="padding: 10px 15px; margin: 0; font-size: 1rem;" onclick="openCreateForm()"><i class="fas fa-plus"></i></button>
             <?php endif; ?>
             
             <?php if (!in_array($_SESSION['role'], ['admin', 'director', 'system_manager'])): ?>
@@ -106,10 +108,10 @@ $userId = $_SESSION['user_id'];
 
         <?php if ($canManageFleet): ?>
         <div id="view-fleet" class="view">
-            <h3 style="margin-top:0; font-weight:900; font-size: 1.5rem;"><i class="fas fa-truck-monster text-gray-500"></i> Fleet Management</h3>
+            <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-truck-monster text-indigo-500"></i> Fleet Management</h3>
             
-            <div style="background: #f1f5f9; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 2px dashed #cbd5e1;">
-                <h4 style="margin-top:0; color: #3b82f6; margin-bottom: 15px;">Register New Machinery</h4>
+            <div style="background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #e2e8f0;">
+                <h4 style="margin-top:0; color: #6366f1; margin-bottom: 15px;">Register New Machinery</h4>
                 
                 <label>Plant Name / Description</label>
                 <input type="text" id="new_plant_name" class="input-heavy" placeholder="e.g. JCB Excavator 3CX" required>
@@ -135,16 +137,50 @@ $userId = $_SESSION['user_id'];
             </div>
 
             <h4 style="color: #64748b; text-transform: uppercase;">Active Fleet</h4>
-            <div id="fleet-list"></div>
+            <div id="fleet-list" style="margin-bottom: 40px;"></div>
+
+            <hr style="border: 1px solid #e2e8f0; margin: 35px 0;">
             
-            <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')" style="margin-top: 20px;"><i class="fas fa-arrow-left"></i> Back to Calendar</button>
+            <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-id-card text-teal-500"></i> Driver Management</h3>
+            
+            <div style="background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #e2e8f0;">
+                <h4 style="margin-top:0; color: #14b8a6; margin-bottom: 15px;">Create Driver Account</h4>
+                
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex:1;">
+                        <label>First Name</label>
+                        <input type="text" id="new_drv_first" class="input-heavy" placeholder="John" required>
+                    </div>
+                    <div style="flex:1;">
+                        <label>Last Name</label>
+                        <input type="text" id="new_drv_last" class="input-heavy" placeholder="Doe" required>
+                    </div>
+                </div>
+
+                <label>Email (Username)</label>
+                <input type="email" id="new_drv_email" class="input-heavy" placeholder="driver@company.com" required>
+
+                <label>Temporary Password</label>
+                <input type="text" id="new_drv_pass" class="input-heavy" placeholder="Set a password for them" required>
+
+                <button type="button" class="btn-heavy btn-green" onclick="saveNewDriver()"><i class="fas fa-user-plus"></i> Create Driver</button>
+            </div>
+
+            <h4 style="color: #64748b; text-transform: uppercase;">Active Drivers</h4>
+            <div id="driver-list"></div>
+            
+            <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')" style="margin-top: 30px;"><i class="fas fa-arrow-left"></i> Back to Calendar</button>
         </div>
         <?php endif; ?>
 
         <?php if ($isManager): ?>
         <div id="view-create" class="view">
-            <h3 style="margin-top:0; font-weight:900; font-size: 1.5rem;"><i class="fas fa-calendar-plus text-blue-500"></i> Create Booking</h3>
-            <form id="createBookingForm">
+            <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking</h3>
+            
+            <form id="createBookingForm" style="background: #fff; padding: 20px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #e2e8f0;">
+                
+                <input type="hidden" id="edit_booking_id" value="">
+                
                 <label>Plant / Machinery</label>
                 <select id="plant_id" class="input-heavy" required></select>
 
@@ -167,7 +203,7 @@ $userId = $_SESSION['user_id'];
                     <input type="text" id="client_name" class="input-heavy" placeholder="Company or Individual Name">
                     
                     <label>Location (Tap Map to Pin)</label>
-                    <div id="map" style="width: 100%; height: 250px; border-radius: 12px; margin-bottom: 15px; border: 2px solid #cbd5e1;"></div>
+                    <div id="map" style="width: 100%; height: 250px; border-radius: 12px; margin-bottom: 15px; border: 2px solid #e2e8f0;"></div>
                     <input type="hidden" id="loc_lat">
                     <input type="hidden" id="loc_lng">
                 </div>
@@ -186,15 +222,15 @@ $userId = $_SESSION['user_id'];
                     </div>
                 </div>
 
-                <button type="button" class="btn-heavy btn-green" onclick="submitBooking()"><i class="fas fa-check"></i> Save Booking</button>
+                <button type="button" id="submit_booking_btn" class="btn-heavy btn-blue" onclick="submitBooking()"><i class="fas fa-check"></i> Save Booking</button>
                 <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')">Cancel</button>
             </form>
         </div>
         <?php endif; ?>
 
         <div id="view-job" class="view">
-            <div style="background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #cbd5e1; margin-bottom: 20px;">
-                <h3 id="job-title" style="margin:0 0 10px 0; font-weight:900; font-size:1.8rem; color: #1e293b;"></h3>
+            <div style="background: #fff; padding: 25px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 20px;">
+                <h3 id="job-title" style="margin:0 0 15px 0; font-weight:900; font-size:1.8rem; color: #0f172a;"></h3>
                 <div id="job-details" style="font-size: 1.1rem; color: #475569; line-height: 1.6;"></div>
             </div>
             
@@ -203,20 +239,22 @@ $userId = $_SESSION['user_id'];
         </div>
 
         <div id="view-punch-out" class="view">
-            <h3 style="margin-top:0; color:#ef4444; font-weight: 900;"><i class="fas fa-flag-checkered"></i> Job Completion</h3>
+            <h3 style="margin-top:0; color:#e11d48; font-weight: 900; font-size: 1.6rem;"><i class="fas fa-flag-checkered"></i> Job Completion</h3>
             <p style="color: #64748b; font-size: 1.1rem; margin-bottom: 20px;">Please complete the Delivery Note to conclude this job.</p>
             
-            <input type="hidden" id="punchout_booking_id">
-            
-            <label>Client Representative Name</label>
-            <input type="text" id="rep_name" class="input-heavy" placeholder="e.g. John Doe" required>
-            
-            <label>Client ID Card Number</label>
-            <input type="text" id="rep_id" class="input-heavy" placeholder="e.g. 1234567M" required>
-            
-            <label>Client Signature</label>
-            <canvas id="signature-pad"></canvas>
-            <button type="button" class="btn-heavy btn-gray" onclick="signaturePad.clear()" style="font-size:1rem; padding: 12px; background: #cbd5e1; color: #475569;"><i class="fas fa-eraser"></i> Clear Signature</button>
+            <div style="background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #e2e8f0;">
+                <input type="hidden" id="punchout_booking_id">
+                
+                <label>Client Representative Name</label>
+                <input type="text" id="rep_name" class="input-heavy" placeholder="e.g. John Doe" required>
+                
+                <label>Client ID Card Number</label>
+                <input type="text" id="rep_id" class="input-heavy" placeholder="e.g. 1234567M" required>
+                
+                <label>Client Signature</label>
+                <canvas id="signature-pad"></canvas>
+                <button type="button" class="btn-heavy btn-gray" onclick="signaturePad.clear()" style="font-size:1rem; padding: 12px; background: #e2e8f0; color: #475569;"><i class="fas fa-eraser"></i> Clear Signature</button>
+            </div>
 
             <button type="button" class="btn-heavy btn-red" onclick="submitPunchOut()"><i class="fas fa-check-circle"></i> Punch Out & Finalize</button>
             <button type="button" class="btn-heavy btn-gray" onclick="showView('view-job')">Cancel</button>
@@ -242,21 +280,22 @@ $userId = $_SESSION['user_id'];
     function showView(id) {
         document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
         document.getElementById(id).classList.add('active');
-        window.scrollTo(0, 0); // Reset scroll position
+        window.scrollTo(0, 0); 
         
         if (id === 'view-calendar' && calendar) calendar.render();
-        if (id === 'view-create') setTimeout(initMap, 200); // Allow DOM to paint before mapping
+        if (id === 'view-create') setTimeout(initMap, 200); 
         if (id === 'view-punch-out') setTimeout(resizeCanvas, 100);
     }
 
+    // --- CALENDAR & MAPS ---
     function initCalendar() {
         const calEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calEl, {
             initialView: isManager ? 'timeGridWeek' : 'listDay',
             headerToolbar: { 
-                left: 'prev,next today', // Nav controls on the left
-                center: '', // REMOVED the title to give buttons maximum space!
-                right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' // REINTRODUCED the Day view
+                left: 'prev,next today', 
+                center: '', // Empty space for buttons
+                right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' 
             },
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
@@ -265,7 +304,7 @@ $userId = $_SESSION['user_id'];
             events: 'api/plant_actions.php?action=fetch_bookings',
             eventClick: (info) => loadJob(info.event.id),
             
-            // This hook updates our new custom banner whenever the date changes
+            // Updates custom banner
             datesSet: function(info) {
                 document.getElementById('custom-cal-title').innerText = info.view.title;
             }
@@ -274,14 +313,11 @@ $userId = $_SESSION['user_id'];
     }
 
     function initMap() {
-        if (mapboxMap) {
-            mapboxMap.resize();
-            return;
-        }
+        if (mapboxMap) { mapboxMap.resize(); return; }
         mapboxMap = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/streets-v12', center: [14.38, 35.92], zoom: 10 });
         mapboxMap.on('click', (e) => {
             if (marker) marker.remove();
-            marker = new mapboxgl.Marker({color: '#ef4444'}).setLngLat(e.lngLat).addTo(mapboxMap);
+            marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
             document.getElementById('loc_lat').value = e.lngLat.lat;
             document.getElementById('loc_lng').value = e.lngLat.lng;
         });
@@ -312,12 +348,23 @@ $userId = $_SESSION['user_id'];
         });
     }
 
+    function openCreateForm() {
+        document.getElementById('edit_booking_id').value = '';
+        document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
+        document.getElementById('createBookingForm').reset();
+        toggleJobType();
+        showView('view-create');
+    }
+
     function submitBooking() {
-        const btn = event.target.closest('button');
+        const btn = document.getElementById('submit_booking_btn');
         btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
 
+        const editId = document.getElementById('edit_booking_id').value;
         const fd = new FormData();
-        fd.append('action', 'create_booking');
+        fd.append('action', editId ? 'update_booking' : 'create_booking');
+        if (editId) fd.append('edit_id', editId);
+        
         fd.append('plant_id', document.getElementById('plant_id').value);
         fd.append('driver_id', document.getElementById('driver_id').value);
         fd.append('booking_type', document.getElementById('booking_type').value);
@@ -330,13 +377,13 @@ $userId = $_SESSION['user_id'];
         fd.append('end_time', document.getElementById('end_time').value);
 
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
-            if (res === 'OK') { alert("Booking Created successfully!"); calendar.refetchEvents(); showView('view-calendar'); }
+            if (res === 'OK') { alert(editId ? "Booking Updated!" : "Booking Created!"); calendar.refetchEvents(); showView('view-calendar'); }
             else { alert("Error: " + res); }
-            btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Save Booking';
+            btn.disabled = false; btn.innerHTML = editId ? '<i class="fas fa-save"></i> Update Booking' : '<i class="fas fa-check"></i> Save Booking';
         });
     }
 
-    // --- FLEET MANAGEMENT (Strict Access) ---
+    // --- FLEET & DRIVER MANAGEMENT (Strict Access) ---
     function loadFleetView() {
         if (!canManageFleet) return;
         
@@ -351,30 +398,30 @@ $userId = $_SESSION['user_id'];
             if (fleet.length === 0) { html = '<p style="color:#64748b; font-style:italic;">No machinery registered yet.</p>'; }
             fleet.forEach(p => {
                 html += `
-                <div style="background: #fff; border: 2px solid #cbd5e1; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
                     <div style="font-weight:900; font-size:1.2rem; color:#0f172a; margin-bottom:5px;">${p.name}</div>
                     <div style="color:#64748b; font-size:0.95rem; margin-bottom: 8px;">
                         <i class="fas fa-barcode"></i> Reg: <span style="color:#1e293b; font-weight:bold;">${p.registration_plate || 'N/A'}</span>
                     </div>
                     <div style="display:flex; gap:10px; font-size:0.85rem; margin-bottom: 8px;">
-                        <span style="background:#d1fae5; color:#059669; padding:4px 8px; border-radius:6px; font-weight:bold;">IN: €${p.inhouse_rate}/hr</span>
-                        <span style="background:#e0e7ff; color:#2563eb; padding:4px 8px; border-radius:6px; font-weight:bold;">EXT: €${p.external_rate}/hr</span>
+                        <span style="background:#ccfbf1; color:#0f766e; padding:4px 8px; border-radius:6px; font-weight:bold;">IN: €${p.inhouse_rate}/hr</span>
+                        <span style="background:#e0e7ff; color:#4f46e5; padding:4px 8px; border-radius:6px; font-weight:bold;">EXT: €${p.external_rate}/hr</span>
                     </div>
-                    <div style="color:#475569; font-size:0.85rem; font-weight:bold; border-top: 1px solid #e2e8f0; padding-top: 8px;">
-                        <i class="fas fa-building"></i> Owned By: ${p.owner_name}
+                    <div style="color:#475569; font-size:0.85rem; font-weight:bold; border-top: 1px solid #f1f5f9; padding-top: 8px;">
+                        <i class="fas fa-building text-blue-500"></i> Owned By: ${p.owner_name}
                     </div>
                 </div>`;
             });
             document.getElementById('fleet-list').innerHTML = html;
         });
-
+        
+        loadDriversList(); // Load drivers list as well
         showView('view-fleet');
     }
 
     function saveNewPlant() {
         const name = document.getElementById('new_plant_name').value;
         const owner = document.getElementById('new_plant_owner').value;
-        
         if (!name || !owner) { alert("Please provide a Plant Name and select an Owner."); return; }
 
         const btn = event.target.closest('button');
@@ -395,35 +442,83 @@ $userId = $_SESSION['user_id'];
                 document.getElementById('new_plant_reg').value = '';
                 document.getElementById('new_plant_rate_in').value = '0.00';
                 document.getElementById('new_plant_rate_ext').value = '0.00';
-                loadFormData(); 
-                loadFleetView(); 
+                loadFormData(); loadFleetView(); 
             } else alert("Error: " + res);
             btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Save to Fleet';
         });
     }
 
-    // --- JOB EXECUTION (Drivers) ---
+    function loadDriversList() {
+        fetch('api/plant_actions.php?action=get_drivers').then(r=>r.json()).then(drivers => {
+            let html = '';
+            if (drivers.length === 0) { html = '<p style="color:#64748b; font-style:italic;">No drivers registered yet.</p>'; }
+            drivers.forEach(d => {
+                html += `
+                <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 15px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <div>
+                        <div style="font-weight:bold; color:#0f172a; font-size: 1.05rem;">${d.first_name} ${d.last_name}</div>
+                        <div style="color:#64748b; font-size:0.85rem;"><i class="fas fa-envelope"></i> ${d.email}</div>
+                    </div>
+                    <span style="background: #d1fae5; color: #059669; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: bold;">Active</span>
+                </div>`;
+            });
+            document.getElementById('driver-list').innerHTML = html;
+        });
+    }
+
+    function saveNewDriver() {
+        const first = document.getElementById('new_drv_first').value;
+        const last = document.getElementById('new_drv_last').value;
+        const email = document.getElementById('new_drv_email').value;
+        const pass = document.getElementById('new_drv_pass').value;
+        if (!first || !last || !email || !pass) { alert("Please fill out all Driver fields."); return; }
+
+        const btn = event.target.closest('button');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+
+        const fd = new FormData();
+        fd.append('action', 'save_driver');
+        fd.append('first', first);
+        fd.append('last', last);
+        fd.append('email', email);
+        fd.append('pass', pass);
+
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
+            if (res === 'OK') {
+                alert("Driver Account Created successfully!");
+                document.getElementById('new_drv_first').value = '';
+                document.getElementById('new_drv_last').value = '';
+                document.getElementById('new_drv_email').value = '';
+                document.getElementById('new_drv_pass').value = '';
+                loadFormData(); loadDriversList(); 
+            } else alert("Error: " + res);
+            btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus"></i> Create Driver';
+        });
+    }
+
+    // --- JOB EXECUTION & EDIT (Drivers & Managers) ---
     function loadJob(id) {
         fetch(`api/plant_actions.php?action=get_job&id=${id}`).then(r=>r.json()).then(job => {
-            document.getElementById('job-title').innerHTML = `<i class="fas fa-truck-pickup text-blue-500"></i> ${job.plant_name}`;
+            document.getElementById('job-title').innerHTML = `<i class="fas fa-truck-pickup text-indigo-500"></i> ${job.plant_name}`;
             
-            let statusColor = '#3b82f6';
+            let statusColor = '#6366f1';
             if (job.status === 'In Progress') statusColor = '#f59e0b';
             if (job.status === 'Completed') statusColor = '#10b981';
 
             let details = `
-                <div style="margin-bottom:10px;"><i class="fas fa-calendar-day" style="width:25px;"></i> <b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
-                <div style="margin-bottom:10px;"><i class="fas fa-tag" style="width:25px;"></i> <b>Type:</b> ${job.booking_type.toUpperCase()}</div>
-                <div style="margin-bottom:10px;"><i class="fas fa-info-circle" style="width:25px;"></i> <b>Status:</b> <span style="color:${statusColor}; font-weight:bold; background:rgba(0,0,0,0.05); padding:2px 8px; border-radius:4px;">${job.status}</span></div>
-                <hr style="border: 1px solid #e2e8f0; margin: 15px 0;">
-                <div style="font-weight:bold; color: #1e293b; margin-bottom: 5px;"><i class="fas fa-map-marker-alt text-red-500"></i> Destination:</div>
-                <div style="background: #e2e8f0; padding: 10px; border-radius: 8px; font-weight: bold;">${job.location_text}</div>
+                <div style="margin-bottom:12px;"><i class="fas fa-calendar-day text-teal-500" style="width:25px;"></i> <b style="color:#0f172a;">Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
+                <div style="margin-bottom:12px;"><i class="fas fa-tag text-teal-500" style="width:25px;"></i> <b style="color:#0f172a;">Type:</b> ${job.booking_type.toUpperCase()}</div>
+                <div style="margin-bottom:12px;"><i class="fas fa-info-circle text-teal-500" style="width:25px;"></i> <b style="color:#0f172a;">Status:</b> <span style="color:${statusColor}; font-weight:bold; background:rgba(0,0,0,0.05); padding:4px 10px; border-radius:6px;">${job.status}</span></div>
+                <hr style="border: 1px solid #e2e8f0; margin: 20px 0;">
+                <div style="font-weight:bold; color: #0f172a; margin-bottom: 8px;"><i class="fas fa-map-marker-alt text-rose-500"></i> Destination:</div>
+                <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; font-weight: bold; border: 1px solid #e2e8f0;">${job.location_text}</div>
             `;
             document.getElementById('job-details').innerHTML = details;
 
             let controlsHtml = '';
             let today = new Date().toISOString().split('T')[0];
 
+            // Driver Controls
             if (!isManager && job.booking_date === today) {
                 if (job.status === 'Pending') {
                     controlsHtml = `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Punch In (Start Job)</button>`;
@@ -431,7 +526,13 @@ $userId = $_SESSION['user_id'];
                     controlsHtml = `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id})"><i class="fas fa-stop"></i> Punch Out (End Job)</button>`;
                 }
             } else if (!isManager && job.booking_date !== today && job.status !== 'Completed') {
-                controlsHtml = `<div style="background: #fee2e2; border: 1px solid #fca5a5; color:#ef4444; padding: 15px; border-radius: 10px; font-weight:bold; text-align:center; margin-bottom: 15px;"><i class="fas fa-exclamation-triangle"></i> You can only punch into jobs on the scheduled day.</div>`;
+                controlsHtml = `<div style="background: #fff1f2; border: 1px solid #fecdd3; color:#e11d48; padding: 15px; border-radius: 12px; font-weight:bold; text-align:center; margin-bottom: 15px;"><i class="fas fa-exclamation-triangle"></i> You can only punch into jobs on the scheduled day.</div>`;
+            }
+
+            // Manager Controls (Edit / Cancel)
+            if (isManager && job.status !== 'Completed') {
+                controlsHtml += `<button class="btn-heavy btn-blue" onclick='editJob(${JSON.stringify(job)})'><i class="fas fa-edit"></i> Edit / Assign Booking</button>`;
+                controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`;
             }
 
             document.getElementById('punch-controls').innerHTML = controlsHtml;
@@ -439,9 +540,41 @@ $userId = $_SESSION['user_id'];
         });
     }
 
+    function editJob(job) {
+        document.getElementById('edit_booking_id').value = job.id;
+        document.getElementById('plant_id').value = job.plant_id;
+        document.getElementById('driver_id').value = job.driver_id || '';
+        document.getElementById('booking_type').value = job.booking_type;
+        toggleJobType();
+        
+        if (job.booking_type === 'in-house') {
+            document.getElementById('project_id').value = job.project_id;
+        } else {
+            document.getElementById('client_name').value = job.client_name;
+            document.getElementById('loc_lat').value = job.location_lat;
+            document.getElementById('loc_lng').value = job.location_lng;
+        }
+        
+        document.getElementById('booking_date').value = job.booking_date;
+        document.getElementById('start_time').value = job.start_time.substring(0,5);
+        document.getElementById('end_time').value = job.end_time.substring(0,5);
+        
+        document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-save"></i> Update Booking';
+        showView('view-create');
+    }
+
+    function cancelJob(id) {
+        if (!confirm("Are you sure you want to permanently delete this booking?")) return;
+        const fd = new FormData();
+        fd.append('action', 'cancel_booking');
+        fd.append('id', id);
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
+            if (res === 'OK') { alert("Booking Cancelled."); calendar.refetchEvents(); showView('view-calendar'); }
+        });
+    }
+
     function punchJob(id, direction) {
         if (!confirm("Are you sure you want to Punch In to this job? Your time will begin tracking immediately.")) return;
-        
         fetch(`api/plant_actions.php?action=punch_${direction}&id=${id}`).then(r=>r.text()).then(res => {
             if (res === 'OK') { alert("Punched In Successfully!"); loadJob(id); calendar.refetchEvents(); }
             else alert("Error: " + res);
@@ -456,7 +589,6 @@ $userId = $_SESSION['user_id'];
     function submitPunchOut() {
         if (signaturePad.isEmpty()) { alert("Please ask the client representative to sign the pad."); return; }
         if (!document.getElementById('rep_name').value || !document.getElementById('rep_id').value) { alert("Please fill in the client's Name and ID."); return; }
-
         if (!confirm("Are you sure you want to finalize this job? This will punch you out and generate the official delivery note.")) return;
 
         const btn = event.target.closest('button');
