@@ -108,8 +108,8 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         </div>
         <div class="box">
             <b>Job Details:</b><br>
-            Plant: <?= htmlspecialchars($job['plant_name']) ?> (<?= htmlspecialchars($job['registration_plate']) ?>)<br>
-            Driver: <?= htmlspecialchars($job['first_name']) ?> <?= htmlspecialchars($job['last_name']) ?><br>
+            Plant: <?= htmlspecialchars($job['plant_name'] ?? '') ?> (<?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?>)<br>
+            Driver: <?= htmlspecialchars($job['first_name'] ?? 'Unassigned') ?> <?= htmlspecialchars($job['last_name'] ?? '') ?><br>
             Date of Execution: <?= date('d M Y', strtotime($job['booking_date'])) ?>
         </div>
     </div>
