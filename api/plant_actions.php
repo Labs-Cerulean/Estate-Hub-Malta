@@ -231,4 +231,40 @@ if ($action == 'punch_out_complete') {
     echo "OK";
     exit;
 }
+
+    // ==========================================
+// 5. BILLING & LEDGER (Accounts / Admin)
+// ==========================================
+$canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
+
+// Save the Final Invoice Values from the RFP PDF
+if ($action == 'save_invoice') {
+    $stmt = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, payment_status='Invoiced' WHERE id=?");
+    $stmt->execute([$_POST['hours'], $_POST['rate'], $_POST['booking_id']]);
+    echo "OK";
+    exit;
+}
+
+// Fetch the Billing Ledger
+if ($action == 'get_ledger' && $canViewLedger) {
+    $query = "
+        SELECT pb.*, p.name as plant_name, p.registration_plate, 
+               prj.name as project_name, c.name as client_dev_name 
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id
+        LEFT JOIN projects prj ON pb.project_id = prj.id
+        LEFT JOIN clients c ON p.developer_client_id = c.id
+        ORDER BY pb.booking_date DESC
+    ";
+    $ledger = $pdo->query($query)->fetchAll(PDO::FETCH_ASSOC);
+    echo json_encode($ledger);
+    exit;
+}
+
+// Mark an Invoice as Settled/Paid
+if ($action == 'mark_settled' && $canViewLedger) {
+    $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?")->execute([$_POST['id']]);
+    echo "OK";
+    exit;
+}
 ?>
