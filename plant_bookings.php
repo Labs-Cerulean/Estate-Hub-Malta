@@ -58,6 +58,76 @@ $userId = $_SESSION['user_id'];
         .fc-toolbar-title { font-size: 1.2rem !important; font-weight: 900 !important; }
         .fc-button { padding: 10px !important; border-radius: 8px !important; text-transform: capitalize !important; font-weight: bold !important; }
         .fc-event { cursor: pointer; border-radius: 6px !important; padding: 2px; }
+
+        /* ==========================================
+           FULLCALENDAR MODERNIZATION & BEAUTIFICATION
+           ========================================== */
+        
+        /* Make the calendar a sleek floating card */
+        #calendar {
+            background: #ffffff;
+            padding: 15px 15px 25px 15px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+
+        /* Modernize the Title */
+        .fc .fc-toolbar-title { 
+            font-size: 1.3rem !important; 
+            font-weight: 900 !important; 
+            color: #0f172a; 
+        }
+
+        /* Modernize the Gray Buttons to match your app */
+        .fc .fc-button-primary { 
+            background-color: #f1f5f9 !important; 
+            border: none !important; 
+            color: #475569 !important; 
+            font-weight: 700 !important; 
+            border-radius: 8px !important; 
+            text-transform: capitalize !important; 
+            padding: 8px 12px !important; 
+            box-shadow: none !important; 
+            transition: 0.2s; 
+        }
+        .fc .fc-button-primary:hover { 
+            background-color: #e2e8f0 !important; 
+            color: #0f172a !important; 
+        }
+        
+        /* Active button state (Blue) */
+        .fc .fc-button-primary:not(:disabled).fc-button-active, 
+        .fc .fc-button-primary:not(:disabled):active { 
+            background-color: #3b82f6 !important; 
+            color: #fff !important; 
+        }
+
+        /* Soften the harsh grid lines */
+        .fc-theme-standard td, .fc-theme-standard th { 
+            border-color: #f1f5f9 !important; 
+        }
+        .fc-theme-standard .fc-scrollgrid { 
+            border: none !important; 
+        }
+
+        /* Clean up the day headers (Mon, Tue, Wed...) */
+        .fc-col-header-cell-cushion { 
+            padding: 10px 0 !important; 
+            color: #64748b !important; 
+            font-weight: 800 !important; 
+            text-transform: uppercase; 
+            font-size: 0.8rem; 
+            letter-spacing: 0.5px;
+        }
+        
+        /* Add slight rounding to the actual events */
+        .fc-event {
+            border-radius: 6px !important;
+            border: none !important;
+            padding: 3px !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
     </style>
 </head>
 <body>
@@ -234,10 +304,18 @@ $userId = $_SESSION['user_id'];
         const calEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calEl, {
             initialView: isManager ? 'timeGridWeek' : 'listDay',
-            headerToolbar: { left: 'prev,next today', center: 'title', right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' },
+            headerToolbar: { 
+                left: 'prev,next', // Simplified toolbar for better mobile fit
+                center: 'title', 
+                right: isManager ? 'dayGridMonth,timeGridWeek' : '' 
+            },
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
             allDaySlot: false,
+            
+            // THE MAGIC FIX FOR SQUASHING:
+            contentHeight: 'auto', 
+            
             events: 'api/plant_actions.php?action=fetch_bookings',
             eventClick: (info) => loadJob(info.event.id)
         });
