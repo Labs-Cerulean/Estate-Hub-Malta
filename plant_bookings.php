@@ -535,6 +535,11 @@ $userId = $_SESSION['user_id'];
                 controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`;
             }
 
+            // NEW: View Delivery Note / RFP for Completed Jobs
+            if (isManager && job.status === 'Completed') {
+                controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> View Delivery Note & RFP</button>`;
+            }
+
             document.getElementById('punch-controls').innerHTML = controlsHtml;
             showView('view-job');
         });
