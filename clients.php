@@ -11,17 +11,20 @@ if (!hasPermission('can_manage_clients') && !isAdmin()) {
 $message = '';
 $s3 = new S3FileManager(); // Initialize R2
 
-// Handle Image Upload Logic directly to Cloudflare R2
+// Handle Image Upload Logic directly to Cloudflare R2 (RESTORED)
 function handleLogoUpload($fileInputName, $s3) {
     if (isset($_FILES[$fileInputName]) && $_FILES[$fileInputName]['error'] === UPLOAD_ERR_OK) {
         $fileTmpPath = $_FILES[$fileInputName]['tmp_name'];
-        $fileName = time() . '_' . preg_replace("/[^a-zA-Z0-9.-]/", "_", $_FILES[$fileInputName]['name']);
+        $originalName = $_FILES[$fileInputName]['name'];
+        $mimeType = $_FILES[$fileInputName]['type'];
         
-        // Upload directly to Cloudflare R2 via S3FileManager
-        $uploadUrl = $s3->uploadFile($fileTmpPath, 'logos/' . $fileName);
+        $fileExt = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'];
         
-        if ($uploadUrl) {
-            return $uploadUrl; // Return the full R2 URL
+        if (in_array($fileExt, $allowedExts)) {
+            // Upload directly to Cloudflare R2 in the 'logos' folder
+            $r2Key = $s3->uploadFile($fileTmpPath, $originalName, $mimeType, 'logos');
+            return $r2Key; // Returns something like: documents/logos/2026/03/12345_logo.png
         }
     }
     return null;
@@ -134,7 +137,14 @@ require_once 'header.php';
                 <tr>
                     <td style="text-align: center;">
                         <?php if (!empty($c['logo_path'])): ?>
-                            <img src="<?= htmlspecialchars($c['logo_path']) ?>" alt="Logo" style="height: 40px; max-width: 60px; object-fit: contain; border-radius: 4px;">
+                            <?php 
+                            // Safely generate secure Cloudflare link if it's an R2 Key
+                            $logoUrl = $c['logo_path'];
+                            if (strpos($logoUrl, 'http') === false) {
+                                $logoUrl = $s3->getPresignedUrl($c['logo_path'], '+60 minutes');
+                            }
+                            ?>
+                            <img src="<?= htmlspecialchars($logoUrl) ?>" alt="Logo" style="height: 40px; max-width: 60px; object-fit: contain; border-radius: 4px;">
                         <?php else: ?>
                             <div style="height: 40px; width: 40px; background: #e2e8f0; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin: 0 auto; color: #94a3b8; font-weight: bold;">
                                 <?= strtoupper(substr($c['name'], 0, 1)) ?>
@@ -188,7 +198,7 @@ require_once 'header.php';
             <div class="form-group">
                 <label>Company Logo (Optional)</label>
                 <input type="file" name="client_logo" accept="image/*" class="form-control" style="padding: 5px;">
-                <small style="color:var(--text-muted);">Max 2MB. Replaces old logo if exists.</small>
+                <small style="color:var(--text-muted);">Max 2MB. Saved securely to Cloudflare R2.</small>
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;"><i class="fas fa-save"></i> Save Client</button>
         </form>
@@ -213,9 +223,9 @@ require_once 'header.php';
                 <select name="type" id="edit_type" required><option value="in-house">In-House</option><option value="3rd-party">3rd Party</option></select>
             </div>
             <div class="form-group">
-                <label>Company Logo (Optional)</label>
+                <label>Upload New Logo</label>
                 <input type="file" name="edit_client_logo" accept="image/*" class="form-control" style="padding: 5px;">
-                <small style="color:var(--text-muted);">Upload a new file to replace the current logo.</small>
+                <small style="color:var(--text-muted);">Leave blank to keep existing logo.</small>
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;"><i class="fas fa-save"></i> Update Client</button>
         </form>
@@ -225,6 +235,7 @@ require_once 'header.php';
 <script>
     function showAddClientModal() { document.getElementById('addClientModal').style.display = 'block'; }
     function hideAddClientModal() { document.getElementById('addClientModal').style.display = 'none'; }
+    
     function showEditClientModal(client) {
         document.getElementById('edit_client_id').value = client.id;
         document.getElementById('edit_name').value = client.name;
