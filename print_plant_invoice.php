@@ -5,9 +5,11 @@ require_once 'session-check.php';
 $bookingId = $_GET['booking_id'] ?? 0;
 
 // Fetch the job, including BOTH rates
+// Fetch the job, including BOTH rates AND BANK DETAILS
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.inhouse_rate, p.external_rate, 
-           c.name as developer_name, c.logo_path as developer_logo,
+           c.name as developer_name, c.logo_path as developer_logo, 
+           c.bank_name, c.iban, c.swift_bic, 
            prj.name as project_name, drv.first_name, drv.last_name
     FROM plant_bookings pb 
     JOIN plants p ON pb.plant_id = p.id
@@ -30,6 +32,14 @@ $hoursWorked = round($interval->h + ($interval->i / 60), 2);
 // Determine which rate applies natively
 $applicableRate = $job['booking_type'] == 'in-house' ? $job['inhouse_rate'] : $job['external_rate'];
 $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $job['client_name'];
+// --- LOGO PATH FIX ---
+$logoPath = $job['developer_logo'];
+if (!empty($logoPath) && !preg_match('/^http/', $logoPath)) {
+    // If you use AWS S3, change the domain below to your S3 bucket URL.
+    // If you use local storage, just use your own domain name.
+    $domain = "https://" . $_SERVER['HTTP_HOST'] . "/"; 
+    $logoPath = $domain . ltrim($logoPath, '/');
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -70,8 +80,8 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
 
     <div class="header">
         <div>
-            <?php if ($job['developer_logo']): ?>
-                <img src="<?= htmlspecialchars($job['developer_logo']) ?>" class="logo">
+            <?php if (!empty($logoPath)): ?>
+                <img src="<?= htmlspecialchars($logoPath) ?>" class="logo">
             <?php else: ?>
                 <h2><?= htmlspecialchars($job['developer_name']) ?></h2>
             <?php endif; ?>
@@ -130,7 +140,10 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         <div>
             <h4>Payment Instructions</h4>
             Payable to: <b><?= htmlspecialchars($job['developer_name']) ?></b><br>
-            IBAN: MTXXXXXXXXXXXXXXXXXXXXXX<br>
+            Bank: <?= !empty($job['bank_name']) ? htmlspecialchars($job['bank_name']) : '<i>Not Provided</i>' ?><br>
+            IBAN: <?= !empty($job['iban']) ? htmlspecialchars($job['iban']) : '<i>Not Provided</i>' ?><br>
+            SWIFT/BIC: <?= !empty($job['swift_bic']) ? htmlspecialchars($job['swift_bic']) : '<i>Not Provided</i>' ?><br>
+            <br>
             <i>Please quote Job Ref #<?= $bookingId ?> in the transfer.</i>
         </div>
         
