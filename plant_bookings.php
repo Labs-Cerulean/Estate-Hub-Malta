@@ -254,19 +254,21 @@ $userId = $_SESSION['user_id'];
         calendar = new FullCalendar.Calendar(calEl, {
             initialView: isManager ? 'timeGridWeek' : 'listDay',
             headerToolbar: { 
-                left: 'prev,next', // Simplified toolbar for better mobile fit
-                center: 'title', 
-                right: isManager ? 'dayGridMonth,timeGridWeek' : '' 
+                left: 'prev,next today', // Nav controls on the left
+                center: '', // REMOVED the title to give buttons maximum space!
+                right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' // REINTRODUCED the Day view
             },
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
             allDaySlot: false,
-            
-            // THE MAGIC FIX FOR SQUASHING:
-            contentHeight: 'auto', 
-            
+            contentHeight: 'auto',
             events: 'api/plant_actions.php?action=fetch_bookings',
-            eventClick: (info) => loadJob(info.event.id)
+            eventClick: (info) => loadJob(info.event.id),
+            
+            // This hook updates our new custom banner whenever the date changes
+            datesSet: function(info) {
+                document.getElementById('custom-cal-title').innerText = info.view.title;
+            }
         });
         calendar.render();
     }
