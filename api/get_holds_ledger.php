@@ -8,13 +8,13 @@ $user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'];
 
 try {
-    // Note: We use project_units here, assuming the unification fix is applied.
+    // Note: We use LEFT JOIN for users because legacy holds won't have an agent assigned
     $sql = "SELECT pu.id, pu.unit_name, p.name AS project_name, 
                    pu.status, pu.held_by_agent_id, pu.hold_expiry,
                    u.first_name, u.last_name 
             FROM project_units pu
             JOIN projects p ON pu.project_id = p.id
-            JOIN users u ON pu.held_by_agent_id = u.id
+            LEFT JOIN users u ON pu.held_by_agent_id = u.id
             WHERE pu.status = 'On Hold'";
             
     // If it's an agent, ONLY show their holds. Otherwise, managers see all.
@@ -33,7 +33,7 @@ try {
     // Calculate hours remaining for the 24-hour alert system
     $current_time = new DateTime();
     foreach ($holds as &$hold) {
-        if ($hold['hold_expiry']) {
+        if (!empty($hold['hold_expiry'])) {
             $expiry_time = new DateTime($hold['hold_expiry']);
             $interval = $current_time->diff($expiry_time);
             
@@ -45,10 +45,13 @@ try {
                 $hours_left = 0; 
             }
             
+            $hold['is_legacy'] = false;
             $hold['hours_remaining'] = $hours_left;
             $hold['is_expiring_soon'] = ($hours_left <= 24 && $hours_left > 0);
         } else {
-            $hold['hours_remaining'] = 999; // Fallback
+            // It's a legacy upload (No expiry set)
+            $hold['is_legacy'] = true;
+            $hold['hours_remaining'] = null; 
             $hold['is_expiring_soon'] = false;
         }
     }
