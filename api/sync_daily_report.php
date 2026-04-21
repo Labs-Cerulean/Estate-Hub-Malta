@@ -41,7 +41,7 @@ if (!$handle) {
 }
 
 // 1. Fetch all DB Units for Smart Matching & UI Dropdowns
-$stmt = $pdo->query("SELECT sp.id, sp.unit_name, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
+$stmt = $pdo->query("SELECT sp.id, sp.unit_name, p.name as project_name FROM project_units sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
 $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // 2. Fetch Saved Translations from Database
@@ -59,7 +59,7 @@ $notFound = [];
 $colUnit = -1;
 $colStatus = -1;
 $colPrice = -1;
-$colFinishes = -1; // NEW: Finishes Column
+$colFinishes = -1; 
 $isHeaderFound = false;
 
 while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
@@ -91,7 +91,7 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
     if (empty($csvUnitStringRaw) || empty($csvStatus)) continue;
 
     $price = floatval(preg_replace('/[^0-9.]/', '', $csvPriceRaw));
-    $finishesPrice = floatval(preg_replace('/[^0-9.]/', '', $csvFinishesRaw)); // NEW
+    $finishesPrice = floatval(preg_replace('/[^0-9.]/', '', $csvFinishesRaw)); 
     
     $dbStatus = 'Available';
     $csvStatusLower = strtolower($csvStatus);
@@ -151,11 +151,11 @@ while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
     if ($matchedId && $matchedId > 0) {
         if ($price > 0 || $finishesPrice > 0) {
             // Update Status, Shell Price, AND Finishes Price
-            $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
+            $updateStmt = $pdo->prepare("UPDATE project_units SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
             $updateStmt->execute([$dbStatus, $price, $finishesPrice, $matchedId]);
         } else {
             // Just update status if no prices provided
-            $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
+            $updateStmt = $pdo->prepare("UPDATE project_units SET status = ? WHERE id = ?");
             $updateStmt->execute([$dbStatus, $matchedId]);
         }
         $updatedCount++;
