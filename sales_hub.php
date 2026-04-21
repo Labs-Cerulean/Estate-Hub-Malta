@@ -1041,7 +1041,8 @@ function saveTranslation(index, btnElement, isIgnore) {
 }
 
 function openHoldLedger() {
-    fetch('api/get_holds_ledger.php')
+    // Added a cache-buster here too, so the ledger is always perfectly up to date
+    fetch('api/get_holds_ledger.php?_t=' + Date.now())
         .then(response => response.json())
         .then(data => {
             if (!data.success) {
@@ -1049,11 +1050,21 @@ function openHoldLedger() {
                 return;
             }
 
+            // Extract unique project names for the filter dropdown
+            let uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
+            let projectOptions = uniqueProjects.map(p => `<option value="${p}">${p}</option>`).join('');
+
             let html = `
                 <div>
-                    <h3 style="color: #fff; margin-top: 0; margin-bottom: 15px; position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10;">
-                        ${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}
-                    </h3>
+                    <div style="position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--sh-border); margin-bottom: 15px;">
+                        <h3 style="color: #fff; margin: 0;">
+                            ${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}
+                        </h3>
+                        <select id="ledgerProjectFilter" class="sh-select" style="width: auto; margin: 0; padding: 6px 12px; font-weight: bold; cursor: pointer;" onchange="filterLedgerTable()">
+                            <option value="All">All Projects</option>
+                            ${projectOptions}
+                        </select>
+                    </div>
                     <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; color: #fff;">
                         <thead>
                             <tr style="border-bottom: 2px solid var(--sh-border);">
@@ -1085,8 +1096,9 @@ function openHoldLedger() {
 
                     let expiryDisplay = hold.is_legacy ? '<span style="color:var(--sh-text-muted);">N/A</span>' : new Date(hold.hold_expiry).toLocaleString();
 
+                    // Added a class and a data attribute for the filter to target
                     html += `
-                        <tr style="border-bottom: 1px solid var(--sh-border-light);">
+                        <tr class="ledger-row" data-project="${hold.project_name}" style="border-bottom: 1px solid var(--sh-border-light);">
                             <td style="padding: 12px 10px;">${hold.project_name}</td>
                             <td style="padding: 12px 10px;"><strong>${hold.unit_name}</strong></td>
                             ${data.role !== 'sales_agent' ? `<td style="padding: 12px 10px;">${agentName}</td>` : ''}
@@ -1107,6 +1119,19 @@ function openHoldLedger() {
             document.getElementById('holdLedgerContent').innerHTML = html;
             document.getElementById('holdLedgerModal').style.display = 'block';
         });
+}
+
+function filterLedgerTable() {
+    let filter = document.getElementById('ledgerProjectFilter').value;
+    let rows = document.querySelectorAll('.ledger-row');
+    
+    rows.forEach(row => {
+        if (filter === 'All' || row.getAttribute('data-project') === filter) {
+            row.style.display = ''; // Show row
+        } else {
+            row.style.display = 'none'; // Hide row
+        }
+    });
 }
 
 function releaseHoldFromLedger(propertyId) {
