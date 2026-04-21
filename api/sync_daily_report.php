@@ -2,11 +2,15 @@
 require_once '../config.php';
 require_once '../session-check.php';
 
+// Only allow Managers/Admins to run the sync
 if (!in_array($_SESSION['role'], ['admin', 'sales_manager', 'director', 'system_manager'])) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;
 }
 
+// ---------------------------------------------------------
+// ACTION: SAVE NEW TRANSLATION
+// ---------------------------------------------------------
 if (isset($_POST['action']) && $_POST['action'] === 'save_translation') {
     try {
         $csvName = trim($_POST['csv_name'] ?? '');
@@ -25,6 +29,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'save_translation') {
     exit;
 }
 
+// ---------------------------------------------------------
+// ACTION: PROCESS CSV UPLOAD
+// ---------------------------------------------------------
 if (!isset($_FILES['sync_csv']) || $_FILES['sync_csv']['error'] !== UPLOAD_ERR_OK) {
     echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error.']);
     exit;
@@ -35,7 +42,8 @@ try {
     $handle = fopen($file, "r");
     if (!$handle) throw new Exception('Could not read the CSV file.');
 
-    $stmt = $pdo->query("SELECT sp.id, sp.unit_name, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
+    // We now explicitly select 'status' here so we can check it later for immunity
+    $stmt = $pdo->query("SELECT sp.id, sp.unit_name, sp.status, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
     $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $stmtTrans = $pdo->query("SELECT csv_name, db_unit_id FROM sync_translations");
@@ -122,7 +130,29 @@ try {
             }
         }
 
+        // --- EXECUTION WITH IMMUNITY LAYER ---
         if ($matchedId && $matchedId > 0) {
+            
+            // 1. Identify current DB status
+            $currentDbStatus = '';
+            foreach ($dbUnits as $dbU) {
+                if ($dbU['id'] == $matchedId) { $currentDbStatus = $dbU['status']; break; }
+            }
+
+            // 2. Absolute Immunity: Never let internal accounting overwrite a 3rd Party Resale
+            if ($currentDbStatus === 'Resale') {
+                continue; // Skip this unit entirely
+            }
+
+            // 3. Active Agent Protection: Prevent destructive downgrades from laggy CSVs
+            $activeAgentStatuses = ['On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold Pending Approval', 'POS Pending Approval', 'Contract Pending Approval'];
+            if (in_array($currentDbStatus, $activeAgentStatuses) && $dbStatus === 'Available') {
+                // The CSV thinks it's available, but an agent is actively working it. 
+                // We keep the agent's status intact, but still let the price update below if needed.
+                $dbStatus = $currentDbStatus; 
+            }
+
+            // 4. Safe Execution
             if ($price > 0 || $finishesPrice > 0) {
                 $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
                 $updateStmt->execute([$dbStatus, $price, $finishesPrice, $matchedId]);
