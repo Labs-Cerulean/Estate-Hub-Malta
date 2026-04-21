@@ -168,9 +168,11 @@ require_once 'header.php';
 </style>
 
 <div id="holdLedgerModal" class="vanilla-modal">
-    <div class="vanilla-modal-content large" style="max-width: 900px; height: auto; max-height: 85vh;">
-        <span class="vanilla-close" onclick="document.getElementById('holdLedgerModal').style.display='none'">&times;</span>
-        <div id="holdLedgerContent"></div>
+    <div class="vanilla-modal-content large" style="max-width: 1000px; height: 85vh; display: flex; flex-direction: column;">
+        <div style="text-align: right; margin-bottom: 10px;">
+            <span class="vanilla-close" onclick="document.getElementById('holdLedgerModal').style.display='none'">&times;</span>
+        </div>
+        <div id="holdLedgerContent" style="flex: 1; overflow-y: auto; padding-right: 15px;"></div>
     </div>
 </div>
 
@@ -223,6 +225,9 @@ require_once 'header.php';
                 </div>
             </div>
             
+            <button class="sh-btn" style="margin-bottom: 10px; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="openHoldLedger()">
+                <i class="fas fa-list"></i> View Holds Ledger
+            </button>
             <button class="sh-btn sh-btn-danger" style="margin-bottom: 15px;" onclick="resetMap()">
                 <i class="fas fa-undo-alt"></i> Reset Map & Clear Filters
             </button>
@@ -280,7 +285,6 @@ require_once 'header.php';
             <div class="sh-tab" id="btnFilterAvail" onclick="setStatusTab('Available')">Available Only</div>
         </div>
         <div style="display: flex; gap: 8px;">
-            <button class="sh-pdf-btn" onclick="openHoldLedger()" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;"><i class="fas fa-list"></i> Holds</button>
             <button class="sh-pdf-btn" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Pricelist</button>
         </div>
     </div>
@@ -1046,8 +1050,10 @@ function openHoldLedger() {
             }
 
             let html = `
-                <div style="padding: 20px;">
-                    <h3 style="color: #fff; margin-bottom: 15px;">${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}</h3>
+                <div>
+                    <h3 style="color: #fff; margin-top: 0; margin-bottom: 15px; position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10;">
+                        ${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}
+                    </h3>
                     <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; color: #fff;">
                         <thead>
                             <tr style="border-bottom: 2px solid var(--sh-border);">
