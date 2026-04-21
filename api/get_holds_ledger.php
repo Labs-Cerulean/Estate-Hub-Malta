@@ -11,7 +11,7 @@ try {
     $sql = "SELECT pu.id, pu.unit_name, p.name AS project_name, 
                    pu.status, pu.held_by_agent_id, pu.hold_expiry,
                    u.first_name, u.last_name 
-            FROM project_sales_units pu
+            FROM sales_properties pu
             JOIN projects p ON pu.project_id = p.id
             LEFT JOIN users u ON pu.held_by_agent_id = u.id
             WHERE pu.status = 'On Hold'";
