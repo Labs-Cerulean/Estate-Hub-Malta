@@ -21,7 +21,7 @@ if (!$property_id || !$action) {
     exit;
 }
 
-// Helper function to log every change (Satisfies Rule #3)
+// Helper function to log every change
 function logSalesAction($pdo, $property_id, $user_id, $action_name, $old_status, $new_status, $justification = null) {
     $stmt = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
     $stmt->execute([$property_id, $user_id, $action_name, $old_status, $new_status, $justification]);
@@ -29,7 +29,7 @@ function logSalesAction($pdo, $property_id, $user_id, $action_name, $old_status,
 
 try {
     // Fetch current property state
-    $stmt = $pdo->prepare("SELECT status, held_by_agent_id FROM sales_properties WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT status, held_by_agent_id FROM project_units WHERE id = ?");
     $stmt->execute([$property_id]);
     $property = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -50,7 +50,7 @@ try {
         $new_status = 'On Hold';
         $log_action_name = 'Placed on Hold';
         
-        $update = $pdo->prepare("UPDATE sales_properties SET status = ?, held_by_agent_id = ?, hold_expiry = DATE_ADD(NOW(), INTERVAL 7 DAY) WHERE id = ?");
+        $update = $pdo->prepare("UPDATE project_units SET status = ?, held_by_agent_id = ?, hold_expiry = DATE_ADD(NOW(), INTERVAL 7 DAY) WHERE id = ?");
         $update->execute([$new_status, $user_id, $property_id]);
 
     } elseif ($action === 'extend_hold') {
@@ -61,37 +61,37 @@ try {
         
         $log_action_name = 'Hold Extended';
         
-        $update = $pdo->prepare("UPDATE sales_properties SET hold_expiry = DATE_ADD(hold_expiry, INTERVAL 7 DAY) WHERE id = ?");
+        $update = $pdo->prepare("UPDATE project_units SET hold_expiry = DATE_ADD(hold_expiry, INTERVAL 7 DAY) WHERE id = ?");
         $update->execute([$property_id]);
 
     } elseif ($action === 'request_reserved') {
-        $new_status = ($user_role === 'sales_manager') ? 'Reserved' : 'Reserved Pending Approval';
-        $log_action_name = ($user_role === 'sales_manager') ? 'Marked as Reserved' : 'Requested Reserved Status';
+        $new_status = ($user_role === 'sales_manager') ? 'Proceeding' : 'Proceeding Pending Approval';
+        $log_action_name = ($user_role === 'sales_manager') ? 'Marked as Proceeding' : 'Requested Proceeding Status';
         
-        $update = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
+        $update = $pdo->prepare("UPDATE project_units SET status = ? WHERE id = ?");
         $update->execute([$new_status, $property_id]);
 
     } elseif ($action === 'approve_reserved') {
         if ($user_role !== 'sales_manager' && $user_role !== 'system_manager') throw new Exception("Only managers can approve reservations.");
         
-        $new_status = 'Reserved';
-        $log_action_name = 'Approved Reservation';
+        $new_status = 'Proceeding';
+        $log_action_name = 'Approved Proceeding';
         
-        $update = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
+        $update = $pdo->prepare("UPDATE project_units SET status = ? WHERE id = ?");
         $update->execute([$new_status, $property_id]);
 
     } elseif ($action === 'mark_pos') {
         $new_status = ($user_role === 'sales_manager') ? 'Sold - POS' : 'POS Pending Approval';
         $log_action_name = ($user_role === 'sales_manager') ? 'Marked Sold (POS)' : 'Requested POS Status';
         
-        $update = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
+        $update = $pdo->prepare("UPDATE project_units SET status = ? WHERE id = ?");
         $update->execute([$new_status, $property_id]);
 
     } elseif ($action === 'mark_contract') {
         $new_status = ($user_role === 'sales_manager') ? 'Sold - Contract' : 'Contract Pending Approval';
         $log_action_name = ($user_role === 'sales_manager') ? 'Marked Sold (Contract)' : 'Requested Contract Status';
         
-        $update = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
+        $update = $pdo->prepare("UPDATE project_units SET status = ? WHERE id = ?");
         $update->execute([$new_status, $property_id]);
 
     } elseif (in_array($action, ['mark_resale', 'mark_bom'])) {
@@ -102,7 +102,7 @@ try {
         $log_action_name = ($action === 'mark_resale') ? 'Moved to Resale' : 'Moved Back on Market (BOM)';
         
         // Clear holds and reservations
-        $update = $pdo->prepare("UPDATE sales_properties SET status = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
+        $update = $pdo->prepare("UPDATE project_units SET status = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
         $update->execute([$new_status, $property_id]);
 
     } else {
