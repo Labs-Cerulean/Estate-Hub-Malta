@@ -35,7 +35,7 @@ try {
     $handle = fopen($file, "r");
     if (!$handle) throw new Exception('Could not read the CSV file.');
 
-    $stmt = $pdo->query("SELECT sp.id, sp.unit_name, p.name as project_name FROM project_sales_units sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
+    $stmt = $pdo->query("SELECT sp.id, sp.unit_name, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
     $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $stmtTrans = $pdo->query("SELECT csv_name, db_unit_id FROM sync_translations");
@@ -124,10 +124,10 @@ try {
 
         if ($matchedId && $matchedId > 0) {
             if ($price > 0 || $finishesPrice > 0) {
-                $updateStmt = $pdo->prepare("UPDATE project_sales_units SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
+                $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
                 $updateStmt->execute([$dbStatus, $price, $finishesPrice, $matchedId]);
             } else {
-                $updateStmt = $pdo->prepare("UPDATE project_sales_units SET status = ? WHERE id = ?");
+                $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
                 $updateStmt->execute([$dbStatus, $matchedId]);
             }
             $updatedCount++;
