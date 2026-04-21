@@ -20,15 +20,15 @@ if (!$property_id || !$new_status) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT status FROM project_sales_units WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT status FROM sales_properties WHERE id = ?");
     $stmt->execute([$property_id]);
     $old_status = $stmt->fetchColumn();
 
     if ($new_status === 'Resale') {
-        $update = $pdo->prepare("UPDATE project_sales_units SET status = ?, resale_price = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
+        $update = $pdo->prepare("UPDATE sales_properties SET status = ?, resale_price = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
         $update->execute([$new_status, $resale_price, $property_id]);
     } else {
-        $update = $pdo->prepare("UPDATE project_sales_units SET status = ?, resale_price = NULL, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
+        $update = $pdo->prepare("UPDATE sales_properties SET status = ?, resale_price = NULL, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
         $update->execute([$new_status, $property_id]);
     }
 
