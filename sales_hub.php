@@ -166,6 +166,13 @@ require_once 'header.php';
     @keyframes shToastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 
+<div id="holdLedgerModal" class="vanilla-modal">
+    <div class="vanilla-modal-content large" style="max-width: 900px; height: auto; max-height: 85vh;">
+        <span class="vanilla-close" onclick="document.getElementById('holdLedgerModal').style.display='none'">&times;</span>
+        <div id="holdLedgerContent"></div>
+    </div>
+</div>
+
 <div id="sh-toast-container"></div>
 
 <div id="sh-lightbox" class="sh-lightbox">
@@ -271,7 +278,10 @@ require_once 'header.php';
             <div class="sh-tab active" id="btnFilterAll" onclick="setStatusTab('All')">All</div>
             <div class="sh-tab" id="btnFilterAvail" onclick="setStatusTab('Available')">Available Only</div>
         </div>
-        <button class="sh-pdf-btn" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Pricelist</button>
+        <div style="display: flex; gap: 8px;">
+            <button class="sh-pdf-btn" onclick="openHoldLedger()" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;"><i class="fas fa-list"></i> Holds</button>
+            <button class="sh-pdf-btn" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Pricelist</button>
+        </div>
     </div>
     
     <div id="unitListContainer" class="sh-units"></div> 
@@ -788,11 +798,21 @@ require_once 'header.php';
 
     function sendStatusToServer(propertyId, newStatus, selectElement, resalePrice) {
         selectElement.disabled = true;
-        let formData = new FormData(); formData.append('action', 'update_unit_status'); formData.append('unit_id', propertyId); formData.append('status', newStatus); if (resalePrice) formData.append('resale_price', resalePrice);
-        fetch('sales_hub.php', { method: 'POST', body: formData }).then(r => r.text()).then(data => {
+        let formData = new FormData(); 
+        formData.append('property_id', propertyId); 
+        formData.append('new_status', newStatus); 
+        if (resalePrice) formData.append('resale_price', resalePrice);
+
+        fetch('api/manager_update_status.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
             selectElement.disabled = false;
-            if(data === 'OK') { showToast(`Status updated to ${newStatus}`, 'success'); if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); } 
-            else { showToast("Error updating status.", 'error'); }
+            if(data.success) { 
+                showToast(`Status updated to ${newStatus}`, 'success'); 
+                if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+            } else { 
+                showToast("Error: " + data.message, 'error'); 
+            }
         });
     }
 
@@ -877,18 +897,6 @@ require_once 'header.php';
         }
     });
 
-    <?php
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_unit_status') {
-        if (!in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])) { http_response_code(403); exit; }
-        $unitId = (int)$_POST['unit_id'];
-        $status = $_POST['status'];
-        $resale = !empty($_POST['resale_price']) ? (float)$_POST['resale_price'] : null;
-        if ($status !== 'Resale') $resale = null;
-        $pdo->prepare("UPDATE project_units SET status = ?, resale_price = ? WHERE id = ?")->execute([$status, $resale, $unitId]);
-        echo "OK";
-        exit;
-    }
-    ?>
 
 // DAILY SYNC ENGINE
 function processDailySync(input) {
@@ -1076,9 +1084,8 @@ fetch('api/get_holds_ledger.php')
 
         html += `</tbody></table></div>`;
         
-        // Assuming you have a standard modal function in your layout (like openModal)
-        // If not, you can output this HTML to a custom div overlay.
-        showModal(html); 
+        document.getElementById('holdLedgerContent').innerHTML = html;
+        document.getElementById('holdLedgerModal').style.display = 'block';
     });
 }
 </script>
