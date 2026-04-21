@@ -847,16 +847,28 @@ require_once 'header.php';
         if(!confirm("Are you sure you want to put this unit on hold?")) return;
         let formData = new FormData(); formData.append('action', 'hold_property'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
-            if(data.success) { showToast("Put on hold!", "success"); if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); } 
-        });
+            if(data.success) { 
+                showToast("Put on hold!", "success"); 
+                if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+            } else {
+                // WE ADDED THIS ERROR TOAST
+                showToast("Error: " + data.message, "error"); 
+            }
+        }).catch(err => showToast("System Error: " + err.message, "error"));
     }
 
     function requestReserve(propertyId) {
         if(!confirm("Are you sure you want to transition this unit to Proceeding?")) return;
         let formData = new FormData(); formData.append('action', 'request_reserved'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
-            if(data.success) { showToast("Status updated to Proceeding!", "success"); if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); } 
-        });
+            if(data.success) { 
+                showToast("Status updated to Proceeding!", "success"); 
+                if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+            } else {
+                // WE ADDED THIS ERROR TOAST
+                showToast("Error: " + data.message, "error"); 
+            }
+        }).catch(err => showToast("System Error: " + err.message, "error"));
     }
 
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
