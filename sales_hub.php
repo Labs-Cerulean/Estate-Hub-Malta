@@ -1036,57 +1036,65 @@ function saveTranslation(index, btnElement, isIgnore) {
 }
 
 function openHoldLedger() {
-fetch('api/get_holds_ledger.php')
-    .then(response => response.json())
-    .then(data => {
-        if (!data.success) {
-            showToast("Error loading ledger", "error");
-            return;
-        }
+    fetch('api/get_holds_ledger.php')
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                showToast("Error loading ledger", "error");
+                return;
+            }
 
-        let html = `
-            <div style="padding: 20px;">
-                <h2>${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}</h2>
-                <table class="table" style="width: 100%; text-align: left; border-collapse: collapse;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid #ddd;">
-                            <th>Project</th>
-                            <th>Unit</th>
-                            ${data.role !== 'sales_agent' ? '<th>Agent</th>' : ''}
-                            <th>Expires In</th>
-                            <th>Exact Expiry Date</th>
+            let html = `
+                <div style="padding: 20px;">
+                    <h3 style="color: #fff; margin-bottom: 15px;">${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}</h3>
+                    <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; color: #fff;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid var(--sh-border);">
+                                <th style="padding: 10px;">Project</th>
+                                <th style="padding: 10px;">Unit</th>
+                                ${data.role !== 'sales_agent' ? '<th style="padding: 10px;">Agent</th>' : ''}
+                                <th style="padding: 10px;">Expires In</th>
+                                <th style="padding: 10px;">Exact Expiry Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            if (data.holds.length === 0) {
+                html += `<tr><td colspan="5" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`;
+            } else {
+                data.holds.forEach(hold => {
+                    let warningStyle = hold.is_expiring_soon ? 'color: var(--sh-danger); font-weight: bold;' : 'color: var(--sh-text-main);';
+                    let warningIcon = hold.is_expiring_soon ? '<i class="fas fa-exclamation-triangle"></i> ' : '';
+                    
+                    // Legacy UI Overrides
+                    let agentName = hold.is_legacy 
+                        ? '<span style="color:var(--sh-text-muted); font-style:italic;">Legacy/System</span>' 
+                        : `${hold.first_name} ${hold.last_name}`;
+                        
+                    let timeDisplay = hold.is_legacy 
+                        ? '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-infinity"></i> Legacy (Manual)</span>' 
+                        : `<span style="${warningStyle}">${warningIcon}${hold.hours_remaining} Hours</span>`;
+
+                    let expiryDisplay = hold.is_legacy ? '<span style="color:var(--sh-text-muted);">N/A</span>' : new Date(hold.hold_expiry).toLocaleString();
+
+                    html += `
+                        <tr style="border-bottom: 1px solid var(--sh-border-light);">
+                            <td style="padding: 12px 10px;">${hold.project_name}</td>
+                            <td style="padding: 12px 10px;"><strong>${hold.unit_name}</strong></td>
+                            ${data.role !== 'sales_agent' ? `<td style="padding: 12px 10px;">${agentName}</td>` : ''}
+                            <td style="padding: 12px 10px;">${timeDisplay}</td>
+                            <td style="padding: 12px 10px;">${expiryDisplay}</td>
                         </tr>
-                    </thead>
-                    <tbody>
-        `;
+                    `;
+                });
+            }
 
-        if (data.holds.length === 0) {
-            html += `<tr><td colspan="5" style="padding: 15px; text-align:center;">No properties currently on hold.</td></tr>`;
-        } else {
-            data.holds.forEach(hold => {
-                // Create the 24-hour warning styling
-                let warningStyle = hold.is_expiring_soon ? 'color: red; font-weight: bold;' : '';
-                let warningIcon = hold.is_expiring_soon ? '⚠️ ' : '';
-                
-                let agentName = `${hold.first_name} ${hold.last_name}`;
-
-                html += `
-                    <tr style="border-bottom: 1px solid #eee;">
-                        <td style="padding: 10px 0;">${hold.project_name}</td>
-                        <td><strong>${hold.unit_name}</strong></td>
-                        ${data.role !== 'sales_agent' ? `<td>${agentName}</td>` : ''}
-                        <td style="${warningStyle}">${warningIcon}${hold.hours_remaining} Hours</td>
-                        <td>${new Date(hold.hold_expiry).toLocaleString()}</td>
-                    </tr>
-                `;
-            });
-        }
-
-        html += `</tbody></table></div>`;
-        
-        document.getElementById('holdLedgerContent').innerHTML = html;
-        document.getElementById('holdLedgerModal').style.display = 'block';
-    });
+            html += `</tbody></table></div>`;
+            
+            document.getElementById('holdLedgerContent').innerHTML = html;
+            document.getElementById('holdLedgerModal').style.display = 'block';
+        });
 }
 </script>
 
