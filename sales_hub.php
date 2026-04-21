@@ -1026,6 +1026,61 @@ function saveTranslation(index, btnElement, isIgnore) {
         }
     });
 }
+
+function openHoldLedger() {
+fetch('api/get_holds_ledger.php')
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            showToast("Error loading ledger", "error");
+            return;
+        }
+
+        let html = `
+            <div style="padding: 20px;">
+                <h2>${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}</h2>
+                <table class="table" style="width: 100%; text-align: left; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid #ddd;">
+                            <th>Project</th>
+                            <th>Unit</th>
+                            ${data.role !== 'sales_agent' ? '<th>Agent</th>' : ''}
+                            <th>Expires In</th>
+                            <th>Exact Expiry Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        if (data.holds.length === 0) {
+            html += `<tr><td colspan="5" style="padding: 15px; text-align:center;">No properties currently on hold.</td></tr>`;
+        } else {
+            data.holds.forEach(hold => {
+                // Create the 24-hour warning styling
+                let warningStyle = hold.is_expiring_soon ? 'color: red; font-weight: bold;' : '';
+                let warningIcon = hold.is_expiring_soon ? '⚠️ ' : '';
+                
+                let agentName = `${hold.first_name} ${hold.last_name}`;
+
+                html += `
+                    <tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 10px 0;">${hold.project_name}</td>
+                        <td><strong>${hold.unit_name}</strong></td>
+                        ${data.role !== 'sales_agent' ? `<td>${agentName}</td>` : ''}
+                        <td style="${warningStyle}">${warningIcon}${hold.hours_remaining} Hours</td>
+                        <td>${new Date(hold.hold_expiry).toLocaleString()}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        html += `</tbody></table></div>`;
+        
+        // Assuming you have a standard modal function in your layout (like openModal)
+        // If not, you can output this HTML to a custom div overlay.
+        showModal(html); 
+    });
+}
 </script>
 
 <?php require_once 'footer.php'; ?>
