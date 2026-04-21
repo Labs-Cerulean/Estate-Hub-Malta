@@ -44,12 +44,27 @@ try {
         $update = $pdo->prepare("UPDATE sales_properties SET status = ?, held_by_agent_id = ?, hold_expiry = DATE_ADD(NOW(), INTERVAL 7 DAY) WHERE id = ?");
         $update->execute([$new_status, $user_id, $property_id]);
 
-    } elseif ($action === 'extend_hold') {
+   } elseif ($action === 'extend_hold') {
         if ($current_status !== 'On Hold' || $property['held_by_agent_id'] != $user_id) throw new Exception("You do not hold this unit.");
         if (empty($justification)) throw new Exception("Justification is required for hold extension.");
         $log_action_name = 'Hold Extended';
         $update = $pdo->prepare("UPDATE sales_properties SET hold_expiry = DATE_ADD(hold_expiry, INTERVAL 7 DAY) WHERE id = ?");
         $update->execute([$property_id]);
+
+    // 👇 ADD THIS NEW BLOCK 👇
+    } elseif ($action === 'release_hold') {
+        if ($current_status !== 'On Hold') throw new Exception("Unit is not currently on hold.");
+        
+        // Security Check: If it's an agent, they MUST own the hold. Managers can release anyone's hold.
+        if ($user_role === 'sales_agent' && $property['held_by_agent_id'] != $user_id) {
+            throw new Exception("You are only authorized to release your own holds.");
+        }
+
+        $new_status = 'Available';
+        $log_action_name = 'Hold Released from Ledger';
+        $update = $pdo->prepare("UPDATE sales_properties SET status = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
+        $update->execute([$new_status, $property_id]);
+    // 👆 END NEW BLOCK 👆
 
     } elseif ($action === 'request_reserved') {
         $new_status = ($user_role === 'sales_manager') ? 'Proceeding' : 'Proceeding Pending Approval';
