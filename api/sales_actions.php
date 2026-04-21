@@ -26,6 +26,9 @@ function logSalesAction($pdo, $property_id, $user_id, $action_name, $old_status,
 }
 
 try {
+    // Force the database to report errors instead of failing silently
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
     $stmt = $pdo->prepare("SELECT status, held_by_agent_id FROM sales_properties WHERE id = ?");
     $stmt->execute([$property_id]);
     $property = $stmt->fetch(PDO::FETCH_ASSOC);
