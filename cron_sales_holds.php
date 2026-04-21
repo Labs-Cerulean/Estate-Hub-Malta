@@ -8,6 +8,7 @@ $stmt = $pdo->query("
     FROM project_units sp
     JOIN users u ON sp.held_by_agent_id = u.id
     WHERE sp.status = 'On Hold' 
+    AND sp.hold_expiry IS NOT NULL
     AND sp.hold_expiry BETWEEN DATE_ADD(NOW(), INTERVAL 24 HOUR) AND DATE_ADD(NOW(), INTERVAL 25 HOUR)
 ");
 
@@ -25,7 +26,9 @@ foreach ($warnings as $alert) {
 $stmt = $pdo->query("
     SELECT id, status, held_by_agent_id 
     FROM project_units 
-    WHERE status = 'On Hold' AND hold_expiry <= NOW()
+    WHERE status = 'On Hold' 
+    AND hold_expiry IS NOT NULL
+    AND hold_expiry <= NOW()
 ");
 
 $expired = $stmt->fetchAll(PDO::FETCH_ASSOC);
