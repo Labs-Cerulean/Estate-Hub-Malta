@@ -1045,7 +1045,7 @@ function openHoldLedger() {
         .then(response => response.json())
         .then(data => {
             if (!data.success) {
-                showToast("Error loading ledger", "error");
+                showToast("Error: " + (data.message || "Could not load ledger"), "error");
                 return;
             }
 
@@ -1062,25 +1062,25 @@ function openHoldLedger() {
                                 ${data.role !== 'sales_agent' ? '<th style="padding: 10px;">Agent</th>' : ''}
                                 <th style="padding: 10px;">Expires In</th>
                                 <th style="padding: 10px;">Exact Expiry Date</th>
+                                <th style="padding: 10px; text-align: right;">Action</th>
                             </tr>
                         </thead>
                         <tbody>
             `;
 
             if (data.holds.length === 0) {
-                html += `<tr><td colspan="5" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`;
+                html += `<tr><td colspan="6" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`;
             } else {
                 data.holds.forEach(hold => {
                     let warningStyle = hold.is_expiring_soon ? 'color: var(--sh-danger); font-weight: bold;' : 'color: var(--sh-text-main);';
                     let warningIcon = hold.is_expiring_soon ? '<i class="fas fa-exclamation-triangle"></i> ' : '';
                     
-                    // Legacy UI Overrides
                     let agentName = hold.is_legacy 
                         ? '<span style="color:var(--sh-text-muted); font-style:italic;">Legacy/System</span>' 
                         : `${hold.first_name} ${hold.last_name}`;
                         
                     let timeDisplay = hold.is_legacy 
-                        ? '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-infinity"></i> Legacy (Manual)</span>' 
+                        ? '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-infinity"></i> Legacy</span>' 
                         : `<span style="${warningStyle}">${warningIcon}${hold.hours_remaining} Hours</span>`;
 
                     let expiryDisplay = hold.is_legacy ? '<span style="color:var(--sh-text-muted);">N/A</span>' : new Date(hold.hold_expiry).toLocaleString();
@@ -1092,6 +1092,11 @@ function openHoldLedger() {
                             ${data.role !== 'sales_agent' ? `<td style="padding: 12px 10px;">${agentName}</td>` : ''}
                             <td style="padding: 12px 10px;">${timeDisplay}</td>
                             <td style="padding: 12px 10px;">${expiryDisplay}</td>
+                            <td style="padding: 12px 10px; text-align: right;">
+                                <button class="sh-btn sh-btn-success" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.8rem;" onclick="releaseHoldFromLedger(${hold.id})">
+                                    <i class="fas fa-unlock"></i> Release
+                                </button>
+                            </td>
                         </tr>
                     `;
                 });
@@ -1102,6 +1107,26 @@ function openHoldLedger() {
             document.getElementById('holdLedgerContent').innerHTML = html;
             document.getElementById('holdLedgerModal').style.display = 'block';
         });
+}
+
+function releaseHoldFromLedger(propertyId) {
+    if (!confirm("Are you sure you want to release this hold? The unit will immediately become Available.")) return;
+    
+    let formData = new FormData(); 
+    formData.append('action', 'release_hold'); 
+    formData.append('property_id', propertyId);
+
+    fetch('api/sales_actions.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        if(data.success) { 
+            showToast("Hold released successfully!", "success"); 
+            openHoldLedger(); // Refresh the ledger immediately
+            if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+        } else { 
+            showToast("Error: " + data.message, "error"); 
+        }
+    });
 }
 </script>
 
