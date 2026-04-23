@@ -188,7 +188,7 @@ $userId = $_SESSION['user_id'];
                     <option value="external">External / 3rd Party</option>
                 </select>
 
-                <div id="inhouse-fields"><label>Select Project</label><select id="project_id" class="input-heavy"></select></div>
+                <div id="inhouse-fields"><label>Select Project</label><select id="project_id" class="input-heavy" onchange="updateProjectLocation()"></select></div>
                 <div id="external-fields" style="display: none;"><label>Client Name</label><input type="text" id="client_name" class="input-heavy" placeholder="Company or Individual"></div>
 
                 <label>Location (Tap Map to Pin)</label>
