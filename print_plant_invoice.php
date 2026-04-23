@@ -1,11 +1,13 @@
 <?php
 require_once 'config.php';
 require_once 'session-check.php';
+require_once 'S3FileManager.php';
 
 $bookingId = $_GET['booking_id'] ?? 0;
 
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.inhouse_rate, p.external_rate, 
+           p.pricing_type, p.min_hours, p.min_price,
            c.name as developer_name, c.logo_path as developer_logo, 
            c.bank_name, c.iban, c.swift_bic, 
            prj.name as project_name, drv.first_name, drv.last_name
@@ -22,44 +24,36 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$job) die("Job not found.");
 
 // --- CLOUDFLARE R2 LOGO PATH FIX ---
-require_once 'S3FileManager.php';
 $s3 = new S3FileManager();
-
 $logoPath = $job['developer_logo'];
 if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
-    // Generate the presigned URL so the PDF can read it
+    // Generate the presigned URL so the PDF can securely read the image
     $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
 }
 
-// Calculate Default Auto-Rate vs Saved Rate
-if ($job['final_hours'] !== null) {
-    // Load the permanently saved values if it was already invoiced!
-    $hoursWorked = $job['final_hours'];
-    $applicableRate = $job['final_rate'];
-} else {
-    // Auto-calculate for the first time
-    $inTime = new DateTime($job['punch_in_time']);
-    $outTime = new DateTime($job['punch_out_time']);
-    $interval = $inTime->diff($outTime);
-    $hoursWorked = round($interval->h + ($interval->i / 60), 2);
-    $applicableRate = $job['booking_type'] == 'in-house' ? $job['inhouse_rate'] : $job['external_rate'];
-}
+// Generate Professional Job Reference (e.g., PRA-2026-0002)
+$jobYear = date('Y', strtotime($job['booking_date']));
+$jobRef = sprintf("PRA-%s-%04d", $jobYear, $bookingId);
+
+// Time Calculation
+$inTime = new DateTime($job['punch_in_time']);
+$outTime = new DateTime($job['punch_out_time']);
+$interval = $inTime->diff($outTime);
+$hoursWorked = round($interval->h + ($interval->i / 60), 2);
+$applicableRate = $job['booking_type'] == 'in-house' ? $job['inhouse_rate'] : $job['external_rate'];
 
 $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $job['client_name'];
-// --- NEW: Generate Professional Job Reference ---
-$jobYear = date('Y', strtotime($job['booking_date']));
-$jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
 ?>
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Payment Request - Job #<?= $bookingId ?></title>
+    <title>Payment Request - <?= $jobRef ?></title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body { font-family: 'Inter', sans-serif; background: #fff; color: #000; padding: 40px; }
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px; }
-        .logo { max-width: 200px; max-height: 80px; }
+        .logo { max-width: 200px; max-height: 80px; object-fit: contain; }
         .title { font-size: 2rem; font-weight: 900; text-transform: uppercase; }
         .grid { display: flex; justify-content: space-between; margin-bottom: 30px; }
         .box { padding: 15px; border: 1px solid #ccc; width: 45%; }
@@ -72,18 +66,18 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
         
         @media print { 
             .no-print { display: none; } 
-            .live-calc { border: none; margin: 0; padding: 0; width: auto; }
-            body { padding: 0; }
+            .live-calc { border: none; margin: 0; padding: 0; width: auto; } 
+            body { padding: 0; } 
         }
     </style>
 </head>
 <body>
     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 0.9rem; color: #475569;">
         <?php if ($job['payment_status'] === 'Pending'): ?>
-            <i class="fas fa-info-circle text-blue-500"></i> <b>Accountant Note:</b> Review the Hours and Rate below. Clicking Finalize will permanently save these values to the database and mark the job as Invoiced.
+            <i class="fas fa-info-circle text-blue-500"></i> <b>Accountant Note:</b> Verify the final hours and the auto-calculated rate/subtotal. Clicking Finalize will permanently lock these values to the database.
             <button id="printBtn" onclick="saveAndPrint()" style="display:block; padding:15px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; margin-top:15px; width:100%; border-radius: 8px; font-size: 1.1rem;"><i class="fas fa-save"></i> Finalize & Print to PDF</button>
         <?php else: ?>
-            <i class="fas fa-check-circle" style="color: #10b981;"></i> <b>Invoice Saved.</b> These values have been permanently locked into the system.
+            <i class="fas fa-check-circle" style="color: #10b981;"></i> <b>Invoice Saved.</b> These values have been permanently locked into the ledger.
             <button onclick="window.print()" style="display:block; padding:15px; background:#64748b; color:#fff; border:none; font-weight:bold; cursor:pointer; margin-top:15px; width:100%; border-radius: 8px; font-size: 1.1rem;"><i class="fas fa-print"></i> Re-Print PDF</button>
         <?php endif; ?>
     </div>
@@ -108,7 +102,6 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
             <b>Billed To:</b><br>
             <?= htmlspecialchars($clientDisplay) ?><br>
             <i><?= $job['booking_type'] == 'in-house' ? 'Internal Project Allocation' : 'External Client' ?></i>
-            
         </div>
         <div class="box">
             <b>Job Details:</b><br>
@@ -123,7 +116,7 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
             <tr>
                 <th>Description (Delivery Note Details)</th>
                 <th>Hours Worked</th>
-                <th>Rate / Hr</th>
+                <th>Rate Profile</th>
                 <th>Amount (Excl. VAT)</th>
             </tr>
         </thead>
@@ -131,11 +124,16 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
             <tr>
                 <td>
                     Heavy Plant Operation.<br>
-                    Punch In: <?= date('H:i', strtotime($job['punch_in_time'])) ?><br>
-                    Punch Out: <?= date('H:i', strtotime($job['punch_out_time'])) ?>
+                    Start: <?= date('H:i', strtotime($job['punch_in_time'])) ?><br>
+                    End: <?= date('H:i', strtotime($job['punch_out_time'])) ?>
                 </td>
-                <td><input type="number" class="live-calc" id="calc_hours" value="<?= $hoursWorked ?>" step="0.25" oninput="recalc()" <?= $job['payment_status'] !== 'Pending' ? 'readonly' : '' ?>> Hrs</td>
-                <td>€ <input type="number" class="live-calc" id="calc_rate" value="<?= $applicableRate ?>" step="0.01" oninput="recalc()" <?= $job['payment_status'] !== 'Pending' ? 'readonly' : '' ?>></td>
+                <td><input type="number" class="live-calc" id="calc_hours" value="<?= $job['final_hours'] ?? $hoursWorked ?>" step="0.25" oninput="recalc()" <?= $job['payment_status'] !== 'Pending' ? 'readonly' : '' ?>> Hrs</td>
+                
+                <td>
+                    <div id="rate_desc_label" style="font-size:0.85rem; color:#475569; font-weight:bold; margin-bottom:5px;"></div>
+                    € <input type="number" class="live-calc" id="calc_rate" value="<?= $job['final_rate'] ?? $applicableRate ?>" step="0.01" oninput="recalc()" <?= $job['payment_status'] !== 'Pending' ? 'readonly' : '' ?>>
+                </td>
+                
                 <td>€ <span id="display_subtotal">0.00</span></td>
             </tr>
         </tbody>
@@ -153,8 +151,7 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
             Payable to: <b><?= htmlspecialchars($job['developer_name']) ?></b><br>
             Bank: <?= !empty($job['bank_name']) ? htmlspecialchars($job['bank_name']) : '<i>Not Provided</i>' ?><br>
             IBAN: <?= !empty($job['iban']) ? htmlspecialchars($job['iban']) : '<i>Not Provided</i>' ?><br>
-            SWIFT/BIC: <?= !empty($job['swift_bic']) ? htmlspecialchars($job['swift_bic']) : '<i>Not Provided</i>' ?><br>
-            <br>
+            SWIFT/BIC: <?= !empty($job['swift_bic']) ? htmlspecialchars($job['swift_bic']) : '<i>Not Provided</i>' ?><br><br>
             <i>Please quote Job Ref <b><?= $jobRef ?></b> in the transfer.</i>
         </div>
         
@@ -169,15 +166,42 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
     </div>
 
     <script>
+        const pricingType = '<?= $job['pricing_type'] ?>';
+        const minHours = <?= (float)$job['min_hours'] ?>;
+        const minPrice = <?= (float)$job['min_price'] ?>;
+        
+        const isSaved = <?= $job['payment_status'] !== 'Pending' ? 'true' : 'false' ?>;
+        const savedSubtotal = <?= $job['final_subtotal'] ?? 0 ?>;
+
+        let currentSubtotal = 0;
+
         function recalc() {
             const hrs = parseFloat(document.getElementById('calc_hours').value) || 0;
             const rate = parseFloat(document.getElementById('calc_rate').value) || 0;
-            const subtotal = hrs * rate;
-            const vat = subtotal * 0.18;
-            const total = subtotal + vat;
 
-            document.getElementById('display_subtotal').innerText = subtotal.toFixed(2);
-            document.getElementById('tot_subtotal').innerText = subtotal.toFixed(2);
+            if (isSaved && savedSubtotal > 0) {
+                currentSubtotal = savedSubtotal;
+                document.getElementById('rate_desc_label').innerText = pricingType === 'fixed_then_hourly' ? "Minimum/Hourly Mix" : "Standard Hourly";
+            } else {
+                if (pricingType === 'fixed_then_hourly') {
+                    if (hrs <= minHours) {
+                        currentSubtotal = minPrice;
+                        document.getElementById('rate_desc_label').innerText = `Fixed Minimum (≤ ${minHours} hrs)`;
+                    } else {
+                        currentSubtotal = minPrice + ((hrs - minHours) * rate);
+                        document.getElementById('rate_desc_label').innerText = `Min + ${(hrs - minHours).toFixed(2)} Extra Hrs`;
+                    }
+                } else {
+                    currentSubtotal = hrs * rate;
+                    document.getElementById('rate_desc_label').innerText = `Standard Hourly`;
+                }
+            }
+
+            const vat = currentSubtotal * 0.18;
+            const total = currentSubtotal + vat;
+
+            document.getElementById('display_subtotal').innerText = currentSubtotal.toFixed(2);
+            document.getElementById('tot_subtotal').innerText = currentSubtotal.toFixed(2);
             document.getElementById('tot_vat').innerText = vat.toFixed(2);
             document.getElementById('tot_final').innerText = total.toFixed(2);
         }
@@ -185,7 +209,7 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
 
         function saveAndPrint() {
             const btn = document.getElementById('printBtn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving to Database...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
             btn.disabled = true;
 
             const fd = new FormData();
@@ -193,19 +217,16 @@ $jobRef = sprintf("PLANT-%s-%04d", $jobYear, $bookingId);
             fd.append('booking_id', <?= $bookingId ?>);
             fd.append('hours', document.getElementById('calc_hours').value);
             fd.append('rate', document.getElementById('calc_rate').value);
+            fd.append('subtotal', currentSubtotal);
 
-            fetch('api/plant_actions.php', { method: 'POST', body: fd })
-            .then(r => r.text())
-            .then(res => {
+            fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
                 if (res === 'OK') {
-                    btn.innerHTML = '<i class="fas fa-check"></i> Saved! Preparing PDF...';
-                    setTimeout(() => {
-                        window.print();
-                        location.reload(); // Reload to lock the fields
-                    }, 800);
-                } else {
-                    alert("Error saving: " + res);
-                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
+                    setTimeout(() => { window.print(); location.reload(); }, 800);
+                } else { 
+                    alert("Error: " + res); 
+                    btn.disabled = false; 
+                    btn.innerHTML = '<i class="fas fa-save"></i> Finalize & Print to PDF';
                 }
             });
         }
