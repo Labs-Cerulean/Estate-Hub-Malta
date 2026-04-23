@@ -78,6 +78,14 @@ if ($action == 'form_data') {
     exit;
 }
 
+// Fetch specific project coordinates to auto-update the map
+if ($action == 'get_project_location' && $isManager) {
+    $stmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?");
+    $stmt->execute([$_GET['project_id']]);
+    echo json_encode($stmt->fetch(PDO::FETCH_ASSOC));
+    exit;
+}
+
 if ($action == 'fetch_bookings') {
     $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
     if (!$isManager) { 
