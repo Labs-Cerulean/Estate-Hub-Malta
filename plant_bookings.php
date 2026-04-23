@@ -287,6 +287,33 @@ $userId = $_SESSION['user_id'];
         });
     }
 
+    // Auto-fetches coordinates when an In-House project is selected
+    function updateProjectLocation() {
+        const projectId = document.getElementById('project_id').value;
+        if (!projectId) return;
+
+        fetch(`api/plant_actions.php?action=get_project_location&project_id=${projectId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.latitude && data.longitude) {
+                const lat = parseFloat(data.latitude);
+                const lng = parseFloat(data.longitude);
+                
+                // Update hidden form fields
+                document.getElementById('loc_lat').value = lat;
+                document.getElementById('loc_lng').value = lng;
+                
+                // Fly the map and drop the pin
+                if (mapboxMap) {
+                    if (marker) marker.remove();
+                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([lng, lat]).addTo(mapboxMap);
+                    mapboxMap.flyTo({center: [lng, lat], zoom: 14});
+                }
+            }
+        })
+        .catch(err => console.error("Error fetching location:", err));
+    }
+
     function toggleJobType() {
         const type = document.getElementById('booking_type').value;
         document.getElementById('inhouse-fields').style.display = type === 'in-house' ? 'block' : 'none';
