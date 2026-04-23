@@ -482,6 +482,11 @@ $userId = $_SESSION['user_id'];
                 mapBtnHtml = `<a href="https://www.google.com/maps/search/?api=1&query=${job.location_lat},${job.location_lng}" target="_blank" style="display:inline-block; background:#0f172a; color:#fff; padding:8px 15px; border-radius:8px; font-weight:bold; font-size:0.9rem; text-decoration:none; margin-top:12px; margin-bottom:10px;"><i class="fas fa-map-pin"></i> Open in Google Maps</a>`;
             }
 
+            let mapPreviewHtml = '';
+            if (job.location_lat && job.location_lng) {
+                mapPreviewHtml = `<div id="job-preview-map" style="width: 100%; height: 200px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 10px;"></div>`;
+            }
+
             let commentsHtml = job.comments ? `<div style="background: #fef3c7; border: 1px solid #fde68a; padding: 15px; border-radius: 10px; margin-bottom:15px; color: #92400e; font-size:0.95rem;"><i class="fas fa-comment-dots text-yellow-600"></i> <b>Comments & Instructions:</b><br>${job.comments.replace(/\n/g, '<br>')}</div>` : '';
 
             document.getElementById('job-details').innerHTML = `
