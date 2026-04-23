@@ -496,7 +496,9 @@ $userId = $_SESSION['user_id'];
                 ${commentsHtml}
                 <hr style="border: 1px solid #e2e8f0; margin: 20px 0;">
                 <div style="font-weight:bold; color: #0f172a; margin-bottom: 8px;"><i class="fas fa-map-marker-alt text-rose-500"></i> Destination:</div>
-                <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; font-weight: bold; border: 1px solid #e2e8f0;">${job.location_text}<br>${mapBtnHtml}</div>
+                <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; font-weight: bold; border: 1px solid #e2e8f0;">${job.location_text}</div>
+                ${mapPreviewHtml}
+                ${mapBtnHtml}
             `;
 
             let controlsHtml = '';
@@ -522,6 +524,12 @@ $userId = $_SESSION['user_id'];
 
             document.getElementById('punch-controls').innerHTML = controlsHtml;
             showView('view-job');
+            if (job.location_lat && job.location_lng) {
+                setTimeout(() => {
+                    const previewMap = new mapboxgl.Map({ container: 'job-preview-map', style: 'mapbox://styles/mapbox/streets-v12', center: [job.location_lng, job.location_lat], zoom: 13, interactive: false });
+                    new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([job.location_lng, job.location_lat]).addTo(previewMap);
+                }, 200);
+            }
         });
     }
 
