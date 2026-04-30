@@ -13,7 +13,7 @@ $companyId = 'IBS999PRA';
 
 // 2. Define the endpoint. 
 // Note: Depending on their API design, the company ID might need to be in the URL query string like this.
-$url = "https://j2api.agiusgroup.com/api/public/nomicalcateg";
+$url = "https://j2api.agiusgroup.com/api/public/nominalcateg";
 
 // Initialize cURL
 $ch = curl_init($url);
