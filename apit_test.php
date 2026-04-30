@@ -8,7 +8,7 @@ if (!in_array($_SESSION['role'], ['admin', 'system_manager'])) {
 }
 
 // 1. Set your credentials
-$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs';
+$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=';
 $companyId = 'IBS999PRA';
 
 // 2. Define the endpoint. 
