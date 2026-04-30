@@ -82,12 +82,13 @@ $userId = $_SESSION['user_id'];
                 
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1;"><label>Category</label><input type="text" id="new_plant_cat" class="input-heavy" placeholder="e.g. Pumps" required></div>
-                    <div style="flex:1;"><label>Billing Company</label><select id="new_plant_comp" class="input-heavy" required><option value="PRA">PRA</option><option value="PRAX">PRAX</option></select></div>
+                    <!-- NOW USING PROPER SQL CLIENT IDs -->
+                    <div style="flex:1;"><label>Billing Company</label><select id="new_plant_comp" class="input-heavy" required><option value="24">PRA</option><option value="26">PRAX</option></select></div>
                 </div>
 
                 <label>Plant Name / Description</label><input type="text" id="new_plant_name" class="input-heavy" placeholder="e.g. Concrete Pump 48m" required>
                 <label>Registration Plate</label><input type="text" id="new_plant_reg" class="input-heavy">
-                <label>Owned By (Developer / Client)</label><select id="new_plant_owner" class="input-heavy" required></select>
+                <label>Owned By (Developer / Client)</label><select id="new_plant_owner" class="input-heavy"></select>
 
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1;"><label>Pricing Model</label><select id="new_plant_pricing" class="input-heavy" onchange="document.getElementById('fixed-price-box').style.display = ['fixed_then_hourly', 'per_trip'].includes(this.value) ? 'flex' : 'none';"><option value="hourly">Standard Hourly</option><option value="fixed_then_hourly">Fixed Minimum + Hourly</option><option value="per_trip">Per Trip Rate</option></select></div>
@@ -200,17 +201,14 @@ $userId = $_SESSION['user_id'];
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
 
     document.addEventListener('DOMContentLoaded', () => {
-        initCalendar();
-        signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
+        initCalendar(); signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
         if (isManager) loadFormData();
     });
 
     function showView(id) {
-        document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-        document.getElementById(id).classList.add('active'); window.scrollTo(0, 0); 
+        document.querySelectorAll('.view').forEach(el => el.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0, 0); 
         if (id === 'view-calendar' && calendar) calendar.render();
-        if (id === 'view-create') setTimeout(initMap, 200); 
-        if (id === 'view-punch-out') setTimeout(resizeCanvas, 100);
+        if (id === 'view-create') setTimeout(initMap, 200); if (id === 'view-punch-out') setTimeout(resizeCanvas, 100);
     }
 
     function initCalendar() {
@@ -218,34 +216,26 @@ $userId = $_SESSION['user_id'];
             initialView: isManager ? 'timeGridWeek' : 'listDay',
             headerToolbar: { left: 'prev,next today', center: '', right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' },
             slotMinTime: '06:00:00', slotMaxTime: '20:00:00', allDaySlot: false, contentHeight: 'auto',
-            events: 'api/plant_actions.php?action=fetch_bookings',
-            eventClick: (info) => loadJob(info.event.id),
+            events: 'api/plant_actions.php?action=fetch_bookings', eventClick: (info) => loadJob(info.event.id),
             datesSet: (info) => document.getElementById('custom-cal-title').innerText = info.view.title
-        });
-        calendar.render();
+        }); calendar.render();
     }
 
     function initMap() {
         if (mapboxMap) { mapboxMap.resize(); return; }
         mapboxMap = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/streets-v12', center: [14.38, 35.92], zoom: 10 });
         mapboxMap.on('click', (e) => {
-            if (marker) marker.remove();
-            marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
+            if (marker) marker.remove(); marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
             document.getElementById('loc_lat').value = e.lngLat.lat; document.getElementById('loc_lng').value = e.lngLat.lng;
         });
     }
 
     function updateProjectLocation() {
-        const pId = document.getElementById('project_id').value;
-        if (!pId) return;
+        const pId = document.getElementById('project_id').value; if (!pId) return;
         fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`).then(r=>r.json()).then(data => {
             if (data && data.latitude && data.longitude) {
                 document.getElementById('loc_lat').value = data.latitude; document.getElementById('loc_lng').value = data.longitude;
-                if (mapboxMap) {
-                    if (marker) marker.remove();
-                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap);
-                    mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14});
-                }
+                if (mapboxMap) { if (marker) marker.remove(); marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap); mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); }
             }
         });
     }
@@ -255,7 +245,6 @@ $userId = $_SESSION['user_id'];
         cvs.width = cvs.offsetWidth * r; cvs.height = cvs.offsetHeight * r; cvs.getContext("2d").scale(r, r); signaturePad.clear();
     }
 
-    // --- FORM DATA & CASCADING DROPDOWNS ---
     function loadFormData() {
         fetch('api/plant_actions.php?action=form_data').then(r=>r.json()).then(d => {
             groupedPlants = d.plants;
@@ -267,10 +256,10 @@ $userId = $_SESSION['user_id'];
     }
 
     function updatePlantDropdown() {
-        const cat = document.getElementById('plant_category').value;
-        const pSelect = document.getElementById('plant_id');
+        const cat = document.getElementById('plant_category').value; const pSelect = document.getElementById('plant_id');
         if(!cat || !groupedPlants[cat]) { pSelect.innerHTML = '<option value="">-- Select Plant --</option>'; return; }
-        pSelect.innerHTML = groupedPlants[cat].map(p => `<option value="${p.id}" data-company="${p.billing_company}">${p.name} (${p.registration_plate||'N/A'})</option>`).join('');
+        // Now saving the SQL ID (24 or 26) to the dropdown
+        pSelect.innerHTML = groupedPlants[cat].map(p => `<option value="${p.id}" data-company-id="${p.billing_company_id}">${p.name} (${p.registration_plate||'N/A'})</option>`).join('');
         resetClientSearch();
     }
 
@@ -280,19 +269,17 @@ $userId = $_SESSION['user_id'];
         document.getElementById('external-fields').style.display = type === 'external' ? 'block' : 'none';
     }
 
-    // --- ERP LIVE SEARCH ---
     let searchTimeout;
     function resetClientSearch() { document.getElementById('client_code').value = ''; document.getElementById('client_name').value = ''; }
     function searchApiClients(query) {
-        const resultsDiv = document.getElementById('client_search_results');
-        if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
+        const resultsDiv = document.getElementById('client_search_results'); if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
         const pSelect = document.getElementById('plant_id');
         if(pSelect.selectedIndex < 0 || pSelect.value === '') { alert('Please select a Category and Machinery first to determine the Billing Company.'); return; }
-        const comp = pSelect.options[pSelect.selectedIndex].getAttribute('data-company');
+        const compId = pSelect.options[pSelect.selectedIndex].getAttribute('data-company-id');
 
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
-            fetch(`api/plant_actions.php?action=search_clients&company=${comp}&q=${encodeURIComponent(query)}`).then(r=>r.json()).then(res => {
+            fetch(`api/plant_actions.php?action=search_clients&company_id=${compId}&q=${encodeURIComponent(query)}`).then(r=>r.json()).then(res => {
                 if(res.length === 0) { resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found. Contact Accounts to create in ERP.</div>'; } 
                 else { resultsDiv.innerHTML = res.map(c => `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`).join(''); }
                 resultsDiv.style.display = 'block';
@@ -323,36 +310,31 @@ $userId = $_SESSION['user_id'];
         });
     }
 
-    // --- FLEET ---
     function loadFleetView() {
         if (!canManageFleet) return;
         fetch('api/plant_actions.php?action=get_clients').then(r=>r.json()).then(clients => document.getElementById('new_plant_owner').innerHTML = '<option value="">-- Select Owner --</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join(''));
         fetch('api/plant_actions.php?action=get_fleet').then(r=>r.json()).then(fleet => {
             document.getElementById('fleet-list').innerHTML = fleet.length === 0 ? '<p>No machinery.</p>' : fleet.map(p => `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
-                    <div style="font-weight:900; font-size:1.2rem;">${p.name} <span style="font-size:0.8rem; background:#e0e7ff; color:#4f46e5; padding:3px 6px; border-radius:4px;">${p.billing_company}</span></div>
+                    <div style="font-weight:900; font-size:1.2rem;">${p.name} <span style="font-size:0.8rem; background:#e0e7ff; color:#4f46e5; padding:3px 6px; border-radius:4px;">${p.billing_company_name||'Unknown'}</span></div>
                     <div style="color:#64748b; font-size:0.95rem; margin-bottom: 8px;">Cat: <b>${p.category}</b> | Reg: <b>${p.registration_plate||'N/A'}</b></div>
                     <div style="font-size:0.85rem; color:#b45309;">Fixed Nom: ${p.nom_code_fixed||'N/A'} | Var Nom: ${p.nom_code_variable||'N/A'}</div>
                 </div>`).join('');
-        });
-        showView('view-fleet');
+        }); showView('view-fleet');
     }
 
     function saveNewPlant() {
         const fd = new FormData(); fd.append('action', 'save_plant');
         fd.append('category', document.getElementById('new_plant_cat').value); fd.append('name', document.getElementById('new_plant_name').value);
         fd.append('reg', document.getElementById('new_plant_reg').value); fd.append('owner_id', document.getElementById('new_plant_owner').value);
-        fd.append('billing_company', document.getElementById('new_plant_comp').value); fd.append('pricing_type', document.getElementById('new_plant_pricing').value);
+        fd.append('billing_company_id', document.getElementById('new_plant_comp').value); fd.append('pricing_type', document.getElementById('new_plant_pricing').value);
         fd.append('min_hours', document.getElementById('new_plant_min_hrs').value); fd.append('nom_code_fixed', document.getElementById('new_nom_fixed').value);
         fd.append('nom_code_variable', document.getElementById('new_nom_var').value); fd.append('rate_in', document.getElementById('new_plant_rate_in').value);
         fd.append('rate_ext', document.getElementById('new_plant_rate_ext').value);
 
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
-            if (res === 'OK') { alert("Machinery added!"); loadFormData(); loadFleetView(); } else alert("Error: " + res);
-        });
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => { if (res === 'OK') { alert("Machinery added!"); loadFormData(); loadFleetView(); } else alert("Error: " + res); });
     }
 
-    // --- JOB CONTROLS ---
     function loadJob(id) {
         fetch(`api/plant_actions.php?action=get_job&id=${id}`).then(r=>r.json()).then(job => {
             document.getElementById('job-title').innerHTML = `<i class="fas fa-truck-pickup text-indigo-500"></i> ${job.plant_name}`;
@@ -391,7 +373,6 @@ $userId = $_SESSION['user_id'];
         fetch(`api/plant_actions.php?action=punch_${direction}&id=${id}`).then(r=>r.text()).then(res => { if (res === 'OK') { loadJob(id); calendar.refetchEvents(); } });
     }
 
-    // --- PUNCH OUT WITH TRIP LOGIC ---
     function startPunchOut(id, pricingType) { 
         document.getElementById('punchout_booking_id').value = id; 
         const tBox = document.getElementById('trip-qty-box');
@@ -411,7 +392,6 @@ $userId = $_SESSION['user_id'];
         });
     }
 
-    // --- LEDGER ---
     function loadLedger() {
         if (!canViewLedger) return;
         fetch('api/plant_actions.php?action=get_ledger').then(r=>r.json()).then(jobs => {
@@ -430,8 +410,7 @@ $userId = $_SESSION['user_id'];
                     </div>
                 </div>`;
             }).join('');
-        });
-        showView('view-ledger');
+        }); showView('view-ledger');
     }
 </script>
 </body>
