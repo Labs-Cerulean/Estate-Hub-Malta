@@ -8,12 +8,12 @@ if (!in_array($_SESSION['role'], ['admin', 'system_manager'])) {
 }
 
 // 1. Set your credentials
-$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=';
+$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs';
 $companyId = 'IBS999PRA';
 
 // 2. Define the endpoint. 
 // Note: Depending on their API design, the company ID might need to be in the URL query string like this.
-$url = "https://j2api.agiusgroup.com/api/public/stocks;
+$url = "https://j2api.agiusgroup.com/api/public/stocks";
 
 // Initialize cURL
 $ch = curl_init($url);
