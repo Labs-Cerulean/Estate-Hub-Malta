@@ -38,6 +38,7 @@ $userId = $_SESSION['user_id'];
         .btn-green { background: linear-gradient(135deg, #14b8a6, #0d9488); } .btn-blue { background: linear-gradient(135deg, #6366f1, #4f46e5); } .btn-gray { background: #64748b; color: #fff; box-shadow: none; } .btn-red { background: linear-gradient(135deg, #f43f5e, #e11d48); } 
         .input-heavy { width: 100%; padding: 15px; font-size: 1.1rem; border-radius: 12px; border: 2px solid #e2e8f0; margin-bottom: 18px; box-sizing: border-box; background: #fff; color: #1e293b; outline: none; }
         .input-heavy:focus { border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
+        .input-heavy:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; border-color: #cbd5e1; }
         label { font-weight: 800; color: #475569; margin-bottom: 6px; display: block; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
         #signature-pad { border: 2px dashed #94a3b8; border-radius: 16px; width: 100%; height: 250px; background: #fff; touch-action: none; margin-bottom: 15px; }
         .view { display: none; animation: fadeIn 0.3s ease; } .view.active { display: block; }
@@ -82,7 +83,6 @@ $userId = $_SESSION['user_id'];
                 
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1;"><label>Category</label><input type="text" id="new_plant_cat" class="input-heavy" placeholder="e.g. Pumps" required></div>
-                    <!-- NOW USING PROPER SQL CLIENT IDs -->
                     <div style="flex:1;"><label>Billing Company</label><select id="new_plant_comp" class="input-heavy" required><option value="24">PRA</option><option value="26">PRAX</option></select></div>
                 </div>
 
@@ -131,7 +131,7 @@ $userId = $_SESSION['user_id'];
                 
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1;"><label>Category</label><select id="plant_category" class="input-heavy" required onchange="updatePlantDropdown()"></select></div>
-                    <div style="flex:2;"><label>Machinery</label><select id="plant_id" class="input-heavy" required onchange="resetClientSearch()"></select></div>
+                    <div style="flex:2;"><label>Machinery</label><select id="plant_id" class="input-heavy" required onchange="onPlantSelected()"></select></div>
                 </div>
 
                 <label>Assigned Driver</label><select id="driver_id" class="input-heavy"></select>
@@ -140,8 +140,8 @@ $userId = $_SESSION['user_id'];
                 <div id="inhouse-fields"><label>Select Project</label><select id="project_id" class="input-heavy" onchange="updateProjectLocation()"></select></div>
                 
                 <div id="external-fields" style="display: none; position: relative;">
-                    <label>ERP Client Search (Requires Vehicle Selection)</label>
-                    <input type="text" id="client_name" class="input-heavy" placeholder="Start typing company name..." autocomplete="off" onkeyup="searchApiClients(this.value)">
+                    <label>ERP Client Search (Select Vehicle First)</label>
+                    <input type="text" id="client_name" class="input-heavy" placeholder="start writing client here" autocomplete="off" onkeyup="filterLocalClients(this.value)" disabled>
                     <input type="hidden" id="client_code">
                     <div id="client_search_results" style="display:none; position:absolute; top:85px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
                 </div>
@@ -255,13 +255,63 @@ $userId = $_SESSION['user_id'];
         });
     }
 
+    // --- NEW LOCAL ERP CLIENT SEARCH LOGIC ---
+    let currentErpClients = [];
+    
     function updatePlantDropdown() {
         const cat = document.getElementById('plant_category').value; const pSelect = document.getElementById('plant_id');
         if(!cat || !groupedPlants[cat]) { pSelect.innerHTML = '<option value="">-- Select Plant --</option>'; return; }
-        // Now saving the SQL ID (24 or 26) to the dropdown
-        pSelect.innerHTML = groupedPlants[cat].map(p => `<option value="${p.id}" data-company-id="${p.billing_company_id}">${p.name} (${p.registration_plate||'N/A'})</option>`).join('');
+        pSelect.innerHTML = '<option value="">-- Select Machinery --</option>' + groupedPlants[cat].map(p => `<option value="${p.id}" data-company-id="${p.billing_company_id}">${p.name} (${p.registration_plate||'N/A'})</option>`).join('');
         resetClientSearch();
     }
+
+    function onPlantSelected() {
+        resetClientSearch();
+        const pSelect = document.getElementById('plant_id');
+        if(pSelect.selectedIndex <= 0 || pSelect.value === '') return;
+        const compId = pSelect.options[pSelect.selectedIndex].getAttribute('data-company-id');
+        
+        const clientInput = document.getElementById('client_name');
+        clientInput.placeholder = "Loading clients from ERP...";
+        clientInput.disabled = true;
+
+        fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`).then(r=>r.json()).then(res => {
+            currentErpClients = res;
+            clientInput.placeholder = "start writing client here";
+            clientInput.disabled = false; 
+        });
+    }
+
+    function resetClientSearch() { 
+        document.getElementById('client_code').value = ''; 
+        document.getElementById('client_name').value = ''; 
+        document.getElementById('client_name').disabled = true;
+        document.getElementById('client_name').placeholder = "start writing client here";
+        document.getElementById('client_search_results').style.display = 'none';
+        currentErpClients = [];
+    }
+
+    function filterLocalClients(query) {
+        const resultsDiv = document.getElementById('client_search_results'); 
+        if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
+        
+        const q = query.toLowerCase();
+        const filtered = currentErpClients.filter(c => c.name.toLowerCase().includes(q)).slice(0, 20);
+        
+        if(filtered.length === 0) { 
+            resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found. Contact Accounts to create in ERP.</div>'; 
+        } else { 
+            resultsDiv.innerHTML = filtered.map(c => `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`).join(''); 
+        }
+        resultsDiv.style.display = 'block';
+    }
+
+    function selectClient(code, name) { 
+        document.getElementById('client_code').value = code; 
+        document.getElementById('client_name').value = name; 
+        document.getElementById('client_search_results').style.display = 'none'; 
+    }
+    // --- END LOCAL SEARCH LOGIC ---
 
     function toggleJobType() {
         const type = document.getElementById('booking_type').value;
@@ -269,28 +319,9 @@ $userId = $_SESSION['user_id'];
         document.getElementById('external-fields').style.display = type === 'external' ? 'block' : 'none';
     }
 
-    let searchTimeout;
-    function resetClientSearch() { document.getElementById('client_code').value = ''; document.getElementById('client_name').value = ''; }
-    function searchApiClients(query) {
-        const resultsDiv = document.getElementById('client_search_results'); if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
-        const pSelect = document.getElementById('plant_id');
-        if(pSelect.selectedIndex < 0 || pSelect.value === '') { alert('Please select a Category and Machinery first to determine the Billing Company.'); return; }
-        const compId = pSelect.options[pSelect.selectedIndex].getAttribute('data-company-id');
-
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            fetch(`api/plant_actions.php?action=search_clients&company_id=${compId}&q=${encodeURIComponent(query)}`).then(r=>r.json()).then(res => {
-                if(res.length === 0) { resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found. Contact Accounts to create in ERP.</div>'; } 
-                else { resultsDiv.innerHTML = res.map(c => `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`).join(''); }
-                resultsDiv.style.display = 'block';
-            });
-        }, 500);
-    }
-    function selectClient(code, name) { document.getElementById('client_code').value = code; document.getElementById('client_name').value = name; document.getElementById('client_search_results').style.display = 'none'; }
-
     function openCreateForm() {
         document.getElementById('edit_booking_id').value = ''; document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
-        document.getElementById('createBookingForm').reset(); if(marker) marker.remove(); toggleJobType(); showView('view-create');
+        document.getElementById('createBookingForm').reset(); if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
     }
 
     function submitBooking() {
