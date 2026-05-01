@@ -5,15 +5,16 @@ require_once 'S3FileManager.php';
 
 $bookingId = $_GET['booking_id'] ?? 0;
 
+// 1. Fetch Job Data using the NEW billing_company_id
 $stmt = $pdo->prepare("
-    SELECT pb.*, p.name as plant_name, p.registration_plate, p.inhouse_rate, p.external_rate, 
-           p.pricing_type, p.min_hours, p.min_price,
-           c.name as developer_name, c.logo_path as developer_logo, 
-           c.bank_name, c.iban, c.swift_bic, 
+    SELECT pb.*, p.name as plant_name, p.registration_plate, 
+           p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
+           bc.name as developer_name, bc.logo_path as developer_logo, 
+           bc.bank_name, bc.iban, bc.swift_bic, 
            prj.name as project_name, drv.first_name, drv.last_name
     FROM plant_bookings pb 
     JOIN plants p ON pb.plant_id = p.id
-    JOIN clients c ON p.developer_client_id = c.id
+    JOIN clients bc ON p.billing_company_id = bc.id
     LEFT JOIN projects prj ON pb.project_id = prj.id
     LEFT JOIN users drv ON pb.driver_id = drv.id
     WHERE pb.id = ?
@@ -23,24 +24,53 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-// --- CLOUDFLARE R2 LOGO PATH FIX ---
+// 2. Fetch Live Pricing from J2 ERP
+$apiKey = 'PASTE_YOUR_API_KEY_HERE'; 
+$companyCode = ($job['billing_company_id'] == 26) ? 'PRAX' : 'PRA';
+
+function getERPPrice($nomCode, $companyCode, $apiKey, $isInternal) {
+    if(empty($nomCode)) return 0;
+    $url = "https://j2api.agiusgroup.com/api/public/nominalcateg";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey, "Company: " . $companyCode]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    $res = json_decode(curl_exec($ch), true); curl_close($ch);
+    
+    if($res) {
+        foreach($res as $n) {
+            if(trim($n['NCCode']) == $nomCode) return $isInternal ? (float)$n['NCDefSP1'] : (float)$n['NCDefSP2'];
+        }
+    }
+    return 0;
+}
+
+$isInternal = ($job['booking_type'] == 'in-house');
+$fixedRate = getERPPrice($job['nom_code_fixed'], $companyCode, $apiKey, $isInternal);
+$varRate = getERPPrice($job['nom_code_variable'], $companyCode, $apiKey, $isInternal);
+
+// Determine the primary rate to show the accountant
+$applicableRate = $fixedRate > 0 ? $fixedRate : $varRate;
+
+// --- CLOUDFLARE R2 LOGO ---
 $s3 = new S3FileManager();
 $logoPath = $job['developer_logo'];
 if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
-    // Generate the presigned URL so the PDF can securely read the image
     $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
 }
 
-// Generate Professional Job Reference (e.g., PRA-2026-0002)
+// Generate Professional Job Reference
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("PRA-%s-%04d", $jobYear, $bookingId);
 
-// Time Calculation
+// Time / Trip Calculation
 $inTime = new DateTime($job['punch_in_time']);
 $outTime = new DateTime($job['punch_out_time']);
 $interval = $inTime->diff($outTime);
 $hoursWorked = round($interval->h + ($interval->i / 60), 2);
-$applicableRate = $job['booking_type'] == 'in-house' ? $job['inhouse_rate'] : $job['external_rate'];
+
+$isTripBased = ($job['pricing_type'] == 'per_trip');
+$qtyValue = $isTripBased ? ($job['qty_trips'] > 0 ? $job['qty_trips'] : 1) : $hoursWorked;
+$qtyLabel = $isTripBased ? "Trips Executed" : "Hours Worked";
 
 $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $job['client_name'];
 ?>
@@ -63,21 +93,19 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         .totals { text-align: right; font-size: 1.2rem; }
         .live-calc { border: none; font-size: 1rem; font-family: inherit; background: transparent; width: 80px; font-weight: bold; border-bottom: 1px dashed #cbd5e1; outline: none; }
         .live-calc:focus { border-bottom: 2px solid #3b82f6; }
-        
-        @media print { 
-            .no-print { display: none; } 
-            .live-calc { border: none; margin: 0; padding: 0; width: auto; } 
-            body { padding: 0; } 
-        }
+        @media print { .no-print { display: none; } .live-calc { border: none; margin: 0; padding: 0; width: auto; } body { padding: 0; } }
     </style>
 </head>
 <body>
     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 0.9rem; color: #475569;">
         <?php if ($job['payment_status'] === 'Pending'): ?>
-            <i class="fas fa-info-circle text-blue-500"></i> <b>Accountant Note:</b> Verify the final hours and the auto-calculated rate/subtotal. Clicking Finalize will permanently lock these values to the database.
-            <button id="printBtn" onclick="saveAndPrint()" style="display:block; padding:15px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; margin-top:15px; width:100%; border-radius: 8px; font-size: 1.1rem;"><i class="fas fa-save"></i> Finalize & Print to PDF</button>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div><i class="fas fa-info-circle text-blue-500"></i> <b>Accountant Note:</b> Pricing successfully synced from J2 ERP (<?= $companyCode ?>). Clicking Finalize will push the invoice payload to the ERP automatically.</div>
+                <div style="background:#e0e7ff; color:#4f46e5; padding:5px 10px; border-radius:6px; font-weight:bold;"><i class="fas fa-plug"></i> ERP Live</div>
+            </div>
+            <button id="printBtn" onclick="saveAndPrint()" style="display:block; padding:15px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; margin-top:15px; width:100%; border-radius: 8px; font-size: 1.1rem;"><i class="fas fa-cloud-upload-alt"></i> Finalize & Push to ERP</button>
         <?php else: ?>
-            <i class="fas fa-check-circle" style="color: #10b981;"></i> <b>Invoice Saved.</b> These values have been permanently locked into the ledger.
+            <i class="fas fa-check-circle" style="color: #10b981;"></i> <b>Invoice Saved & Synced.</b> <br>ERP System Reference: <b><?= htmlspecialchars($job['invoice_sysref'] ?? 'N/A') ?></b>
             <button onclick="window.print()" style="display:block; padding:15px; background:#64748b; color:#fff; border:none; font-weight:bold; cursor:pointer; margin-top:15px; width:100%; border-radius: 8px; font-size: 1.1rem;"><i class="fas fa-print"></i> Re-Print PDF</button>
         <?php endif; ?>
     </div>
@@ -101,7 +129,7 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         <div class="box">
             <b>Billed To:</b><br>
             <?= htmlspecialchars($clientDisplay) ?><br>
-            <i><?= $job['booking_type'] == 'in-house' ? 'Internal Project Allocation' : 'External Client' ?></i>
+            <i><?= $job['booking_type'] == 'in-house' ? 'Internal Project Allocation' : 'External Client (ERP)' ?></i>
         </div>
         <div class="box">
             <b>Job Details:</b><br>
@@ -115,7 +143,7 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         <thead>
             <tr>
                 <th>Description (Delivery Note Details)</th>
-                <th>Hours Worked</th>
+                <th><?= $qtyLabel ?></th>
                 <th>Rate Profile</th>
                 <th>Amount (Excl. VAT)</th>
             </tr>
@@ -127,7 +155,7 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
                     Start: <?= date('H:i', strtotime($job['punch_in_time'])) ?><br>
                     End: <?= date('H:i', strtotime($job['punch_out_time'])) ?>
                 </td>
-                <td><input type="number" class="live-calc" id="calc_hours" value="<?= $job['final_hours'] ?? $hoursWorked ?>" step="0.25" oninput="recalc()" <?= $job['payment_status'] !== 'Pending' ? 'readonly' : '' ?>> Hrs</td>
+                <td><input type="number" class="live-calc" id="calc_qty" value="<?= $job['final_hours'] ?? $qtyValue ?>" step="0.25" oninput="recalc()" <?= $job['payment_status'] !== 'Pending' ? 'readonly' : '' ?>> <?= $isTripBased ? 'Trips' : 'Hrs' ?></td>
                 
                 <td>
                     <div id="rate_desc_label" style="font-size:0.85rem; color:#475569; font-weight:bold; margin-bottom:5px;"></div>
@@ -168,7 +196,10 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
     <script>
         const pricingType = '<?= $job['pricing_type'] ?>';
         const minHours = <?= (float)$job['min_hours'] ?>;
-        const minPrice = <?= (float)$job['min_price'] ?>;
+        
+        // Feed the secondary variable rate in for advanced hybrid logic
+        const varRate = <?= $varRate ?>; 
+        const isTripBased = <?= $isTripBased ? 'true' : 'false' ?>;
         
         const isSaved = <?= $job['payment_status'] !== 'Pending' ? 'true' : 'false' ?>;
         const savedSubtotal = <?= $job['final_subtotal'] ?? 0 ?>;
@@ -176,23 +207,27 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
         let currentSubtotal = 0;
 
         function recalc() {
-            const hrs = parseFloat(document.getElementById('calc_hours').value) || 0;
-            const rate = parseFloat(document.getElementById('calc_rate').value) || 0;
+            const qty = parseFloat(document.getElementById('calc_qty').value) || 0;
+            const primaryRate = parseFloat(document.getElementById('calc_rate').value) || 0;
 
             if (isSaved && savedSubtotal > 0) {
                 currentSubtotal = savedSubtotal;
-                document.getElementById('rate_desc_label').innerText = pricingType === 'fixed_then_hourly' ? "Minimum/Hourly Mix" : "Standard Hourly";
+                document.getElementById('rate_desc_label').innerText = pricingType === 'fixed_then_hourly' ? "Minimum/Hourly Mix" : (isTripBased ? "Per Trip Rate" : "Standard Hourly");
             } else {
                 if (pricingType === 'fixed_then_hourly') {
-                    if (hrs <= minHours) {
-                        currentSubtotal = minPrice;
-                        document.getElementById('rate_desc_label').innerText = `Fixed Minimum (≤ ${minHours} hrs)`;
+                    if (qty <= minHours) {
+                        currentSubtotal = primaryRate; // The fixed "Minimum" price
+                        document.getElementById('rate_desc_label').innerText = `ERP Fixed Minimum (≤ ${minHours} hrs)`;
                     } else {
-                        currentSubtotal = minPrice + ((hrs - minHours) * rate);
-                        document.getElementById('rate_desc_label').innerText = `Min + ${(hrs - minHours).toFixed(2)} Extra Hrs`;
+                        // Base fixed rate PLUS any extra hours multiplied by the variable rate
+                        currentSubtotal = primaryRate + ((qty - minHours) * varRate);
+                        document.getElementById('rate_desc_label').innerText = `Fixed + ${(qty - minHours).toFixed(2)} Extra Hrs (@ €${varRate})`;
                     }
+                } else if (pricingType === 'per_trip') {
+                    currentSubtotal = qty * primaryRate;
+                    document.getElementById('rate_desc_label').innerText = `ERP Fixed Rate (Per Trip)`;
                 } else {
-                    currentSubtotal = hrs * rate;
+                    currentSubtotal = qty * primaryRate;
                     document.getElementById('rate_desc_label').innerText = `Standard Hourly`;
                 }
             }
@@ -209,24 +244,24 @@ $clientDisplay = $job['booking_type'] == 'in-house' ? $job['project_name'] : $jo
 
         function saveAndPrint() {
             const btn = document.getElementById('printBtn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pushing to ERP...';
             btn.disabled = true;
 
             const fd = new FormData();
-            fd.append('action', 'save_invoice');
+            fd.append('action', 'finalize_and_invoice');
             fd.append('booking_id', <?= $bookingId ?>);
-            fd.append('hours', document.getElementById('calc_hours').value);
+            fd.append('hours', document.getElementById('calc_qty').value); // Acts as QTY or Hours
             fd.append('rate', document.getElementById('calc_rate').value);
             fd.append('subtotal', currentSubtotal);
 
             fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
                 if (res === 'OK') {
-                    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
-                    setTimeout(() => { window.print(); location.reload(); }, 800);
+                    btn.innerHTML = '<i class="fas fa-check"></i> Synced to ERP!';
+                    setTimeout(() => { window.print(); location.reload(); }, 1200);
                 } else { 
-                    alert("Error: " + res); 
+                    alert(res); // Shows exactly what the ERP rejected
                     btn.disabled = false; 
-                    btn.innerHTML = '<i class="fas fa-save"></i> Finalize & Print to PDF';
+                    btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Finalize & Push to ERP';
                 }
             });
         }
