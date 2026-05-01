@@ -70,17 +70,14 @@ if ($action == 'form_data') {
     echo json_encode(['plants' => $plants, 'drivers' => $pdo->query("SELECT id, first_name, last_name FROM users WHERE role='plant_driver'")->fetchAll(PDO::FETCH_ASSOC), 'projects' => getAccessibleProjects($pdo, $userId)]); exit;
 }
 
-if ($action == 'search_clients' && $isManager) {
+if ($action == 'get_company_clients' && $isManager) {
     // Dynamic mapping: Client ID 26 is PRAX. Anything else falls back to PRA.
     $companyCode = ($_GET['company_id'] == 26) ? 'PRAX' : 'PRA';
-    $search = strtolower($_GET['q'] ?? '');
     $apiClients = getJ2ApiData('/clients', $apiKey, $companyCode);
+    
     $results = [];
     foreach ($apiClients as $c) {
-        if (empty($search) || strpos(strtolower($c['ClientName']), $search) !== false) {
-            $results[] = ['code' => trim($c['ClientCode']), 'name' => trim($c['ClientName'])];
-        }
-        if(count($results) >= 20) break;
+        $results[] = ['code' => trim($c['ClientCode']), 'name' => trim($c['ClientName'])];
     }
     echo json_encode($results); exit;
 }
