@@ -12,7 +12,7 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager']);
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
 
-$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=''; 
+$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
 function getJ2ApiData($endpoint, $apiKey) {
