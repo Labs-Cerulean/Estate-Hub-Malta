@@ -8,8 +8,9 @@ $isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
 $isAccountant = ($role === 'accountant');
 if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant) { die("Unauthorized Access."); }
 
+// Plant Managers can edit bookings, but ONLY Admins/Sys Managers can manage the active fleet inventory and nominal codes
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']); 
-$canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']); 
+$canManageFleet = in_array($role, ['admin', 'system_manager']); 
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
 $userId = $_SESSION['user_id'];
 ?>
@@ -40,6 +41,7 @@ $userId = $_SESSION['user_id'];
         .input-heavy:focus { border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
         .input-heavy:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; border-color: #cbd5e1; }
         label { font-weight: 800; color: #475569; margin-bottom: 6px; display: block; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        optgroup { font-weight: 900; color: #6366f1; font-style: normal; background: #f8fafc; }
         #signature-pad { border: 2px dashed #94a3b8; border-radius: 16px; width: 100%; height: 250px; background: #fff; touch-action: none; margin-bottom: 15px; }
         .view { display: none; animation: fadeIn 0.3s ease; } .view.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -73,43 +75,46 @@ $userId = $_SESSION['user_id'];
             <div id="calendar"></div>
         </div>
 
-        <!-- FLEET MANAGER -->
+        <!-- FLEET MANAGER (ADMIN ONLY) -->
         <?php if ($canManageFleet): ?>
         <div id="view-fleet" class="view">
             <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-truck-monster text-indigo-500"></i> ERP Fleet Setup</h3>
             
-            <div style="background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 30px; border: 1px solid #e2e8f0;">
-                <h4 style="margin-top:0; color: #6366f1; margin-bottom: 15px;">Register Machinery</h4>
+            <form id="fleetForm" style="background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 30px; border: 1px solid #e2e8f0;">
+                <h4 id="fleet-form-title" style="margin-top:0; color: #6366f1; margin-bottom: 15px;">Register Machinery</h4>
+                <input type="hidden" id="edit_plant_id" value="">
                 
                 <div style="display:flex; gap:10px;">
-                    <div style="flex:1;"><label>Category</label><input type="text" id="new_plant_cat" class="input-heavy" placeholder="e.g. Pumps" required></div>
-                    <div style="flex:1;"><label>Billing Company</label><select id="new_plant_comp" class="input-heavy" required><option value="24">PRA</option><option value="26">PRAX</option></select></div>
+                    <div style="flex:1;"><label>Category *</label><input type="text" id="new_plant_cat" class="input-heavy" placeholder="e.g. Pumps" required></div>
+                    <div style="flex:1;"><label>Billing Company *</label><select id="new_plant_comp" class="input-heavy" required><option value="">-- Select --</option><option value="24">PRA</option><option value="26">PRAX</option></select></div>
                 </div>
 
-                <label>Plant Name / Description</label><input type="text" id="new_plant_name" class="input-heavy" placeholder="e.g. Concrete Pump 48m" required>
-                <label>Registration Plate</label><input type="text" id="new_plant_reg" class="input-heavy">
-                <label>Owned By (Developer / Client)</label><select id="new_plant_owner" class="input-heavy"></select>
+                <label>Plant Name / Description *</label><input type="text" id="new_plant_name" class="input-heavy" placeholder="e.g. Concrete Pump 48m" required>
+                <label>Registration Plate *</label><input type="text" id="new_plant_reg" class="input-heavy" required>
+                <label>Owned By (Developer / Client) *</label><select id="new_plant_owner" class="input-heavy" required></select>
 
                 <div style="display:flex; gap:10px;">
-                    <div style="flex:1;"><label>Pricing Model</label><select id="new_plant_pricing" class="input-heavy" onchange="document.getElementById('fixed-price-box').style.display = ['fixed_then_hourly', 'per_trip'].includes(this.value) ? 'flex' : 'none';"><option value="hourly">Standard Hourly</option><option value="fixed_then_hourly">Fixed Minimum + Hourly</option><option value="per_trip">Per Trip Rate</option></select></div>
-                    <div style="flex:1;"><label>Min / Trip Hrs</label><input type="number" id="new_plant_min_hrs" class="input-heavy" value="0"></div>
+                    <div style="flex:1;"><label>Pricing Model *</label><select id="new_plant_pricing" class="input-heavy" onchange="document.getElementById('fixed-price-box').style.display = ['fixed_then_hourly', 'per_trip'].includes(this.value) ? 'flex' : 'none';" required><option value="hourly">Standard Hourly</option><option value="fixed_then_hourly">Fixed Minimum + Hourly</option><option value="per_trip">Per Trip Rate</option></select></div>
+                    <div style="flex:1;"><label>Min / Trip Hrs</label><input type="number" id="new_plant_min_hrs" class="input-heavy" value="0" required></div>
                 </div>
 
                 <div id="fixed-price-box" style="display: none; gap: 10px; background:#fef3c7; padding: 15px; border-radius: 12px; margin-bottom:15px;">
-                    <div style="flex:1;"><label style="color:#b45309;">ERP Nom. Code (Fixed)</label><input type="text" id="new_nom_fixed" class="input-heavy" style="margin-bottom:0;" placeholder="e.g. 0001"></div>
+                    <div style="flex:1;"><label style="color:#b45309;">ERP Nom. Code (Fixed) *</label><input type="text" id="new_nom_fixed" class="input-heavy" style="margin-bottom:0;" placeholder="e.g. 0001"></div>
                     <div style="flex:1;"><label style="color:#b45309;">ERP Nom. Code (Var)</label><input type="text" id="new_nom_var" class="input-heavy" style="margin-bottom:0;" placeholder="e.g. 0002"></div>
                 </div>
                 
                 <div style="display: flex; gap: 10px;">
-                    <div style="flex:1;"><label>In-House Rate (€)</label><input type="number" id="new_plant_rate_in" class="input-heavy" value="0.00" step="0.01"></div>
-                    <div style="flex:1;"><label>External Rate (€)</label><input type="number" id="new_plant_rate_ext" class="input-heavy" value="0.00" step="0.01"></div>
+                    <div style="flex:1;"><label>In-House Rate (€)</label><input type="number" id="new_plant_rate_in" class="input-heavy" value="0.00" step="0.01" required></div>
+                    <div style="flex:1;"><label>External Rate (€)</label><input type="number" id="new_plant_rate_ext" class="input-heavy" value="0.00" step="0.01" required></div>
                 </div>
-                <button type="button" class="btn-heavy btn-blue" onclick="saveNewPlant()"><i class="fas fa-save"></i> Save to Fleet</button>
-            </div>
+                
+                <button type="button" id="save_fleet_btn" class="btn-heavy btn-blue" onclick="saveNewPlant()"><i class="fas fa-save"></i> Save to Fleet</button>
+                <button type="button" id="cancel_edit_btn" class="btn-heavy btn-gray" style="display:none;" onclick="resetFleetForm()">Cancel Edit</button>
+            </form>
 
             <h4 style="color:#64748b; text-transform:uppercase;">Active Fleet</h4>
             <div id="fleet-list" style="margin-bottom: 40px;"></div>
-            <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')">Back</button>
+            <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')">Back to Calendar</button>
         </div>
         <?php endif; ?>
 
@@ -122,10 +127,10 @@ $userId = $_SESSION['user_id'];
         </div>
         <?php endif; ?>
 
-        <!-- CREATE BOOKING -->
+        <!-- CREATE/EDIT BOOKING -->
         <?php if ($isManager): ?>
         <div id="view-create" class="view">
-            <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking</h3>
+            <h3 id="booking-form-title" style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking</h3>
             <form id="createBookingForm" style="background: #fff; padding: 20px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
                 <input type="hidden" id="edit_booking_id" value="">
                 
@@ -139,7 +144,6 @@ $userId = $_SESSION['user_id'];
 
                 <div id="inhouse-fields"><label>Select Project (Pre-loads map)</label><select id="project_id" class="input-heavy" onchange="updateProjectLocation()"></select></div>
                 
-                <!-- Client Search is now ALWAYS VISIBLE -->
                 <div id="client-fields" style="position: relative;">
                     <label>ERP Client (Select Vehicle First)</label>
                     <input type="text" id="client_name" class="input-heavy" placeholder="start writing client here" autocomplete="off" onkeyup="filterLocalClients(this.value)" disabled>
@@ -196,6 +200,9 @@ $userId = $_SESSION['user_id'];
 
 <script>
     let calendar, mapboxMap, marker, signaturePad, groupedPlants = {};
+    window.fleetData = []; // Store fleet data globally for the Edit button
+    window.currentActiveJob = null; // Store the currently viewed job globally
+
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
     const canViewLedger = <?= $canViewLedger ? 'true' : 'false' ?>;
@@ -251,7 +258,22 @@ $userId = $_SESSION['user_id'];
             groupedPlants = d.plants;
             document.getElementById('plant_category').innerHTML = '<option value="">-- Category --</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
             document.getElementById('driver_id').innerHTML = '<option value="">-- Unassigned --</option>' + d.drivers.map(drv => `<option value="${drv.id}">${drv.first_name} ${drv.last_name}</option>`).join('');
-            document.getElementById('project_id').innerHTML = d.projects.map(prj => `<option value="${prj.id}">${prj.name}</option>`).join('');
+            
+            let projGroups = {};
+            d.projects.forEach(prj => {
+                let loc = (prj.locality && prj.locality.trim() !== '') ? prj.locality : 'General / Other Regions';
+                if (!projGroups[loc]) projGroups[loc] = [];
+                projGroups[loc].push(prj);
+            });
+
+            let projHtml = '<option value="">-- Select Project --</option>';
+            Object.keys(projGroups).sort().forEach(loc => {
+                projHtml += `<optgroup label="📍 ${loc}">`;
+                projGroups[loc].forEach(prj => { projHtml += `<option value="${prj.id}">${prj.name}</option>`; });
+                projHtml += `</optgroup>`;
+            });
+            document.getElementById('project_id').innerHTML = projHtml;
+            
             updatePlantDropdown();
         });
     }
@@ -275,56 +297,79 @@ $userId = $_SESSION['user_id'];
         clientInput.placeholder = "Loading clients from ERP...";
         clientInput.disabled = true;
 
-        fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
-        .then(r => r.json())
-        .then(res => {
-            currentErpClients = res;
-            clientInput.placeholder = "start writing client here";
-            clientInput.disabled = false; 
-        }).catch(err => {
-            clientInput.placeholder = "Error loading clients";
-        });
+        fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`).then(r => r.json()).then(res => {
+            currentErpClients = res; clientInput.placeholder = "start writing client here"; clientInput.disabled = false; 
+        }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
 
     function resetClientSearch() { 
-        document.getElementById('client_code').value = ''; 
-        document.getElementById('client_name').value = ''; 
-        document.getElementById('client_name').disabled = true;
-        document.getElementById('client_name').placeholder = "start writing client here";
-        document.getElementById('client_search_results').style.display = 'none';
-        currentErpClients = [];
+        document.getElementById('client_code').value = ''; document.getElementById('client_name').value = ''; 
+        document.getElementById('client_name').disabled = true; document.getElementById('client_name').placeholder = "start writing client here";
+        document.getElementById('client_search_results').style.display = 'none'; currentErpClients = [];
     }
 
     function filterLocalClients(query) {
         const resultsDiv = document.getElementById('client_search_results'); 
         if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
-        
         const q = query.toLowerCase().trim();
         const filtered = currentErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 20);
-        
-        if(filtered.length === 0) { 
-            resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found.</div>'; 
-        } else { 
-            resultsDiv.innerHTML = filtered.map(c => `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`).join(''); 
-        }
+        if(filtered.length === 0) { resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found.</div>'; } 
+        else { resultsDiv.innerHTML = filtered.map(c => `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`).join(''); }
         resultsDiv.style.display = 'block';
     }
 
     function selectClient(code, name) { 
-        document.getElementById('client_code').value = code; 
-        document.getElementById('client_name').value = name; 
-        document.getElementById('client_search_results').style.display = 'none'; 
+        document.getElementById('client_code').value = code; document.getElementById('client_name').value = name; document.getElementById('client_search_results').style.display = 'none'; 
     }
 
     function toggleJobType() {
         const type = document.getElementById('booking_type').value;
-        // Client search is now permanently visible. We only toggle the Project selector.
         document.getElementById('inhouse-fields').style.display = type === 'in-house' ? 'block' : 'none';
     }
 
     function openCreateForm() {
+        document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking';
         document.getElementById('edit_booking_id').value = ''; document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
         document.getElementById('createBookingForm').reset(); if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
+    }
+
+    function initiateBookingEdit() {
+        const j = window.currentActiveJob;
+        if (!j) return;
+        
+        document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-edit text-blue-500"></i> Edit Booking';
+        document.getElementById('edit_booking_id').value = j.id;
+        
+        // Cascading selects initialization
+        document.getElementById('plant_category').value = j.category;
+        updatePlantDropdown();
+        document.getElementById('plant_id').value = j.plant_id;
+        
+        document.getElementById('driver_id').value = j.driver_id || '';
+        document.getElementById('booking_type').value = j.booking_type; toggleJobType();
+        document.getElementById('project_id').value = j.project_id || '';
+        document.getElementById('booking_date').value = j.booking_date;
+        document.getElementById('start_time').value = j.start_time;
+        document.getElementById('end_time').value = j.end_time;
+        document.getElementById('booking_comments').value = j.comments || '';
+        document.getElementById('loc_lat').value = j.location_lat || '';
+        document.getElementById('loc_lng').value = j.location_lng || '';
+        
+        // Background client fetch
+        onPlantSelected();
+        setTimeout(() => { document.getElementById('client_code').value = j.client_code || ''; document.getElementById('client_name').value = j.client_name || ''; }, 800);
+
+        document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-save"></i> Update Booking';
+        showView('view-create');
+
+        if(j.location_lat && j.location_lng) {
+            setTimeout(() => {
+                if(!mapboxMap) initMap();
+                if(marker) marker.remove();
+                marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([j.location_lng, j.location_lat]).addTo(mapboxMap);
+                mapboxMap.flyTo({center: [j.location_lng, j.location_lat], zoom: 14});
+            }, 300);
+        }
     }
 
     function submitBooking() {
@@ -340,7 +385,7 @@ $userId = $_SESSION['user_id'];
 
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
             if (res === 'OK') { alert("Saved!"); calendar.refetchEvents(); showView('view-calendar'); } else { alert("Error: " + res); }
-            btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Save';
+            btn.disabled = false; btn.innerHTML = editId ? '<i class="fas fa-save"></i> Update Booking' : '<i class="fas fa-check"></i> Save Booking';
         });
     }
 
@@ -348,17 +393,73 @@ $userId = $_SESSION['user_id'];
         if (!canManageFleet) return;
         fetch('api/plant_actions.php?action=get_clients').then(r=>r.json()).then(clients => document.getElementById('new_plant_owner').innerHTML = '<option value="">-- Select Owner --</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join(''));
         fetch('api/plant_actions.php?action=get_fleet').then(r=>r.json()).then(fleet => {
+            window.fleetData = fleet;
             document.getElementById('fleet-list').innerHTML = fleet.length === 0 ? '<p>No machinery.</p>' : fleet.map(p => `
-                <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
-                    <div style="font-weight:900; font-size:1.2rem;">${p.name} <span style="font-size:0.8rem; background:#e0e7ff; color:#4f46e5; padding:3px 6px; border-radius:4px;">${p.billing_company_name||'Unknown'}</span></div>
-                    <div style="color:#64748b; font-size:0.95rem; margin-bottom: 8px;">Cat: <b>${p.category}</b> | Reg: <b>${p.registration_plate||'N/A'}</b></div>
-                    <div style="font-size:0.85rem; color:#b45309;">Fixed Nom: ${p.nom_code_fixed||'N/A'} | Var Nom: ${p.nom_code_variable||'N/A'}</div>
+                <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <div style="font-weight:900; font-size:1.2rem;">${p.name} <span style="font-size:0.8rem; background:#e0e7ff; color:#4f46e5; padding:3px 6px; border-radius:4px;">${p.billing_company_name||'Unknown'}</span></div>
+                        <div style="color:#64748b; font-size:0.95rem; margin-bottom: 8px;">Cat: <b>${p.category}</b> | Reg: <b>${p.registration_plate||'N/A'}</b></div>
+                        <div style="font-size:0.85rem; color:#b45309;">Fixed Nom: ${p.nom_code_fixed||'N/A'} | Var Nom: ${p.nom_code_variable||'N/A'}</div>
+                    </div>
+                    <button onclick="editPlant(${p.id})" style="background:#e2e8f0; color:#475569; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer;"><i class="fas fa-edit"></i> Edit</button>
                 </div>`).join('');
         }); showView('view-fleet');
     }
 
+    function editPlant(id) {
+        const p = window.fleetData.find(x => x.id == id);
+        if(!p) return;
+        
+        document.getElementById('fleet-form-title').innerText = "Edit Machinery";
+        document.getElementById('edit_plant_id').value = p.id;
+        document.getElementById('new_plant_cat').value = p.category;
+        document.getElementById('new_plant_comp').value = p.billing_company_id;
+        document.getElementById('new_plant_name').value = p.name;
+        document.getElementById('new_plant_reg').value = p.registration_plate;
+        document.getElementById('new_plant_owner').value = p.developer_client_id;
+        document.getElementById('new_plant_pricing').value = p.pricing_type;
+        document.getElementById('new_plant_min_hrs').value = p.min_hours;
+        document.getElementById('new_nom_fixed').value = p.nom_code_fixed || '';
+        document.getElementById('new_nom_var').value = p.nom_code_variable || '';
+        document.getElementById('new_plant_rate_in').value = p.inhouse_rate;
+        document.getElementById('new_plant_rate_ext').value = p.external_rate;
+        
+        document.getElementById('fixed-price-box').style.display = ['fixed_then_hourly', 'per_trip'].includes(p.pricing_type) ? 'flex' : 'none';
+        
+        const saveBtn = document.getElementById('save_fleet_btn');
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Update Machinery';
+        document.getElementById('cancel_edit_btn').style.display = 'block';
+        
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetFleetForm() {
+        document.getElementById('fleetForm').reset();
+        document.getElementById('fleet-form-title').innerText = "Register Machinery";
+        document.getElementById('edit_plant_id').value = '';
+        document.getElementById('fixed-price-box').style.display = 'none';
+        document.getElementById('save_fleet_btn').innerHTML = '<i class="fas fa-save"></i> Save to Fleet';
+        document.getElementById('cancel_edit_btn').style.display = 'none';
+    }
+
     function saveNewPlant() {
-        const fd = new FormData(); fd.append('action', 'save_plant');
+        // Strict Validation Check
+        if(!document.getElementById('new_plant_cat').value) return alert("Category is required.");
+        if(!document.getElementById('new_plant_name').value) return alert("Plant Name is required.");
+        if(!document.getElementById('new_plant_reg').value) return alert("Registration Plate is required.");
+        if(!document.getElementById('new_plant_comp').value) return alert("Billing Company is required.");
+        if(!document.getElementById('new_plant_owner').value) return alert("Owner is required.");
+        
+        const pt = document.getElementById('new_plant_pricing').value;
+        if(['fixed_then_hourly', 'per_trip'].includes(pt)) {
+            if(!document.getElementById('new_nom_fixed').value) return alert("Fixed Nominal Code is required for this pricing type.");
+        }
+
+        const editId = document.getElementById('edit_plant_id').value;
+        const fd = new FormData(); 
+        fd.append('action', editId ? 'update_plant' : 'save_plant');
+        if (editId) fd.append('edit_plant_id', editId);
+        
         fd.append('category', document.getElementById('new_plant_cat').value); fd.append('name', document.getElementById('new_plant_name').value);
         fd.append('reg', document.getElementById('new_plant_reg').value); fd.append('owner_id', document.getElementById('new_plant_owner').value);
         fd.append('billing_company_id', document.getElementById('new_plant_comp').value); fd.append('pricing_type', document.getElementById('new_plant_pricing').value);
@@ -366,11 +467,19 @@ $userId = $_SESSION['user_id'];
         fd.append('nom_code_variable', document.getElementById('new_nom_var').value); fd.append('rate_in', document.getElementById('new_plant_rate_in').value);
         fd.append('rate_ext', document.getElementById('new_plant_rate_ext').value);
 
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => { if (res === 'OK') { alert("Machinery added!"); loadFormData(); loadFleetView(); } else alert("Error: " + res); });
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => { 
+            if (res === 'OK') { 
+                alert(editId ? "Machinery Updated!" : "Machinery Added!"); 
+                resetFleetForm();
+                loadFormData(); 
+                loadFleetView(); 
+            } else alert("Error: " + res); 
+        });
     }
 
     function loadJob(id) {
         fetch(`api/plant_actions.php?action=get_job&id=${id}`).then(r=>r.json()).then(job => {
+            window.currentActiveJob = job; // Save for Edit capability
             document.getElementById('job-title').innerHTML = `<i class="fas fa-truck-pickup text-indigo-500"></i> ${job.plant_name}`;
             let statCol = job.status === 'Completed' ? '#10b981' : (job.status === 'In Progress' ? '#f59e0b' : '#6366f1');
             let mapBtn = job.location_lat ? `<a href="https://www.google.com/maps/search/?api=1&query=${job.location_lat},${job.location_lng}" target="_blank" style="display:inline-block; background:#0f172a; color:#fff; padding:8px 15px; border-radius:8px; font-weight:bold; font-size:0.9rem; text-decoration:none; margin-top:12px; margin-bottom:10px;"><i class="fas fa-map-pin"></i> Open Maps</a>` : '';
@@ -384,12 +493,23 @@ $userId = $_SESSION['user_id'];
                 <div style="background:#f1f5f9; padding:12px; border-radius:8px; font-weight:bold;">${job.location_text}</div>${mapPre}${mapBtn}`;
 
             let controlsHtml = ''; let today = new Date().toISOString().split('T')[0];
+            
+            // Driver actions
             if (!isManager && job.booking_date === today) {
                 if (job.status === 'Pending') controlsHtml = `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
                 else if (job.status === 'In Progress') controlsHtml = `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job</button>`;
             }
-            if (isManager && job.status !== 'Completed') controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel</button>`;
-            if (isManager && job.status === 'Completed') controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Review & Invoice (ERP)</button>`;
+            
+            // Manager Actions
+            if (isManager && job.status === 'Pending') {
+                controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Booking</button>`;
+            }
+            if (isManager && job.status !== 'Completed') {
+                controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`;
+            }
+            if (isManager && job.status === 'Completed') {
+                controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Review & Invoice (ERP)</button>`;
+            }
 
             document.getElementById('punch-controls').innerHTML = controlsHtml; showView('view-job');
             if (job.location_lat) setTimeout(() => { const pm = new mapboxgl.Map({ container: 'job-preview-map', style: 'mapbox://styles/mapbox/streets-v12', center: [job.location_lng, job.location_lat], zoom: 13, interactive: false }); new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([job.location_lng, job.location_lat]).addTo(pm); }, 200);
