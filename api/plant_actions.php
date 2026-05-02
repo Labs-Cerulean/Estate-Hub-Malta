@@ -14,20 +14,48 @@ $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accoun
 $apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
-// --- UPDATED: Removed Company Header completely ---
+// --- FINAL API HELPERS (No Company ID, but retaining x-api-key & FollowLocation) ---
 function getJ2ApiData($endpoint, $apiKey) {
-    global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-    $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
-    return ($httpCode == 200) ? json_decode($response, true) : [];
+    global $apiUrlBase; 
+    $url = $apiUrlBase . $endpoint; 
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Content-Type: application/json", 
+        "Accept: application/json", 
+        "x-api-key: " . $apiKey,               
+        "Authorization: Bearer " . $apiKey     
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    
+    $response = curl_exec($ch); 
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
+    curl_close($ch);
+    
+    return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
 }
 
 function postJ2ApiData($endpoint, $apiKey, $payload) {
-    global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-    $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    global $apiUrlBase; 
+    $url = $apiUrlBase . $endpoint; 
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Content-Type: application/json", 
+        "Accept: application/json", 
+        "x-api-key: " . $apiKey,               
+        "Authorization: Bearer " . $apiKey     
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+    curl_setopt($ch, CURLOPT_POST, true); 
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    
+    $response = curl_exec($ch); 
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
+    curl_close($ch);
+    
     return ['code' => $httpCode, 'response' => $response];
 }
 
@@ -71,49 +99,17 @@ if ($action == 'form_data') {
 }
 
 if ($action == 'get_company_clients' && $isManager) {
-    // Custom inline cURL to capture EVERYTHING for debugging
-    $url = "https://j2api.agiusgroup.com/api/public/clients";
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "Content-Type: application/json", 
-        "Accept: application/json", 
-        "Authorization: Bearer " . $apiKey
-    ]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-    $response = curl_exec($ch); 
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
-    curl_close($ch);
-
-    $apiClients = json_decode($response, true);
-
-    // If it's NOT a perfect 200 OK, or the data isn't an array, throw a debug error
-    if ($httpCode != 200 || !is_array($apiClients)) {
-        echo json_encode([
-            'debug_error' => true, 
-            'httpCode' => $httpCode, 
-            'rawText' => $response ?: 'NO RESPONSE (Empty)'
-        ]);
-        exit;
-    }
-
-    $results = [];
-    foreach ($apiClients as $c) {
-        $name = trim((string)($c['ClientName'] ?? ''));
-        $code = trim((string)($c['ClientCode'] ?? ''));
-        if (!empty($name)) { $results[] = ['code' => $code, 'name' => $name]; }
-    }
+    // Fetch clients without passing any company ID
+    $apiClients = getJ2ApiData('/clients', $apiKey); 
     
-    // Even if it succeeds, let's pass the raw text back if the array is perfectly empty
-    if (count($results) === 0) {
-        echo json_encode([
-            'debug_error' => true, 
-            'httpCode' => 200, 
-            'rawText' => 'API returned 200 OK, but the array was empty. Raw: ' . $response
-        ]);
-        exit;
+    $results = [];
+    if (is_array($apiClients)) {
+        foreach ($apiClients as $c) {
+            $name = trim((string)($c['ClientName'] ?? ''));
+            $code = trim((string)($c['ClientCode'] ?? ''));
+            if (!empty($name)) { $results[] = ['code' => $code, 'name' => $name]; }
+        }
     }
-
     echo json_encode($results); exit;
 }
 
