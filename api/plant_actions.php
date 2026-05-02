@@ -11,20 +11,21 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']);
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
 
-$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
+$apiKey = 'PASTE_YOUR_API_KEY_HERE'; 
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
-function getJ2ApiData($endpoint, $apiKey, $companyCode) {
+// --- UPDATED: Removed Company Header completely ---
+function getJ2ApiData($endpoint, $apiKey) {
     global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey, "Company: " . $companyCode]);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
     $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ($httpCode == 200) ? json_decode($response, true) : [];
 }
 
-function postJ2ApiData($endpoint, $apiKey, $companyCode, $payload) {
+function postJ2ApiData($endpoint, $apiKey, $payload) {
     global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey, "Company: " . $companyCode]);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
     $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ['code' => $httpCode, 'response' => $response];
@@ -35,7 +36,6 @@ if ($action == 'get_clients' && $canManageFleet) {
 }
 
 if ($action == 'get_fleet' && $canManageFleet) {
-    // JOIN to get real client names for owner and billing company!
     $fleet = $pdo->query("SELECT p.*, c.name as owner_name, bc.name as billing_company_name FROM plants p LEFT JOIN clients c ON p.developer_client_id = c.id LEFT JOIN clients bc ON p.billing_company_id = bc.id WHERE p.status = 'Active' ORDER BY p.category, p.name ASC")->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode($fleet); exit;
 }
@@ -71,21 +71,14 @@ if ($action == 'form_data') {
 }
 
 if ($action == 'get_company_clients' && $isManager) {
-    // Dynamic mapping: Client ID 26 is PRAX. Anything else falls back to PRA.
-    $companyCode = ($_GET['company_id'] == 26) ? 'PRAX' : 'PRA';
-    $apiClients = getJ2ApiData('/clients', $apiKey, $companyCode);
+    $apiClients = getJ2ApiData('/clients', $apiKey); // Cleaned request
     
     $results = [];
     if (is_array($apiClients)) {
         foreach ($apiClients as $c) {
-            // Bulletproof: Force string conversion and trim all ERP whitespace. Fallback to 'Unknown' if null.
             $name = trim((string)($c['ClientName'] ?? ''));
             $code = trim((string)($c['ClientCode'] ?? ''));
-            
-            // Only add valid clients to the search pool
-            if (!empty($name)) {
-                $results[] = ['code' => $code, 'name' => $name];
-            }
+            if (!empty($name)) { $results[] = ['code' => $code, 'name' => $name]; }
         }
     }
     echo json_encode($results); exit;
@@ -124,8 +117,8 @@ if ($action == 'punch_out_complete') {
     $domain = "https://" . $_SERVER['HTTP_HOST']; $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); echo "OK"; exit;
 }
 
-function getNominalDetails($nomCode, $companyCode, $apiKey) {
-    if(empty($nomCode)) return null; $nominals = getJ2ApiData('/nominalcateg', $apiKey, $companyCode);
+function getNominalDetails($nomCode, $apiKey) {
+    if(empty($nomCode)) return null; $nominals = getJ2ApiData('/nominalcateg', $apiKey);
     foreach($nominals as $n) { if(trim($n['NCCode']) == $nomCode) return $n; } return null;
 }
 
@@ -137,33 +130,31 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     if(empty($job['client_code'])) { echo "LOCAL_SAVE_ONLY: Invoice generated locally, but missing Client Code prevented pushing to ERP."; exit; }
 
-    // Map 26 to PRAX, everything else falls back to PRA
-    $companyCode = $job['billing_company_id'] == 26 ? 'PRAX' : 'PRA'; 
     $isInternal = $job['booking_type'] == 'in-house'; $totalVal = (float)$_POST['subtotal']; $totalTax = $totalVal * 0.18;
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $lines = [];
     
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
-        $fixedNom = getNominalDetails($job['nom_code_fixed'], $companyCode, $apiKey);
+        $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
         if($fixedNom) { $lines[] = ["Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => trim($fixedNom['NCDesc']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => $isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
         $extraHours = (float)$_POST['hours'] - (float)$job['min_hours'];
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
-            $varNom = getNominalDetails($job['nom_code_variable'], $companyCode, $apiKey);
+            $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
             if($varNom) { $lines[] = ["Type" => "N", "Code" => trim($varNom['NCCode']), "Description" => trim($varNom['NCDesc']) . " (Extra Hrs)", "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => $isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
         }
     } 
     elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
-        $tripNom = getNominalDetails($job['nom_code_fixed'], $companyCode, $apiKey);
+        $tripNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
         if($tripNom) { $lines[] = ["Type" => "N", "Code" => trim($tripNom['NCCode']), "Description" => trim($tripNom['NCDesc']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, "Price" => $isInternal ? $tripNom['NCDefSP1'] : $tripNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
     }
     else {
-        $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; $standardNom = getNominalDetails($standardCode, $companyCode, $apiKey);
+        $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; $standardNom = getNominalDetails($standardCode, $apiKey);
         $lines[] = ["Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => ($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation: " . $job['plant_name']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$_POST['hours'], "Price" => (float)$_POST['rate'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0];
     }
 
     $payload = [ "Type" => "IN", "PaymentType" => null, "Description" => "Generated by Booking Portal", "Amount" => null, "Change" => null, "NominalAccount" => null, "Transaction" => [ "InvioceHeader" => [ "THTranCode" => "IN", "THDate" => date('Y-m-d'), "THUserID" => "API", "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", "THTotValueTIF" => (string)($totalVal + $totalTax), "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => $totalTax, "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => $jobRef ], "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" ] ];
 
-    $erpResult = postJ2ApiData('/saletransactions', $apiKey, $companyCode, $payload);
+    $erpResult = postJ2ApiData('/saletransactions', $apiKey, $payload); // Cleaned payload
     if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); echo "OK"; } else { echo "ERP_SYNC_FAILED: " . htmlspecialchars($erpResult['response']); } exit;
 }
 
@@ -174,8 +165,7 @@ if ($action == 'get_ledger' && $canViewLedger) {
 if ($action == 'mark_settled' && $canViewLedger) { $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?")->execute([$_POST['id']]); echo "OK"; exit; }
 
 if ($action == 'get_nominals_for_job') {
-    $stmt = $pdo->prepare("SELECT p.billing_company_id, p.nom_code_fixed, p.nom_code_variable FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); $stmt->execute([$_GET['booking_id']]); $job = $stmt->fetch(PDO::FETCH_ASSOC);
-    $companyCode = $job['billing_company_id'] == 26 ? 'PRAX' : 'PRA';
-    echo json_encode(['fixed' => getNominalDetails($job['nom_code_fixed'], $companyCode, $apiKey), 'variable' => getNominalDetails($job['nom_code_variable'], $companyCode, $apiKey)]); exit;
+    $stmt = $pdo->prepare("SELECT p.nom_code_fixed, p.nom_code_variable FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); $stmt->execute([$_GET['booking_id']]); $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    echo json_encode(['fixed' => getNominalDetails($job['nom_code_fixed'], $apiKey), 'variable' => getNominalDetails($job['nom_code_variable'], $apiKey)]); exit;
 }
 ?>
