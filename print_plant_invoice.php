@@ -25,14 +25,26 @@ if (!$job) die("Job not found.");
 
 $apiKey = 'PASTE_YOUR_API_KEY_HERE'; 
 
-// --- UPDATED: Removed Company Header ---
 function getERPPrice($nomCode, $apiKey, $isInternal) {
     if(empty($nomCode)) return 0;
+    
     $url = "https://j2api.agiusgroup.com/api/public/nominalcateg";
     $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-    $res = json_decode(curl_exec($ch), true); curl_close($ch);
+    
+    // Updated headers matching the working setup
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Content-Type: application/json", 
+        "Accept: application/json", 
+        "x-api-key: " . $apiKey,
+        "Authorization: Bearer " . $apiKey
+    ]);
+    
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); // The crucial fix!
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    
+    $res = json_decode(curl_exec($ch), true); 
+    curl_close($ch);
     
     if($res) {
         foreach($res as $n) {
