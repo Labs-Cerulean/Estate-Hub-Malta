@@ -8,7 +8,7 @@ $isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
 $isAccountant = ($role === 'accountant');
 if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant) { die("Unauthorized Access."); }
 
-// Plant Managers can edit bookings, but ONLY Admins/Sys Managers can manage the active fleet inventory and nominal codes
+// Plant Managers can edit pending bookings, but ONLY Admins/Sys Managers can manage the fleet and nominals
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']); 
 $canManageFleet = in_array($role, ['admin', 'system_manager']); 
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
@@ -85,27 +85,57 @@ $userId = $_SESSION['user_id'];
                 <input type="hidden" id="edit_plant_id" value="">
                 
                 <div style="display:flex; gap:10px;">
-                    <div style="flex:1;"><label>Category *</label><input type="text" id="new_plant_cat" class="input-heavy" placeholder="e.g. Pumps" required></div>
-                    <div style="flex:1;"><label>Billing Company *</label><select id="new_plant_comp" class="input-heavy" required><option value="">-- Select --</option><option value="24">PRA</option><option value="26">PRAX</option></select></div>
+                    <div style="flex:1;"><label>Category *</label>
+                        <select id="new_plant_cat" class="input-heavy" required>
+                            <option value="">-- Select --</option>
+                            <option value="Booms">Booms</option>
+                            <option value="Cranes">Cranes</option>
+                            <option value="Drum Cutter">Drum Cutter</option>
+                            <option value="Excavator">Excavator</option>
+                            <option value="Other Trucks">Other Trucks</option>
+                            <option value="Piling">Piling</option>
+                            <option value="Pumps">Pumps</option>
+                            <option value="Scarifier">Scarifier</option>
+                        </select>
+                    </div>
+                    <div style="flex:1;"><label>Billing & Ownership *</label>
+                        <select id="new_plant_comp" class="input-heavy" required>
+                            <option value="">-- Select --</option>
+                            <option value="24">PRA (PRA Construction)</option>
+                            <option value="26">PRAX (PRAX Concrete)</option>
+                        </select>
+                    </div>
                 </div>
 
-                <label>Plant Name / Description *</label><input type="text" id="new_plant_name" class="input-heavy" placeholder="e.g. Concrete Pump 48m" required>
-                <label>Registration Plate *</label><input type="text" id="new_plant_reg" class="input-heavy" required>
-                <label>Owned By (Developer / Client) *</label><select id="new_plant_owner" class="input-heavy" required></select>
+                <label>Plant Name / Description *</label>
+                <input type="text" id="new_plant_name" class="input-heavy" placeholder="e.g. Concrete Pump 48m" required>
+                
+                <label>Registration Plate (Optional)</label>
+                <input type="text" id="new_plant_reg" class="input-heavy" placeholder="Leave blank if not applicable">
 
                 <div style="display:flex; gap:10px;">
-                    <div style="flex:1;"><label>Pricing Model *</label><select id="new_plant_pricing" class="input-heavy" onchange="document.getElementById('fixed-price-box').style.display = ['fixed_then_hourly', 'per_trip'].includes(this.value) ? 'flex' : 'none';" required><option value="hourly">Standard Hourly</option><option value="fixed_then_hourly">Fixed Minimum + Hourly</option><option value="per_trip">Per Trip Rate</option></select></div>
-                    <div style="flex:1;"><label>Min / Trip Hrs</label><input type="number" id="new_plant_min_hrs" class="input-heavy" value="0" required></div>
+                    <div style="flex:2;"><label>Pricing Model *</label>
+                        <select id="new_plant_pricing" class="input-heavy" onchange="togglePricingModel()" required>
+                            <option value="hourly">Standard Hourly</option>
+                            <option value="fixed_then_hourly">Fixed Minimum + Hourly</option>
+                            <option value="per_trip">Per Trip Rate</option>
+                        </select>
+                    </div>
+                    <div style="flex:1; display:none;" id="min_hrs_box"><label>Min Hours</label><input type="number" id="new_plant_min_hrs" class="input-heavy" value="1" min="1"></div>
                 </div>
 
-                <div id="fixed-price-box" style="display: none; gap: 10px; background:#fef3c7; padding: 15px; border-radius: 12px; margin-bottom:15px;">
-                    <div style="flex:1;"><label style="color:#b45309;">ERP Nom. Code (Fixed) *</label><input type="text" id="new_nom_fixed" class="input-heavy" style="margin-bottom:0;" placeholder="e.g. 0001"></div>
-                    <div style="flex:1;"><label style="color:#b45309;">ERP Nom. Code (Var)</label><input type="text" id="new_nom_var" class="input-heavy" style="margin-bottom:0;" placeholder="e.g. 0002"></div>
+                <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div style="flex:1;"><label id="lbl_nom_fixed" style="color:#b45309;">Nominal Code *</label>
+                        <select id="new_nom_fixed" class="input-heavy" style="margin-bottom:0;" required onchange="updateRatesDisplay()"><option value="">Loading ERP...</option></select>
+                    </div>
+                    <div style="flex:1; display:none;" id="box_nom_var"><label style="color:#b45309;">Variable Nominal Code *</label>
+                        <select id="new_nom_var" class="input-heavy" style="margin-bottom:0;" onchange="updateRatesDisplay()"><option value="">Loading ERP...</option></select>
+                    </div>
                 </div>
                 
-                <div style="display: flex; gap: 10px;">
-                    <div style="flex:1;"><label>In-House Rate (€)</label><input type="number" id="new_plant_rate_in" class="input-heavy" value="0.00" step="0.01" required></div>
-                    <div style="flex:1;"><label>External Rate (€)</label><input type="number" id="new_plant_rate_ext" class="input-heavy" value="0.00" step="0.01" required></div>
+                <label>ERP Pre-Loaded Live Rates</label>
+                <div id="rate_display_box" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:15px; font-size: 0.95rem; color:#475569;">
+                    <p style="margin:0; text-align:center;">Select Nominal Codes to view rates.</p>
                 </div>
                 
                 <button type="button" id="save_fleet_btn" class="btn-heavy btn-blue" onclick="saveNewPlant()"><i class="fas fa-save"></i> Save to Fleet</button>
@@ -200,8 +230,8 @@ $userId = $_SESSION['user_id'];
 
 <script>
     let calendar, mapboxMap, marker, signaturePad, groupedPlants = {};
-    window.fleetData = []; // Store fleet data globally for the Edit button
-    window.currentActiveJob = null; // Store the currently viewed job globally
+    window.fleetData = []; // Store fleet data globally for the Edit function
+    window.currentActiveJob = null; // Store currently viewed job
 
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
@@ -259,6 +289,16 @@ $userId = $_SESSION['user_id'];
             document.getElementById('plant_category').innerHTML = '<option value="">-- Category --</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
             document.getElementById('driver_id').innerHTML = '<option value="">-- Unassigned --</option>' + d.drivers.map(drv => `<option value="${drv.id}">${drv.first_name} ${drv.last_name}</option>`).join('');
             
+            // Append missing distinct categories to the Fleet Register Dropdown safely
+            if (canManageFleet) {
+                const fleetCatSelect = document.getElementById('new_plant_cat');
+                Object.keys(groupedPlants).sort().forEach(c => {
+                    if(!Array.from(fleetCatSelect.options).some(o => o.value === c)) {
+                        fleetCatSelect.insertAdjacentHTML('beforeend', `<option value="${c}">${c}</option>`);
+                    }
+                });
+            }
+
             let projGroups = {};
             d.projects.forEach(prj => {
                 let loc = (prj.locality && prj.locality.trim() !== '') ? prj.locality : 'General / Other Regions';
@@ -297,7 +337,9 @@ $userId = $_SESSION['user_id'];
         clientInput.placeholder = "Loading clients from ERP...";
         clientInput.disabled = true;
 
-        fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`).then(r => r.json()).then(res => {
+        fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
+        .then(r => r.json())
+        .then(res => {
             currentErpClients = res; clientInput.placeholder = "start writing client here"; clientInput.disabled = false; 
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
@@ -340,7 +382,6 @@ $userId = $_SESSION['user_id'];
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-edit text-blue-500"></i> Edit Booking';
         document.getElementById('edit_booking_id').value = j.id;
         
-        // Cascading selects initialization
         document.getElementById('plant_category').value = j.category;
         updatePlantDropdown();
         document.getElementById('plant_id').value = j.plant_id;
@@ -355,7 +396,6 @@ $userId = $_SESSION['user_id'];
         document.getElementById('loc_lat').value = j.location_lat || '';
         document.getElementById('loc_lng').value = j.location_lng || '';
         
-        // Background client fetch
         onPlantSelected();
         setTimeout(() => { document.getElementById('client_code').value = j.client_code || ''; document.getElementById('client_name').value = j.client_name || ''; }, 800);
 
@@ -389,9 +429,67 @@ $userId = $_SESSION['user_id'];
         });
     }
 
+    // --- NEW FLEET LOGIC: DYNAMIC NOMINALS & LIVE PRICING ---
+    let erpNominals = [];
+
+    function loadFleetNominals() {
+        if(erpNominals.length > 0) return;
+        fetch('api/plant_actions.php?action=get_nominals').then(r=>r.json()).then(res => {
+            erpNominals = res;
+            const opts = '<option value="">-- Select Nominal Code --</option>' + res.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
+            document.getElementById('new_nom_fixed').innerHTML = opts;
+            document.getElementById('new_nom_var').innerHTML = opts;
+        });
+    }
+
+    function togglePricingModel() {
+        const type = document.getElementById('new_plant_pricing').value;
+        const minBox = document.getElementById('min_hrs_box');
+        const minInput = document.getElementById('new_plant_min_hrs');
+        const varNomBox = document.getElementById('box_nom_var');
+        const varNomInput = document.getElementById('new_nom_var');
+        const lblFixed = document.getElementById('lbl_nom_fixed');
+
+        if (type === 'fixed_then_hourly') {
+            minBox.style.display = 'block';
+            minInput.min = 1; minInput.value = Math.max(1, minInput.value);
+            varNomBox.style.display = 'block';
+            varNomInput.required = true;
+            lblFixed.innerText = "Fixed Nominal Code *";
+        } else {
+            minBox.style.display = 'none';
+            minInput.value = 0;
+            varNomBox.style.display = 'none';
+            varNomInput.required = false;
+            varNomInput.value = '';
+            lblFixed.innerText = "Nominal Code *";
+        }
+        updateRatesDisplay();
+    }
+
+    function updateRatesDisplay() {
+        const type = document.getElementById('new_plant_pricing').value;
+        const fixSel = document.getElementById('new_nom_fixed');
+        const varSel = document.getElementById('new_nom_var');
+        
+        let html = '';
+        if(fixSel.selectedIndex > 0) {
+            const o1 = fixSel.options[fixSel.selectedIndex];
+            html += `<div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>In-House (Fixed/Std):</span> <b>€${parseFloat(o1.dataset.in).toFixed(2)}</b></div>`;
+            html += `<div style="display:flex; justify-content:space-between;"><span>External (Fixed/Std):</span> <b>€${parseFloat(o1.dataset.ext).toFixed(2)}</b></div>`;
+        }
+        if(type === 'fixed_then_hourly' && varSel.selectedIndex > 0) {
+            const o2 = varSel.options[varSel.selectedIndex];
+            html += `<hr style="border:1px dashed #cbd5e1; margin:10px 0;">`;
+            html += `<div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>In-House (Variable):</span> <b>€${parseFloat(o2.dataset.in).toFixed(2)}</b></div>`;
+            html += `<div style="display:flex; justify-content:space-between;"><span>External (Variable):</span> <b>€${parseFloat(o2.dataset.ext).toFixed(2)}</b></div>`;
+        }
+        document.getElementById('rate_display_box').innerHTML = html || '<p style="margin:0; text-align:center;">Select Nominal Codes to view rates.</p>';
+    }
+
     function loadFleetView() {
         if (!canManageFleet) return;
-        fetch('api/plant_actions.php?action=get_clients').then(r=>r.json()).then(clients => document.getElementById('new_plant_owner').innerHTML = '<option value="">-- Select Owner --</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join(''));
+        loadFleetNominals(); // Prefetch ERP nominals
         fetch('api/plant_actions.php?action=get_fleet').then(r=>r.json()).then(fleet => {
             window.fleetData = fleet;
             document.getElementById('fleet-list').innerHTML = fleet.length === 0 ? '<p>No machinery.</p>' : fleet.map(p => `
@@ -416,20 +514,19 @@ $userId = $_SESSION['user_id'];
         document.getElementById('new_plant_comp').value = p.billing_company_id;
         document.getElementById('new_plant_name').value = p.name;
         document.getElementById('new_plant_reg').value = p.registration_plate;
-        document.getElementById('new_plant_owner').value = p.developer_client_id;
         document.getElementById('new_plant_pricing').value = p.pricing_type;
         document.getElementById('new_plant_min_hrs').value = p.min_hours;
-        document.getElementById('new_nom_fixed').value = p.nom_code_fixed || '';
-        document.getElementById('new_nom_var').value = p.nom_code_variable || '';
-        document.getElementById('new_plant_rate_in').value = p.inhouse_rate;
-        document.getElementById('new_plant_rate_ext').value = p.external_rate;
         
-        document.getElementById('fixed-price-box').style.display = ['fixed_then_hourly', 'per_trip'].includes(p.pricing_type) ? 'flex' : 'none';
+        // Timeout to ensure ERP nominals are loaded if the user clicks Edit too fast
+        setTimeout(() => {
+            document.getElementById('new_nom_fixed').value = p.nom_code_fixed || '';
+            document.getElementById('new_nom_var').value = p.nom_code_variable || '';
+            togglePricingModel(); // This also updates the rate display
+        }, 300);
         
         const saveBtn = document.getElementById('save_fleet_btn');
         saveBtn.innerHTML = '<i class="fas fa-save"></i> Update Machinery';
         document.getElementById('cancel_edit_btn').style.display = 'block';
-        
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -437,22 +534,19 @@ $userId = $_SESSION['user_id'];
         document.getElementById('fleetForm').reset();
         document.getElementById('fleet-form-title').innerText = "Register Machinery";
         document.getElementById('edit_plant_id').value = '';
-        document.getElementById('fixed-price-box').style.display = 'none';
+        togglePricingModel(); // Resets layout
         document.getElementById('save_fleet_btn').innerHTML = '<i class="fas fa-save"></i> Save to Fleet';
         document.getElementById('cancel_edit_btn').style.display = 'none';
     }
 
     function saveNewPlant() {
-        // Strict Validation Check
         if(!document.getElementById('new_plant_cat').value) return alert("Category is required.");
         if(!document.getElementById('new_plant_name').value) return alert("Plant Name is required.");
-        if(!document.getElementById('new_plant_reg').value) return alert("Registration Plate is required.");
         if(!document.getElementById('new_plant_comp').value) return alert("Billing Company is required.");
-        if(!document.getElementById('new_plant_owner').value) return alert("Owner is required.");
         
         const pt = document.getElementById('new_plant_pricing').value;
-        if(['fixed_then_hourly', 'per_trip'].includes(pt)) {
-            if(!document.getElementById('new_nom_fixed').value) return alert("Fixed Nominal Code is required for this pricing type.");
+        if(['fixed_then_hourly', 'per_trip'].includes(pt) && !document.getElementById('new_nom_fixed').value) {
+            return alert("Nominal Code is strictly required for this pricing model.");
         }
 
         const editId = document.getElementById('edit_plant_id').value;
@@ -460,19 +554,19 @@ $userId = $_SESSION['user_id'];
         fd.append('action', editId ? 'update_plant' : 'save_plant');
         if (editId) fd.append('edit_plant_id', editId);
         
-        fd.append('category', document.getElementById('new_plant_cat').value); fd.append('name', document.getElementById('new_plant_name').value);
-        fd.append('reg', document.getElementById('new_plant_reg').value); fd.append('owner_id', document.getElementById('new_plant_owner').value);
-        fd.append('billing_company_id', document.getElementById('new_plant_comp').value); fd.append('pricing_type', document.getElementById('new_plant_pricing').value);
-        fd.append('min_hours', document.getElementById('new_plant_min_hrs').value); fd.append('nom_code_fixed', document.getElementById('new_nom_fixed').value);
-        fd.append('nom_code_variable', document.getElementById('new_nom_var').value); fd.append('rate_in', document.getElementById('new_plant_rate_in').value);
-        fd.append('rate_ext', document.getElementById('new_plant_rate_ext').value);
+        fd.append('category', document.getElementById('new_plant_cat').value); 
+        fd.append('name', document.getElementById('new_plant_name').value);
+        fd.append('reg', document.getElementById('new_plant_reg').value); 
+        fd.append('billing_company_id', document.getElementById('new_plant_comp').value); 
+        fd.append('pricing_type', pt);
+        fd.append('min_hours', document.getElementById('new_plant_min_hrs').value); 
+        fd.append('nom_code_fixed', document.getElementById('new_nom_fixed').value);
+        fd.append('nom_code_variable', document.getElementById('new_nom_var').value); 
 
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => { 
             if (res === 'OK') { 
                 alert(editId ? "Machinery Updated!" : "Machinery Added!"); 
-                resetFleetForm();
-                loadFormData(); 
-                loadFleetView(); 
+                resetFleetForm(); loadFormData(); loadFleetView(); 
             } else alert("Error: " + res); 
         });
     }
@@ -500,7 +594,7 @@ $userId = $_SESSION['user_id'];
                 else if (job.status === 'In Progress') controlsHtml = `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job</button>`;
             }
             
-            // Manager Actions
+            // Plant Manager & Admin Actions
             if (isManager && job.status === 'Pending') {
                 controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Booking</button>`;
             }
