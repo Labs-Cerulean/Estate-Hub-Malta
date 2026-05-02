@@ -11,7 +11,7 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']);
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
 
-$apiKey = 'PASTE_YOUR_API_KEY_HERE'; 
+$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
 // --- UPDATED: Removed Company Header completely ---
