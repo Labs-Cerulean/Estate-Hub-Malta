@@ -71,16 +71,49 @@ if ($action == 'form_data') {
 }
 
 if ($action == 'get_company_clients' && $isManager) {
-    $apiClients = getJ2ApiData('/clients', $apiKey); // Cleaned request
-    
-    $results = [];
-    if (is_array($apiClients)) {
-        foreach ($apiClients as $c) {
-            $name = trim((string)($c['ClientName'] ?? ''));
-            $code = trim((string)($c['ClientCode'] ?? ''));
-            if (!empty($name)) { $results[] = ['code' => $code, 'name' => $name]; }
-        }
+    // Custom inline cURL to capture EVERYTHING for debugging
+    $url = "https://j2api.agiusgroup.com/api/public/clients";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Content-Type: application/json", 
+        "Accept: application/json", 
+        "Authorization: Bearer " . $apiKey
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    $response = curl_exec($ch); 
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
+    curl_close($ch);
+
+    $apiClients = json_decode($response, true);
+
+    // If it's NOT a perfect 200 OK, or the data isn't an array, throw a debug error
+    if ($httpCode != 200 || !is_array($apiClients)) {
+        echo json_encode([
+            'debug_error' => true, 
+            'httpCode' => $httpCode, 
+            'rawText' => $response ?: 'NO RESPONSE (Empty)'
+        ]);
+        exit;
     }
+
+    $results = [];
+    foreach ($apiClients as $c) {
+        $name = trim((string)($c['ClientName'] ?? ''));
+        $code = trim((string)($c['ClientCode'] ?? ''));
+        if (!empty($name)) { $results[] = ['code' => $code, 'name' => $name]; }
+    }
+    
+    // Even if it succeeds, let's pass the raw text back if the array is perfectly empty
+    if (count($results) === 0) {
+        echo json_encode([
+            'debug_error' => true, 
+            'httpCode' => 200, 
+            'rawText' => 'API returned 200 OK, but the array was empty. Raw: ' . $response
+        ]);
+        exit;
+    }
+
     echo json_encode($results); exit;
 }
 
