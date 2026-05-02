@@ -5,7 +5,6 @@ require_once 'S3FileManager.php';
 
 $bookingId = $_GET['booking_id'] ?? 0;
 
-// 1. Fetch Job Data using the NEW billing_company_id
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, 
            p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
@@ -24,15 +23,14 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-// 2. Fetch Live Pricing from J2 ERP
 $apiKey = 'PASTE_YOUR_API_KEY_HERE'; 
-$companyCode = ($job['billing_company_id'] == 26) ? 'PRAX' : 'PRA';
 
-function getERPPrice($nomCode, $companyCode, $apiKey, $isInternal) {
+// --- UPDATED: Removed Company Header ---
+function getERPPrice($nomCode, $apiKey, $isInternal) {
     if(empty($nomCode)) return 0;
     $url = "https://j2api.agiusgroup.com/api/public/nominalcateg";
     $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey, "Company: " . $companyCode]);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "Authorization: Bearer " . $apiKey]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
     $res = json_decode(curl_exec($ch), true); curl_close($ch);
     
@@ -45,24 +43,20 @@ function getERPPrice($nomCode, $companyCode, $apiKey, $isInternal) {
 }
 
 $isInternal = ($job['booking_type'] == 'in-house');
-$fixedRate = getERPPrice($job['nom_code_fixed'], $companyCode, $apiKey, $isInternal);
-$varRate = getERPPrice($job['nom_code_variable'], $companyCode, $apiKey, $isInternal);
+$fixedRate = getERPPrice($job['nom_code_fixed'], $apiKey, $isInternal);
+$varRate = getERPPrice($job['nom_code_variable'], $apiKey, $isInternal);
 
-// Determine the primary rate to show the accountant
 $applicableRate = $fixedRate > 0 ? $fixedRate : $varRate;
 
-// --- CLOUDFLARE R2 LOGO ---
 $s3 = new S3FileManager();
 $logoPath = $job['developer_logo'];
 if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
     $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
 }
 
-// Generate Professional Job Reference
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("PRA-%s-%04d", $jobYear, $bookingId);
 
-// Time / Trip Calculation
 $inTime = new DateTime($job['punch_in_time']);
 $outTime = new DateTime($job['punch_out_time']);
 $interval = $inTime->diff($outTime);
