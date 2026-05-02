@@ -295,8 +295,11 @@ $userId = $_SESSION['user_id'];
         const resultsDiv = document.getElementById('client_search_results'); 
         if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
         
-        const q = query.toLowerCase();
-        const filtered = currentErpClients.filter(c => c.name.toLowerCase().includes(q)).slice(0, 20);
+        // Trim any accidental spaces the user types
+        const q = query.toLowerCase().trim(); 
+        
+        // Bulletproof: (c.name || '') ensures it never crashes on a missing name
+        const filtered = currentErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 20);
         
         if(filtered.length === 0) { 
             resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found. Contact Accounts to create in ERP.</div>'; 
