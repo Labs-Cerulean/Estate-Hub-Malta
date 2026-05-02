@@ -31,6 +31,11 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
     return ['code' => $httpCode, 'response' => $response];
 }
 
+// NEW: Endpoint to get Nominal Codes for the Fleet Manager
+if ($action == 'get_nominals' && $canManageFleet) {
+    echo json_encode(getJ2ApiData('/nominalcateg', $apiKey) ?: []); exit;
+}
+
 if ($action == 'get_clients' && $canManageFleet) {
     echo json_encode($pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC)); exit;
 }
@@ -41,23 +46,29 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'save_plant' && $canManageFleet) {
-    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    // Force backend data integrity rules
+    $minHours = ($_POST['pricing_type'] === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    $nomVar = ($_POST['pricing_type'] === 'fixed_then_hourly' && !empty($_POST['nom_code_variable'])) ? $_POST['nom_code_variable'] : null;
+
+    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?)");
     $stmt->execute([
-        $_POST['category'], $_POST['name'], $_POST['reg'], $_POST['owner_id'], $_POST['rate_in'], $_POST['rate_ext'],
-        $_POST['pricing_type'], empty($_POST['min_hours']) ? 0 : $_POST['min_hours'],
-        empty($_POST['nom_code_fixed']) ? null : $_POST['nom_code_fixed'], empty($_POST['nom_code_variable']) ? null : $_POST['nom_code_variable'],
-        $_POST['billing_company_id']
+        $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
+        $_POST['billing_company_id'], // Owner automatically mirrors Billing Company
+        $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id']
     ]);
     echo "OK"; exit;
 }
 
 if ($action == 'update_plant' && $canManageFleet) {
-    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=?, external_rate=?, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
+    // Force backend data integrity rules
+    $minHours = ($_POST['pricing_type'] === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    $nomVar = ($_POST['pricing_type'] === 'fixed_then_hourly' && !empty($_POST['nom_code_variable'])) ? $_POST['nom_code_variable'] : null;
+
+    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
     $stmt->execute([
-        $_POST['category'], $_POST['name'], $_POST['reg'], $_POST['owner_id'], $_POST['rate_in'], $_POST['rate_ext'],
-        $_POST['pricing_type'], empty($_POST['min_hours']) ? 0 : $_POST['min_hours'],
-        empty($_POST['nom_code_fixed']) ? null : $_POST['nom_code_fixed'], empty($_POST['nom_code_variable']) ? null : $_POST['nom_code_variable'],
-        $_POST['billing_company_id'], $_POST['edit_plant_id']
+        $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
+        $_POST['billing_company_id'], // Owner automatically mirrors Billing Company
+        $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
     ]);
     echo "OK"; exit;
 }
@@ -115,7 +126,6 @@ if ($action == 'cancel_booking' && $isManager) { $pdo->prepare("DELETE FROM plan
 if ($action == 'get_project_location' && $isManager) { $stmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?"); $stmt->execute([$_GET['project_id']]); echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); exit; }
 
 if ($action == 'get_job') {
-    // UPDATED: Now joins p.category so the edit form can automatically cascade the dropdowns!
     $stmt = $pdo->prepare("SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, prj.name as project_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id WHERE pb.id = ?"); $stmt->execute([$_GET['id']]); $job = $stmt->fetch(PDO::FETCH_ASSOC); $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; echo json_encode($job); exit;
 }
 
