@@ -137,17 +137,17 @@ $userId = $_SESSION['user_id'];
                 <label>Assigned Driver</label><select id="driver_id" class="input-heavy"></select>
                 <label>Job Type</label><select id="booking_type" class="input-heavy" onchange="toggleJobType()"><option value="in-house">In-House Project</option><option value="external">External / ERP Client</option></select>
 
-                <div id="inhouse-fields"><label>Select Project</label><select id="project_id" class="input-heavy" onchange="updateProjectLocation()"></select></div>
+                <div id="inhouse-fields"><label>Select Project (Pre-loads map)</label><select id="project_id" class="input-heavy" onchange="updateProjectLocation()"></select></div>
                 
-                <!-- REVERTED TO SEARCH BAR -->
-                <div id="external-fields" style="display: none; position: relative;">
+                <!-- Client Search is now ALWAYS VISIBLE -->
+                <div id="client-fields" style="position: relative;">
                     <label>ERP Client (Select Vehicle First)</label>
                     <input type="text" id="client_name" class="input-heavy" placeholder="start writing client here" autocomplete="off" onkeyup="filterLocalClients(this.value)" disabled>
                     <input type="hidden" id="client_code">
                     <div id="client_search_results" style="display:none; position:absolute; top:85px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
                 </div>
 
-                <label>Location (Tap Map to Pin)</label>
+                <label>Location (Tap Map to Pin manually)</label>
                 <div id="map" style="width: 100%; height: 250px; border-radius: 12px; margin-bottom: 15px; border: 2px solid #e2e8f0;"></div>
                 <input type="hidden" id="loc_lat"><input type="hidden" id="loc_lng">
                 
@@ -256,7 +256,6 @@ $userId = $_SESSION['user_id'];
         });
     }
 
-    // --- REVERTED TO SEARCH BAR LOGIC ---
     let currentErpClients = [];
 
     function updatePlantDropdown() {
@@ -316,12 +315,11 @@ $userId = $_SESSION['user_id'];
         document.getElementById('client_name').value = name; 
         document.getElementById('client_search_results').style.display = 'none'; 
     }
-    // --- END LOGIC ---
 
     function toggleJobType() {
         const type = document.getElementById('booking_type').value;
+        // Client search is now permanently visible. We only toggle the Project selector.
         document.getElementById('inhouse-fields').style.display = type === 'in-house' ? 'block' : 'none';
-        document.getElementById('external-fields').style.display = type === 'external' ? 'block' : 'none';
     }
 
     function openCreateForm() {
@@ -438,7 +436,7 @@ $userId = $_SESSION['user_id'];
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
                     <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
                         <div><div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name}</div>
-                        <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${j.booking_type === 'in-house' ? j.project_name : j.client_name}</div>${sysRef}</div>
+                        <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No Client') + ')' : j.client_name}</div>${sysRef}</div>
                         <div style="text-align:right;">${badge}</div>
                     </div>
                     <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
