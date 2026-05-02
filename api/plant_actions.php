@@ -76,8 +76,17 @@ if ($action == 'get_company_clients' && $isManager) {
     $apiClients = getJ2ApiData('/clients', $apiKey, $companyCode);
     
     $results = [];
-    foreach ($apiClients as $c) {
-        $results[] = ['code' => trim($c['ClientCode']), 'name' => trim($c['ClientName'])];
+    if (is_array($apiClients)) {
+        foreach ($apiClients as $c) {
+            // Bulletproof: Force string conversion and trim all ERP whitespace. Fallback to 'Unknown' if null.
+            $name = trim((string)($c['ClientName'] ?? ''));
+            $code = trim((string)($c['ClientCode'] ?? ''));
+            
+            // Only add valid clients to the search pool
+            if (!empty($name)) {
+                $results[] = ['code' => $code, 'name' => $name];
+            }
+        }
     }
     echo json_encode($results); exit;
 }
