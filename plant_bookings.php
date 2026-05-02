@@ -276,17 +276,33 @@ $userId = $_SESSION['user_id'];
         clientSelect.disabled = true;
 
         fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
-        .then(r=>r.json())
-        .then(res => {
-            if(res.length === 0) {
-                clientSelect.innerHTML = '<option value="">No clients found in ERP</option>';
-            } else {
-                clientSelect.innerHTML = '<option value="">-- Select Client --</option>' + 
-                    res.map(c => `<option value="${c.code}">${c.name}</option>`).join('');
-                clientSelect.disabled = false; 
+        .then(r => r.text()) // Get raw text first in case PHP threw a fatal error
+        .then(rawText => {
+            try {
+                const res = JSON.parse(rawText);
+                
+                // CHECK FOR OUR DEBUG ERROR
+                if (res.debug_error) {
+                    alert(`🚨 API CONNECTION FAILED 🚨\n\nHTTP Code: ${res.httpCode}\n\nRaw ERP Response:\n${res.rawText}`);
+                    clientSelect.innerHTML = '<option value="">API Error (Check Popup)</option>';
+                    return;
+                }
+
+                if(res.length === 0) {
+                    clientSelect.innerHTML = '<option value="">No clients found in ERP</option>';
+                } else {
+                    clientSelect.innerHTML = '<option value="">-- Select Client --</option>' + 
+                        res.map(c => `<option value="${c.code}">${c.name}</option>`).join('');
+                    clientSelect.disabled = false; 
+                }
+            } catch (err) {
+                // If it isn't valid JSON, PHP probably crashed. Show the PHP error.
+                alert(`🚨 FATAL PHP ERROR 🚨\n\nThe server did not return valid JSON. Here is the raw output:\n\n${rawText}`);
+                clientSelect.innerHTML = '<option value="">PHP Error (Check Popup)</option>';
             }
         }).catch(err => {
-            clientSelect.innerHTML = '<option value="">API/Network Error</option>';
+            alert(`🚨 NETWORK ERROR 🚨\n\n${err.message}`);
+            clientSelect.innerHTML = '<option value="">Network Error</option>';
         });
     }
 
