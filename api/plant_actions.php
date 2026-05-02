@@ -7,55 +7,27 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
+// Restrict Fleet Management to Admins only. Plant Managers can still manage bookings.
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
-$canManageFleet = in_array($role, ['admin', 'system_manager', 'plant_manager']);
+$canManageFleet = in_array($role, ['admin', 'system_manager']);
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
 
-$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
+$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=''; 
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
-// --- FINAL API HELPERS (No Company ID, but retaining x-api-key & FollowLocation) ---
 function getJ2ApiData($endpoint, $apiKey) {
-    global $apiUrlBase; 
-    $url = $apiUrlBase . $endpoint; 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "Content-Type: application/json", 
-        "Accept: application/json", 
-        "x-api-key: " . $apiKey,               
-        "Authorization: Bearer " . $apiKey     
-    ]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-    
-    $response = curl_exec($ch); 
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
-    curl_close($ch);
-    
+    global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
 }
 
 function postJ2ApiData($endpoint, $apiKey, $payload) {
-    global $apiUrlBase; 
-    $url = $apiUrlBase . $endpoint; 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "Content-Type: application/json", 
-        "Accept: application/json", 
-        "x-api-key: " . $apiKey,               
-        "Authorization: Bearer " . $apiKey     
-    ]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-    curl_setopt($ch, CURLOPT_POST, true); 
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-    
-    $response = curl_exec($ch); 
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
-    curl_close($ch);
-    
+    global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ['code' => $httpCode, 'response' => $response];
 }
 
@@ -71,11 +43,21 @@ if ($action == 'get_fleet' && $canManageFleet) {
 if ($action == 'save_plant' && $canManageFleet) {
     $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->execute([
-        $_POST['category'], $_POST['name'], $_POST['reg'], empty($_POST['owner_id']) ? null : $_POST['owner_id'],
-        empty($_POST['rate_in']) ? 0.00 : $_POST['rate_in'], empty($_POST['rate_ext']) ? 0.00 : $_POST['rate_ext'],
+        $_POST['category'], $_POST['name'], $_POST['reg'], $_POST['owner_id'], $_POST['rate_in'], $_POST['rate_ext'],
         $_POST['pricing_type'], empty($_POST['min_hours']) ? 0 : $_POST['min_hours'],
         empty($_POST['nom_code_fixed']) ? null : $_POST['nom_code_fixed'], empty($_POST['nom_code_variable']) ? null : $_POST['nom_code_variable'],
         $_POST['billing_company_id']
+    ]);
+    echo "OK"; exit;
+}
+
+if ($action == 'update_plant' && $canManageFleet) {
+    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=?, external_rate=?, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
+    $stmt->execute([
+        $_POST['category'], $_POST['name'], $_POST['reg'], $_POST['owner_id'], $_POST['rate_in'], $_POST['rate_ext'],
+        $_POST['pricing_type'], empty($_POST['min_hours']) ? 0 : $_POST['min_hours'],
+        empty($_POST['nom_code_fixed']) ? null : $_POST['nom_code_fixed'], empty($_POST['nom_code_variable']) ? null : $_POST['nom_code_variable'],
+        $_POST['billing_company_id'], $_POST['edit_plant_id']
     ]);
     echo "OK"; exit;
 }
@@ -99,14 +81,11 @@ if ($action == 'form_data') {
 }
 
 if ($action == 'get_company_clients' && $isManager) {
-    // Fetch clients without passing any company ID
     $apiClients = getJ2ApiData('/clients', $apiKey); 
-    
     $results = [];
     if (is_array($apiClients)) {
         foreach ($apiClients as $c) {
-            $name = trim((string)($c['ClientName'] ?? ''));
-            $code = trim((string)($c['ClientCode'] ?? ''));
+            $name = trim((string)($c['ClientName'] ?? '')); $code = trim((string)($c['ClientCode'] ?? ''));
             if (!empty($name)) { $results[] = ['code' => $code, 'name' => $name]; }
         }
     }
@@ -136,7 +115,8 @@ if ($action == 'cancel_booking' && $isManager) { $pdo->prepare("DELETE FROM plan
 if ($action == 'get_project_location' && $isManager) { $stmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?"); $stmt->execute([$_GET['project_id']]); echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); exit; }
 
 if ($action == 'get_job') {
-    $stmt = $pdo->prepare("SELECT pb.*, p.name as plant_name, p.pricing_type, prj.name as project_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id WHERE pb.id = ?"); $stmt->execute([$_GET['id']]); $job = $stmt->fetch(PDO::FETCH_ASSOC); $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; echo json_encode($job); exit;
+    // UPDATED: Now joins p.category so the edit form can automatically cascade the dropdowns!
+    $stmt = $pdo->prepare("SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, prj.name as project_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id WHERE pb.id = ?"); $stmt->execute([$_GET['id']]); $job = $stmt->fetch(PDO::FETCH_ASSOC); $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; echo json_encode($job); exit;
 }
 
 if ($action == 'punch_in') { $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=? WHERE id=?")->execute([$userId, $_GET['id']]); echo "OK"; exit; }
@@ -183,7 +163,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     $payload = [ "Type" => "IN", "PaymentType" => null, "Description" => "Generated by Booking Portal", "Amount" => null, "Change" => null, "NominalAccount" => null, "Transaction" => [ "InvioceHeader" => [ "THTranCode" => "IN", "THDate" => date('Y-m-d'), "THUserID" => "API", "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", "THTotValueTIF" => (string)($totalVal + $totalTax), "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => $totalTax, "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => $jobRef ], "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" ] ];
 
-    $erpResult = postJ2ApiData('/saletransactions', $apiKey, $payload); // Cleaned payload
+    $erpResult = postJ2ApiData('/saletransactions', $apiKey, $payload);
     if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); echo "OK"; } else { echo "ERP_SYNC_FAILED: " . htmlspecialchars($erpResult['response']); } exit;
 }
 
