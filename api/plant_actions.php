@@ -142,7 +142,6 @@ function getNominalDetails($nomCode, $apiKey) {
 }
 
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
-   if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
     
     // SAFEGUARD: Force inputs to be floats so MySQL doesn't crash on empty strings ""
