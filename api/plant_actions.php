@@ -142,11 +142,22 @@ function getNominalDetails($nomCode, $apiKey) {
 }
 
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
+   if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
-    $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?")->execute([$_POST['hours'], $_POST['rate'], $_POST['subtotal'], $bookingId]);
     
-    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.inhouse_rate, p.external_rate, p.min_hours, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); $stmt->execute([$bookingId]); $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    // SAFEGUARD: Force inputs to be floats so MySQL doesn't crash on empty strings ""
+    $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
+    $finalRate = empty($_POST['rate']) ? 0 : (float)$_POST['rate'];
+    $finalSubtotal = empty($_POST['subtotal']) ? 0 : (float)$_POST['subtotal'];
 
+    // Use the safe variables in the SQL statement
+    $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?")
+        ->execute([$finalHours, $finalRate, $finalSubtotal, $bookingId]);
+    
+    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.inhouse_rate, p.external_rate, p.min_hours, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
+    $stmt->execute([$bookingId]); 
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+       
     if(empty($job['client_code'])) { echo "LOCAL_SAVE_ONLY: Invoice generated locally, but missing Client Code prevented pushing to ERP."; exit; }
 
     $isInternal = $job['booking_type'] == 'in-house'; $totalVal = (float)$_POST['subtotal']; $totalTax = $totalVal * 0.18;
