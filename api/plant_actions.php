@@ -146,33 +146,40 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?")->execute([$finalHours, $finalRate, $finalSubtotal, $bookingId]);
     
-    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.inhouse_rate, p.external_rate, p.min_hours, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); $stmt->execute([$bookingId]); $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.inhouse_rate, p.external_rate, p.min_hours, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
+    $stmt->execute([$bookingId]); 
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if(empty($job['client_code'])) { echo "LOCAL_SAVE_ONLY: Invoice generated locally, but missing Client Code prevented pushing to ERP."; exit; }
 
-    $isInternal = $job['booking_type'] == 'in-house'; $totalVal = $finalSubtotal; $totalTax = $totalVal * 0.18;
+    $isInternal = $job['booking_type'] == 'in-house'; 
+    $totalVal = $finalSubtotal; 
+    $totalTax = $totalVal * 0.18;
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
+    
+    // BUILD THE LINES (Stripped of $jobRef and safely truncated to 35 chars to prevent DB crashes)
     $lines = [];
     
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
         $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
-        if($fixedNom) { $lines[] = ["Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => trim($fixedNom['NCDesc']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => $isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
+        if($fixedNom) { $lines[] = ["Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => $isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
         $extraHours = $finalHours - (float)$job['min_hours'];
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
             $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
-            if($varNom) { $lines[] = ["Type" => "N", "Code" => trim($varNom['NCCode']), "Description" => trim($varNom['NCDesc']) . " (Extra Hrs)", "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => $isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
+            if($varNom) { $lines[] = ["Type" => "N", "Code" => trim($varNom['NCCode']), "Description" => substr(trim($varNom['NCDesc']), 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => $isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
         }
     } 
     elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
         $tripNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
-        if($tripNom) { $lines[] = ["Type" => "N", "Code" => trim($tripNom['NCCode']), "Description" => trim($tripNom['NCDesc']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, "Price" => $isInternal ? $tripNom['NCDefSP1'] : $tripNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
+        if($tripNom) { $lines[] = ["Type" => "N", "Code" => trim($tripNom['NCCode']), "Description" => substr(trim($tripNom['NCDesc']), 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, "Price" => $isInternal ? $tripNom['NCDefSP1'] : $tripNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
     }
     else {
-        $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; $standardNom = getNominalDetails($standardCode, $apiKey);
-        $lines[] = ["Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => ($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation: " . $job['plant_name']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => $finalHours, "Price" => $finalRate, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0];
+        $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; 
+        $standardNom = getNominalDetails($standardCode, $apiKey);
+        $lines[] = ["Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => $finalHours, "Price" => $finalRate, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0];
     }
 
-// SAFEGUARD: Ensure we actually have lines to bill!
+    // SAFEGUARD: Ensure we actually have lines to bill!
     if (empty($lines)) {
         echo "ERP_SYNC_FAILED: No valid Nominal Codes were found for this job. The invoice lines are empty."; 
         exit;
@@ -202,7 +209,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                 "THCurrency" => "EUR", 
                 "THExchRate" => 1, 
                 "THPayment" => "", 
-                "THPayRef" => $jobRef 
+                "THPayRef" => $jobRef // Job Ref safely here instead of line items!
             ], 
             "invioceItemLine" => [ // Lowercase 'i', typo 'io'
                 "Lines" => $lines 
