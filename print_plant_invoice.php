@@ -25,7 +25,7 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-$apiKey = 'PASTE_YOUR_API_KEY_HERE'; 
+$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
 
 // 2. Bulletproof API Fetcher
 function getJ2ApiData($endpoint, $apiKey) {
