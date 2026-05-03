@@ -5,13 +5,13 @@ require_once 'S3FileManager.php';
 
 $bookingId = $_GET['booking_id'] ?? 0;
 
-// 1. Fetch Job Data
+// 1. Fetch Job Data (Removed the non-existent prj.locality column)
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
            p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
            bc.name as developer_name, bc.logo_path as developer_logo, 
            bc.bank_name, bc.iban, bc.swift_bic, 
-           prj.name as project_name, prj.locality as project_locality,
+           prj.name as project_name,
            drv.first_name, drv.last_name
     FROM plant_bookings pb 
     JOIN plants p ON pb.plant_id = p.id
@@ -87,8 +87,10 @@ $qtyLabel = $isTripBased ? "Trips Executed" : "Total Hours Executed";
 
 $clientDisplay = $job['client_name'] ? htmlspecialchars($job['client_name']) : 'N/A';
 $clientCodeDisplay = $job['client_code'] ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
-$projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name'] . ' (' . $job['project_locality'] . ')') : 'N/A';
+$projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) : 'N/A';
 ?>
+
+
 <!DOCTYPE html>
 <html>
 <head>
