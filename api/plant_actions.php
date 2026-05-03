@@ -31,7 +31,6 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
     return ['code' => $httpCode, 'response' => $response];
 }
 
-// NEW: Endpoint to get Nominal Codes for the Fleet Manager
 if ($action == 'get_nominals' && $canManageFleet) {
     echo json_encode(getJ2ApiData('/nominalcateg', $apiKey) ?: []); exit;
 }
@@ -46,29 +45,25 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'save_plant' && $canManageFleet) {
-    // Force backend data integrity rules
     $minHours = ($_POST['pricing_type'] === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
     $nomVar = ($_POST['pricing_type'] === 'fixed_then_hourly' && !empty($_POST['nom_code_variable'])) ? $_POST['nom_code_variable'] : null;
 
     $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?)");
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], // Owner automatically mirrors Billing Company
-        $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id']
+        $_POST['billing_company_id'], $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id']
     ]);
     echo "OK"; exit;
 }
 
 if ($action == 'update_plant' && $canManageFleet) {
-    // Force backend data integrity rules
     $minHours = ($_POST['pricing_type'] === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
     $nomVar = ($_POST['pricing_type'] === 'fixed_then_hourly' && !empty($_POST['nom_code_variable'])) ? $_POST['nom_code_variable'] : null;
 
     $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], // Owner automatically mirrors Billing Company
-        $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
+        $_POST['billing_company_id'], $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
     ]);
     echo "OK"; exit;
 }
@@ -149,24 +144,20 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $finalRate = empty($_POST['rate']) ? 0 : (float)$_POST['rate'];
     $finalSubtotal = empty($_POST['subtotal']) ? 0 : (float)$_POST['subtotal'];
 
-    // Use the safe variables in the SQL statement
-    $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?")
-        ->execute([$finalHours, $finalRate, $finalSubtotal, $bookingId]);
+    $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?")->execute([$finalHours, $finalRate, $finalSubtotal, $bookingId]);
     
-    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.inhouse_rate, p.external_rate, p.min_hours, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
-    $stmt->execute([$bookingId]); 
-    $job = $stmt->fetch(PDO::FETCH_ASSOC);
-       
+    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.inhouse_rate, p.external_rate, p.min_hours, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); $stmt->execute([$bookingId]); $job = $stmt->fetch(PDO::FETCH_ASSOC);
+
     if(empty($job['client_code'])) { echo "LOCAL_SAVE_ONLY: Invoice generated locally, but missing Client Code prevented pushing to ERP."; exit; }
 
-    $isInternal = $job['booking_type'] == 'in-house'; $totalVal = (float)$_POST['subtotal']; $totalTax = $totalVal * 0.18;
+    $isInternal = $job['booking_type'] == 'in-house'; $totalVal = $finalSubtotal; $totalTax = $totalVal * 0.18;
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $lines = [];
     
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
         $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
         if($fixedNom) { $lines[] = ["Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => trim($fixedNom['NCDesc']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => $isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
-        $extraHours = (float)$_POST['hours'] - (float)$job['min_hours'];
+        $extraHours = $finalHours - (float)$job['min_hours'];
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
             $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
             if($varNom) { $lines[] = ["Type" => "N", "Code" => trim($varNom['NCCode']), "Description" => trim($varNom['NCDesc']) . " (Extra Hrs)", "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => $isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; }
@@ -178,13 +169,53 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     }
     else {
         $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; $standardNom = getNominalDetails($standardCode, $apiKey);
-        $lines[] = ["Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => ($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation: " . $job['plant_name']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$_POST['hours'], "Price" => (float)$_POST['rate'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0];
+        $lines[] = ["Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => ($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation: " . $job['plant_name']) . " ($jobRef)", "UOMLevel" => 1, "Location" => "01", "Qty" => $finalHours, "Price" => $finalRate, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0];
     }
 
-    $payload = [ "Type" => "IN", "PaymentType" => null, "Description" => "Generated by Booking Portal", "Amount" => null, "Change" => null, "NominalAccount" => null, "Transaction" => [ "InvioceHeader" => [ "THTranCode" => "IN", "THDate" => date('Y-m-d'), "THUserID" => "API", "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", "THTotValueTIF" => (string)($totalVal + $totalTax), "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => $totalTax, "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => $jobRef ], "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" ] ];
+    $payload = [
+        "Type" => "IN", 
+        "PaymentType" => null, 
+        "Description" => "Generated by Booking Portal", 
+        "Amount" => null, 
+        "Change" => null, 
+        "NominalAccount" => null, 
+        "Transaction" => [ 
+            "InvoiceHeader" => [ 
+                "THTranCode" => "IN", 
+                "THDate" => date('Y-m-d'), 
+                "THUserID" => "API", 
+                "THCSCode" => $job['client_code'], 
+                "THName" => $job['client_name'], 
+                "THTaxNumber" => "", 
+                "THTotValueTIF" => (string)($totalVal + $totalTax), 
+                "THRevision" => "001", 
+                "THTotDiscF" => 0.0, 
+                "THTotDiscTIF" => 0.0, 
+                "THTotTaxF" => $totalTax, 
+                "THCurrency" => "EUR", 
+                "THExchRate" => 1, 
+                "THPayment" => "", 
+                "THPayRef" => $jobRef 
+            ], 
+            "InvoiceItemLine" => [ 
+                "Lines" => $lines 
+            ], 
+            "Ledger" => "S", 
+            "OfflineDocRefs" => "" 
+        ] 
+    ];
 
-    $erpResult = postJ2ApiData('/saletransactions', $apiKey, $payload);
-    if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); echo "OK"; } else { echo "ERP_SYNC_FAILED: " . htmlspecialchars($erpResult['response']); } exit;
+    // UPDATED ENDPOINT PATH HERE
+    $erpResult = postJ2ApiData('/sales/transaction', $apiKey, $payload);
+    
+    if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { 
+        $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; 
+        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); 
+        echo "OK"; 
+    } else { 
+        echo "ERP_SYNC_FAILED: " . htmlspecialchars($erpResult['response']); 
+    } 
+    exit;
 }
 
 if ($action == 'get_ledger' && $canViewLedger) {
