@@ -6,12 +6,15 @@ require_once 'user-functions.php';
 $role = $_SESSION['role'];
 $isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
 $isAccountant = ($role === 'accountant');
-if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant) { die("Unauthorized Access."); }
 
-// Plant Managers can edit pending bookings, but ONLY Admins/Sys Managers can manage the fleet and nominals
+if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant) { 
+    die("Unauthorized Access."); 
+}
+
+// Admins get automatic access. Plant Managers get access IF you tick the box in User Management!
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']); 
-$canManageFleet = in_array($role, ['admin', 'system_manager']); 
-$canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
+$canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet'); 
+$canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 $userId = $_SESSION['user_id'];
 ?>
 <!DOCTYPE html>
