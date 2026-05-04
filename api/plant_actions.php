@@ -7,10 +7,10 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
-// Restrict Fleet Management to Admins only. Plant Managers can still manage bookings.
+// Admins get automatic access. Plant Managers get access IF you tick the box in User Management!
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
-$canManageFleet = in_array($role, ['admin', 'system_manager']);
-$canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']);
+$canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
+$canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
 $apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
