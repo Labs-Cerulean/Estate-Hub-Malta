@@ -1,7 +1,15 @@
 <?php
-require_once 'config.php';
+require_once 'init.php';
 require_once 'session-check.php';
+require_once 'user-functions.php';
 require_once 'S3FileManager.php';
+
+// Explicit authorization check to prevent the session manager from kicking the user
+$role = $_SESSION['role'] ?? '';
+$hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager', 'plant_driver']);
+if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
+    die("Unauthorized Access to Invoice.");
+}
 
 $bookingId = $_GET['booking_id'] ?? 0;
 
