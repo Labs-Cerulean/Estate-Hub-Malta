@@ -81,9 +81,40 @@ if ($action == 'save_driver' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
+    // 1. Fetch and group Plants
     $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
-    $plants = []; foreach($plantsRaw as $p) { $cat = empty($p['category']) ? 'General' : $p['category']; if(!isset($plants[$cat])) $plants[$cat] = []; $plants[$cat][] = $p; }
-    echo json_encode(['plants' => $plants, 'drivers' => $pdo->query("SELECT id, first_name, last_name FROM users WHERE role='plant_driver'")->fetchAll(PDO::FETCH_ASSOC), 'projects' => getAccessibleProjects($pdo, $userId)]); exit;
+    $plants = []; 
+    foreach($plantsRaw as $p) { 
+        $cat = empty($p['category']) ? 'General' : $p['category']; 
+        if(!isset($plants[$cat])) $plants[$cat] = []; 
+        $plants[$cat][] = $p; 
+    }
+    
+    // 2. Fetch Drivers
+    $drivers = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role='plant_driver'")->fetchAll(PDO::FETCH_ASSOC);
+    
+    // 3. Fetch Projects & inject the 'city' column as 'locality' for the frontend grouper
+    $projects = getAccessibleProjects($pdo, $userId);
+    
+    if (!empty($projects)) {
+        // Grab just the IDs to look up their cities
+        $projectIds = array_column($projects, 'id');
+        $in = str_repeat('?,', count($projectIds) - 1) . '?';
+        
+        $stmt = $pdo->prepare("SELECT id, city FROM projects WHERE id IN ($in)");
+        $stmt->execute($projectIds);
+        $cities = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // Returns an array of [id => city]
+        
+        // Loop through the projects and attach the city
+        foreach ($projects as &$prj) {
+            $city = $cities[$prj['id']] ?? '';
+            // If city is missing/empty, default it safely
+            $prj['locality'] = empty(trim($city)) ? 'General / Other Regions' : trim($city);
+        }
+    }
+    
+    echo json_encode(['plants' => $plants, 'drivers' => $drivers, 'projects' => $projects]); 
+    exit;
 }
 
 if ($action == 'get_company_clients' && $isManager) {
