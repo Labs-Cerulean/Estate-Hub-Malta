@@ -27,7 +27,16 @@ if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 
 // Auto-Redirect Plant Staff to their specific app
 if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['plant_manager', 'plant_driver'])) {
     $current_file = basename($_SERVER['PHP_SELF']);
-    if ($current_file !== 'plant_bookings.php' && strpos($_SERVER['PHP_SELF'], '/api/') === false && $current_file !== 'logout.php') {
+    
+    // List of exact files Plant Staff are allowed to view
+    $allowed_plant_pages = [
+        'plant_bookings.php', 
+        'print_plant_invoice.php', 
+        'logout.php'
+    ];
+    
+    // If they try to load a page NOT in the list (and not an API call), redirect them back
+    if (!in_array($current_file, $allowed_plant_pages) && strpos($_SERVER['PHP_SELF'], '/api/') === false) {
         header("Location: plant_bookings.php");
         exit;
     }
