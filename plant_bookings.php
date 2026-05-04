@@ -416,19 +416,89 @@ $userId = $_SESSION['user_id'];
     }
 
     function submitBooking() {
-        const btn = document.getElementById('submit_booking_btn'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-        const editId = document.getElementById('edit_booking_id').value;
-        const fd = new FormData(); fd.append('action', editId ? 'update_booking' : 'create_booking'); if (editId) fd.append('edit_id', editId);
-        fd.append('plant_id', document.getElementById('plant_id').value); fd.append('driver_id', document.getElementById('driver_id').value);
-        fd.append('booking_type', document.getElementById('booking_type').value); fd.append('project_id', document.getElementById('project_id').value);
-        fd.append('client_name', document.getElementById('client_name').value); fd.append('client_code', document.getElementById('client_code').value);
-        fd.append('loc_lat', document.getElementById('loc_lat').value); fd.append('loc_lng', document.getElementById('loc_lng').value);
-        fd.append('comments', document.getElementById('booking_comments').value); fd.append('booking_date', document.getElementById('booking_date').value);
-        fd.append('start_time', document.getElementById('start_time').value); fd.append('end_time', document.getElementById('end_time').value);
+        // 1. Reset all borders to default before checking
+        document.querySelectorAll('#createBookingForm .input-heavy').forEach(el => el.style.borderColor = '#e2e8f0');
+        document.getElementById('map').style.borderColor = '#e2e8f0';
 
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
-            if (res === 'OK') { alert("Saved!"); calendar.refetchEvents(); showView('view-calendar'); } else { alert("Error: " + res); }
-            btn.disabled = false; btn.innerHTML = editId ? '<i class="fas fa-save"></i> Update Booking' : '<i class="fas fa-check"></i> Save Booking';
+        let isValid = true;
+        let firstError = null;
+
+        // Helper function to highlight errors
+        function showError(elementId) {
+            const el = document.getElementById(elementId);
+            if (el) {
+                el.style.borderColor = '#ef4444'; // Highlight Red
+                isValid = false;
+                if (!firstError) firstError = el;
+            }
+        }
+
+        // 2. Validate Standard Required Fields
+        if (!document.getElementById('plant_category').value) showError('plant_category');
+        if (!document.getElementById('plant_id').value) showError('plant_id');
+        if (!document.getElementById('booking_date').value) showError('booking_date');
+        if (!document.getElementById('start_time').value) showError('start_time');
+        if (!document.getElementById('end_time').value) showError('end_time');
+
+        // 3. Validate Conditional Fields (Project vs Client)
+        const bType = document.getElementById('booking_type').value;
+        if (bType === 'in-house' && !document.getElementById('project_id').value) {
+            showError('project_id');
+        } else if (bType === 'external' && !document.getElementById('client_code').value) {
+            showError('client_name');
+        }
+
+        // 4. Validate Location (Map Pins)
+        if (!document.getElementById('loc_lat').value || !document.getElementById('loc_lng').value) {
+            showError('map');
+        }
+
+        // 5. Stop submission if errors exist
+        if (!isValid) {
+            alert("Please fill out all highlighted fields and ensure a location is pinned on the map.");
+            if (firstError) {
+                // Smooth scroll to the first missing field
+                firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if(firstError.focus) firstError.focus();
+            }
+            return; 
+        }
+
+        // 6. If everything is valid, proceed with Saving
+        const btn = document.getElementById('submit_booking_btn'); 
+        btn.disabled = true; 
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        const editId = document.getElementById('edit_booking_id').value;
+        const fd = new FormData(); 
+        fd.append('action', editId ? 'update_booking' : 'create_booking'); 
+        if (editId) fd.append('edit_id', editId);
+        
+        fd.append('plant_id', document.getElementById('plant_id').value); 
+        fd.append('driver_id', document.getElementById('driver_id').value);
+        fd.append('booking_type', document.getElementById('booking_type').value); 
+        fd.append('project_id', document.getElementById('project_id').value);
+        fd.append('client_name', document.getElementById('client_name').value); 
+        fd.append('client_code', document.getElementById('client_code').value);
+        fd.append('loc_lat', document.getElementById('loc_lat').value); 
+        fd.append('loc_lng', document.getElementById('loc_lng').value);
+        fd.append('comments', document.getElementById('booking_comments').value); 
+        fd.append('booking_date', document.getElementById('booking_date').value);
+        fd.append('start_time', document.getElementById('start_time').value); 
+        fd.append('end_time', document.getElementById('end_time').value);
+
+        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        .then(r => r.text())
+        .then(res => {
+            if (res === 'OK') { 
+                alert("Saved!"); 
+                calendar.refetchEvents(); 
+                showView('view-calendar'); 
+            } else { 
+                alert("Error: " + res); 
+            }
+            btn.disabled = false; 
+            btn.innerHTML = editId ? '<i class="fas fa-save"></i> Update Booking' : '<i class="fas fa-check"></i> Save Booking';
         });
     }
 
