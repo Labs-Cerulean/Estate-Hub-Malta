@@ -1177,7 +1177,7 @@ require_once 'header.php';
                 let modal = document.getElementById('createQuoteModal');
                 if (event.target == modal) modal.style.display = "none";
             });
-            </script>
+            
             
             function autoGenRef() {
                 let contractor = document.getElementById('gen_contractor_prefix').value;
@@ -1206,7 +1206,7 @@ require_once 'header.php';
                 let modal = document.getElementById('createQuoteModal');
                 if (event.target == modal) modal.style.display = "none";
             });
-            
+            </script>
             <?php endif; ?>
 
         <?php else: ?>
