@@ -1177,35 +1177,7 @@ require_once 'header.php';
                 let modal = document.getElementById('createQuoteModal');
                 if (event.target == modal) modal.style.display = "none";
             });
-            
-            
-            function autoGenRef() {
-                let contractor = document.getElementById('gen_contractor_prefix').value;
-                
-                let projSel = document.querySelector('select[name="project_id"]');
-                let projText = projSel.options[projSel.selectedIndex]?.text || '';
-                let projPrefix = projText.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
-                if (!projPrefix || projPrefix === '-- S') projPrefix = 'PRJ';
-                
-                let clientSel = document.querySelector('select[name="client_id"]');
-                let clientText = clientSel.options[clientSel.selectedIndex]?.text || '';
-                let clientFree = document.querySelector('input[name="client_name_free"]').value;
-                
-                let effClient = (clientSel.value !== '') ? clientText : clientFree;
-                let clientPrefix = effClient.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
-                if (!clientPrefix || clientPrefix === '-- S') clientPrefix = 'CLI';
-
-                let d = new Date();
-                let yr = d.getFullYear();
-                let rnd = Math.floor(100 + Math.random() * 900);
-                
-                document.getElementById('create_ref_input').value = `${contractor}-${clientPrefix}-${projPrefix}-${yr}-${rnd}`;
-            }
-
-            window.addEventListener('click', function(event) {
-                let modal = document.getElementById('createQuoteModal');
-                if (event.target == modal) modal.style.display = "none";
-            });
+                       
             </script>
             <?php endif; ?>
 
