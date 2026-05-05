@@ -1125,7 +1125,7 @@ require_once 'header.php';
             </div>
             
             <script>
-           <script>
+           
             function openCreateQuoteModal(type) {
                 let title = 'Create Quote';
                 let projLabel = document.getElementById('create_project_label');
