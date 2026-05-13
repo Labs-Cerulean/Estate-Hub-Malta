@@ -33,7 +33,13 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
+// Dynamic API Key Mapper
+$apiKeys = [
+    '24' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRA API Key
+    '26' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRAX API Key
+    'default' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='
+];
+$apiKey = $apiKeys[$job['billing_company_id']] ?? $apiKeys['default'];
 
 // 2. Bulletproof API Fetcher
 function getJ2ApiData($endpoint, $apiKey) {
