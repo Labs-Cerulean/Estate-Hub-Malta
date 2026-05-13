@@ -12,8 +12,17 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
-$apiKey = 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='; 
+$apiKeys = [
+    '24' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRA API Key
+    '26' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRAX API Key
+    'default' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='
+];
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
+
+function getApiKey($companyId) {
+    global $apiKeys;
+    return $apiKeys[$companyId] ?? $apiKeys['default'];
+}
 
 function getJ2ApiData($endpoint, $apiKey) {
     global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
@@ -32,6 +41,7 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
 }
 
 if ($action == 'get_nominals' && $canManageFleet) {
+    $apiKey = getApiKey($_GET['company_id'] ?? '');
     echo json_encode(getJ2ApiData('/nominalcateg', $apiKey) ?: []); exit;
 }
 
@@ -118,7 +128,8 @@ if ($action == 'form_data') {
 }
 
 if ($action == 'get_company_clients' && $isManager) {
-    $apiClients = getJ2ApiData('/clients', $apiKey); 
+    $apiKey = getApiKey($_GET['company_id'] ?? '');
+    $apiClients = getJ2ApiData('/clients', $apiKey);
     $results = [];
     if (is_array($apiClients)) {
         foreach ($apiClients as $c) {
@@ -182,6 +193,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    $apiKey = getApiKey($job['billing_company_id']);
+    
     if(empty($job['client_code'])) { echo "LOCAL_SAVE_ONLY: Invoice generated locally, but missing Client Code prevented pushing to ERP."; exit; }
 
     $isInternal = $job['booking_type'] == 'in-house'; 
@@ -287,7 +300,11 @@ if ($action == 'get_ledger' && $canViewLedger) {
 if ($action == 'mark_settled' && $canViewLedger) { $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?")->execute([$_POST['id']]); echo "OK"; exit; }
 
 if ($action == 'get_nominals_for_job') {
-    $stmt = $pdo->prepare("SELECT p.nom_code_fixed, p.nom_code_variable FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); $stmt->execute([$_GET['booking_id']]); $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare("SELECT p.nom_code_fixed, p.nom_code_variable, p.billing_company_id FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
+    $stmt->execute([$_GET['booking_id']]); 
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    $apiKey = getApiKey($job['billing_company_id']);
     echo json_encode(['fixed' => getNominalDetails($job['nom_code_fixed'], $apiKey), 'variable' => getNominalDetails($job['nom_code_variable'], $apiKey)]); exit;
 }
 ?>
