@@ -77,8 +77,11 @@ try {
         foreach ($defaultRates as $r) { $s->execute($r); }
     }
     
-    // 2. Add storage column for calculator memory
+   // 2. Add storage column for calculator memory
     $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN finishes_calc_data TEXT DEFAULT NULL");
+    
+    // 3. Add free-text project reference column
+    $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN project_name_free VARCHAR(255) DEFAULT NULL");
 } catch(PDOException $e) {}
 
 
@@ -122,7 +125,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'create_quote') {
             $type = $_POST['quote_type'];
             if (!$access[$type]['manage']) throw new Exception("Unauthorized.");
-            if (empty($_POST['project_id'])) throw new Exception("A project MUST be selected for this quote.");
+            
+            $project_id = !empty($_POST['project_id']) ? (int)$_POST['project_id'] : null;
+            $project_name_free = !empty($_POST['project_name_free']) ? trim($_POST['project_name_free']) : null;
+            
+            if (!$project_id && !$project_name_free && $type !== 'Demolition_Excavation') {
+                throw new Exception("You must select an existing project OR enter a free-text project reference.");
+            }
             
             $contractor_id = (int)$_POST['contractor_id'];
             $client_id = !empty($_POST['client_id']) ? (int)$_POST['client_id'] : null;
@@ -134,8 +143,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $defTerms = $termStmt->fetchColumn();
             
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("INSERT INTO sales_quotes (contractor_id, client_id, client_name_free, project_id, quote_type, reference_number, vat_rate, created_by, terms_conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([ $contractor_id, $client_id, $client_name_free, $_POST['project_id'], $type, trim($_POST['reference_number']), $_POST['vat_rate'] ?? 18.00, $userId, $defTerms ?: '' ]);
+            $stmt = $pdo->prepare("INSERT INTO sales_quotes (contractor_id, client_id, client_name_free, project_id, project_name_free, quote_type, reference_number, vat_rate, created_by, terms_conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([ $contractor_id, $client_id, $client_name_free, $project_id, $project_name_free, $type, trim($_POST['reference_number']), $_POST['vat_rate'] ?? 18.00, $userId, $defTerms ?: '' ]);
+
+            
             $newQuoteId = $pdo->lastInsertId();
             
             if ($type !== 'Finishes') { 
@@ -1019,8 +1030,8 @@ require_once 'header.php';
                                 </td>
                                 <td style="font-weight: bold; color: var(--text-primary);"><?= htmlspecialchars($q['reference_number']) ?></td>
                                 <td>
-                                    <div><?= htmlspecialchars($q['project_name']) ?></div>
-                                    <div style="font-size: 0.75rem; color: var(--text-muted);">Billed To: <?= htmlspecialchars($effName) ?></div>
+                                    <div><?= htmlspecialchars($q['project_name'] ?? $q['project_name_free'] ?? 'Unlinked / General') ?></div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted);">Billed To: <?= htmlspecialchars($effName ?? 'Unknown') ?></div>
                                 </td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($q['total_inc_vat'], 2) ?></td>
                                 <td style="text-align: right; color: #a855f7;">€<?= number_format($q['total_inc_vat'] - $q['total_claimed'], 2) ?></td>
@@ -1079,12 +1090,23 @@ require_once 'header.php';
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label>2. Project (Required) *</label>
-                            <select name="project_id" required onchange="autoGenRef()">
-                                <option value="">-- Select Project --</option>
-                                <?php foreach($projectsDb as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['client_name']) ?>)</option><?php endforeach; ?>
-                            </select>
+                       <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px;">
+                            <label id="create_project_label" style="color: var(--primary-color);">2. Project Reference</label>
+                            
+                            <div style="margin-top: 10px;">
+                                <label style="font-size: 0.8rem; color: var(--text-muted);">Option A: Select Existing Project</label>
+                                <select name="project_id" id="create_project_select" onchange="autoGenRef()">
+                                    <option value="">-- Select Project --</option>
+                                    <?php foreach($projectsDb as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['client_name']) ?>)</option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            
+                            <div style="text-align: center; margin: 10px 0; color: var(--text-muted); font-size: 0.8rem;">--- OR ---</div>
+                            
+                            <div>
+                                <label style="font-size: 0.8rem; color: var(--text-muted);">Option B: Free-Text Project Reference</label>
+                                <input type="text" name="project_name_free" onkeyup="autoGenRef()" placeholder="e.g. Block A Renovation">
+                            </div>
                         </div>
                         <div class="form-grid" style="grid-template-columns: 2fr 1fr; gap: 10px;">
                             <div class="form-group">
@@ -1103,11 +1125,19 @@ require_once 'header.php';
             </div>
             
             <script>
+           
             function openCreateQuoteModal(type) {
                 let title = 'Create Quote';
-                if (type === 'Demolition_Excavation') title = 'Create Demolition & Excavation Quote';
-                if (type === 'Construction') title = 'Create Construction Quote';
-                if (type === 'Finishes') title = 'Create Turnkey & Finishes Quote';
+                let projLabel = document.getElementById('create_project_label');
+
+                if (type === 'Demolition_Excavation') {
+                    title = 'Create Demolition & Excavation Quote';
+                    projLabel.innerText = '2. Project Reference (Optional)';
+                } else {
+                    if (type === 'Construction') title = 'Create Construction Quote';
+                    if (type === 'Finishes') title = 'Create Turnkey & Finishes Quote';
+                    projLabel.innerText = '2. Project Reference (Required) *';
+                }
                 
                 document.getElementById('createQuoteModalTitle').innerText = title;
                 document.getElementById('create_quote_type').value = type;
@@ -1118,11 +1148,16 @@ require_once 'header.php';
             function autoGenRef() {
                 let contractor = document.getElementById('gen_contractor_prefix').value;
                 
+                // Project Ref Generation
                 let projSel = document.querySelector('select[name="project_id"]');
                 let projText = projSel.options[projSel.selectedIndex]?.text || '';
-                let projPrefix = projText.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
+                let projFree = document.querySelector('input[name="project_name_free"]').value;
+                
+                let effProj = (projSel.value !== '') ? projText : projFree;
+                let projPrefix = effProj.split(' ')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
                 if (!projPrefix || projPrefix === '-- S') projPrefix = 'PRJ';
                 
+                // Client Ref Generation
                 let clientSel = document.querySelector('select[name="client_id"]');
                 let clientText = clientSel.options[clientSel.selectedIndex]?.text || '';
                 let clientFree = document.querySelector('input[name="client_name_free"]').value;
@@ -1142,6 +1177,7 @@ require_once 'header.php';
                 let modal = document.getElementById('createQuoteModal');
                 if (event.target == modal) modal.style.display = "none";
             });
+                       
             </script>
             <?php endif; ?>
 
@@ -1166,8 +1202,8 @@ require_once 'header.php';
                     <a href="work_sales.php?contractor_id=<?= $selected_contractor_id ?>&tab=<?= $quote['quote_type'] ?>" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem;">&larr; Back to <?= str_replace('_', ' & ', $quote['quote_type']) ?> List</a>
                     <h1 class="page-title" style="margin-bottom: 0.25rem; margin-top: 0.5rem;"><?= htmlspecialchars($quote['reference_number']) ?></h1>
                     <div style="color: var(--text-secondary); font-size: 0.9rem;">
-                        <strong>Billed To:</strong> <?= htmlspecialchars($effectiveClientName) ?> | 
-                        <strong>Project:</strong> <?= htmlspecialchars($quote['project_name']) ?>
+                        <strong>Billed To:</strong> <?= htmlspecialchars($effectiveClientName ?? 'Unknown') ?> | 
+                        <strong>Project:</strong> <?= htmlspecialchars($quote['project_name'] ?? $quote['project_name_free'] ?? 'Unlinked / General') ?>
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center;">
