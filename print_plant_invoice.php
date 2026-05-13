@@ -369,7 +369,7 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
                 if (res === 'OK') {
                     btn.innerHTML = '<i class="fas fa-check"></i> Synced to ERP!';
-                    setTimeout(() => { window.print(); location.reload(); }, 1200);
+                    setTimeout(() => { location.reload(); }, 1200);
                 } else { 
                     alert(res); 
                     btn.disabled = false; 
