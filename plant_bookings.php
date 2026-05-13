@@ -102,7 +102,7 @@ $userId = $_SESSION['user_id'];
                         </select>
                     </div>
                     <div style="flex:1;"><label>Billing & Ownership *</label>
-                        <select id="new_plant_comp" class="input-heavy" required>
+                        <select id="new_plant_comp" class="input-heavy" required onchange="loadFleetNominals(this.value)">
                             <option value="">-- Select --</option>
                             <option value="24">PRA (PRA Construction)</option>
                             <option value="26">PRAX (PRAX Concrete)</option>
@@ -505,13 +505,23 @@ $userId = $_SESSION['user_id'];
     // --- NEW FLEET LOGIC: DYNAMIC NOMINALS & LIVE PRICING ---
     let erpNominals = [];
 
-    function loadFleetNominals() {
-        if(erpNominals.length > 0) return;
-        fetch('api/plant_actions.php?action=get_nominals').then(r=>r.json()).then(res => {
+    function loadFleetNominals(companyId) {
+        if(!companyId) {
+            document.getElementById('new_nom_fixed').innerHTML = '<option value="">-- Select Company First --</option>';
+            document.getElementById('new_nom_var').innerHTML = '<option value="">-- Select Company First --</option>';
+            erpNominals = [];
+            return;
+        }
+        
+        document.getElementById('new_nom_fixed').innerHTML = '<option value="">Loading ERP...</option>';
+        document.getElementById('new_nom_var').innerHTML = '<option value="">Loading ERP...</option>';
+    
+        fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`).then(r=>r.json()).then(res => {
             erpNominals = res;
             const opts = '<option value="">-- Select Nominal Code --</option>' + res.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
             document.getElementById('new_nom_fixed').innerHTML = opts;
             document.getElementById('new_nom_var').innerHTML = opts;
+            updateRatesDisplay();
         });
     }
 
@@ -562,7 +572,7 @@ $userId = $_SESSION['user_id'];
 
     function loadFleetView() {
         if (!canManageFleet) return;
-        loadFleetNominals(); // Prefetch ERP nominals
+        
         fetch('api/plant_actions.php?action=get_fleet').then(r=>r.json()).then(fleet => {
             window.fleetData = fleet;
             document.getElementById('fleet-list').innerHTML = fleet.length === 0 ? '<p>No machinery.</p>' : fleet.map(p => `
@@ -589,6 +599,8 @@ $userId = $_SESSION['user_id'];
         document.getElementById('new_plant_reg').value = p.registration_plate;
         document.getElementById('new_plant_pricing').value = p.pricing_type;
         document.getElementById('new_plant_min_hrs').value = p.min_hours;
+
+        loadFleetNominals(p.billing_company_id);
         
         // Timeout to ensure ERP nominals are loaded if the user clicks Edit too fast
         setTimeout(() => {
