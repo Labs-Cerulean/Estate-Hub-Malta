@@ -17,6 +17,23 @@ if (!$project_id || empty($_FILES['frame_csv']['tmp_name'])) {
     exit;
 }
 
+// SECURITY FIX 5: Prevent DoS by strictly capping the file size to 5MB
+$maxCsvSize = 5 * 1024 * 1024; // 5 MB
+if ($_FILES['frame_csv']['size'] > $maxCsvSize) {
+    echo json_encode(['success' => false, 'message' => 'Upload Blocked: File exceeds the maximum allowed size of 5MB.']);
+    exit;
+}
+
+// SECURITY FIX 5: Validate MIME type to prevent malicious executable uploads (.php, .exe)
+$ext = strtolower(pathinfo($_FILES['frame_csv']['name'], PATHINFO_EXTENSION));
+$fileMimeType = mime_content_type($_FILES['frame_csv']['tmp_name']);
+$allowedMimeTypes = ['text/csv', 'text/plain', 'application/vnd.ms-excel'];
+
+if ($ext !== 'csv' && !in_array($fileMimeType, $allowedMimeTypes)) {
+    echo json_encode(['success' => false, 'message' => 'Upload Blocked: Only valid CSV files are allowed.']);
+    exit;
+}
+
 try {
     $check_stmt = $pdo->prepare("SELECT COUNT(*) FROM sales_properties WHERE project_id = ?");
     $check_stmt->execute([$project_id]);
