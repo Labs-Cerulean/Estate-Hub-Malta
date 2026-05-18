@@ -143,7 +143,7 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                                 <?php if (hasPermission('manage_users') || isAdmin()): ?>
                                     <a href="users-management.php" class="<?= $currentPage === 'users-management' ? 'active' : '' ?>">System Users</a>
                                 <?php endif; ?>
-                                <?php if (hasPermission('view_plant_bookings') || || isAdmin()): ?>
+                                <?php if (hasPermission('view_plant_bookings') || isAdmin()): ?>
                                     <li class="nav-item">
                                         <a class="nav-link" href="plant_bookings.php" target="_blank" style="color: #FF9800; font-weight: 800;">
                                             <i class="fas fa-tractor"></i> Plant Bookings
