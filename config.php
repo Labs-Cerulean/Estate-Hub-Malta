@@ -16,6 +16,13 @@ if ($db_pass === false) {
 }
 define('DB_PASS', $db_pass);
 
+// Define the Base URL securely from the environment
+$appUrl = rtrim(getenv('APP_URL'), '/'); // rtrim removes trailing slashes just in case
+if (empty($appUrl)) {
+    // Fallback just in case, or you can die() here if you want it strictly enforced
+    $appUrl = 'https://estate-hub-malta-production.up.railway.app/'; 
+}
+define('APP_URL', $appUrl);
 
 function getDB() {
     $charset = 'utf8mb4';
