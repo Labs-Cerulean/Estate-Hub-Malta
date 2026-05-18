@@ -315,7 +315,7 @@ function getProjectWithClient($pdo, $projectId) {
     }
 }
 
-return $pdo;
+
 
 // PROJECT SERVICES TABLE (Services Engineer Section)
 $pdo->exec("
@@ -814,6 +814,8 @@ function markAllNotificationsRead($pdo, $userId) {
         return false;
     }
 }
+
+return $pdo;
 ?>
 
 
