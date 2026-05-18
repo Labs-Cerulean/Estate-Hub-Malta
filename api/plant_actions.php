@@ -189,7 +189,7 @@ if ($action == 'punch_in') { $pdo->prepare("UPDATE plant_bookings SET status='In
 if ($action == 'punch_out_complete') {
     $bookingId = $_POST['id'];
     $pdo->prepare("UPDATE plant_bookings SET status='Completed', punch_out_time=NOW(), qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? WHERE id=?")->execute([empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], $_POST['rep_name'], $_POST['rep_id'], $_POST['signature'], $bookingId]);
-    $domain = "https://" . $_SERVER['HTTP_HOST']; $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); echo "OK"; exit;
+    $domain = APP_URL; $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); echo "OK"; exit;
 }
 
 function getNominalDetails($nomCode, $apiKey) {
