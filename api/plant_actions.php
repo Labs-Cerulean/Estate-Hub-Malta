@@ -12,10 +12,18 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
+// Dynamic API Key Mapper - Pulled securely from Environment Variables
+$praApiKey = getenv('J2_API_KEY_PRA');
+$praxApiKey = getenv('J2_API_KEY_PRAX');
+
+if (!$praApiKey || !$praxApiKey) {
+    die(json_encode(['error' => 'Critical Error: ERP API keys are missing from environment configuration.']));
+}
+
 $apiKeys = [
-    '24' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRA API Key
-    '26' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRAX API Key
-    'default' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='
+    '24' => $praApiKey,  // PRA API Key
+    '26' => $praxApiKey, // PRAX API Key
+    'default' => $praApiKey
 ];
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
@@ -27,7 +35,8 @@ function getApiKey($companyId) {
 function getJ2ApiData($endpoint, $apiKey) {
     global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
     $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
 }
@@ -35,7 +44,8 @@ function getJ2ApiData($endpoint, $apiKey) {
 function postJ2ApiData($endpoint, $apiKey, $payload) {
     global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
     $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ['code' => $httpCode, 'response' => $response];
 }
