@@ -12,9 +12,15 @@ if (!in_array($_SESSION['role'], $allowed_roles)) {
 // AUTO-DEPLOY DATABASE UPDATES
 // ==========================================
 try {
-    $pdo->exec("ALTER TABLE project_units ADD COLUMN resale_price DECIMAL(10,2) DEFAULT NULL");
-} catch(PDOException $e) {}
-
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN resale_price DECIMAL(10,2) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN held_by_agent_id INT DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN hold_expiry DATETIME DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN shell_price DECIMAL(10,2) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN finishes_price DECIMAL(10,2) DEFAULT NULL");
+} catch(PDOException $e) {
+    // Silently ignore if columns already exist
+}
 require_once 'header.php';
 ?>
 
@@ -166,6 +172,15 @@ require_once 'header.php';
     @keyframes shToastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 
+<div id="holdLedgerModal" class="vanilla-modal">
+    <div class="vanilla-modal-content large" style="max-width: 1000px; height: 85vh; display: flex; flex-direction: column;">
+        <div style="text-align: right; margin-bottom: 10px;">
+            <span class="vanilla-close" onclick="document.getElementById('holdLedgerModal').style.display='none'">&times;</span>
+        </div>
+        <div id="holdLedgerContent" style="flex: 1; overflow-y: auto; padding-right: 15px;"></div>
+    </div>
+</div>
+
 <div id="sh-toast-container"></div>
 
 <div id="sh-lightbox" class="sh-lightbox">
@@ -215,6 +230,9 @@ require_once 'header.php';
                 </div>
             </div>
             
+            <button class="sh-btn" style="margin-bottom: 10px; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="openHoldLedger()">
+                <i class="fas fa-list"></i> View Holds Ledger
+            </button>
             <button class="sh-btn sh-btn-danger" style="margin-bottom: 15px;" onclick="resetMap()">
                 <i class="fas fa-undo-alt"></i> Reset Map & Clear Filters
             </button>
@@ -271,7 +289,9 @@ require_once 'header.php';
             <div class="sh-tab active" id="btnFilterAll" onclick="setStatusTab('All')">All</div>
             <div class="sh-tab" id="btnFilterAvail" onclick="setStatusTab('Available')">Available Only</div>
         </div>
-        <button class="sh-pdf-btn" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Pricelist</button>
+        <div style="display: flex; gap: 8px;">
+            <button class="sh-pdf-btn" onclick="generateLivePricelist()"><i class="fas fa-file-pdf"></i> Pricelist</button>
+        </div>
     </div>
     
     <div id="unitListContainer" class="sh-units"></div> 
@@ -788,11 +808,21 @@ require_once 'header.php';
 
     function sendStatusToServer(propertyId, newStatus, selectElement, resalePrice) {
         selectElement.disabled = true;
-        let formData = new FormData(); formData.append('action', 'update_unit_status'); formData.append('unit_id', propertyId); formData.append('status', newStatus); if (resalePrice) formData.append('resale_price', resalePrice);
-        fetch('sales_hub.php', { method: 'POST', body: formData }).then(r => r.text()).then(data => {
+        let formData = new FormData(); 
+        formData.append('property_id', propertyId); 
+        formData.append('new_status', newStatus); 
+        if (resalePrice) formData.append('resale_price', resalePrice);
+
+        fetch('api/manager_update_status.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
             selectElement.disabled = false;
-            if(data === 'OK') { showToast(`Status updated to ${newStatus}`, 'success'); if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); } 
-            else { showToast("Error updating status.", 'error'); }
+            if(data.success) { 
+                showToast(`Status updated to ${newStatus}`, 'success'); 
+                if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+            } else { 
+                showToast("Error: " + data.message, 'error'); 
+            }
         });
     }
 
@@ -817,16 +847,28 @@ require_once 'header.php';
         if(!confirm("Are you sure you want to put this unit on hold?")) return;
         let formData = new FormData(); formData.append('action', 'hold_property'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
-            if(data.success) { showToast("Put on hold!", "success"); if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); } 
-        });
+            if(data.success) { 
+                showToast("Put on hold!", "success"); 
+                if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+            } else {
+                // WE ADDED THIS ERROR TOAST
+                showToast("Error: " + data.message, "error"); 
+            }
+        }).catch(err => showToast("System Error: " + err.message, "error"));
     }
 
     function requestReserve(propertyId) {
         if(!confirm("Are you sure you want to transition this unit to Proceeding?")) return;
         let formData = new FormData(); formData.append('action', 'request_reserved'); formData.append('property_id', propertyId);
         fetch('api/sales_actions.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
-            if(data.success) { showToast("Status updated to Proceeding!", "success"); if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); } 
-        });
+            if(data.success) { 
+                showToast("Status updated to Proceeding!", "success"); 
+                if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+            } else {
+                // WE ADDED THIS ERROR TOAST
+                showToast("Error: " + data.message, "error"); 
+            }
+        }).catch(err => showToast("System Error: " + err.message, "error"));
     }
 
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
@@ -877,18 +919,6 @@ require_once 'header.php';
         }
     });
 
-    <?php
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_unit_status') {
-        if (!in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])) { http_response_code(403); exit; }
-        $unitId = (int)$_POST['unit_id'];
-        $status = $_POST['status'];
-        $resale = !empty($_POST['resale_price']) ? (float)$_POST['resale_price'] : null;
-        if ($status !== 'Resale') $resale = null;
-        $pdo->prepare("UPDATE project_units SET status = ?, resale_price = ? WHERE id = ?")->execute([$status, $resale, $unitId]);
-        echo "OK";
-        exit;
-    }
-    ?>
 
 // DAILY SYNC ENGINE
 function processDailySync(input) {
@@ -1023,6 +1053,120 @@ function saveTranslation(index, btnElement, isIgnore) {
             alert("Failed to save action.");
             btnElement.innerHTML = originalText;
             btnElement.disabled = false;
+        }
+    });
+}
+
+function openHoldLedger() {
+    // Added a cache-buster here too, so the ledger is always perfectly up to date
+    fetch('api/get_holds_ledger.php?_t=' + Date.now())
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                showToast("Error: " + (data.message || "Could not load ledger"), "error");
+                return;
+            }
+
+            // Extract unique project names for the filter dropdown
+            let uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
+            let projectOptions = uniqueProjects.map(p => `<option value="${p}">${p}</option>`).join('');
+
+            let html = `
+                <div>
+                    <div style="position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--sh-border); margin-bottom: 15px;">
+                        <h3 style="color: #fff; margin: 0;">
+                            ${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}
+                        </h3>
+                        <select id="ledgerProjectFilter" class="sh-select" style="width: auto; margin: 0; padding: 6px 12px; font-weight: bold; cursor: pointer;" onchange="filterLedgerTable()">
+                            <option value="All">All Projects</option>
+                            ${projectOptions}
+                        </select>
+                    </div>
+                    <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; color: #fff;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid var(--sh-border);">
+                                <th style="padding: 10px;">Project</th>
+                                <th style="padding: 10px;">Unit</th>
+                                ${data.role !== 'sales_agent' ? '<th style="padding: 10px;">Agent</th>' : ''}
+                                <th style="padding: 10px;">Expires In</th>
+                                <th style="padding: 10px;">Exact Expiry Date</th>
+                                <th style="padding: 10px; text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            if (data.holds.length === 0) {
+                html += `<tr><td colspan="6" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`;
+            } else {
+                data.holds.forEach(hold => {
+                    let warningStyle = hold.is_expiring_soon ? 'color: var(--sh-danger); font-weight: bold;' : 'color: var(--sh-text-main);';
+                    let warningIcon = hold.is_expiring_soon ? '<i class="fas fa-exclamation-triangle"></i> ' : '';
+                    
+                    let agentName = hold.is_legacy 
+                        ? '<span style="color:var(--sh-text-muted); font-style:italic;">Legacy/System</span>' 
+                        : `${hold.first_name} ${hold.last_name}`;
+                        
+                    let timeDisplay = hold.is_legacy 
+                        ? '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-infinity"></i> Legacy</span>' 
+                        : `<span style="${warningStyle}">${warningIcon}${hold.hours_remaining} Hours</span>`;
+
+                    let expiryDisplay = hold.is_legacy ? '<span style="color:var(--sh-text-muted);">N/A</span>' : new Date(hold.hold_expiry).toLocaleString();
+
+                    // Added a class and a data attribute for the filter to target
+                    html += `
+                        <tr class="ledger-row" data-project="${hold.project_name}" style="border-bottom: 1px solid var(--sh-border-light);">
+                            <td style="padding: 12px 10px;">${hold.project_name}</td>
+                            <td style="padding: 12px 10px;"><strong>${hold.unit_name}</strong></td>
+                            ${data.role !== 'sales_agent' ? `<td style="padding: 12px 10px;">${agentName}</td>` : ''}
+                            <td style="padding: 12px 10px;">${timeDisplay}</td>
+                            <td style="padding: 12px 10px;">${expiryDisplay}</td>
+                            <td style="padding: 12px 10px; text-align: right;">
+                                <button class="sh-btn sh-btn-success" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.8rem;" onclick="releaseHoldFromLedger(${hold.id})">
+                                    <i class="fas fa-unlock"></i> Release
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+            html += `</tbody></table></div>`;
+            
+            document.getElementById('holdLedgerContent').innerHTML = html;
+            document.getElementById('holdLedgerModal').style.display = 'block';
+        });
+}
+
+function filterLedgerTable() {
+    let filter = document.getElementById('ledgerProjectFilter').value;
+    let rows = document.querySelectorAll('.ledger-row');
+    
+    rows.forEach(row => {
+        if (filter === 'All' || row.getAttribute('data-project') === filter) {
+            row.style.display = ''; // Show row
+        } else {
+            row.style.display = 'none'; // Hide row
+        }
+    });
+}
+
+function releaseHoldFromLedger(propertyId) {
+    if (!confirm("Are you sure you want to release this hold? The unit will immediately become Available.")) return;
+    
+    let formData = new FormData(); 
+    formData.append('action', 'release_hold'); 
+    formData.append('property_id', propertyId);
+
+    fetch('api/sales_actions.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        if(data.success) { 
+            showToast("Hold released successfully!", "success"); 
+            openHoldLedger(); // Refresh the ledger immediately
+            if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+        } else { 
+            showToast("Error: " + data.message, "error"); 
         }
     });
 }

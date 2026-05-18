@@ -11,7 +11,7 @@ if (!hasPermission('can_manage_clients') && !isAdmin()) {
 $message = '';
 $s3 = new S3FileManager(); // Initialize R2
 
-// Handle Image Upload Logic directly to Cloudflare R2
+// Handle Image Upload Logic directly to Cloudflare R2 (RESTORED)
 function handleLogoUpload($fileInputName, $s3) {
     if (isset($_FILES[$fileInputName]) && $_FILES[$fileInputName]['error'] === UPLOAD_ERR_OK) {
         $fileTmpPath = $_FILES[$fileInputName]['tmp_name'];
@@ -37,8 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create_client') {
         try {
             $logoPath = handleLogoUpload('client_logo', $s3);
-            $stmt = $pdo->prepare("INSERT INTO clients (name, city, contact, type, logo_path) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([ $_POST['name'], $_POST['city'] ?? null, $_POST['contact'] ?? null, $_POST['type'], $logoPath ]);
+            $stmt = $pdo->prepare("INSERT INTO clients (name, city, contact, type, logo_path, bank_name, iban, swift_bic) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([ $_POST['name'], $_POST['city'] ?? null, $_POST['contact'] ?? null, $_POST['type'], $logoPath, $_POST['bank_name'] ?? null, $_POST['iban'] ?? null, $_POST['swift_bic'] ?? null ]);
             $clientId = $pdo->lastInsertId();
             autoAssignCreatorToClient($pdo, $clientId, getCurrentUserId());
             $message = 'Client created successfully!';
@@ -51,14 +51,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $logoPath = handleLogoUpload('edit_client_logo', $s3);
             
             if ($logoPath) {
-                $stmt = $pdo->prepare("UPDATE clients SET name=?, city=?, contact=?, type=?, logo_path=? WHERE id=?");
-                $stmt->execute([ $_POST['name'], $_POST['city'] ?? null, $_POST['contact'] ?? null, $_POST['type'], $logoPath, $clientId ]);
+                $stmt = $pdo->prepare("UPDATE clients SET name=?, city=?, contact=?, type=?, logo_path=?, bank_name=?, iban=?, swift_bic=? WHERE id=?");
+                $stmt->execute([ $_POST['name'], $_POST['city'] ?? null, $_POST['contact'] ?? null, $_POST['type'], $logoPath, $_POST['bank_name'] ?? null, $_POST['iban'] ?? null, $_POST['swift_bic'] ?? null, $clientId ]);
             } else {
-                $stmt = $pdo->prepare("UPDATE clients SET name=?, city=?, contact=?, type=? WHERE id=?");
-                $stmt->execute([ $_POST['name'], $_POST['city'] ?? null, $_POST['contact'] ?? null, $_POST['type'], $clientId ]);
+                $stmt = $pdo->prepare("UPDATE clients SET name=?, city=?, contact=?, type=?, bank_name=?, iban=?, swift_bic=? WHERE id=?");
+                $stmt->execute([ $_POST['name'], $_POST['city'] ?? null, $_POST['contact'] ?? null, $_POST['type'], $_POST['bank_name'] ?? null, $_POST['iban'] ?? null, $_POST['swift_bic'] ?? null, $clientId ]);
             }
             $message = 'Client updated successfully!';
-        } catch (PDOException $e) { $message = 'Update error!'; }
+        } catch (PDOException $e) { $message = 'Error updating client!'; }
+    }
+    // Delete Client
+    elseif ($action === 'delete_client') {
+        try {
+            $pdo->prepare("DELETE FROM clients WHERE id = ?")->execute([$_POST['client_id']]);
+            $message = 'Client deleted successfully!';
+        } catch (PDOException $e) { $message = 'Error: Cannot delete client (likely linked to projects).'; }
     }
 }
 
@@ -74,9 +81,9 @@ try {
             $stmt = $pdo->prepare("
                 SELECT DISTINCT c.*, COUNT(DISTINCT p.id) as project_count FROM clients c
                 INNER JOIN projects p ON c.id = p.clientid INNER JOIN project_pa_numbers ppn ON p.id = ppn.project_id
-                WHERE ((? IS NOT NULL AND ppn.architect_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) AND role_type = 'architect'))
-                    OR (? IS NOT NULL AND ppn.structural_engineer_id IN (SELECT id FROM professionals WHERE firm_name = (SELECT firm_name FROM professionals WHERE id = ?) AND role_type = 'structural_engineer'))
-                ) GROUP BY c.id ORDER BY c.name
+                WHERE ((? IS NOT NULL AND ppn.architect_id IN (SELECT id FROM professionals WHERE firm_id = ?))
+                   OR (? IS NOT NULL AND ppn.structural_id IN (SELECT id FROM professionals WHERE firm_id = ?)))
+                GROUP BY c.id ORDER BY c.name
             ");
             $stmt->execute([ $user['assigned_architect_firm_id'], $user['assigned_architect_firm_id'], $user['assigned_structural_firm_id'], $user['assigned_structural_firm_id'] ]);
             $clients = $stmt->fetchAll();
@@ -86,51 +93,89 @@ try {
             $clients = $stmt->fetchAll();
         }
     }
-} catch (Exception $e) { $clients = []; }
+} catch (PDOException $e) {
+    die("Error fetching clients: " . $e->getMessage());
+}
 
-$pageTitle = 'Client Management';
+$pageTitle = "Client Directory";
 require_once 'header.php';
 ?>
 
-<div class="main-container">
-    <h1 class="page-title">Client Management</h1>
-    <?php if ($message): ?><div class="alert alert-info"><?= htmlspecialchars($message) ?></div><?php endif; ?>
-    
-    <div class="clients-section">
-        <div class="clients-header">
-            <h2 class="section-title">All Clients (<?= count($clients) ?>)</h2>
-            <button onclick="showAddClientModal()" class="btn">+ Add New Client</button>
-        </div>
-        
-        <?php if (count($clients) > 0): ?>
-            <div class="clients-grid">
-                <?php foreach ($clients as $client): ?>
-                    <div class="client-card" style="position: relative; overflow: hidden;">
-                        <?php if(!empty($client['logo_path'])): ?>
+<div class="content-header">
+    <h2><i class="fas fa-handshake"></i> Client Directory</h2>
+    <div>
+        <?php if ($isAdmin || hasPermission('can_manage_clients')): ?>
+            <button class="btn btn-primary" onclick="showAddClientModal()"><i class="fas fa-plus"></i> Add New Client</button>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php if ($message): ?>
+    <div class="alert <?= strpos($message, 'Error') !== false ? 'alert-danger' : 'alert-success' ?>">
+        <?= htmlspecialchars($message) ?>
+    </div>
+<?php endif; ?>
+
+<div class="card">
+    <div class="card-body" style="overflow-x: auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 80px;">Logo</th>
+                    <th>Client Name</th>
+                    <th>City</th>
+                    <th>Contact</th>
+                    <th>Type</th>
+                    <th style="text-align: center;">Active Projects</th>
+                    <?php if ($isAdmin || hasPermission('can_manage_clients')): ?>
+                        <th style="text-align: center;">Actions</th>
+                    <?php endif; ?>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($clients as $c): ?>
+                <tr>
+                    <td style="text-align: center;">
+                        <?php if (!empty($c['logo_path'])): ?>
                             <?php 
                             // Safely generate secure Cloudflare link if it's an R2 Key
-                            $logoUrl = $client['logo_path'];
+                            $logoUrl = $c['logo_path'];
                             if (strpos($logoUrl, 'http') === false) {
-                                $logoUrl = $s3->getPresignedUrl($client['logo_path'], '+60 minutes');
+                                $logoUrl = $s3->getPresignedUrl($c['logo_path'], '+60 minutes');
                             }
                             ?>
-                            <img src="<?= htmlspecialchars($logoUrl) ?>" alt="Logo" style="position: absolute; top: 15px; right: 15px; max-height: 40px; max-width: 80px; opacity: 0.8; border-radius: 4px;">
+                            <img src="<?= htmlspecialchars($logoUrl) ?>" alt="Logo" style="height: 40px; max-width: 60px; object-fit: contain; border-radius: 4px;">
+                        <?php else: ?>
+                            <div style="height: 40px; width: 40px; background: #e2e8f0; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin: 0 auto; color: #94a3b8; font-weight: bold;">
+                                <?= strtoupper(substr($c['name'], 0, 1)) ?>
+                            </div>
                         <?php endif; ?>
-                        
-                        <h3 class="project-title"><?= htmlspecialchars($client['name']) ?></h3>
-                        <div class="client-details">
-                            <p><strong>City:</strong> <?= htmlspecialchars($client['city'] ?? 'N/A') ?></p>
-                            <p><strong>Contact:</strong> <?= htmlspecialchars($client['contact'] ?? 'N/A') ?></p>
-                            <p><strong>Type:</strong> <span class="badge badge-<?= $client['type'] ?>"><?= htmlspecialchars($client['type']) ?></span></p>
-                            <p><strong>Projects:</strong> <?= $client['project_count'] ?></p>
-                        </div>
-                        <button onclick='openEditClientModal(<?= json_encode($client, JSON_HEX_APOS) ?>)' class="btn btn-sm btn-secondary" style="margin-top: 15px; width: 100%;">Edit & Upload Logo</button>
-                    </div>
+                    </td>
+                    <td style="font-weight: 600; color: var(--primary-color);"><?= htmlspecialchars($c['name']) ?></td>
+                    <td><?= htmlspecialchars($c['city']) ?></td>
+                    <td><?= htmlspecialchars($c['contact']) ?></td>
+                    <td><span class="badge <?= $c['type'] === 'in-house' ? 'badge-primary' : 'badge-warning' ?>"><?= htmlspecialchars($c['type']) ?></span></td>
+                    <td style="text-align: center;"><span class="badge badge-success" style="font-size: 0.9rem; padding: 4px 10px; border-radius: 12px;"><?= $c['project_count'] ?></span></td>
+                    
+                    <?php if ($isAdmin || hasPermission('can_manage_clients')): ?>
+                    <td style="text-align: center;">
+                        <button class="btn btn-sm btn-info" onclick='showEditClientModal(<?= json_encode($c) ?>)' title="Edit Client"><i class="fas fa-edit"></i></button>
+                        <?php if ($c['project_count'] == 0): ?>
+                        <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this client?');">
+                            <input type="hidden" name="action" value="delete_client">
+                            <input type="hidden" name="client_id" value="<?= $c['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-danger" title="Delete Client"><i class="fas fa-trash"></i></button>
+                        </form>
+                        <?php endif; ?>
+                    </td>
+                    <?php endif; ?>
+                </tr>
                 <?php endforeach; ?>
-            </div>
-        <?php else: ?>
-            <div class="empty-state"><h3>No clients yet</h3><p>Add your first client to get started.</p></div>
-        <?php endif; ?>
+                <?php if (empty($clients)): ?>
+                    <tr><td colspan="<?= ($isAdmin || hasPermission('can_manage_clients')) ? 7 : 6 ?>" style="text-align: center; padding: 2rem; color: var(--text-muted);">No clients found.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -143,16 +188,19 @@ require_once 'header.php';
             <div class="form-group"><label>Client Name:*</label><input type="text" name="name" required></div>
             <div class="form-group"><label>City:</label><input type="text" name="city"></div>
             <div class="form-group"><label>Contact Person:</label><input type="text" name="contact"></div>
+            <div class="form-group"><label>Bank Name:</label><input type="text" name="bank_name" placeholder="e.g. Bank of Valletta"></div>
+            <div class="form-group"><label>IBAN:</label><input type="text" name="iban" placeholder="e.g. MT1234..."></div>
+            <div class="form-group"><label>SWIFT / BIC:</label><input type="text" name="swift_bic" placeholder="e.g. BOVLMXXX"></div>
             <div class="form-group">
                 <label>Type:*</label>
                 <select name="type" required><option value="in-house">In-House</option><option value="3rd-party">3rd Party</option></select>
             </div>
             <div class="form-group">
                 <label>Company Logo (Optional)</label>
-                <input type="file" name="client_logo" accept="image/*" style="padding: 10px; border: 1px dashed var(--primary-color); width: 100%; border-radius: 6px;">
-                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">Logo will be saved securely to Cloudflare R2.</p>
+                <input type="file" name="client_logo" accept="image/*" class="form-control" style="padding: 5px;">
+                <small style="color:var(--text-muted);">Max 2MB. Saved securely to Cloudflare R2.</small>
             </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%;">Create Client</button>
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;"><i class="fas fa-save"></i> Save Client</button>
         </form>
     </div>
 </div>
@@ -167,16 +215,19 @@ require_once 'header.php';
             <div class="form-group"><label>Client Name:*</label><input type="text" name="name" id="edit_name" required></div>
             <div class="form-group"><label>City:</label><input type="text" name="city" id="edit_city"></div>
             <div class="form-group"><label>Contact Person:</label><input type="text" name="contact" id="edit_contact"></div>
+            <div class="form-group"><label>Bank Name:</label><input type="text" name="bank_name" id="edit_bank_name"></div>
+            <div class="form-group"><label>IBAN:</label><input type="text" name="iban" id="edit_iban"></div>
+            <div class="form-group"><label>SWIFT / BIC:</label><input type="text" name="swift_bic" id="edit_swift_bic"></div>
             <div class="form-group">
                 <label>Type:*</label>
                 <select name="type" id="edit_type" required><option value="in-house">In-House</option><option value="3rd-party">3rd Party</option></select>
             </div>
             <div class="form-group">
                 <label>Upload New Logo</label>
-                <input type="file" name="edit_client_logo" accept="image/*" style="padding: 10px; border: 1px dashed var(--primary-color); width: 100%; border-radius: 6px;">
-                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">Leave blank to keep existing logo. New logos are saved securely to Cloudflare R2.</p>
+                <input type="file" name="edit_client_logo" accept="image/*" class="form-control" style="padding: 5px;">
+                <small style="color:var(--text-muted);">Leave blank to keep existing logo.</small>
             </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%;">Save Changes</button>
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;"><i class="fas fa-save"></i> Update Client</button>
         </form>
     </div>
 </div>
@@ -185,11 +236,14 @@ require_once 'header.php';
     function showAddClientModal() { document.getElementById('addClientModal').style.display = 'block'; }
     function hideAddClientModal() { document.getElementById('addClientModal').style.display = 'none'; }
     
-    function openEditClientModal(client) {
+    function showEditClientModal(client) {
         document.getElementById('edit_client_id').value = client.id;
         document.getElementById('edit_name').value = client.name;
         document.getElementById('edit_city').value = client.city || '';
         document.getElementById('edit_contact').value = client.contact || '';
+        document.getElementById('edit_bank_name').value = client.bank_name || '';
+        document.getElementById('edit_iban').value = client.iban || '';
+        document.getElementById('edit_swift_bic').value = client.swift_bic || '';
         document.getElementById('edit_type').value = client.type;
         document.getElementById('editClientModal').style.display = 'block';
     }

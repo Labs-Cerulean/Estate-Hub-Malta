@@ -143,6 +143,13 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                                 <?php if (hasPermission('manage_users') || isAdmin()): ?>
                                     <a href="users-management.php" class="<?= $currentPage === 'users-management' ? 'active' : '' ?>">System Users</a>
                                 <?php endif; ?>
+                                <?php if (hasPermission('view_plant_bookings') || in_array($_SESSION['role'])): ?>
+                                    <li class="nav-item">
+                                        <a class="nav-link" href="plant_bookings.php" target="_blank" style="color: #FF9800; font-weight: 800;">
+                                            <i class="fas fa-tractor"></i> Plant Bookings
+                                        </a>
+                                    </li>
+                                <?php endif; ?>
                                 <?php if (isAdmin()): ?>
                                     <a href="backup_db.php" target="_blank" style="color: #10B981; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 10px;">
                                         💾 Download Database Backup

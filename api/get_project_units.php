@@ -90,7 +90,7 @@ try {
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
             // --- START BEAUTIFUL CARD (Added data-type for strict filtering) ---
-            $html .= "<div class='card shadow unit-card' data-status='{$status}' data-type='{$unitTypeSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
+            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---

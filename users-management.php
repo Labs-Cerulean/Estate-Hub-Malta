@@ -47,6 +47,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Approval Workflow Bypass
         'approve_quotes' => isset($_POST['approve_quotes']) ? 1 : 0,
+
+        // NEW: Plant Bookings Access (Including Sub-modules for IT/Admin testing)
+        'view_plant_bookings' => isset($_POST['view_plant_bookings']) ? 1 : 0,
+        'manage_plant_fleet' => isset($_POST['manage_plant_fleet']) ? 1 : 0,
+        'view_plant_ledger' => isset($_POST['view_plant_ledger']) ? 1 : 0,
     ];
 
     if ($action === 'create_user') {
@@ -73,8 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
                         view_subcontractor_accounts, manage_subcontractor_accounts,
                         view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
-                        view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes,
+                        view_plant_bookings, manage_plant_fleet, view_plant_ledger
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $params = array_values($caps);
                 array_unshift($params, $newId);
@@ -120,8 +126,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
                     view_subcontractor_accounts, manage_subcontractor_accounts,
                     view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
-                    view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes,
+                    view_plant_bookings, manage_plant_fleet, view_plant_ledger
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                     view_tracking=VALUES(view_tracking), add_project=VALUES(add_project), edit_project_details=VALUES(edit_project_details), 
                     update_project_status=VALUES(update_project_status), edit_services=VALUES(edit_services), assign_actions=VALUES(assign_actions), 
@@ -135,7 +142,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     view_sales_demo_exc=VALUES(view_sales_demo_exc), manage_sales_demo_exc=VALUES(manage_sales_demo_exc),
                     view_sales_const=VALUES(view_sales_const), manage_sales_const=VALUES(manage_sales_const),
                     view_sales_finishes=VALUES(view_sales_finishes), manage_sales_finishes=VALUES(manage_sales_finishes),
-                    approve_quotes=VALUES(approve_quotes)
+                    approve_quotes=VALUES(approve_quotes),
+                    view_plant_bookings=VALUES(view_plant_bookings),
+                    manage_plant_fleet=VALUES(manage_plant_fleet),
+                    view_plant_ledger=VALUES(view_plant_ledger)
             ");
             $params = array_values($caps);
             array_unshift($params, $userId);
@@ -185,7 +195,8 @@ $rolesList = [
     'admin', 'director', 'system_manager', 'project_manager', 'accountant', 'architect', 'structural_engineer', 
     'services_engineer', 'quality_controller', 'pmo_staff', 'ohsa_rep', 
     'site_technical_officer', 'subcontractor', 'condominium_agent', 
-    'sales_manager', 'sales_agent', 'end_customer', 'viewer'
+    'sales_manager', 'sales_agent', 'end_customer', 'viewer',
+    'plant_manager', 'plant_driver' // NEW ROLES
 ];
 
 $pageTitle = 'User Management';
@@ -294,6 +305,10 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_property_sales" id="edit_cap_view_property_sales" <?= !empty($selectedUser['view_property_sales']) ? 'checked' : '' ?>> Property Sales</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_capital_projects" id="edit_cap_view_capital_projects" <?= !empty($selectedUser['view_capital_projects']) ? 'checked' : '' ?>> Capital Projects</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_nav_subcontractors" id="edit_cap_view_nav_subcontractors" <?= !empty($selectedUser['view_nav_subcontractors']) ? 'checked' : '' ?>> Subcon. Accounts</label>
+                            
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_plant_bookings" id="edit_cap_view_plant_bookings" <?= !empty($selectedUser['view_plant_bookings']) ? 'checked' : '' ?>> <span style="color: #FF9800; font-weight: bold;">Plant Bookings Hub</span></label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_plant_fleet" id="edit_cap_manage_plant_fleet" <?= !empty($selectedUser['manage_plant_fleet']) ? 'checked' : '' ?>> <span style="color: #FF9800; font-weight: bold;">Manage Fleet (Admin)</span></label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_plant_ledger" id="edit_cap_view_plant_ledger" <?= !empty($selectedUser['view_plant_ledger']) ? 'checked' : '' ?>> <span style="color: #FF9800; font-weight: bold;">View Ledger (Admin)</span></label>
                         </div>
 
                         <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Document Vault Access Levels</h4>
@@ -515,9 +530,9 @@ function closeCreateModal() { document.getElementById('createModal').style.displ
 window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
 
 const roleDefaults = {
-    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'approve_quotes'],
+    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'approve_quotes', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
     'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'approve_quotes'],
-    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
     'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
     'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors', 'view_sales_demo_exc', 'view_sales_const', 'view_sales_finishes'],
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
@@ -530,7 +545,11 @@ const roleDefaults = {
     'subcontractor': ['assign_actions', 'view_projects', 'view_drawings'],
     'sales_manager': ['view_works_sales', 'view_property_sales'],
     'sales_agent': ['view_property_sales'],
-    'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects']
+    'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects'],
+    
+    // Plant Roles (IT uses Plant Manager and ticks the extra boxes manually)
+    'plant_manager': ['view_plant_bookings'],
+    'plant_driver': ['view_plant_bookings']
 };
 
 const docDefaults = {
@@ -548,7 +567,9 @@ const docDefaults = {
     'ohsa_rep': { doc_bca: 0, doc_ohsa: 3, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 3 },
     'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
     'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 4, doc_training: 0 },
-    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2, doc_training: 0 }
+    'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2, doc_training: 0 },
+    'plant_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
+    'plant_driver': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 }
 };
 
 function toggleAccessSections(type) {
@@ -562,10 +583,14 @@ function toggleAccessSections(type) {
     
     const level1Roles = ['architect', 'structural_engineer', 'site_technical_officer'];
     const level3Roles = ['subcontractor', 'condominium_agent', 'end_customer', 'project_manager'];
-    const level0Roles = ['admin']; 
+    const level0Roles = ['admin']; // Only Admin is Level 0
+    const pureIsolatedRoles = ['plant_driver']; // Drivers don't need ANY project access
     
     if (level1Div) level1Div.style.display = level1Roles.includes(role) ? 'block' : 'none';
-    if (level2Div) level2Div.style.display = (level0Roles.includes(role) || level1Roles.includes(role) || level3Roles.includes(role)) ? 'none' : 'block';
+    
+    // Plant Managers see Level 2 (Clients) and Level 3 (Projects). Drivers see nothing.
+    if (level2Div) level2Div.style.display = (level0Roles.includes(role) || level1Roles.includes(role) || level3Roles.includes(role) || pureIsolatedRoles.includes(role)) ? 'none' : 'block';
+    
     if (level3Div) level3Div.style.display = level3Roles.includes(role) ? 'block' : 'none';
 }
 
