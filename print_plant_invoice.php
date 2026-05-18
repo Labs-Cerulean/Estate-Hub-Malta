@@ -33,11 +33,18 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-// Dynamic API Key Mapper
+// Dynamic API Key Mapper - Pulled securely from Environment Variables
+$praApiKey = getenv('J2_API_KEY_PRA');
+$praxApiKey = getenv('J2_API_KEY_PRAX');
+
+if (!$praApiKey || !$praxApiKey) {
+    die("Critical Error: ERP API keys are missing from environment configuration.");
+}
+
 $apiKeys = [
-    '24' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRA API Key
-    '26' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRAX API Key
-    'default' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='
+    '24' => $praApiKey,  // PRA API Key
+    '26' => $praxApiKey, // PRAX API Key
+    'default' => $praApiKey // Defaulting to PRA if billing company is missing/unknown
 ];
 $apiKey = $apiKeys[$job['billing_company_id']] ?? $apiKeys['default'];
 
@@ -53,7 +60,10 @@ function getJ2ApiData($endpoint, $apiKey) {
     ]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    
+    // SECURITY FIX: Enforce strict SSL verification
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
+    
     $response = curl_exec($ch); 
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
     curl_close($ch);
