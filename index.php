@@ -33,6 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             if ($user && password_verify($password, $user['password_hash'])) {
                 if ($user['is_active'] === 'Yes') {
+                    // SECURITY FIX: Regenerate ID to prevent session fixation
+                    session_regenerate_id(true);
+                    
                     // Set session variables
                     $_SESSION['loggedin'] = true;
                     $_SESSION['user_id'] = $user['id'];
