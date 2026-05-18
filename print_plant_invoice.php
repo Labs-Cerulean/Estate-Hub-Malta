@@ -227,7 +227,7 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             <div style="border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; text-align: center; background: #f8fafc;">
                 <h4 style="margin-top:0; margin-bottom: 10px; color: #475569; text-transform: uppercase; font-size: 0.8rem;">Client Representative Verification</h4>
                 <?php if(!empty($job['signature_data'])): ?>
-                    <img src="<?= $job['signature_data'] ?>" style="max-width: 100%; height: 80px; object-fit: contain;">
+                    <img src="<?= htmlspecialchars($job['signature_data'], ENT_QUOTES, 'UTF-8') ?>" style="max-width: 100%; height: 80px; object-fit: contain;">
                 <?php else: ?>
                     <div style="height: 80px; line-height:80px; color: #94a3b8; font-style:italic;">No Signature on File</div>
                 <?php endif; ?>
