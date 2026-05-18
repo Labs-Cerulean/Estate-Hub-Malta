@@ -151,10 +151,19 @@ if ($action == 'get_company_clients' && $isManager) {
 }
 
 if ($action == 'fetch_bookings') {
-    $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
-    if (!$isManager) { $query .= " WHERE (pb.driver_id = $userId OR pb.driver_id IS NULL OR pb.driver_id = 0)"; }
     $events = [];
-    foreach ($pdo->query($query)->fetchAll(PDO::FETCH_ASSOC) as $b) {
+    
+    // SECURITY FIX: Using Prepared Statements to prevent SQL injection
+    if ($isManager) {
+        $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
+        $stmt = $pdo->query($query);
+    } else {
+        $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE (pb.driver_id = ? OR pb.driver_id IS NULL OR pb.driver_id = 0)";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$userId]);
+    }
+    
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $color = ($b['status'] == 'In Progress') ? '#f59e0b' : (($b['status'] == 'Completed') ? '#10b981' : '#3b82f6');
         $events[] = ['id' => $b['id'], 'title' => $b['plant_name'], 'start' => $b['booking_date'] . 'T' . $b['start_time'], 'end' => $b['booking_date'] . 'T' . $b['end_time'], 'backgroundColor' => $color, 'borderColor' => $color];
     }
