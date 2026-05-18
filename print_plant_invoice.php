@@ -11,7 +11,7 @@ if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
     die("Unauthorized Access to Invoice.");
 }
 
-$bookingId = $_GET['booking_id'] ?? 0;
+$bookingId = (int)($_GET['booking_id'] ?? 0);
 
 // 1. Fetch Job Data (Removed the non-existent prj.locality column)
 $stmt = $pdo->prepare("
