@@ -4,11 +4,17 @@
  * Estate Hub - Project Management System
  */
 
-// Database configuration from environment variables (Railway)
+// Database configuration strictly from environment variables
 define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.railway.internal');
 define('DB_USER', getenv('MYSQL_USER') ?: 'root');
-define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'GVeWewBJADEkzRAkTudKAfaHdhQpqwtu');
 define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
+
+// Do not fallback to a hardcoded string for the password!
+$db_pass = getenv('MYSQL_PASSWORD');
+if ($db_pass === false) {
+    die('Critical Error: Database credentials are not configured securely in the environment.');
+}
+define('DB_PASS', $db_pass);
 
 
 function getDB() {
