@@ -21,6 +21,16 @@ try {
         $filename = $_POST['filename'] ?? 'file';
         $mime_type = $_POST['mime_type'] ?? 'application/octet-stream';
         
+        // SECURITY FIX 5: Prevent uploading executables/malware to S3
+        $blocked_mimes = ['application/x-msdownload', 'application/x-sh', 'application/x-php', 'text/x-php'];
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $blocked_exts = ['php', 'exe', 'sh', 'bat', 'js'];
+        
+        if (in_array($mime_type, $blocked_mimes) || in_array($ext, $blocked_exts)) {
+            echo json_encode(['success' => false, 'message' => 'Upload Blocked: This file type is restricted for security reasons.']);
+            exit;
+        }
+
         $urlData = $s3->getPresignedUploadUrl($filename, $mime_type, 'sales');
         
         if ($urlData) {
