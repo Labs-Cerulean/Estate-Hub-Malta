@@ -5,12 +5,12 @@
  */
 
 // Database configuration strictly from environment variables
-define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.railway.internal');
-define('DB_USER', getenv('MYSQL_USER') ?: 'root');
+define('DB_HOST', getenv('MYSQLHOST') ?: 'mysql.railway.internal');
+define('DB_USER', getenv('MYSQLUSER') ?: 'root');
 define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
 
 // Do not fallback to a hardcoded string for the password!
-$db_pass = getenv('MYSQL_PASSWORD');
+$db_pass = getenv('MYSQLPASSWORD');
 if ($db_pass === false) {
     die('Critical Error: Database credentials are not configured securely in the environment.');
 }
