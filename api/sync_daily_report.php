@@ -46,6 +46,12 @@ try {
     $stmt = $pdo->query("SELECT sp.id, sp.unit_name, sp.status, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
     $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // PERFORMANCE FIX: Create an O(1) lookup table indexed by Unit ID
+    $dbUnitsById = [];
+    foreach ($dbUnits as $u) {
+        $dbUnitsById[$u['id']] = $u;
+    }
+
     $stmtTrans = $pdo->query("SELECT csv_name, db_unit_id FROM sync_translations");
     $savedTranslations = [];
     while ($row = $stmtTrans->fetch(PDO::FETCH_ASSOC)) {
@@ -133,11 +139,8 @@ try {
         // --- EXECUTION WITH IMMUNITY LAYER ---
         if ($matchedId && $matchedId > 0) {
             
-            // 1. Identify current DB status
-            $currentDbStatus = '';
-            foreach ($dbUnits as $dbU) {
-                if ($dbU['id'] == $matchedId) { $currentDbStatus = $dbU['status']; break; }
-            }
+            // 1. Identify current DB status using the O(1) lookup table
+            $currentDbStatus = isset($dbUnitsById[$matchedId]) ? $dbUnitsById[$matchedId]['status'] : '';
 
             // 2. Absolute Immunity: Never let internal accounting overwrite a 3rd Party Resale
             if ($currentDbStatus === 'Resale') {
