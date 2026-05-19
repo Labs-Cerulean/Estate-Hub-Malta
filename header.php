@@ -59,7 +59,7 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                         <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
                     <?php endif; ?>
 
-                    <?php if (in_array($userRole, ['sales_manager', 'sales_agent', 'admin', 'director', 'system_manager'])): ?>
+                    <?php if (in_array($userRole, ['sales_manager', 'sales_agent', 'admin', 'director']) || hasPermission('view_property_sales')): ?>
                         <a href="sales_hub.php" class="nav-link <?= $currentPage === 'sales_hub' ? 'active' : '' ?>">Sales Hub</a>
                     <?php endif; ?>
                     
