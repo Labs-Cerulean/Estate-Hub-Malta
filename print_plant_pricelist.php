@@ -1,11 +1,12 @@
 <?php
 /**
  * print_plant_pricelist.php - Plant Hub Pricing Audit Tool & Price List (Pro Version)
- * Features: API State Awareness, Health Metrics, and Print-Optimized UI
+ * Features: API State Awareness, Health Metrics, and Cloudflare R2 Logo Integration
  */
 require_once 'init.php';
 require_once 'session-check.php';
 require_once 'user-functions.php';
+require_once 'S3FileManager.php'; // Required for Cloudflare R2 secure image loading
 
 // Strict Role and Permission Authorization Protection
 $role = $_SESSION['role'] ?? '';
@@ -38,7 +39,7 @@ function getNominalCatalog($apiKey, &$apiHealthFlag) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10); // Prevent infinite hanging if ERP is down
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10); 
     
     $response = curl_exec($ch); 
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
@@ -54,7 +55,26 @@ function getNominalCatalog($apiKey, &$apiHealthFlag) {
     return [];
 }
 
-// 3. Fetch All Active Machinery
+// 3. Fetch Cloudflare R2 Logos for PRA (24) and PRAX (26)
+$s3 = new S3FileManager();
+$headerLogos = [];
+try {
+    $logoStmt = $pdo->query("SELECT name, logo_path FROM clients WHERE id IN (24, 26) AND logo_path IS NOT NULL AND logo_path != ''");
+    while ($cl = $logoStmt->fetch(PDO::FETCH_ASSOC)) {
+        $lPath = $cl['logo_path'];
+        if (strpos($lPath, 'http') === false) {
+            $lPath = $s3->getPresignedUrl($lPath, '+60 minutes');
+        }
+        $headerLogos[] = [
+            'name' => $cl['name'],
+            'url'  => $lPath
+        ];
+    }
+} catch (Exception $e) {
+    // Fail silently on logos so it doesn't break the whole page
+}
+
+// 4. Fetch All Active Machinery
 try {
     $query = "SELECT p.*, c.name as owner_name, bc.name as billing_company_name 
               FROM plants p 
@@ -67,7 +87,7 @@ try {
     die("Database lookup failed: " . $e->getMessage());
 }
 
-// 4. Batch Indexing & API Health Matrix
+// 5. Batch Indexing & API Health Matrix
 $nominalCache = [];
 $apiHealthMatrix = [];
 
@@ -93,7 +113,7 @@ foreach ($plants as $p) {
     }
 }
 
-// 5. Pre-calculate Fleet Health Metrics for Dashboard
+// 6. Pre-calculate Fleet Health Metrics for Dashboard
 $metrics = [
     'total' => count($plants),
     'healthy' => 0,
@@ -157,6 +177,8 @@ function formatPricingModel($type) {
         .metric-label { font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 5px; }
         
         .header-section { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
+        .print-logos { display: flex; gap: 15px; align-items: center; padding-right: 20px; border-right: 2px solid #e2e8f0; }
+        .print-logos img { height: 45px; object-fit: contain; }
         .title-block h1 { font-size: 1.8rem; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: -0.5px; }
         .title-block p { color: #64748b; margin: 3px 0 0 0; font-weight: 500; }
         .meta-block { text-align: right; color: #475569; font-size: 0.85rem; }
@@ -198,6 +220,8 @@ function formatPricingModel($type) {
             tr:nth-child(even) td, .warning-row td { background: transparent !important; }
             .error-msg, .offline-msg { border: 1px solid #000; background: transparent; color: #000; padding: 2px 4px; }
             .rate-grid { padding-top: 2px; margin-top: 2px; border-color: #000; }
+            .print-logos { border-right-color: #000; }
+            .print-logos img { height: 40px; } /* Scales slightly down for crisper printing */
         }
     </style>
 </head>
@@ -232,10 +256,21 @@ function formatPricingModel($type) {
     </div>
 
     <div class="header-section">
-        <div class="title-block">
-            <h1>Plant Fleet Price List</h1>
-            <p>Internal Ledger Configuration & Active Pricing Matrix</p>
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <?php if (!empty($headerLogos)): ?>
+                <div class="print-logos">
+                    <?php foreach ($headerLogos as $logo): ?>
+                        <img src="<?= htmlspecialchars($logo['url']) ?>" alt="<?= htmlspecialchars($logo['name']) ?> Logo">
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+            
+            <div class="title-block">
+                <h1>Plant Fleet Master Price List</h1>
+                <p>Internal Ledger Configuration & Active Pricing Matrix</p>
+            </div>
         </div>
+        
         <div class="meta-block">
             <div>Run Date: <b><?= date('d M Y (H:i)') ?></b></div>
             <div>Authorized By: <b><?= htmlspecialchars($_SESSION['username']) ?></b></div>
