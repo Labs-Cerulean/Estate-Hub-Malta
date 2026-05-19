@@ -70,7 +70,6 @@ $userId = $_SESSION['user_id'];
     </div>
 
     <div class="content">
-        <!-- CALENDAR -->
         <div id="view-calendar" class="view active">
             <div style="background: #fff; padding: 15px 20px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; border: 1px solid #e2e8f0;">
                 <h3 id="custom-cal-title" style="margin:0; font-weight:900; font-size:1.4rem; color: #0f172a; text-align: center;">Loading...</h3>
@@ -78,7 +77,6 @@ $userId = $_SESSION['user_id'];
             <div id="calendar"></div>
         </div>
 
-        <!-- FLEET MANAGER (ADMIN ONLY) -->
         <?php if ($canManageFleet): ?>
         <div id="view-fleet" class="view">
             <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-truck-monster text-indigo-500"></i> ERP Fleet Setup</h3>
@@ -151,7 +149,6 @@ $userId = $_SESSION['user_id'];
         </div>
         <?php endif; ?>
 
-        <!-- BILLING LEDGER -->
         <?php if ($canViewLedger): ?>
         <div id="view-ledger" class="view">
             <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-book text-indigo-500"></i> ERP Billing Ledger</h3>
@@ -160,7 +157,6 @@ $userId = $_SESSION['user_id'];
         </div>
         <?php endif; ?>
 
-        <!-- CREATE/EDIT BOOKING -->
         <?php if ($isManager): ?>
         <div id="view-create" class="view">
             <h3 id="booking-form-title" style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking</h3>
@@ -198,7 +194,6 @@ $userId = $_SESSION['user_id'];
         </div>
         <?php endif; ?>
 
-        <!-- ACTIVE JOB -->
         <div id="view-job" class="view">
             <div style="background: #fff; padding: 25px; border-radius: 16px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
                 <h3 id="job-title" style="margin:0 0 15px 0; font-weight:900; font-size:1.8rem; color: #0f172a;"></h3>
@@ -208,7 +203,6 @@ $userId = $_SESSION['user_id'];
             <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')"><i class="fas fa-arrow-left"></i> Back</button>
         </div>
 
-        <!-- PUNCH OUT / TRIP COUNTER -->
         <div id="view-punch-out" class="view">
             <h3 style="margin-top:0; color:#e11d48; font-weight: 900; font-size: 1.6rem;"><i class="fas fa-flag-checkered"></i> Job Completion</h3>
             <div style="background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 30px; border: 1px solid #e2e8f0;">
@@ -233,8 +227,8 @@ $userId = $_SESSION['user_id'];
 
 <script>
     let calendar, mapboxMap, marker, signaturePad, groupedPlants = {};
-    window.fleetData = []; // Store fleet data globally for the Edit function
-    window.currentActiveJob = null; // Store currently viewed job
+    window.fleetData = []; 
+    window.currentActiveJob = null; 
 
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
@@ -242,57 +236,103 @@ $userId = $_SESSION['user_id'];
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
 
     document.addEventListener('DOMContentLoaded', () => {
-        initCalendar(); signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
-        if (isManager) loadFormData();
+        initCalendar(); 
+        signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
+        if (isManager) {
+            loadFormData();
+        }
     });
 
     function showView(id) {
-        document.querySelectorAll('.view').forEach(el => el.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0, 0); 
-        if (id === 'view-calendar' && calendar) calendar.render();
-        if (id === 'view-create') setTimeout(initMap, 200); if (id === 'view-punch-out') setTimeout(resizeCanvas, 100);
+        document.querySelectorAll('.view').forEach(el => el.classList.remove('active')); 
+        document.getElementById(id).classList.add('active'); 
+        window.scrollTo(0, 0); 
+        
+        if (id === 'view-calendar' && calendar) {
+            calendar.render();
+        }
+        if (id === 'view-create') {
+            setTimeout(initMap, 200); 
+        }
+        if (id === 'view-punch-out') {
+            setTimeout(resizeCanvas, 100);
+        }
     }
 
     function initCalendar() {
         calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
             initialView: isManager ? 'timeGridWeek' : 'listDay',
-            headerToolbar: { left: 'prev,next today', center: '', right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' },
-            slotMinTime: '06:00:00', slotMaxTime: '20:00:00', allDaySlot: false, contentHeight: 'auto',
-            events: 'api/plant_actions.php?action=fetch_bookings', eventClick: (info) => loadJob(info.event.id),
+            headerToolbar: { 
+                left: 'prev,next today', 
+                center: '', 
+                right: isManager ? 'dayGridMonth,timeGridWeek,timeGridDay' : '' 
+            },
+            slotMinTime: '06:00:00', 
+            slotMaxTime: '20:00:00', 
+            allDaySlot: false, 
+            contentHeight: 'auto',
+            events: 'api/plant_actions.php?action=fetch_bookings', 
+            eventClick: (info) => loadJob(info.event.id),
             datesSet: (info) => document.getElementById('custom-cal-title').innerText = info.view.title
-        }); calendar.render();
+        }); 
+        calendar.render();
     }
 
     function initMap() {
-        if (mapboxMap) { mapboxMap.resize(); return; }
-        mapboxMap = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/streets-v12', center: [14.38, 35.92], zoom: 10 });
+        if (mapboxMap) { 
+            mapboxMap.resize(); 
+            return; 
+        }
+        mapboxMap = new mapboxgl.Map({ 
+            container: 'map', 
+            style: 'mapbox://styles/mapbox/streets-v12', 
+            center: [14.38, 35.92], 
+            zoom: 10 
+        });
         mapboxMap.on('click', (e) => {
-            if (marker) marker.remove(); marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
-            document.getElementById('loc_lat').value = e.lngLat.lat; document.getElementById('loc_lng').value = e.lngLat.lng;
+            if (marker) marker.remove(); 
+            marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
+            document.getElementById('loc_lat').value = e.lngLat.lat; 
+            document.getElementById('loc_lng').value = e.lngLat.lng;
         });
     }
 
     function updateProjectLocation() {
-        const pId = document.getElementById('project_id').value; if (!pId) return;
-        fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`).then(r=>r.json()).then(data => {
+        const pId = document.getElementById('project_id').value; 
+        if (!pId) return;
+        
+        fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`)
+        .then(r => r.json())
+        .then(data => {
             if (data && data.latitude && data.longitude) {
-                document.getElementById('loc_lat').value = data.latitude; document.getElementById('loc_lng').value = data.longitude;
-                if (mapboxMap) { if (marker) marker.remove(); marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap); mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); }
+                document.getElementById('loc_lat').value = data.latitude; 
+                document.getElementById('loc_lng').value = data.longitude;
+                if (mapboxMap) { 
+                    if (marker) marker.remove(); 
+                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap); 
+                    mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); 
+                }
             }
         });
     }
 
     function resizeCanvas() {
-        const cvs = document.getElementById('signature-pad'); const r = Math.max(window.devicePixelRatio || 1, 1);
-        cvs.width = cvs.offsetWidth * r; cvs.height = cvs.offsetHeight * r; cvs.getContext("2d").scale(r, r); signaturePad.clear();
+        const cvs = document.getElementById('signature-pad'); 
+        const r = Math.max(window.devicePixelRatio || 1, 1);
+        cvs.width = cvs.offsetWidth * r; 
+        cvs.height = cvs.offsetHeight * r; 
+        cvs.getContext("2d").scale(r, r); 
+        signaturePad.clear();
     }
 
     function loadFormData() {
-        fetch('api/plant_actions.php?action=form_data').then(r=>r.json()).then(d => {
+        fetch('api/plant_actions.php?action=form_data')
+        .then(r => r.json())
+        .then(d => {
             groupedPlants = d.plants;
             document.getElementById('plant_category').innerHTML = '<option value="">-- Category --</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
             document.getElementById('driver_id').innerHTML = '<option value="">-- Unassigned --</option>' + d.drivers.map(drv => `<option value="${drv.id}">${drv.first_name} ${drv.last_name}</option>`).join('');
             
-            // Append missing distinct categories to the Fleet Register Dropdown safely
             if (canManageFleet) {
                 const fleetCatSelect = document.getElementById('new_plant_cat');
                 Object.keys(groupedPlants).sort().forEach(c => {
@@ -323,18 +363,43 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
+    // UPDATED: Evaluates whether the plant has proper billing nominal codes attached.
     function updatePlantDropdown() {
-        const cat = document.getElementById('plant_category').value; const pSelect = document.getElementById('plant_id');
-        if(!cat || !groupedPlants[cat]) { pSelect.innerHTML = '<option value="">-- Select Plant --</option>'; return; }
-        pSelect.innerHTML = '<option value="">-- Select Machinery --</option>' + groupedPlants[cat].map(p => `<option value="${p.id}" data-company-id="${p.billing_company_id}">${p.name} (${p.registration_plate||'N/A'})</option>`).join('');
+        const cat = document.getElementById('plant_category').value; 
+        const pSelect = document.getElementById('plant_id');
+        
+        if(!cat || !groupedPlants[cat]) { 
+            pSelect.innerHTML = '<option value="">-- Select Plant --</option>'; 
+            return; 
+        }
+        
+        pSelect.innerHTML = '<option value="">-- Select Machinery --</option>' + groupedPlants[cat].map(p => {
+            const isFixedReq = ['fixed_then_hourly', 'per_trip'].includes(p.pricing_type);
+            const isVarReq = ['fixed_then_hourly', 'hourly'].includes(p.pricing_type);
+            const missing = (isFixedReq && !p.nom_code_fixed) || (isVarReq && !p.nom_code_variable);
+            
+            return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="${missing}">${p.name} (${p.registration_plate||'N/A'})</option>`;
+        }).join('');
+        
         resetClientSearch();
     }
 
+    // UPDATED: Now blocks selection if a misconfigured plant is chosen
     function onPlantSelected() {
         resetClientSearch();
         const pSelect = document.getElementById('plant_id');
         if(pSelect.selectedIndex <= 0 || pSelect.value === '') return;
-        const compId = pSelect.options[pSelect.selectedIndex].getAttribute('data-company-id');
+        
+        const opt = pSelect.options[pSelect.selectedIndex];
+        
+        // Block booking if billing/nominal codes are not correctly configured
+        if (opt.dataset.missing === 'true') {
+            alert("Billing details for this vehicle are missing. Please configure them in the Fleet Setup before booking.");
+            pSelect.value = ''; // Revert the selection
+            return;
+        }
+
+        const compId = opt.getAttribute('data-company-id');
         
         const clientInput = document.getElementById('client_name');
         clientInput.placeholder = "Loading clients from ERP...";
@@ -343,28 +408,55 @@ $userId = $_SESSION['user_id'];
         fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
         .then(r => r.json())
         .then(res => {
-            currentErpClients = res; clientInput.placeholder = "start writing client here"; clientInput.disabled = false; 
-        }).catch(err => { clientInput.placeholder = "Error loading clients"; });
+            currentErpClients = res; 
+            clientInput.placeholder = "start writing client here"; 
+            clientInput.disabled = false; 
+        }).catch(err => { 
+            clientInput.placeholder = "Error loading clients"; 
+        });
     }
 
     function resetClientSearch() { 
-        document.getElementById('client_code').value = ''; document.getElementById('client_name').value = ''; 
-        document.getElementById('client_name').disabled = true; document.getElementById('client_name').placeholder = "start writing client here";
-        document.getElementById('client_search_results').style.display = 'none'; currentErpClients = [];
+        document.getElementById('client_code').value = ''; 
+        document.getElementById('client_name').value = ''; 
+        document.getElementById('client_name').disabled = true; 
+        document.getElementById('client_name').placeholder = "start writing client here";
+        document.getElementById('client_search_results').style.display = 'none'; 
+        currentErpClients = [];
     }
 
+    // UPDATED: Enforces CliStatus lock while browsing ERP clients 
     function filterLocalClients(query) {
         const resultsDiv = document.getElementById('client_search_results'); 
-        if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
+        if(query.length < 2) { 
+            resultsDiv.style.display = 'none'; 
+            return; 
+        }
+        
         const q = query.toLowerCase().trim();
         const filtered = currentErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 20);
-        if(filtered.length === 0) { resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found.</div>'; } 
-        else { resultsDiv.innerHTML = filtered.map(c => `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`).join(''); }
+        
+        if(filtered.length === 0) { 
+            resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found.</div>'; 
+        } else { 
+            resultsDiv.innerHTML = filtered.map(c => {
+                const safeName = (c.name || '').replace(/'/g, "\\'");
+                
+                // Only allow booking if the Client Status is exactly 1
+                if (c.status === 1) {
+                    return `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${safeName}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`;
+                } else {
+                    return `<div style="padding:15px; cursor:not-allowed; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:bold; color:#94a3b8;" onclick="alert('Client might have some pending bills, booking not allowed.')">${c.name} <br><span style="color:#ef4444; font-weight:bold; font-size:0.85rem;"><i class="fas fa-lock"></i> Blocked (Pending Bills)</span></div>`;
+                }
+            }).join(''); 
+        }
         resultsDiv.style.display = 'block';
     }
 
     function selectClient(code, name) { 
-        document.getElementById('client_code').value = code; document.getElementById('client_name').value = name; document.getElementById('client_search_results').style.display = 'none'; 
+        document.getElementById('client_code').value = code; 
+        document.getElementById('client_name').value = name; 
+        document.getElementById('client_search_results').style.display = 'none'; 
     }
 
     function toggleJobType() {
@@ -374,8 +466,14 @@ $userId = $_SESSION['user_id'];
 
     function openCreateForm() {
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking';
-        document.getElementById('edit_booking_id').value = ''; document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
-        document.getElementById('createBookingForm').reset(); if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
+        document.getElementById('edit_booking_id').value = ''; 
+        document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
+        document.getElementById('createBookingForm').reset(); 
+        
+        if(marker) marker.remove(); 
+        toggleJobType(); 
+        resetClientSearch(); 
+        showView('view-create');
     }
 
     function initiateBookingEdit() {
@@ -387,10 +485,15 @@ $userId = $_SESSION['user_id'];
         
         document.getElementById('plant_category').value = j.category;
         updatePlantDropdown();
-        document.getElementById('plant_id').value = j.plant_id;
+        
+        // Safely set plant if it exists in the new dropdown options
+        const plantInput = document.getElementById('plant_id');
+        plantInput.value = j.plant_id;
         
         document.getElementById('driver_id').value = j.driver_id || '';
-        document.getElementById('booking_type').value = j.booking_type; toggleJobType();
+        document.getElementById('booking_type').value = j.booking_type; 
+        toggleJobType();
+        
         document.getElementById('project_id').value = j.project_id || '';
         document.getElementById('booking_date').value = j.booking_date;
         document.getElementById('start_time').value = j.start_time;
@@ -399,8 +502,12 @@ $userId = $_SESSION['user_id'];
         document.getElementById('loc_lat').value = j.location_lat || '';
         document.getElementById('loc_lng').value = j.location_lng || '';
         
-        onPlantSelected();
-        setTimeout(() => { document.getElementById('client_code').value = j.client_code || ''; document.getElementById('client_name').value = j.client_name || ''; }, 800);
+        onPlantSelected(); // Will trigger security alert if editing a misconfigured job
+        
+        setTimeout(() => { 
+            document.getElementById('client_code').value = j.client_code || ''; 
+            document.getElementById('client_name').value = j.client_name || ''; 
+        }, 800);
 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-save"></i> Update Booking';
         showView('view-create');
@@ -416,31 +523,27 @@ $userId = $_SESSION['user_id'];
     }
 
     function submitBooking() {
-        // 1. Reset all borders to default before checking
         document.querySelectorAll('#createBookingForm .input-heavy').forEach(el => el.style.borderColor = '#e2e8f0');
         document.getElementById('map').style.borderColor = '#e2e8f0';
 
         let isValid = true;
         let firstError = null;
 
-        // Helper function to highlight errors
         function showError(elementId) {
             const el = document.getElementById(elementId);
             if (el) {
-                el.style.borderColor = '#ef4444'; // Highlight Red
+                el.style.borderColor = '#ef4444'; 
                 isValid = false;
                 if (!firstError) firstError = el;
             }
         }
 
-        // 2. Validate Standard Required Fields
         if (!document.getElementById('plant_category').value) showError('plant_category');
         if (!document.getElementById('plant_id').value) showError('plant_id');
         if (!document.getElementById('booking_date').value) showError('booking_date');
         if (!document.getElementById('start_time').value) showError('start_time');
         if (!document.getElementById('end_time').value) showError('end_time');
 
-        // 3. Validate Conditional Fields (Project vs Client)
         const bType = document.getElementById('booking_type').value;
         if (bType === 'in-house' && !document.getElementById('project_id').value) {
             showError('project_id');
@@ -448,23 +551,19 @@ $userId = $_SESSION['user_id'];
             showError('client_name');
         }
 
-        // 4. Validate Location (Map Pins)
         if (!document.getElementById('loc_lat').value || !document.getElementById('loc_lng').value) {
             showError('map');
         }
 
-        // 5. Stop submission if errors exist
         if (!isValid) {
             alert("Please fill out all highlighted fields and ensure a location is pinned on the map.");
             if (firstError) {
-                // Smooth scroll to the first missing field
                 firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 if(firstError.focus) firstError.focus();
             }
             return; 
         }
 
-        // 6. If everything is valid, proceed with Saving
         const btn = document.getElementById('submit_booking_btn'); 
         btn.disabled = true; 
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
@@ -502,7 +601,6 @@ $userId = $_SESSION['user_id'];
         });
     }
 
-    // --- NEW FLEET LOGIC: DYNAMIC NOMINALS & LIVE PRICING ---
     let erpNominals = [];
 
     function loadFleetNominals(companyId) {
@@ -516,7 +614,9 @@ $userId = $_SESSION['user_id'];
         document.getElementById('new_nom_fixed').innerHTML = '<option value="">Loading ERP...</option>';
         document.getElementById('new_nom_var').innerHTML = '<option value="">Loading ERP...</option>';
     
-        fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`).then(r=>r.json()).then(res => {
+        fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
+        .then(r => r.json())
+        .then(res => {
             erpNominals = res;
             const opts = '<option value="">-- Select Nominal Code --</option>' + res.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
             document.getElementById('new_nom_fixed').innerHTML = opts;
@@ -535,7 +635,8 @@ $userId = $_SESSION['user_id'];
 
         if (type === 'fixed_then_hourly') {
             minBox.style.display = 'block';
-            minInput.min = 1; minInput.value = Math.max(1, minInput.value);
+            minInput.min = 1; 
+            minInput.value = Math.max(1, minInput.value);
             varNomBox.style.display = 'block';
             varNomInput.required = true;
             lblFixed.innerText = "Fixed Nominal Code *";
@@ -573,7 +674,9 @@ $userId = $_SESSION['user_id'];
     function loadFleetView() {
         if (!canManageFleet) return;
         
-        fetch('api/plant_actions.php?action=get_fleet').then(r=>r.json()).then(fleet => {
+        fetch('api/plant_actions.php?action=get_fleet')
+        .then(r => r.json())
+        .then(fleet => {
             window.fleetData = fleet;
             document.getElementById('fleet-list').innerHTML = fleet.length === 0 ? '<p>No machinery.</p>' : fleet.map(p => `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:flex-start;">
@@ -584,7 +687,8 @@ $userId = $_SESSION['user_id'];
                     </div>
                     <button onclick="editPlant(${p.id})" style="background:#e2e8f0; color:#475569; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer;"><i class="fas fa-edit"></i> Edit</button>
                 </div>`).join('');
-        }); showView('view-fleet');
+        }); 
+        showView('view-fleet');
     }
 
     function editPlant(id) {
@@ -602,11 +706,10 @@ $userId = $_SESSION['user_id'];
 
         loadFleetNominals(p.billing_company_id);
         
-        // Timeout to ensure ERP nominals are loaded if the user clicks Edit too fast
         setTimeout(() => {
             document.getElementById('new_nom_fixed').value = p.nom_code_fixed || '';
             document.getElementById('new_nom_var').value = p.nom_code_variable || '';
-            togglePricingModel(); // This also updates the rate display
+            togglePricingModel();
         }, 300);
         
         const saveBtn = document.getElementById('save_fleet_btn');
@@ -619,7 +722,7 @@ $userId = $_SESSION['user_id'];
         document.getElementById('fleetForm').reset();
         document.getElementById('fleet-form-title').innerText = "Register Machinery";
         document.getElementById('edit_plant_id').value = '';
-        togglePricingModel(); // Resets layout
+        togglePricingModel(); 
         document.getElementById('save_fleet_btn').innerHTML = '<i class="fas fa-save"></i> Save to Fleet';
         document.getElementById('cancel_edit_btn').style.display = 'none';
     }
@@ -648,38 +751,53 @@ $userId = $_SESSION['user_id'];
         fd.append('nom_code_fixed', document.getElementById('new_nom_fixed').value);
         fd.append('nom_code_variable', document.getElementById('new_nom_var').value); 
 
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => { 
+        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        .then(r => r.text())
+        .then(res => { 
             if (res === 'OK') { 
                 alert(editId ? "Machinery Updated!" : "Machinery Added!"); 
-                resetFleetForm(); loadFormData(); loadFleetView(); 
-            } else alert("Error: " + res); 
+                resetFleetForm(); 
+                loadFormData(); 
+                loadFleetView(); 
+            } else {
+                alert("Error: " + res); 
+            }
         });
     }
 
     function loadJob(id) {
-        fetch(`api/plant_actions.php?action=get_job&id=${id}`).then(r=>r.json()).then(job => {
-            window.currentActiveJob = job; // Save for Edit capability
+        fetch(`api/plant_actions.php?action=get_job&id=${id}`)
+        .then(r => r.json())
+        .then(job => {
+            window.currentActiveJob = job; 
             document.getElementById('job-title').innerHTML = `<i class="fas fa-truck-pickup text-indigo-500"></i> ${job.plant_name}`;
+            
             let statCol = job.status === 'Completed' ? '#10b981' : (job.status === 'In Progress' ? '#f59e0b' : '#6366f1');
             let mapBtn = job.location_lat ? `<a href="https://www.google.com/maps/search/?api=1&query=${job.location_lat},${job.location_lng}" target="_blank" style="display:inline-block; background:#0f172a; color:#fff; padding:8px 15px; border-radius:8px; font-weight:bold; font-size:0.9rem; text-decoration:none; margin-top:12px; margin-bottom:10px;"><i class="fas fa-map-pin"></i> Open Maps</a>` : '';
             let mapPre = job.location_lat ? `<div id="job-preview-map" style="width:100%; height:200px; border-radius:8px; border:1px solid #e2e8f0; margin-top:10px;"></div>` : '';
             let commHtml = job.comments ? `<div style="background:#fef3c7; border:1px solid #fde68a; padding:15px; border-radius:10px; margin-bottom:15px; color:#92400e; font-size:0.95rem;"><b>Notes:</b><br>${job.comments.replace(/\n/g, '<br>')}</div>` : '';
 
-            document.getElementById('job-details').innerHTML = `<div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
+            document.getElementById('job-details').innerHTML = `
+                <div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
                 <div style="margin-bottom:12px;"><b>Type:</b> ${job.booking_type.toUpperCase()}</div>
                 <div style="margin-bottom:12px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span></div>
-                ${commHtml}<hr style="border: 1px solid #e2e8f0; margin: 20px 0;">
-                <div style="background:#f1f5f9; padding:12px; border-radius:8px; font-weight:bold;">${job.location_text}</div>${mapPre}${mapBtn}`;
+                ${commHtml}
+                <hr style="border: 1px solid #e2e8f0; margin: 20px 0;">
+                <div style="background:#f1f5f9; padding:12px; border-radius:8px; font-weight:bold;">${job.location_text}</div>
+                ${mapPre}${mapBtn}
+            `;
 
-            let controlsHtml = ''; let today = new Date().toISOString().split('T')[0];
+            let controlsHtml = ''; 
+            let today = new Date().toISOString().split('T')[0];
             
-            // Driver actions
             if (!isManager && job.booking_date === today) {
-                if (job.status === 'Pending') controlsHtml = `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
-                else if (job.status === 'In Progress') controlsHtml = `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job</button>`;
+                if (job.status === 'Pending') {
+                    controlsHtml = `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
+                } else if (job.status === 'In Progress') {
+                    controlsHtml = `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job</button>`;
+                }
             }
             
-            // Plant Manager & Admin Actions
             if (isManager && job.status === 'Pending') {
                 controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Booking</button>`;
             }
@@ -690,60 +808,126 @@ $userId = $_SESSION['user_id'];
                 controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Review & Invoice (ERP)</button>`;
             }
 
-            document.getElementById('punch-controls').innerHTML = controlsHtml; showView('view-job');
-            if (job.location_lat) setTimeout(() => { const pm = new mapboxgl.Map({ container: 'job-preview-map', style: 'mapbox://styles/mapbox/streets-v12', center: [job.location_lng, job.location_lat], zoom: 13, interactive: false }); new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([job.location_lng, job.location_lat]).addTo(pm); }, 200);
+            document.getElementById('punch-controls').innerHTML = controlsHtml; 
+            showView('view-job');
+            
+            if (job.location_lat) {
+                setTimeout(() => { 
+                    const pm = new mapboxgl.Map({ container: 'job-preview-map', style: 'mapbox://styles/mapbox/streets-v12', center: [job.location_lng, job.location_lat], zoom: 13, interactive: false }); 
+                    new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([job.location_lng, job.location_lat]).addTo(pm); 
+                }, 200);
+            }
         });
     }
 
     function cancelJob(id) {
         if (!confirm("Delete booking?")) return;
-        const fd = new FormData(); fd.append('action', 'cancel_booking'); fd.append('id', id);
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
+        const fd = new FormData(); 
+        fd.append('action', 'cancel_booking'); 
+        fd.append('id', id);
+        
+        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        .then(r => r.text())
+        .then(res => { 
+            if (res === 'OK') { 
+                calendar.refetchEvents(); 
+                showView('view-calendar'); 
+            } 
+        });
     }
 
     function punchJob(id, direction) {
         if (!confirm("Start Job?")) return;
-        fetch(`api/plant_actions.php?action=punch_${direction}&id=${id}`).then(r=>r.text()).then(res => { if (res === 'OK') { loadJob(id); calendar.refetchEvents(); } });
+        fetch(`api/plant_actions.php?action=punch_${direction}&id=${id}`)
+        .then(r => r.text())
+        .then(res => { 
+            if (res === 'OK') { 
+                loadJob(id); 
+                calendar.refetchEvents(); 
+            } 
+        });
     }
 
     function startPunchOut(id, pricingType) { 
         document.getElementById('punchout_booking_id').value = id; 
         const tBox = document.getElementById('trip-qty-box');
-        if(pricingType === 'per_trip') { tBox.style.display = 'block'; document.getElementById('qty_trips').required = true; } 
-        else { tBox.style.display = 'none'; document.getElementById('qty_trips').required = false; }
+        
+        if(pricingType === 'per_trip') { 
+            tBox.style.display = 'block'; 
+            document.getElementById('qty_trips').required = true; 
+        } else { 
+            tBox.style.display = 'none'; 
+            document.getElementById('qty_trips').required = false; 
+        }
         showView('view-punch-out'); 
     }
 
     function submitPunchOut() {
-        if (signaturePad.isEmpty()) { alert("Please obtain client signature."); return; }
-        const btn = event.target.closest('button'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-        const fd = new FormData(); fd.append('action', 'punch_out_complete'); fd.append('id', document.getElementById('punchout_booking_id').value);
-        fd.append('qty_trips', document.getElementById('qty_trips').value); fd.append('rep_name', document.getElementById('rep_name').value);
-        fd.append('rep_id', document.getElementById('rep_id').value); fd.append('signature', signaturePad.toDataURL());
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r=>r.text()).then(res => {
-            if (res === 'OK') { alert("Completed!"); calendar.refetchEvents(); showView('view-calendar'); } else { alert("Error: " + res); btn.disabled = false; }
+        if (signaturePad.isEmpty()) { 
+            alert("Please obtain client signature."); 
+            return; 
+        }
+        
+        const btn = event.target.closest('button'); 
+        btn.disabled = true; 
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        
+        const fd = new FormData(); 
+        fd.append('action', 'punch_out_complete'); 
+        fd.append('id', document.getElementById('punchout_booking_id').value);
+        fd.append('qty_trips', document.getElementById('qty_trips').value); 
+        fd.append('rep_name', document.getElementById('rep_name').value);
+        fd.append('rep_id', document.getElementById('rep_id').value); 
+        fd.append('signature', signaturePad.toDataURL());
+        
+        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        .then(r => r.text())
+        .then(res => {
+            if (res === 'OK') { 
+                alert("Completed!"); 
+                calendar.refetchEvents(); 
+                showView('view-calendar'); 
+            } else { 
+                alert("Error: " + res); 
+                btn.disabled = false; 
+            }
         });
     }
 
     function loadLedger() {
         if (!canViewLedger) return;
-        fetch('api/plant_actions.php?action=get_ledger').then(r=>r.json()).then(jobs => {
+        
+        fetch('api/plant_actions.php?action=get_ledger')
+        .then(r => r.json())
+        .then(jobs => {
             document.getElementById('ledger-list').innerHTML = jobs.length === 0 ? '<p>No bookings.</p>' : jobs.map(j => {
-                let badge = j.payment_status === 'Invoiced' ? `<span style="background:#fef08a; color:#854d0e; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">Invoiced</span>` : `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
-                let sysRef = j.invoice_sysref ? `<div style="color:#10b981; font-weight:bold; font-size:0.85rem; margin-top:5px;"><i class="fas fa-check-circle"></i> ERP Ref: ${j.invoice_sysref}</div>` : '';
+                let badge = j.payment_status === 'Invoiced' 
+                    ? `<span style="background:#fef08a; color:#854d0e; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">Invoiced</span>` 
+                    : `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
+                
+                let sysRef = j.invoice_sysref 
+                    ? `<div style="color:#10b981; font-weight:bold; font-size:0.85rem; margin-top:5px;"><i class="fas fa-check-circle"></i> ERP Ref: ${j.invoice_sysref}</div>` 
+                    : '';
+                
                 return `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
                     <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                        <div><div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name}</div>
-                        <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No Client') + ')' : j.client_name}</div>${sysRef}</div>
+                        <div>
+                            <div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name}</div>
+                            <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No Client') + ')' : j.client_name}</div>
+                            ${sysRef}
+                        </div>
                         <div style="text-align:right;">${badge}</div>
                     </div>
                     <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
-                        ${j.status === 'Completed' ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View RFP</button>` : `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`}
+                        ${j.status === 'Completed' 
+                            ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View RFP</button>` 
+                            : `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`}
                     </div>
                 </div>`;
             }).join('');
-        }); showView('view-ledger');
+        }); 
+        showView('view-ledger');
     }
 </script>
 </body>
