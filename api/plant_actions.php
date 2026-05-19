@@ -39,7 +39,7 @@ function getJ2ApiData($endpoint, $apiKey) {
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
     $response = curl_exec($ch); 
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
     curl_close($ch);
@@ -55,7 +55,7 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
     curl_setopt($ch, CURLOPT_POST, true); 
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
     $response = curl_exec($ch); 
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
     curl_close($ch);
@@ -103,6 +103,7 @@ if ($action == 'form_data') {
         $bcId = $p['billing_company_id'] ?? 'default';
         $catCache = $nominalCache[$bcId] ?? [];
         
+        $isValidPricing = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip', 'hourly']);
         $isFixedReq = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip']);
         $isVarReq = in_array($p['pricing_type'], ['fixed_then_hourly', 'hourly']);
         
@@ -115,12 +116,12 @@ if ($action == 'form_data') {
             $hasFixed = $fCode !== '' && isset($catCache[$fCode]);
             $hasVar = $vCode !== '' && isset($catCache[$vCode]);
         } else {
-            // Soft fail: If ERP is completely down, trust local DB to not freeze operations
             $hasFixed = $fCode !== '';
             $hasVar = $vCode !== '';
         }
         
-        $p['is_misconfigured'] = ($isFixedReq && !$hasFixed) || ($isVarReq && !$hasVar);
+        // BUG FIX: Ensure missing pricing types trigger the misconfigured lock
+        $p['is_misconfigured'] = !$isValidPricing || ($isFixedReq && !$hasFixed) || ($isVarReq && !$hasVar);
         
         $cat = empty($p['category']) ? 'General' : $p['category']; 
         if(!isset($plants[$cat])) $plants[$cat] = []; 
@@ -159,7 +160,6 @@ if ($action == 'get_company_clients' && $isManager) {
             $name = trim((string)($c['ClientName'] ?? '')); 
             $code = trim((string)($c['ClientCode'] ?? ''));
             
-            // Fetch Client Status. Checks both PascalCase and lowercase just in case API differs. Defaults to 1.
             $status = isset($c['CliStatus']) ? (int)$c['CliStatus'] : (isset($c['clistatus']) ? (int)$c['clistatus'] : 1);
             
             if (!empty($name)) { 
@@ -174,7 +174,6 @@ if ($action == 'get_company_clients' && $isManager) {
 if ($action == 'fetch_bookings') {
     $events = [];
     
-    // SECURITY FIX: Using Prepared Statements to prevent SQL injection
     if ($isManager) {
         $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
         $stmt = $pdo->query($query);
