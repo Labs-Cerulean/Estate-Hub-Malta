@@ -65,25 +65,54 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'save_plant' && $canManageFleet) {
-    $minHours = ($_POST['pricing_type'] === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
-    $nomVar = ($_POST['pricing_type'] === 'fixed_then_hourly' && !empty($_POST['nom_code_variable'])) ? $_POST['nom_code_variable'] : null;
+    $pricingType = $_POST['pricing_type'];
+    $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    
+    // Grab whatever the frontend sent
+    $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
+    $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
+
+    // BUG FIX: Smart Routing for Nominal Codes
+    if ($pricingType === 'hourly') {
+        // If frontend single-select sent the code as "fixed", move it to "variable" where the invoice expects it
+        if (empty($nomVar) && !empty($nomFixed)) {
+            $nomVar = $nomFixed;
+        }
+        $nomFixed = null; // Standard hourly doesn't use the fixed callout column
+    } elseif ($pricingType === 'per_trip') {
+        $nomVar = null; // Trips only use the fixed column
+    }
 
     $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?)");
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id']
+        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id']
     ]);
     echo "OK"; exit;
 }
 
 if ($action == 'update_plant' && $canManageFleet) {
-    $minHours = ($_POST['pricing_type'] === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
-    $nomVar = ($_POST['pricing_type'] === 'fixed_then_hourly' && !empty($_POST['nom_code_variable'])) ? $_POST['nom_code_variable'] : null;
+    $pricingType = $_POST['pricing_type'];
+    $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    
+    // Grab whatever the frontend sent
+    $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
+    $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
+
+    // BUG FIX: Smart Routing for Nominal Codes
+    if ($pricingType === 'hourly') {
+        if (empty($nomVar) && !empty($nomFixed)) {
+            $nomVar = $nomFixed;
+        }
+        $nomFixed = null;
+    } elseif ($pricingType === 'per_trip') {
+        $nomVar = null;
+    }
 
     $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], $_POST['pricing_type'], $minHours, $_POST['nom_code_fixed'], $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
+        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
     ]);
     echo "OK"; exit;
 }
