@@ -363,6 +363,7 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
+    // UPDATED: Trusts the API's is_misconfigured variable
     function updatePlantDropdown() {
         const cat = document.getElementById('plant_category').value; 
         const pSelect = document.getElementById('plant_id');
@@ -374,7 +375,6 @@ $userId = $_SESSION['user_id'];
         
         pSelect.innerHTML = '<option value="">-- Select Machinery --</option>' + groupedPlants[cat].map(p => {
             if (p.is_misconfigured) {
-                // CSS Stylized directly on the option (red text, italic, alert symbol)
                 return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="true" style="color:#ef4444; background:#fef2f2; font-style:italic; font-weight:bold;">⚠️ ${p.name} (Setup Missing)</option>`;
             } else {
                 return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="false">${p.name} (${p.registration_plate||'N/A'})</option>`;
@@ -440,7 +440,6 @@ $userId = $_SESSION['user_id'];
             resultsDiv.innerHTML = filtered.map(c => {
                 const safeName = (c.name || '').replace(/'/g, "\\'");
                 
-                // Only allow booking if the Client Status is exactly 1
                 if (c.status === 1) {
                     return `
                     <div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; background:#fff; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="selectClient('${c.code}', '${safeName}')">
