@@ -80,21 +80,58 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
-    // 1. Fetch and group Plants (UPDATED: Now fetching pricing types and nominal codes for UI validation)
+    // 1. Fetch ERP nominal catalogs to validate live existence
+    $nominalCache = [];
+    foreach (['24', '26'] as $compId) {
+        $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
+        $indexed = [];
+        if (is_array($noms)) {
+            foreach ($noms as $n) {
+                if (isset($n['NCCode'])) {
+                    $indexed[trim((string)$n['NCCode'])] = true;
+                }
+            }
+        }
+        $nominalCache[$compId] = $indexed;
+    }
+
+    // 2. Fetch and group Plants
     $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
     $plants = []; 
     foreach($plantsRaw as $p) { 
+        // VALIDATION CHECK AGAINST LIVE ERP
+        $bcId = $p['billing_company_id'] ?? 'default';
+        $catCache = $nominalCache[$bcId] ?? [];
+        
+        $isFixedReq = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip']);
+        $isVarReq = in_array($p['pricing_type'], ['fixed_then_hourly', 'hourly']);
+        
+        $fCode = trim((string)$p['nom_code_fixed']);
+        $vCode = trim((string)$p['nom_code_variable']);
+        
+        $erpIsOnline = !empty($catCache);
+        
+        if ($erpIsOnline) {
+            $hasFixed = $fCode !== '' && isset($catCache[$fCode]);
+            $hasVar = $vCode !== '' && isset($catCache[$vCode]);
+        } else {
+            // Soft fail: If ERP is completely down, trust local DB to not freeze operations
+            $hasFixed = $fCode !== '';
+            $hasVar = $vCode !== '';
+        }
+        
+        $p['is_misconfigured'] = ($isFixedReq && !$hasFixed) || ($isVarReq && !$hasVar);
+        
         $cat = empty($p['category']) ? 'General' : $p['category']; 
         if(!isset($plants[$cat])) $plants[$cat] = []; 
         $plants[$cat][] = $p; 
     }
     
-    // 2. Fetch Drivers
+    // 3. Fetch Drivers
     $drivers = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role='plant_driver'")->fetchAll(PDO::FETCH_ASSOC);
     
-    // 3. Fetch Projects & inject the 'city' column as 'locality' for the frontend grouper
+    // 4. Fetch Projects
     $projects = getAccessibleProjects($pdo, $userId);
-    
     if (!empty($projects)) {
         $projectIds = array_column($projects, 'id');
         $in = str_repeat('?,', count($projectIds) - 1) . '?';
@@ -122,7 +159,7 @@ if ($action == 'get_company_clients' && $isManager) {
             $name = trim((string)($c['ClientName'] ?? '')); 
             $code = trim((string)($c['ClientCode'] ?? ''));
             
-            // UPDATED: Fetch Client Status. Checks both PascalCase and lowercase just in case API differs. Defaults to 1.
+            // Fetch Client Status. Checks both PascalCase and lowercase just in case API differs. Defaults to 1.
             $status = isset($c['CliStatus']) ? (int)$c['CliStatus'] : (isset($c['clistatus']) ? (int)$c['clistatus'] : 1);
             
             if (!empty($name)) { 
