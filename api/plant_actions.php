@@ -33,105 +33,55 @@ function getApiKey($companyId) {
 }
 
 function getJ2ApiData($endpoint, $apiKey) {
-    global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
+    global $apiUrlBase; 
+    $url = $apiUrlBase . $endpoint; 
+    $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
-    $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $response = curl_exec($ch); 
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
+    curl_close($ch);
     return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
 }
 
 function postJ2ApiData($endpoint, $apiKey, $payload) {
-    global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
+    global $apiUrlBase; 
+    $url = $apiUrlBase . $endpoint; 
+    $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); 
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+    curl_setopt($ch, CURLOPT_POST, true); 
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); 
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
-    $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $response = curl_exec($ch); 
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
+    curl_close($ch);
     return ['code' => $httpCode, 'response' => $response];
 }
 
 if ($action == 'get_nominals' && $canManageFleet) {
     $apiKey = getApiKey($_GET['company_id'] ?? '');
-    echo json_encode(getJ2ApiData('/nominalcateg', $apiKey) ?: []); exit;
+    echo json_encode(getJ2ApiData('/nominalcateg', $apiKey) ?: []); 
+    exit;
 }
 
 if ($action == 'get_clients' && $canManageFleet) {
-    echo json_encode($pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC)); exit;
+    echo json_encode($pdo->query("SELECT id, name FROM clients ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC)); 
+    exit;
 }
 
 if ($action == 'get_fleet' && $canManageFleet) {
     $fleet = $pdo->query("SELECT p.*, c.name as owner_name, bc.name as billing_company_name FROM plants p LEFT JOIN clients c ON p.developer_client_id = c.id LEFT JOIN clients bc ON p.billing_company_id = bc.id WHERE p.status = 'Active' ORDER BY p.category, p.name ASC")->fetchAll(PDO::FETCH_ASSOC);
-    echo json_encode($fleet); exit;
-}
-
-if ($action == 'save_plant' && $canManageFleet) {
-    $pricingType = $_POST['pricing_type'];
-    $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
-    
-    // Grab whatever the frontend sent
-    $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
-    $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
-
-    // BUG FIX: Smart Routing for Nominal Codes
-    if ($pricingType === 'hourly') {
-        // If frontend single-select sent the code as "fixed", move it to "variable" where the invoice expects it
-        if (empty($nomVar) && !empty($nomFixed)) {
-            $nomVar = $nomFixed;
-        }
-        $nomFixed = null; // Standard hourly doesn't use the fixed callout column
-    } elseif ($pricingType === 'per_trip') {
-        $nomVar = null; // Trips only use the fixed column
-    }
-
-    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?)");
-    $stmt->execute([
-        $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id']
-    ]);
-    echo "OK"; exit;
-}
-
-if ($action == 'update_plant' && $canManageFleet) {
-    $pricingType = $_POST['pricing_type'];
-    $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
-    
-    // Grab whatever the frontend sent
-    $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
-    $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
-
-    // BUG FIX: Smart Routing for Nominal Codes
-    if ($pricingType === 'hourly') {
-        if (empty($nomVar) && !empty($nomFixed)) {
-            $nomVar = $nomFixed;
-        }
-        $nomFixed = null;
-    } elseif ($pricingType === 'per_trip') {
-        $nomVar = null;
-    }
-
-    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
-    $stmt->execute([
-        $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
-    ]);
-    echo "OK"; exit;
-}
-
-if ($action == 'get_drivers' && $canManageFleet) {
-    echo json_encode($pdo->query("SELECT id, first_name, last_name, email FROM users WHERE role = 'plant_driver' AND is_active = 'Yes' ORDER BY first_name ASC")->fetchAll(PDO::FETCH_ASSOC)); exit;
-}
-
-if ($action == 'save_driver' && $canManageFleet) {
-    $email = trim($_POST['email']); $username = explode('@', $email)[0]; $hashedPassword = password_hash(trim($_POST['pass']), PASSWORD_DEFAULT);
-    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? OR username = ?"); $stmt->execute([$email, $username]);
-    if ($stmt->fetch()) { echo "User exists."; exit; }
-    $pdo->prepare("INSERT INTO users (first_name, last_name, username, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?, 'plant_driver', 'Yes')")->execute([trim($_POST['first']), trim($_POST['last']), $username, $email, $hashedPassword]);
-    $pdo->prepare("INSERT INTO user_capabilities (user_id, view_plant_bookings) VALUES (?, 1)")->execute([$pdo->lastInsertId()]); echo "OK"; exit;
+    echo json_encode($fleet); 
+    exit;
 }
 
 if ($action == 'form_data') {
-    // 1. Fetch and group Plants
-    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
+    // 1. Fetch and group Plants (UPDATED: Now fetching pricing types and nominal codes for UI validation)
+    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
     $plants = []; 
     foreach($plantsRaw as $p) { 
         $cat = empty($p['category']) ? 'General' : $p['category']; 
@@ -146,18 +96,15 @@ if ($action == 'form_data') {
     $projects = getAccessibleProjects($pdo, $userId);
     
     if (!empty($projects)) {
-        // Grab just the IDs to look up their cities
         $projectIds = array_column($projects, 'id');
         $in = str_repeat('?,', count($projectIds) - 1) . '?';
         
         $stmt = $pdo->prepare("SELECT id, city FROM projects WHERE id IN ($in)");
         $stmt->execute($projectIds);
-        $cities = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // Returns an array of [id => city]
+        $cities = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         
-        // Loop through the projects and attach the city
         foreach ($projects as &$prj) {
             $city = $cities[$prj['id']] ?? '';
-            // If city is missing/empty, default it safely
             $prj['locality'] = empty(trim($city)) ? 'General / Other Regions' : trim($city);
         }
     }
@@ -172,11 +119,19 @@ if ($action == 'get_company_clients' && $isManager) {
     $results = [];
     if (is_array($apiClients)) {
         foreach ($apiClients as $c) {
-            $name = trim((string)($c['ClientName'] ?? '')); $code = trim((string)($c['ClientCode'] ?? ''));
-            if (!empty($name)) { $results[] = ['code' => $code, 'name' => $name]; }
+            $name = trim((string)($c['ClientName'] ?? '')); 
+            $code = trim((string)($c['ClientCode'] ?? ''));
+            
+            // UPDATED: Fetch Client Status. Checks both PascalCase and lowercase just in case API differs. Defaults to 1.
+            $status = isset($c['CliStatus']) ? (int)$c['CliStatus'] : (isset($c['clistatus']) ? (int)$c['clistatus'] : 1);
+            
+            if (!empty($name)) { 
+                $results[] = ['code' => $code, 'name' => $name, 'status' => $status]; 
+            }
         }
     }
-    echo json_encode($results); exit;
+    echo json_encode($results); 
+    exit;
 }
 
 if ($action == 'fetch_bookings') {
@@ -194,49 +149,190 @@ if ($action == 'fetch_bookings') {
     
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $color = ($b['status'] == 'In Progress') ? '#f59e0b' : (($b['status'] == 'Completed') ? '#10b981' : '#3b82f6');
-        $events[] = ['id' => $b['id'], 'title' => $b['plant_name'], 'start' => $b['booking_date'] . 'T' . $b['start_time'], 'end' => $b['booking_date'] . 'T' . $b['end_time'], 'backgroundColor' => $color, 'borderColor' => $color];
+        $events[] = [
+            'id' => $b['id'], 
+            'title' => $b['plant_name'], 
+            'start' => $b['booking_date'] . 'T' . $b['start_time'], 
+            'end' => $b['booking_date'] . 'T' . $b['end_time'], 
+            'backgroundColor' => $color, 
+            'borderColor' => $color
+        ];
     }
-    echo json_encode($events); exit;
+    echo json_encode($events); 
+    exit;
+}
+
+if ($action == 'save_plant' && $canManageFleet) {
+    $pricingType = $_POST['pricing_type'];
+    $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    
+    $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
+    $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
+
+    if ($pricingType === 'hourly') {
+        if (empty($nomVar) && !empty($nomFixed)) { $nomVar = $nomFixed; }
+        $nomFixed = null; 
+    } elseif ($pricingType === 'per_trip') {
+        $nomVar = null; 
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?)");
+    $stmt->execute([
+        $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
+        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id']
+    ]);
+    echo "OK"; 
+    exit;
+}
+
+if ($action == 'update_plant' && $canManageFleet) {
+    $pricingType = $_POST['pricing_type'];
+    $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    
+    $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
+    $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
+
+    if ($pricingType === 'hourly') {
+        if (empty($nomVar) && !empty($nomFixed)) { $nomVar = $nomFixed; }
+        $nomFixed = null;
+    } elseif ($pricingType === 'per_trip') {
+        $nomVar = null;
+    }
+
+    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
+    $stmt->execute([
+        $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
+        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
+    ]);
+    echo "OK"; 
+    exit;
+}
+
+if ($action == 'get_drivers' && $canManageFleet) {
+    echo json_encode($pdo->query("SELECT id, first_name, last_name, email FROM users WHERE role = 'plant_driver' AND is_active = 'Yes' ORDER BY first_name ASC")->fetchAll(PDO::FETCH_ASSOC)); 
+    exit;
+}
+
+if ($action == 'save_driver' && $canManageFleet) {
+    $email = trim($_POST['email']); 
+    $username = explode('@', $email)[0]; 
+    $hashedPassword = password_hash(trim($_POST['pass']), PASSWORD_DEFAULT);
+    
+    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? OR username = ?"); 
+    $stmt->execute([$email, $username]);
+    if ($stmt->fetch()) { 
+        echo "User exists."; 
+        exit; 
+    }
+    
+    $pdo->prepare("INSERT INTO users (first_name, last_name, username, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?, 'plant_driver', 'Yes')")->execute([trim($_POST['first']), trim($_POST['last']), $username, $email, $hashedPassword]);
+    $pdo->prepare("INSERT INTO user_capabilities (user_id, view_plant_bookings) VALUES (?, 1)")->execute([$pdo->lastInsertId()]); 
+    echo "OK"; 
+    exit;
 }
 
 if ($action == 'create_booking' && $isManager) {
-    $pdo->prepare("INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, start_time, end_time, comments, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")->execute([ $_POST['plant_id'], empty($_POST['driver_id']) ? null : $_POST['driver_id'], $_POST['booking_type'], empty($_POST['project_id']) ? null : $_POST['project_id'], $_POST['client_name'], empty($_POST['client_code']) ? null : $_POST['client_code'], empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $_POST['comments'], $userId ]); echo "OK"; exit;
+    $pdo->prepare("INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, start_time, end_time, comments, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")->execute([ 
+        $_POST['plant_id'], 
+        empty($_POST['driver_id']) ? null : $_POST['driver_id'], 
+        $_POST['booking_type'], 
+        empty($_POST['project_id']) ? null : $_POST['project_id'], 
+        $_POST['client_name'], 
+        empty($_POST['client_code']) ? null : $_POST['client_code'], 
+        empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], 
+        empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], 
+        $_POST['booking_date'], 
+        $_POST['start_time'], 
+        $_POST['end_time'], 
+        $_POST['comments'], 
+        $userId 
+    ]); 
+    echo "OK"; 
+    exit;
 }
 
 if ($action == 'update_booking' && $isManager) {
-    $pdo->prepare("UPDATE plant_bookings SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=?, comments=? WHERE id=?")->execute([ $_POST['plant_id'], empty($_POST['driver_id']) ? null : $_POST['driver_id'], $_POST['booking_type'], empty($_POST['project_id']) ? null : $_POST['project_id'], $_POST['client_name'], empty($_POST['client_code']) ? null : $_POST['client_code'], empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $_POST['comments'], $_POST['edit_id'] ]); echo "OK"; exit;
+    $pdo->prepare("UPDATE plant_bookings SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=?, comments=? WHERE id=?")->execute([ 
+        $_POST['plant_id'], 
+        empty($_POST['driver_id']) ? null : $_POST['driver_id'], 
+        $_POST['booking_type'], 
+        empty($_POST['project_id']) ? null : $_POST['project_id'], 
+        $_POST['client_name'], 
+        empty($_POST['client_code']) ? null : $_POST['client_code'], 
+        empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], 
+        empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], 
+        $_POST['booking_date'], 
+        $_POST['start_time'], 
+        $_POST['end_time'], 
+        $_POST['comments'], 
+        $_POST['edit_id'] 
+    ]); 
+    echo "OK"; 
+    exit;
 }
 
-if ($action == 'cancel_booking' && $isManager) { $pdo->prepare("DELETE FROM plant_bookings WHERE id=?")->execute([$_POST['id']]); echo "OK"; exit; }
-if ($action == 'get_project_location' && $isManager) { $stmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?"); $stmt->execute([$_GET['project_id']]); echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); exit; }
+if ($action == 'cancel_booking' && $isManager) { 
+    $pdo->prepare("DELETE FROM plant_bookings WHERE id=?")->execute([$_POST['id']]); 
+    echo "OK"; 
+    exit; 
+}
+
+if ($action == 'get_project_location' && $isManager) { 
+    $stmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?"); 
+    $stmt->execute([$_GET['project_id']]); 
+    echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); 
+    exit; 
+}
 
 if ($action == 'get_job') {
-    $stmt = $pdo->prepare("SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, prj.name as project_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id WHERE pb.id = ?"); $stmt->execute([$_GET['id']]); $job = $stmt->fetch(PDO::FETCH_ASSOC); $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; echo json_encode($job); exit;
+    $stmt = $pdo->prepare("SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, prj.name as project_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id WHERE pb.id = ?"); 
+    $stmt->execute([$_GET['id']]); 
+    $job = $stmt->fetch(PDO::FETCH_ASSOC); 
+    $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; 
+    echo json_encode($job); 
+    exit;
 }
 
-if ($action == 'punch_in') { $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=? WHERE id=?")->execute([$userId, $_GET['id']]); echo "OK"; exit; }
+if ($action == 'punch_in') { 
+    $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=? WHERE id=?")->execute([$userId, $_GET['id']]); 
+    echo "OK"; 
+    exit; 
+}
+
 if ($action == 'punch_out_complete') {
     $bookingId = $_POST['id'];
-    $pdo->prepare("UPDATE plant_bookings SET status='Completed', punch_out_time=NOW(), qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? WHERE id=?")->execute([empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], $_POST['rep_name'], $_POST['rep_id'], $_POST['signature'], $bookingId]);
-    $domain = APP_URL; $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); echo "OK"; exit;
+    $pdo->prepare("UPDATE plant_bookings SET status='Completed', punch_out_time=NOW(), qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? WHERE id=?")->execute([
+        empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], 
+        $_POST['rep_name'], 
+        $_POST['rep_id'], 
+        $_POST['signature'], 
+        $bookingId
+    ]);
+    
+    $domain = APP_URL; 
+    $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; 
+    @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); 
+    echo "OK"; 
+    exit;
 }
 
 function getNominalDetails($nomCode, $apiKey) {
-    if(empty($nomCode)) return null; $nominals = getJ2ApiData('/nominalcateg', $apiKey);
-    foreach($nominals as $n) { if(trim($n['NCCode']) == $nomCode) return $n; } return null;
+    if(empty($nomCode)) return null; 
+    $nominals = getJ2ApiData('/nominalcateg', $apiKey);
+    foreach($nominals as $n) { 
+        if(trim($n['NCCode']) == $nomCode) return $n; 
+    } 
+    return null;
 }
 
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
-    
-    // SAFEGUARD: Force inputs to be floats so MySQL doesn't crash on empty strings ""
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
     $finalRate = empty($_POST['rate']) ? 0 : (float)$_POST['rate'];
     $finalSubtotal = empty($_POST['subtotal']) ? 0 : (float)$_POST['subtotal'];
 
     $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?")->execute([$finalHours, $finalRate, $finalSubtotal, $bookingId]);
     
-    // UPDATED QUERY: Added LEFT JOIN on users to fetch Driver's Name for the ERP Text Line
     $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.inhouse_rate, p.external_rate, p.min_hours, p.name as plant_name, u.first_name as driver_first, u.last_name as driver_last FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN users u ON pb.driver_id = u.id WHERE pb.id = ?"); 
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -250,10 +346,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $totalTax = $totalVal * 0.18;
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     
-    // Format the driver name safely
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
-    // BUILD THE BILLING LINES
     $lines = [];
     
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
@@ -277,24 +371,9 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     if (empty($lines)) { echo "ERP_SYNC_FAILED: No Nominal Codes found. Cannot sync empty invoice."; exit; }
 
-    // APPEND IT'S REQUESTED METADATA TEXT LINES
-    $lines[] = [
-        "Type" => "T",
-        "Code" => "0000",
-        "Description" => substr("Delivery Note: " . $jobRef, 0, 35),
-        "Qty" => 1,
-        "Location" => "01"
-    ];
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => 1, "Location" => "01" ];
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => 1, "Location" => "01" ];
 
-    $lines[] = [
-        "Type" => "T",
-        "Code" => "0000",
-        "Description" => substr("Driver: " . $driverName, 0, 35),
-        "Qty" => 1,
-        "Location" => "01"
-    ];
-
-    // BULLETPROOF PAYLOAD: Mapped to IT's exactly supplied structure and casing
     $payload = [
         "Type" => "IN", 
         "PaymentType" => null, 
@@ -311,7 +390,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                 "THName" => $job['client_name'], 
                 "THTaxNumber" => "", 
                 "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), 
-                "THExtRef" => $jobRef,   // IT Update: Inserted Job Ref here
+                "THExtRef" => $jobRef,   
                 "THRevision" => "001", 
                 "THTotDiscF" => 0.0, 
                 "THTotDiscTIF" => 0.0, 
@@ -319,11 +398,9 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                 "THCurrency" => "EUR", 
                 "THExchRate" => 1, 
                 "THPayment" => "", 
-                "THPayRef" => ""         // Emptied as per IT request
+                "THPayRef" => ""         
             ], 
-            "InvioceItemLine" => [ 
-                "Lines" => $lines 
-            ], 
+            "InvioceItemLine" => [ "Lines" => $lines ], 
             "Ledger" => "S", 
             "OfflineDocRefs" => "" 
         ] 
@@ -342,10 +419,15 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 }
 
 if ($action == 'get_ledger' && $canViewLedger) {
-    echo json_encode($pdo->query("SELECT pb.*, p.name as plant_name, bc.name as billing_company_name, prj.name as project_name, c.name as client_dev_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id LEFT JOIN clients c ON p.developer_client_id = c.id LEFT JOIN clients bc ON p.billing_company_id = bc.id ORDER BY pb.booking_date DESC")->fetchAll(PDO::FETCH_ASSOC)); exit;
+    echo json_encode($pdo->query("SELECT pb.*, p.name as plant_name, bc.name as billing_company_name, prj.name as project_name, c.name as client_dev_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id LEFT JOIN clients c ON p.developer_client_id = c.id LEFT JOIN clients bc ON p.billing_company_id = bc.id ORDER BY pb.booking_date DESC")->fetchAll(PDO::FETCH_ASSOC)); 
+    exit;
 }
 
-if ($action == 'mark_settled' && $canViewLedger) { $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?")->execute([$_POST['id']]); echo "OK"; exit; }
+if ($action == 'mark_settled' && $canViewLedger) { 
+    $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?")->execute([$_POST['id']]); 
+    echo "OK"; 
+    exit; 
+}
 
 if ($action == 'get_nominals_for_job') {
     $stmt = $pdo->prepare("SELECT p.nom_code_fixed, p.nom_code_variable, p.billing_company_id FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
@@ -353,6 +435,7 @@ if ($action == 'get_nominals_for_job') {
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
     
     $apiKey = getApiKey($job['billing_company_id']);
-    echo json_encode(['fixed' => getNominalDetails($job['nom_code_fixed'], $apiKey), 'variable' => getNominalDetails($job['nom_code_variable'], $apiKey)]); exit;
+    echo json_encode(['fixed' => getNominalDetails($job['nom_code_fixed'], $apiKey), 'variable' => getNominalDetails($job['nom_code_variable'], $apiKey)]); 
+    exit;
 }
 ?>
