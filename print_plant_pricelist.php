@@ -233,7 +233,7 @@ function formatPricingModel($type) {
 
     <div class="header-section">
         <div class="title-block">
-            <h1>Plant Hub Fleet Price List</h1>
+            <h1>Plant Fleet Price List</h1>
             <p>Internal Ledger Configuration & Active Pricing Matrix</p>
         </div>
         <div class="meta-block">
