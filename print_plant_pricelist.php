@@ -129,10 +129,12 @@ foreach ($plants as &$p) {
     $p['fixed_data'] = (!empty($p['nom_code_fixed']) && isset($companyCatalog[trim($p['nom_code_fixed'])])) ? $companyCatalog[trim($p['nom_code_fixed'])] : null;
     $p['var_data'] = (!empty($p['nom_code_variable']) && isset($companyCatalog[trim($p['nom_code_variable'])])) ? $companyCatalog[trim($p['nom_code_variable'])] : null;
     
+    $p['is_valid_model'] = in_array($p['pricing_type'], ['fixed_then_hourly', 'hourly', 'per_trip']);
     $p['is_fixed_req'] = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip']);
     $p['is_var_req'] = in_array($p['pricing_type'], ['fixed_then_hourly', 'hourly']);
     
-    $p['is_misconfigured'] = ($p['is_fixed_req'] && !$p['fixed_data']) || ($p['is_var_req'] && !$p['var_data']);
+    // BUG FIX: Ensure missing pricing types trigger the misconfigured lock in the audit too
+    $p['is_misconfigured'] = !$p['is_valid_model'] || ($p['is_fixed_req'] && !$p['fixed_data']) || ($p['is_var_req'] && !$p['var_data']);
     $p['erp_online'] = $erpOnline;
 
     if (!$erpOnline) {
@@ -178,7 +180,6 @@ function formatPricingModel($type) {
         
         .header-section { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
         .print-logos { display: flex; gap: 20px; align-items: center; padding-right: 20px; border-right: 2px solid #e2e8f0; }
-        /* Adjusted Logo Sizing */
         .print-logos img { height: 45px; max-width: 140px; object-fit: contain; }
         
         .title-block h1 { font-size: 1.8rem; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: -0.5px; }
@@ -198,8 +199,8 @@ function formatPricingModel($type) {
         .badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; text-align: center; }
         .badge-fixed { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
         .badge-trip { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-        /* Neutral Hourly Badge */
         .badge-hourly { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+        .badge-error { background: #fef2f2; color: #ef4444; border: 1px dashed #ef4444; }
         
         .nominal-cell { background: #fff; border-radius: 6px; padding: 10px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
         .nominal-cell strong { display: block; color: #0f172a; font-family: monospace; font-size: 0.9rem; }
@@ -213,7 +214,6 @@ function formatPricingModel($type) {
         .offline-msg { background: #fffbeb; border: 1px dashed #f59e0b; color: #d97706; padding: 8px 12px; border-radius: 6px; font-weight: 800; font-size: 0.75rem; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
         .warning-row td { background: #fef2f2 !important; }
         
-        /* Overhauled Print CSS for Exact Colors */
         @media print {
             .no-print-bar, .no-print, .metrics-grid { display: none !important; }
             body { 
@@ -225,21 +225,14 @@ function formatPricingModel($type) {
                 print-color-adjust: exact !important; 
             }
             .page-container { padding: 0; box-shadow: none; max-width: 100%; border: none; }
-            
-            /* Retain elegant table styling in print */
             th { background: #0f172a !important; color: #fff !important; padding: 10px 8px !important; border-bottom: none !important; }
             td { border-bottom: 1px solid #e2e8f0 !important; padding: 10px 8px !important; }
             tr:nth-child(even) td { background: #f8fafc !important; }
-            
-            /* Error highlighting in print */
             .warning-row td { background: #fef2f2 !important; }
             .error-msg { background: #fef2f2 !important; border: 1px solid #ef4444 !important; color: #ef4444 !important; }
             .offline-msg { background: #fffbeb !important; border: 1px solid #f59e0b !important; color: #b45309 !important; }
-            
-            /* Clean up cells for print */
             .nominal-cell { background: #fff !important; border: 1px solid #e2e8f0 !important; padding: 8px !important; }
             .rate-grid { border-top: 1px solid #e2e8f0 !important; }
-            
             .print-logos { border-right: 2px solid #e2e8f0 !important; }
             .print-logos img { max-height: 40px !important; max-width: 130px !important; object-fit: contain !important; }
         }
@@ -321,6 +314,7 @@ function formatPricingModel($type) {
                     $badgeStyle = 'badge-hourly';
                     if ($p['pricing_type'] === 'fixed_then_hourly') $badgeStyle = 'badge-fixed';
                     if ($p['pricing_type'] === 'per_trip') $badgeStyle = 'badge-trip';
+                    if (!$p['is_valid_model']) $badgeStyle = 'badge-error';
                 ?>
                     <tr class="<?= $rowClass ?>">
                         <td class="vehicle-info">
@@ -380,6 +374,8 @@ function formatPricingModel($type) {
                                 <?php else: ?>
                                     <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> nominal code required</span>
                                 <?php endif; ?>
+                            <?php elseif (!$p['is_valid_model']): ?>
+                                <span class="error-msg"><i class="fas fa-ban"></i> Invalid Setup</span>
                             <?php else: ?>
                                 <span style="color: #94a3b8; font-style: italic; font-size: 0.8rem;">Not Used by Model</span>
                             <?php endif; ?>
@@ -407,6 +403,8 @@ function formatPricingModel($type) {
                                 <?php else: ?>
                                     <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> nominal code required</span>
                                 <?php endif; ?>
+                            <?php elseif (!$p['is_valid_model']): ?>
+                                <span class="error-msg"><i class="fas fa-ban"></i> Invalid Setup</span>
                             <?php else: ?>
                                 <span style="color: #94a3b8; font-style: italic; font-size: 0.8rem;">Not Used by Model</span>
                             <?php endif; ?>
