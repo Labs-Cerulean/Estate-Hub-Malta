@@ -4,12 +4,25 @@
  * Estate Hub - Project Management System
  */
 
-// Database configuration from environment variables (Railway)
-define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.railway.internal');
-define('DB_USER', getenv('MYSQL_USER') ?: 'root');
-define('DB_PASS', getenv('MYSQL_PASSWORD') ?: 'uZGDNAHVOBaMNxJflkNXtHJVHxtZmgDQ');
+// Database configuration strictly from environment variables
+define('DB_HOST', getenv('MYSQLHOST') ?: 'mysql.railway.internal');
+define('DB_USER', getenv('MYSQLUSER') ?: 'root');
 define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'railway');
 
+// Do not fallback to a hardcoded string for the password!
+$db_pass = getenv('MYSQLPASSWORD');
+if ($db_pass === false) {
+    die('Critical Error: Database credentials are not configured securely in the environment.');
+}
+define('DB_PASS', $db_pass);
+
+// Define the Base URL securely from the environment
+$appUrl = rtrim(getenv('APP_URL'), '/'); // rtrim removes trailing slashes just in case
+if (empty($appUrl)) {
+    // Fallback just in case, or you can die() here if you want it strictly enforced
+    $appUrl = 'https://estate-hub-malta-production.up.railway.app/'; 
+}
+define('APP_URL', $appUrl);
 
 function getDB() {
     $charset = 'utf8mb4';
@@ -315,7 +328,7 @@ function getProjectWithClient($pdo, $projectId) {
     }
 }
 
-return $pdo;
+
 
 // PROJECT SERVICES TABLE (Services Engineer Section)
 $pdo->exec("
@@ -814,6 +827,8 @@ function markAllNotificationsRead($pdo, $userId) {
         return false;
     }
 }
+
+return $pdo;
 ?>
 
 

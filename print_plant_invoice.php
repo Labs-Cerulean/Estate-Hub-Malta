@@ -11,7 +11,7 @@ if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
     die("Unauthorized Access to Invoice.");
 }
 
-$bookingId = $_GET['booking_id'] ?? 0;
+$bookingId = (int)($_GET['booking_id'] ?? 0);
 
 // 1. Fetch Job Data (Removed the non-existent prj.locality column)
 $stmt = $pdo->prepare("
@@ -33,11 +33,18 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-// Dynamic API Key Mapper
+// Dynamic API Key Mapper - Pulled securely from Environment Variables
+$praApiKey = getenv('J2_API_KEY_PRA');
+$praxApiKey = getenv('J2_API_KEY_PRAX');
+
+if (!$praApiKey || !$praxApiKey) {
+    die("Critical Error: ERP API keys are missing from environment configuration.");
+}
+
 $apiKeys = [
-    '24' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRA API Key
-    '26' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRAX API Key
-    'default' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='
+    '24' => $praApiKey,  // PRA API Key
+    '26' => $praxApiKey, // PRAX API Key
+    'default' => $praApiKey // Defaulting to PRA if billing company is missing/unknown
 ];
 $apiKey = $apiKeys[$job['billing_company_id']] ?? $apiKeys['default'];
 
@@ -53,7 +60,10 @@ function getJ2ApiData($endpoint, $apiKey) {
     ]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    
+    // SECURITY FIX: Enforce strict SSL verification
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
+    
     $response = curl_exec($ch); 
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
     curl_close($ch);
@@ -217,7 +227,7 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             <div style="border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; text-align: center; background: #f8fafc;">
                 <h4 style="margin-top:0; margin-bottom: 10px; color: #475569; text-transform: uppercase; font-size: 0.8rem;">Client Representative Verification</h4>
                 <?php if(!empty($job['signature_data'])): ?>
-                    <img src="<?= $job['signature_data'] ?>" style="max-width: 100%; height: 80px; object-fit: contain;">
+                    <img src="<?= htmlspecialchars($job['signature_data'], ENT_QUOTES, 'UTF-8') ?>" style="max-width: 100%; height: 80px; object-fit: contain;">
                 <?php else: ?>
                     <div style="height: 80px; line-height:80px; color: #94a3b8; font-style:italic;">No Signature on File</div>
                 <?php endif; ?>

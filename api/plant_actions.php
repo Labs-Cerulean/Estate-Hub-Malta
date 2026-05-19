@@ -12,10 +12,18 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
+// Dynamic API Key Mapper - Pulled securely from Environment Variables
+$praApiKey = getenv('J2_API_KEY_PRA');
+$praxApiKey = getenv('J2_API_KEY_PRAX');
+
+if (!$praApiKey || !$praxApiKey) {
+    die(json_encode(['error' => 'Critical Error: ERP API keys are missing from environment configuration.']));
+}
+
 $apiKeys = [
-    '24' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRA API Key
-    '26' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs=', // PRAX API Key
-    'default' => 'o/7b6jY815wajiIhCBbvd69etum9GykU5IX1LSG9Zfs='
+    '24' => $praApiKey,  // PRA API Key
+    '26' => $praxApiKey, // PRAX API Key
+    'default' => $praApiKey
 ];
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
@@ -27,7 +35,8 @@ function getApiKey($companyId) {
 function getJ2ApiData($endpoint, $apiKey) {
     global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
     $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
 }
@@ -35,7 +44,8 @@ function getJ2ApiData($endpoint, $apiKey) {
 function postJ2ApiData($endpoint, $apiKey, $payload) {
     global $apiUrlBase; $url = $apiUrlBase . $endpoint; $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json", "x-api-key: " . $apiKey, "Authorization: Bearer " . $apiKey]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload)); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // SECURITY FIX: Enabled SSL
     $response = curl_exec($ch); $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ['code' => $httpCode, 'response' => $response];
 }
@@ -141,10 +151,19 @@ if ($action == 'get_company_clients' && $isManager) {
 }
 
 if ($action == 'fetch_bookings') {
-    $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
-    if (!$isManager) { $query .= " WHERE (pb.driver_id = $userId OR pb.driver_id IS NULL OR pb.driver_id = 0)"; }
     $events = [];
-    foreach ($pdo->query($query)->fetchAll(PDO::FETCH_ASSOC) as $b) {
+    
+    // SECURITY FIX: Using Prepared Statements to prevent SQL injection
+    if ($isManager) {
+        $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
+        $stmt = $pdo->query($query);
+    } else {
+        $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE (pb.driver_id = ? OR pb.driver_id IS NULL OR pb.driver_id = 0)";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$userId]);
+    }
+    
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $color = ($b['status'] == 'In Progress') ? '#f59e0b' : (($b['status'] == 'Completed') ? '#10b981' : '#3b82f6');
         $events[] = ['id' => $b['id'], 'title' => $b['plant_name'], 'start' => $b['booking_date'] . 'T' . $b['start_time'], 'end' => $b['booking_date'] . 'T' . $b['end_time'], 'backgroundColor' => $color, 'borderColor' => $color];
     }
@@ -170,7 +189,7 @@ if ($action == 'punch_in') { $pdo->prepare("UPDATE plant_bookings SET status='In
 if ($action == 'punch_out_complete') {
     $bookingId = $_POST['id'];
     $pdo->prepare("UPDATE plant_bookings SET status='Completed', punch_out_time=NOW(), qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? WHERE id=?")->execute([empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], $_POST['rep_name'], $_POST['rep_id'], $_POST['signature'], $bookingId]);
-    $domain = "https://" . $_SERVER['HTTP_HOST']; $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); echo "OK"; exit;
+    $domain = APP_URL; $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); echo "OK"; exit;
 }
 
 function getNominalDetails($nomCode, $apiKey) {
