@@ -1,0 +1,303 @@
+<?php
+/**
+ * print_plant_pricelist.php - Plant Hub Pricing Audit Tool & Price List
+ * Clean, modern layout structured for web view and seamless PDF printing.
+ */
+require_once 'init.php';
+require_once 'session-check.php';
+require_once 'user-functions.php';
+
+// Strict Role and Permission Authorization Protection
+$role = $_SESSION['role'] ?? '';
+$hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager']);
+if (!$hasPlantAccess && !hasPermission('view_plant_bookings') && !hasPermission('manage_plant_fleet')) {
+    die("Unauthorized Access to Plant Price List.");
+}
+
+// 1. Fetch Secure Environment API Keys
+$praApiKey = getenv('J2_API_KEY_PRA');
+$praxApiKey = getenv('J2_API_KEY_PRAX');
+
+if (!$praApiKey || !$praxApiKey) {
+    die("Critical Error: ERP API keys are missing from environment configuration.");
+}
+
+$apiKeys = [
+    '24' => $praApiKey,  // PRA API Key
+    '26' => $praxApiKey, // PRAX API Key
+    'default' => $praApiKey
+];
+
+// 2. Bulletproof Secure API Fetcher (Strict SSL Validation Enforced)
+function getNominalCatalog($apiKey) {
+    $url = "https://j2api.agiusgroup.com/api/public/nominalcateg";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Content-Type: application/json",
+        "Accept: application/json",
+        "x-api-key: " . $apiKey,
+        "Authorization: Bearer " . $apiKey
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // Strict TLS Protection
+    $response = curl_exec($ch); 
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
+    curl_close($ch);
+    
+    if ($httpCode >= 200 && $httpCode < 300) {
+        $decoded = json_decode($response, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+    return [];
+}
+
+// 3. Fetch All Active Machinery with Linked Client/Billing Contexts
+try {
+    $query = "SELECT p.*, c.name as owner_name, bc.name as billing_company_name 
+              FROM plants p 
+              LEFT JOIN clients c ON p.developer_client_id = c.id 
+              LEFT JOIN clients bc ON p.billing_company_id = bc.id 
+              WHERE p.status = 'Active' 
+              ORDER BY p.category, p.name ASC";
+    $plants = $pdo->query($query)->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    die("Database lookup failed: " . $e->getMessage());
+}
+
+// 4. Performance Fix: Batch Index nominal definitions by billing profile to prevent N+1 API loops
+$nominalCache = [];
+foreach ($plants as $p) {
+    $bcId = $p['billing_company_id'] ?? 'default';
+    if (!isset($nominalCache[$bcId])) {
+        $targetKey = $apiKeys[$bcId] ?? $apiKeys['default'];
+        $rawNominals = getNominalCatalog($targetKey);
+        
+        $indexedData = [];
+        if (is_array($rawNominals)) {
+            foreach ($rawNominals as $n) {
+                if (isset($n['NCCode'])) {
+                    $indexedData[trim((string)$n['NCCode'])] = $n;
+                }
+            }
+        }
+        $nominalCache[$bcId] = $indexedData;
+    }
+}
+
+// Helper formatting function to clean pricing types for human review
+function formatPricingModel($type) {
+    switch ($type) {
+        case 'fixed_then_hourly': return 'Fixed + Hourly Extra';
+        case 'per_trip':          return 'Per Trip Logged';
+        case 'hourly':            return 'Standard Hourly Rate';
+        default:                  return 'Not Defined';
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Plant Fleet Master Price List</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #fff; color: #0f172a; padding: 30px; font-size: 0.9rem; line-height: 1.4; }
+        .no-print-bar { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px 25px; border-radius: 10px; margin-bottom: 35px; }
+        .print-btn { background: #3b82f6; color: #fff; font-weight: 700; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; transition: background 0.2s; }
+        .print-btn:hover { background: #2563eb; }
+        
+        .header-section { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
+        .title-block h1 { font-size: 1.8rem; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: -0.5px; }
+        .title-block p { color: #64748b; margin: 3px 0 0 0; font-weight: 500; }
+        .meta-block { text-align: right; color: #475569; font-size: 0.85rem; }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 40px; font-size: 0.82rem; }
+        th { background: #0f172a; color: #fff; text-transform: uppercase; font-weight: 700; padding: 10px 8px; font-size: 0.78rem; letter-spacing: 0.5px; }
+        td { padding: 12px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        tr:nth-child(even) td { background: #f8fafc; }
+        
+        .vehicle-info b { font-size: 0.9rem; color: #1e3a8a; display: block; }
+        .vehicle-info span { font-size: 0.75rem; color: #64748b; font-weight: 600; display: block; margin-top: 2px; }
+        .company-tag { display: block; font-size: 0.8rem; color: #334155; }
+        .company-tag small { color: #94a3b8; display: block; font-size: 0.7rem; }
+        
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; background: #e2e8f0; color: #334155; }
+        .badge-fixed { background: #eff6ff; color: #1e40af; }
+        .badge-trip { background: #ecfdf5; color: #065f46; }
+        .badge-hourly { background: #fef3c7; color: #92400e; }
+        
+        .nominal-cell { background: #fafafa; border-radius: 6px; padding: 8px; border: 1px solid #f1f5f9; }
+        .nominal-cell strong { display: block; color: #0f172a; font-family: monospace; font-size: 0.85rem; }
+        .nominal-desc { color: #64748b; font-size: 0.75rem; display: block; margin-bottom: 4px; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rate-grid { display: flex; gap: 10px; font-size: 0.75rem; border-top: 1px solid #e2e8f0; padding-top: 4px; margin-top: 4px; }
+        .rate-item { flex: 1; }
+        .rate-label { color: #64748b; font-weight: 500; block: inline; }
+        .rate-value { font-weight: 700; color: #0f172a; }
+        
+        .error-msg { background: #fef2f2; border: 1px dashed #ef4444; color: #b91c1c; padding: 6px 10px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; display: inline-block; }
+        .warning-row td { background: #fff5f5 !important; }
+        
+        @media print {
+            .no-print-bar { display: none; }
+            body { padding: 0; background: #fff; color: #000; font-size: 0.8rem; }
+            th { background: #000 !important; color: #fff !important; }
+            td { border-bottom: 1px solid #000; }
+            .nominal-cell { background: transparent; border: none; padding: 0; }
+            tr:nth-child(even) td { background: transparent !important; }
+            .warning-row td { background: transparent !important; }
+            .error-msg { border: 1px solid #000; background: transparent; color: #000; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="no-print-bar">
+        <div>
+            <span style="font-weight: 700; color: #334155;"><i class="fas fa-shield-alt text-blue-500"></i> Fleet Rate Matrix Audit</span>
+            <p style="margin: 3px 0 0 0; font-size: 0.82rem; color: #64748b;">This tool maps internal assets against real-time live ERP system ledger rates.</p>
+        </div>
+        <button class="print-btn" onclick="window.print()"><i class="fas fa-print"></i> Generate Printable PDF</button>
+    </div>
+
+    <div class="header-section">
+        <div class="title-block">
+            <h1>Plant Hub Fleet Master Price List</h1>
+            <p>Internal Ledger Configuration & Active Pricing Matrix</p>
+        </div>
+        <div class="meta-block">
+            <div>Run Date: <b><?= date('d M Y (H:i)') ?></b></div>
+            <div>Authorized By: <b><?= htmlspecialchars($_SESSION['username']) ?></b></div>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 20%; text-align: left;">Machinery Details</th>
+                <th style="width: 18%; text-align: left;">Company Assignments</th>
+                <th style="width: 14%; text-align: center;">Pricing Model</th>
+                <th style="width: 24%; text-align: left;">Fixed Callout Nominal</th>
+                <th style="width: 24%; text-align: left;">Variable / Hourly Nominal</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if (empty($plants)): ?>
+                <tr>
+                    <td colspan="5" style="text-align: center; font-weight: bold; padding: 30px; color: #64748b;">
+                        No active vehicles found in the fleet database.
+                    </td>
+                </tr>
+            <?php else: ?>
+                <?php foreach ($plants as $p): 
+                    $bcProfile = $p['billing_company_id'] ?? 'default';
+                    $companyCatalog = $nominalCache[$bcProfile] ?? [];
+                    
+                    $fixedCode = trim((string)($p['nom_code_fixed'] ?? ''));
+                    $varCode = trim((string)($p['nom_code_variable'] ?? ''));
+                    
+                    $fixedData = (!empty($fixedCode) && isset($companyCatalog[$fixedCode])) ? $companyCatalog[$fixedCode] : null;
+                    $varData = (!empty($varCode) && isset($companyCatalog[$varCode])) ? $companyCatalog[$varCode] : null;
+                    
+                    // Determine configuration warning status triggers
+                    $isFixedRequired = ($p['pricing_type'] === 'fixed_then_hourly' || $p['pricing_type'] === 'per_trip');
+                    $isVarRequired = ($p['pricing_type'] === 'fixed_then_hourly' || $p['pricing_type'] === 'hourly');
+                    
+                    $isMisconfigured = ($isFixedRequired && !$fixedData) || ($isVarRequired && !$varData);
+                    $rowClass = $isMisconfigured ? 'warning-row' : '';
+                    
+                    // Assign cleaner contextual visual badges to pricing methods
+                    $badgeStyle = 'badge-hourly';
+                    if ($p['pricing_type'] === 'fixed_then_hourly') $badgeStyle = 'badge-fixed';
+                    if ($p['pricing_type'] === 'per_trip') $badgeStyle = 'badge-trip';
+                ?>
+                    <tr class="<?= $rowClass ?>">
+                        <td class="vehicle-info">
+                            <b><?= htmlspecialchars($p['name']) ?></b>
+                            <span>Category: <?= htmlspecialchars($p['category'] ?: 'General') ?></span>
+                            <?php if (!empty($p['registration_plate'])): ?>
+                                <span style="font-family: monospace; color: #0f172a; font-size: 0.72rem; margin-top: 4px;">
+                                    <i class="fas fa-car-side"></i> <?= htmlspecialchars($p['registration_plate']) ?>
+                                </span>
+                            <?php endif; ?>
+                        </td>
+
+                        <td>
+                            <span class="company-tag">
+                                <small>Owning Profile</small>
+                                <?= htmlspecialchars($p['owner_name'] ?: 'Not Assigned') ?>
+                            </span>
+                            <span class="company-tag" style="margin-top: 6px;">
+                                <small>ERP Billing Profile</small>
+                                <b><?= htmlspecialchars($p['billing_company_name'] ?: 'Not Assigned') ?></b>
+                            </span>
+                        </td>
+
+                        <td style="text-align: center;">
+                            <span class="badge <?= $badgeStyle ?>">
+                                <?= formatPricingModel($p['pricing_type']) ?>
+                            </span>
+                            <?php if ($p['pricing_type'] === 'fixed_then_hourly' && $p['min_hours'] > 0): ?>
+                                <div style="font-size: 0.7rem; color: #475569; margin-top: 4px; font-weight: 500;">
+                                    Min Threshold: <b><?= (float)$p['min_hours'] ?> Hrs</b>
+                                </div>
+                            <?php endif; ?>
+                        </td>
+
+                        <td>
+                            <?php if ($isFixedRequired): ?>
+                                <?php if ($fixedData): ?>
+                                    <div class="nominal-cell">
+                                        <strong><?= htmlspecialchars(trim($fixedData['NCCode'])) ?></strong>
+                                        <span class="nominal-desc" title="<?= htmlspecialchars($fixedData['NCDesc']) ?>"><?= htmlspecialchars($fixedData['NCDesc']) ?></span>
+                                        <div class="rate-grid">
+                                            <div class="rate-item">
+                                                <span class="rate-label">In-Hse:</span>
+                                                <span class="rate-value">€<?= number_format((float)$fixedData['NCDefSP1'], 2) ?></span>
+                                            </div>
+                                            <div class="rate-item">
+                                                <span class="rate-label">Comm:</span>
+                                                <span class="rate-value">€<?= number_format((float)$fixedData['NCDefSP2'], 2) ?></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> nominal code required</span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span style="color: #94a3b8; font-style: italic; font-size: 0.75rem;">Not Used by Model</span>
+                            <?php endif; ?>
+                        </td>
+
+                        <td>
+                            <?php if ($isVarRequired): ?>
+                                <?php if ($varData): ?>
+                                    <div class="nominal-cell">
+                                        <strong><?= htmlspecialchars(trim($varData['NCCode'])) ?></strong>
+                                        <span class="nominal-desc" title="<?= htmlspecialchars($varData['NCDesc']) ?>"><?= htmlspecialchars($varData['NCDesc']) ?></span>
+                                        <div class="rate-grid">
+                                            <div class="rate-item">
+                                                <span class="rate-label">In-Hse:</span>
+                                                <span class="rate-value">€<?= number_format((float)$varData['NCDefSP1'], 2) ?></span>
+                                            </div>
+                                            <div class="rate-item">
+                                                <span class="rate-label">Comm:</span>
+                                                <span class="rate-value">€<?= number_format((float)$varData['NCDefSP2'], 2) ?></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> nominal code required</span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span style="color: #94a3b8; font-style: italic; font-size: 0.75rem;">Not Used by Model</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </tbody>
+    </table>
+</body>
+</html>
