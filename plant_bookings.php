@@ -363,7 +363,6 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
-    // UPDATED: Evaluates whether the plant has proper billing nominal codes attached.
     function updatePlantDropdown() {
         const cat = document.getElementById('plant_category').value; 
         const pSelect = document.getElementById('plant_id');
@@ -374,17 +373,17 @@ $userId = $_SESSION['user_id'];
         }
         
         pSelect.innerHTML = '<option value="">-- Select Machinery --</option>' + groupedPlants[cat].map(p => {
-            const isFixedReq = ['fixed_then_hourly', 'per_trip'].includes(p.pricing_type);
-            const isVarReq = ['fixed_then_hourly', 'hourly'].includes(p.pricing_type);
-            const missing = (isFixedReq && !p.nom_code_fixed) || (isVarReq && !p.nom_code_variable);
-            
-            return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="${missing}">${p.name} (${p.registration_plate||'N/A'})</option>`;
+            if (p.is_misconfigured) {
+                // CSS Stylized directly on the option (red text, italic, alert symbol)
+                return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="true" style="color:#ef4444; background:#fef2f2; font-style:italic; font-weight:bold;">⚠️ ${p.name} (Setup Missing)</option>`;
+            } else {
+                return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="false">${p.name} (${p.registration_plate||'N/A'})</option>`;
+            }
         }).join('');
         
         resetClientSearch();
     }
 
-    // UPDATED: Now blocks selection if a misconfigured plant is chosen
     function onPlantSelected() {
         resetClientSearch();
         const pSelect = document.getElementById('plant_id');
@@ -425,7 +424,6 @@ $userId = $_SESSION['user_id'];
         currentErpClients = [];
     }
 
-    // UPDATED: Enforces CliStatus lock while browsing ERP clients 
     function filterLocalClients(query) {
         const resultsDiv = document.getElementById('client_search_results'); 
         if(query.length < 2) { 
@@ -437,16 +435,23 @@ $userId = $_SESSION['user_id'];
         const filtered = currentErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 20);
         
         if(filtered.length === 0) { 
-            resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444;">No client found.</div>'; 
+            resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>'; 
         } else { 
             resultsDiv.innerHTML = filtered.map(c => {
                 const safeName = (c.name || '').replace(/'/g, "\\'");
                 
                 // Only allow booking if the Client Status is exactly 1
                 if (c.status === 1) {
-                    return `<div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="selectClient('${c.code}', '${safeName}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span></div>`;
+                    return `
+                    <div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; background:#fff; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="selectClient('${c.code}', '${safeName}')">
+                        ${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">Code: ${c.code}</span>
+                    </div>`;
                 } else {
-                    return `<div style="padding:15px; cursor:not-allowed; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:bold; color:#94a3b8;" onclick="alert('Client might have some pending bills, booking not allowed.')">${c.name} <br><span style="color:#ef4444; font-weight:bold; font-size:0.85rem;"><i class="fas fa-lock"></i> Blocked (Pending Bills)</span></div>`;
+                    return `
+                    <div style="padding:15px; cursor:not-allowed; border-bottom:1px solid #e2e8f0; background:#f1f5f9; opacity: 0.65;" onclick="alert('Client might have some pending bills, booking not allowed.')">
+                        <span style="font-weight:bold; color:#64748b; text-decoration: line-through;">${c.name}</span> <br>
+                        <span style="color:#ef4444; font-weight:bold; font-size:0.85rem;"><i class="fas fa-lock"></i> Blocked (Pending Bills)</span>
+                    </div>`;
                 }
             }).join(''); 
         }
