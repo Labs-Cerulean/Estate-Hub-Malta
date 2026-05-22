@@ -54,6 +54,9 @@ $userId = $_SESSION['user_id'];
         .fc-theme-standard td, .fc-theme-standard th { border-color: #f1f5f9 !important; } .fc-theme-standard .fc-scrollgrid { border: none !important; }
         .fc-col-header-cell-cushion { padding: 12px 0 !important; color: #64748b !important; font-weight: 800 !important; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
         .fc-event { border-radius: 6px !important; border: none !important; padding: 3px 5px !important; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+        
+        /* UPDATED: Ensures the rich text multi-line events render cleanly */
+        .fc-event-title { white-space: pre-wrap !important; line-height: 1.4; padding-bottom: 2px; }
     </style>
 </head>
 <body>
@@ -304,9 +307,14 @@ $userId = $_SESSION['user_id'];
         fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`)
         .then(r => r.json())
         .then(data => {
-            // Check if coordinates exist AND street name exists (not null or empty)
+            if (data.error) {
+                alert("Database Error: " + data.error);
+                return;
+            }
+
             const hasCoords = data && data.latitude && data.longitude && data.latitude !== "" && data.longitude !== "";
-            const hasStreet = data && data.street_name && data.street_name.trim() !== "";
+            const streetValue = data.street || data.address || data.street_name || "";
+            const hasStreet = streetValue !== null && streetValue.trim() !== "";
 
             if (hasCoords && hasStreet) {
                 document.getElementById('loc_lat').value = data.latitude; 
@@ -317,16 +325,14 @@ $userId = $_SESSION['user_id'];
                     mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); 
                 }
             } else {
-                // Clear inputs, remove old pins, and alert the user
                 document.getElementById('loc_lat').value = ''; 
                 document.getElementById('loc_lng').value = '';
                 if (marker) marker.remove();
                 
-                alert("Location for this project was not found or is only an estimate. Please select the exact location manually by tapping on the map.");
+                alert("Location or street data for this project is missing/incomplete. Please select the exact location manually by tapping on the map.");
             }
         })
         .catch(err => {
-            // Fallback in case of a network error
             document.getElementById('loc_lat').value = ''; 
             document.getElementById('loc_lng').value = '';
             if (marker) marker.remove();
@@ -382,7 +388,6 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
-    // UPDATED: Trusts the API's is_misconfigured variable
     function updatePlantDropdown() {
         const cat = document.getElementById('plant_category').value; 
         const pSelect = document.getElementById('plant_id');
@@ -410,10 +415,9 @@ $userId = $_SESSION['user_id'];
         
         const opt = pSelect.options[pSelect.selectedIndex];
         
-        // Block booking if billing/nominal codes are not correctly configured
         if (opt.dataset.missing === 'true') {
             alert("Billing details for this vehicle are missing. Please configure them in the Fleet Setup before booking.");
-            pSelect.value = ''; // Revert the selection
+            pSelect.value = ''; 
             return;
         }
 
@@ -509,7 +513,6 @@ $userId = $_SESSION['user_id'];
         document.getElementById('plant_category').value = j.category;
         updatePlantDropdown();
         
-        // Safely set plant if it exists in the new dropdown options
         const plantInput = document.getElementById('plant_id');
         plantInput.value = j.plant_id;
         
@@ -525,7 +528,7 @@ $userId = $_SESSION['user_id'];
         document.getElementById('loc_lat').value = j.location_lat || '';
         document.getElementById('loc_lng').value = j.location_lng || '';
         
-        onPlantSelected(); // Will trigger security alert if editing a misconfigured job
+        onPlantSelected(); 
         
         setTimeout(() => { 
             document.getElementById('client_code').value = j.client_code || ''; 
@@ -813,11 +816,14 @@ $userId = $_SESSION['user_id'];
             let controlsHtml = ''; 
             let today = new Date().toISOString().split('T')[0];
             
-            if (!isManager && job.booking_date === today) {
+            // UPDATED: Allow Driver (if today) or Admin/Fleet Manager (anytime)
+            let canInteract = (!isManager && job.booking_date === today) || canManageFleet;
+            
+            if (canInteract) {
                 if (job.status === 'Pending') {
-                    controlsHtml = `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
+                    controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
                 } else if (job.status === 'In Progress') {
-                    controlsHtml = `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job</button>`;
+                    controlsHtml += `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job</button>`;
                 }
             }
             
