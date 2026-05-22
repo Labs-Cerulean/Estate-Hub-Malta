@@ -70,9 +70,12 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.5px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; color: #0f172a; margin-top: 5px; }
     
-    /* Main Content Layout */
-    .layout-grid { display: grid; grid-template-columns: 2.5fr 1fr; gap: 30px; }
-    .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    /* CRASH FIX: Replaced CSS Grid with safe Flexbox Layout */
+    .layout-flex { display: flex; gap: 30px; flex-wrap: wrap; }
+    .calendar-panel { flex: 2.5; min-width: 0; /* min-width:0 is a flexbox safety lock */ }
+    .side-panel { flex: 1; min-width: 320px; }
+    
+    .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); overflow: hidden; }
     .panel-header { font-size: 1.2rem; font-weight: 800; color: #0f172a; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
     
     /* Tables */
@@ -82,7 +85,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .data-table tr:last-child td { border-bottom: none; }
     
     /* Calendar Overrides */
-    #director-calendar { height: 800px; font-size: 0.9rem; }
+    .fc { font-size: 0.9rem; }
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; color: #0f172a; }
     .fc-event-title { white-space: pre-wrap !important; line-height: 1.4; padding: 2px 4px; }
     
@@ -124,13 +127,16 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         </div>
     </div>
 
-    <div class="layout-grid">
-        <div class="panel">
-            <div class="panel-header">Master Fleet Schedule</div>
-            <div id="director-calendar"></div>
+    <div class="layout-flex">
+        
+        <div class="calendar-panel">
+            <div class="panel">
+                <div class="panel-header">Master Fleet Schedule</div>
+                <div id="director-calendar"></div>
+            </div>
         </div>
 
-        <div>
+        <div class="side-panel">
             <div class="panel" style="margin-bottom: 30px;">
                 <div class="panel-header">Driver Hours (This Week)</div>
                 <?php if (empty($driverStats)): ?>
@@ -220,7 +226,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
             allDaySlot: false,
-            height: 800,
+            contentHeight: 'auto', // Fixes internal scrolling
             events: 'api/plant_actions.php?action=fetch_bookings',
             eventClick: function(info) {
                 // Fetch full details from API and populate modal
