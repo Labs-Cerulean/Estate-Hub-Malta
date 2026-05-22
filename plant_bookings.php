@@ -306,7 +306,7 @@ $userId = $_SESSION['user_id'];
         .then(data => {
             // Check if coordinates exist AND street name exists (not null or empty)
             const hasCoords = data && data.latitude && data.longitude && data.latitude !== "" && data.longitude !== "";
-            const hasStreet = data && data.street && data.street.trim() !== "";
+            const hasStreet = data && data.street_name && data.street_name.trim() !== "";
 
             if (hasCoords && hasStreet) {
                 document.getElementById('loc_lat').value = data.latitude; 
