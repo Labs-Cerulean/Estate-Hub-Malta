@@ -168,21 +168,31 @@ if ($action == 'get_company_clients' && $isManager) {
 if ($action == 'fetch_bookings') {
     $events = [];
     
-    // UPDATED: Now fetches Project names, cities, and Plant categories for the UI injection
+    // BROWSER CRASH FIX: FullCalendar passes ISO8601 dates in 'start' and 'end' GET parameters. 
+    // We MUST use them to filter the SQL query, otherwise we download the entire database history.
+    $startDate = $_GET['start'] ?? date('Y-m-d', strtotime('-1 month'));
+    $endDate = $_GET['end'] ?? date('Y-m-d', strtotime('+1 month'));
+
+    $startSql = date('Y-m-d', strtotime($startDate));
+    $endSql = date('Y-m-d', strtotime($endDate));
+    
     if ($isManager) {
         $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
                   FROM plant_bookings pb 
                   JOIN plants p ON pb.plant_id = p.id 
-                  LEFT JOIN projects prj ON pb.project_id = prj.id";
-        $stmt = $pdo->query($query);
+                  LEFT JOIN projects prj ON pb.project_id = prj.id
+                  WHERE pb.booking_date >= ? AND pb.booking_date <= ?";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$startSql, $endSql]);
     } else {
         $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
                   FROM plant_bookings pb 
                   JOIN plants p ON pb.plant_id = p.id 
                   LEFT JOIN projects prj ON pb.project_id = prj.id 
-                  WHERE (pb.driver_id = ? OR pb.driver_id IS NULL OR pb.driver_id = 0)";
+                  WHERE (pb.driver_id = ? OR pb.driver_id IS NULL OR pb.driver_id = 0)
+                  AND pb.booking_date >= ? AND pb.booking_date <= ?";
         $stmt = $pdo->prepare($query);
-        $stmt->execute([$userId]);
+        $stmt->execute([$userId, $startSql, $endSql]);
     }
     
     // Category Color Dictionary
@@ -222,11 +232,15 @@ if ($action == 'fetch_bookings') {
             $title .= "\n" . implode(" | ", $details);
         }
 
+        // Failsafe: Ensure null times don't crash FullCalendar's parser
+        $sTime = !empty($b['start_time']) ? $b['start_time'] : '08:00:00';
+        $eTime = !empty($b['end_time']) ? $b['end_time'] : '17:00:00';
+
         $events[] = [
             'id' => $b['id'], 
             'title' => $title, 
-            'start' => $b['booking_date'] . 'T' . $b['start_time'], 
-            'end' => $b['booking_date'] . 'T' . $b['end_time'], 
+            'start' => $b['booking_date'] . 'T' . $sTime, 
+            'end' => $b['booking_date'] . 'T' . $eTime, 
             'backgroundColor' => $color, 
             'borderColor' => $color
         ];
@@ -371,7 +385,6 @@ if ($action == 'get_job') {
 }
 
 if ($action == 'punch_in') { 
-    // UPDATED: Added COALESCE to ensure if Admin clicks "Start", it doesn't overwrite an assigned driver
     $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=COALESCE(driver_id, ?) WHERE id=?")->execute([$userId, $_GET['id']]); 
     echo "OK"; 
     exit; 
