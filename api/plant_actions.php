@@ -314,7 +314,7 @@ if ($action == 'cancel_booking' && $isManager) {
 }
 
 if ($action == 'get_project_location' && $isManager) { 
-    $stmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?"); 
+    $stmt = $pdo->prepare("SELECT latitude, longitude, street_name FROM projects WHERE id = ?"); 
     $stmt->execute([$_GET['project_id']]); 
     echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); 
     exit; 
