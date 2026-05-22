@@ -80,7 +80,6 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
-    // 1. Fetch ERP nominal catalogs to validate live existence
     $nominalCache = [];
     foreach (['24', '26'] as $compId) {
         $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
@@ -95,11 +94,9 @@ if ($action == 'form_data') {
         $nominalCache[$compId] = $indexed;
     }
 
-    // 2. Fetch and group Plants
     $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
     $plants = []; 
     foreach($plantsRaw as $p) { 
-        // VALIDATION CHECK AGAINST LIVE ERP
         $bcId = $p['billing_company_id'] ?? 'default';
         $catCache = $nominalCache[$bcId] ?? [];
         
@@ -120,7 +117,6 @@ if ($action == 'form_data') {
             $hasVar = $vCode !== '';
         }
         
-        // BUG FIX: Ensure missing pricing types trigger the misconfigured lock
         $p['is_misconfigured'] = !$isValidPricing || ($isFixedReq && !$hasFixed) || ($isVarReq && !$hasVar);
         
         $cat = empty($p['category']) ? 'General' : $p['category']; 
@@ -128,10 +124,8 @@ if ($action == 'form_data') {
         $plants[$cat][] = $p; 
     }
     
-    // 3. Fetch Drivers
     $drivers = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role='plant_driver'")->fetchAll(PDO::FETCH_ASSOC);
     
-    // 4. Fetch Projects
     $projects = getAccessibleProjects($pdo, $userId);
     if (!empty($projects)) {
         $projectIds = array_column($projects, 'id');
@@ -174,20 +168,63 @@ if ($action == 'get_company_clients' && $isManager) {
 if ($action == 'fetch_bookings') {
     $events = [];
     
+    // UPDATED: Now fetches Project names, cities, and Plant categories for the UI injection
     if ($isManager) {
-        $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id";
+        $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+                  FROM plant_bookings pb 
+                  JOIN plants p ON pb.plant_id = p.id 
+                  LEFT JOIN projects prj ON pb.project_id = prj.id";
         $stmt = $pdo->query($query);
     } else {
-        $query = "SELECT pb.*, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE (pb.driver_id = ? OR pb.driver_id IS NULL OR pb.driver_id = 0)";
+        $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+                  FROM plant_bookings pb 
+                  JOIN plants p ON pb.plant_id = p.id 
+                  LEFT JOIN projects prj ON pb.project_id = prj.id 
+                  WHERE (pb.driver_id = ? OR pb.driver_id IS NULL OR pb.driver_id = 0)";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$userId]);
     }
     
+    // Category Color Dictionary
+    $catColors = [
+        'Cranes' => '#eab308', // Yellow
+        'Pumps' => '#3b82f6',  // Blue
+        'Booms' => '#f97316',  // Orange
+        'Excavator' => '#ef4444', // Red
+        'Piling' => '#8b5cf6', // Purple
+        'Drum Cutter' => '#14b8a6', // Teal
+        'Other Trucks' => '#64748b', // Gray
+        'Scarifier' => '#ec4899', // Pink
+        'General' => '#6366f1' // Indigo
+    ];
+
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
-        $color = ($b['status'] == 'In Progress') ? '#f59e0b' : (($b['status'] == 'Completed') ? '#10b981' : '#3b82f6');
+        $cat = $b['category'] ?: 'General';
+        $color = $catColors[$cat] ?? '#6366f1';
+        
+        // Build rich contextual titles
+        $details = [];
+        if (!empty($b['project_name'])) {
+            $details[] = $b['project_name'];
+            if (!empty($b['locality'])) $details[] = $b['locality'];
+            if (!empty($b['client_name'])) $details[] = $b['client_name'];
+        } else {
+            if (!empty($b['client_name'])) $details[] = $b['client_name'];
+            if (!empty($b['comments'])) $details[] = '"' . substr($b['comments'], 0, 40) . '..."';
+        }
+        
+        $statusInd = "";
+        if ($b['status'] == 'Completed') $statusInd = "✅ ";
+        elseif ($b['status'] == 'In Progress') $statusInd = "⏳ ";
+        
+        $title = $statusInd . $b['plant_name'];
+        if (!empty($details)) {
+            $title .= "\n" . implode(" | ", $details);
+        }
+
         $events[] = [
             'id' => $b['id'], 
-            'title' => $b['plant_name'], 
+            'title' => $title, 
             'start' => $b['booking_date'] . 'T' . $b['start_time'], 
             'end' => $b['booking_date'] . 'T' . $b['end_time'], 
             'backgroundColor' => $color, 
@@ -314,9 +351,13 @@ if ($action == 'cancel_booking' && $isManager) {
 }
 
 if ($action == 'get_project_location' && $isManager) { 
-    $stmt = $pdo->prepare("SELECT latitude, longitude, street_name FROM projects WHERE id = ?"); 
-    $stmt->execute([$_GET['project_id']]); 
-    echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); 
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM projects WHERE id = ?"); 
+        $stmt->execute([$_GET['project_id']]); 
+        echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); 
+    } catch (Exception $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
     exit; 
 }
 
@@ -330,7 +371,8 @@ if ($action == 'get_job') {
 }
 
 if ($action == 'punch_in') { 
-    $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=? WHERE id=?")->execute([$userId, $_GET['id']]); 
+    // UPDATED: Added COALESCE to ensure if Admin clicks "Start", it doesn't overwrite an assigned driver
+    $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=COALESCE(driver_id, ?) WHERE id=?")->execute([$userId, $_GET['id']]); 
     echo "OK"; 
     exit; 
 }
