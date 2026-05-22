@@ -304,7 +304,11 @@ $userId = $_SESSION['user_id'];
         fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`)
         .then(r => r.json())
         .then(data => {
-            if (data && data.latitude && data.longitude) {
+            // Check if coordinates exist AND street name exists (not null or empty)
+            const hasCoords = data && data.latitude && data.longitude && data.latitude !== "" && data.longitude !== "";
+            const hasStreet = data && data.street && data.street.trim() !== "";
+
+            if (hasCoords && hasStreet) {
                 document.getElementById('loc_lat').value = data.latitude; 
                 document.getElementById('loc_lng').value = data.longitude;
                 if (mapboxMap) { 
@@ -312,7 +316,22 @@ $userId = $_SESSION['user_id'];
                     marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap); 
                     mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); 
                 }
+            } else {
+                // Clear inputs, remove old pins, and alert the user
+                document.getElementById('loc_lat').value = ''; 
+                document.getElementById('loc_lng').value = '';
+                if (marker) marker.remove();
+                
+                alert("Location for this project was not found or is only an estimate. Please select the exact location manually by tapping on the map.");
             }
+        })
+        .catch(err => {
+            // Fallback in case of a network error
+            document.getElementById('loc_lat').value = ''; 
+            document.getElementById('loc_lng').value = '';
+            if (marker) marker.remove();
+            
+            alert("Failed to fetch project location. Please select the location manually by tapping on the map.");
         });
     }
 
