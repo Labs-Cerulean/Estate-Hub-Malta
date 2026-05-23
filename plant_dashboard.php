@@ -1,7 +1,7 @@
 <?php
 /**
  * plant_dashboard.php - Director's Desktop View for Plant Hub
- * Fully reactive to calendar navigation with strict layout constraints.
+ * Redesigned full-width stacked layout for maximum stability and visibility.
  */
 require_once 'init.php';
 require_once 'session-check.php';
@@ -32,60 +32,27 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; margin-top: 5px; }
     
-    /* Strict Flexbox Layout */
-    .layout-flex { display: flex; gap: 30px; flex-wrap: wrap; width: 100%; }
+    /* Reports Row (Middle) */
+    .reports-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; margin-bottom: 30px; }
     
-    .calendar-panel { flex: 2.5; min-width: 0; max-width: 100%; }
-    .side-panel { flex: 1; min-width: 320px; max-width: 100%; }
-    
-    .panel { padding: 20px; margin-bottom: 20px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; }
-    .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
+    /* Panels */
+    .panel { padding: 25px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; }
+    .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 20px; opacity: 0.9;}
     
     /* Tables */
     .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; table-layout: fixed; }
-    .data-table th { font-weight: 700; text-align: left; padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.2); opacity: 0.7; }
-    .data-table td { padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.1); word-wrap: break-word; }
+    .data-table th { font-weight: 700; text-align: left; padding: 12px 10px; border-bottom: 2px solid rgba(100,116,139,0.2); opacity: 0.7; }
+    .data-table td { padding: 12px 10px; border-bottom: 1px solid rgba(100,116,139,0.1); word-wrap: break-word; }
     .data-table tr:last-child td { border-bottom: none; }
     
-    /* ==============================================================
-       FULLCALENDAR CRASH FIXES: Strict Table Forcing
-       ============================================================== */
-    .fc { 
-        font-size: 0.9rem; 
-        background: transparent !important; 
-        width: 100% !important; 
-        max-width: 100% !important; 
-    }
-    
-    /* Forces the internal tables to rigidly obey the container width */
-    .fc-scrollgrid, .fc-scrollgrid table {
-        width: 100% !important;
-        table-layout: fixed !important;
-    }
-    
-    .fc-view-harness {
-        max-width: 100% !important;
-        min-width: 0 !important;
-    }
-
-    .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { 
-        border-color: rgba(100,116,139,0.2) !important; 
-    }
-    
+    /* Calendar Overrides - Now safe because it's full width! */
+    .calendar-wrapper { width: 100%; overflow-x: auto; background: #fff; padding: 20px; border-radius: 12px; border: 1px solid rgba(100,116,139,0.2); }
+    .fc { font-size: 0.95rem; min-width: 800px; } /* Ensures it scrolls horizontally on tiny screens instead of breaking */
+    .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(100,116,139,0.2) !important; }
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
     
-    /* Forces long multi-line text to wrap instead of stretching columns */
-    .fc-event {
-        white-space: normal !important;
-        word-wrap: break-word !important;
-    }
-    .fc-event-title { 
-        white-space: normal !important; 
-        line-height: 1.3; 
-        padding: 4px; 
-        overflow-wrap: break-word !important; 
-        font-size: 0.8rem;
-    }
+    .fc-event { white-space: normal !important; word-wrap: break-word !important; margin-bottom: 3px !important; }
+    .fc-event-title { white-space: normal !important; line-height: 1.4; padding: 4px; overflow-wrap: break-word !important; font-size: 0.85rem; }
     
     /* Simple Modal */
     #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
@@ -101,7 +68,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             <p class="page-subtitle" id="dynamic-subtitle">Loading dates...</p>
         </div>
         <div style="margin-bottom: 25px;">
-            <a href="plant_bookings.php" target="_blank" style="padding: 10px 20px; background: #3b82f6; color: white; border-radius: 8px; text-decoration: none; font-weight: bold;"><i class="fas fa-external-link-alt"></i> Open Operations Hub</a>
+            <a href="plant_bookings.php" target="_blank" style="padding: 10px 20px; background: #3b82f6; color: white; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-flex; align-items: center; gap: 8px;"><i class="fas fa-external-link-alt"></i> Open Operations Hub</a>
         </div>
     </div>
 
@@ -125,33 +92,30 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         </div>
     </div>
 
-    <div class="layout-flex">
-        
-        <div class="calendar-panel">
-            <div class="panel">
-                <div class="panel-header">Master Fleet Schedule</div>
-                <div id="director-calendar"></div>
+    <div class="reports-grid">
+        <div class="panel">
+            <div class="panel-header">Driver Hours (Current View)</div>
+            <div id="driver-list-container">
+                <p style="opacity: 0.7; font-size: 0.9rem;">Loading metrics...</p>
             </div>
         </div>
 
-        <div class="side-panel">
-            <div class="panel" style="margin-bottom: 30px;">
-                <div class="panel-header">Driver Hours (Current View)</div>
-                <div id="driver-list-container">
-                    <p style="opacity: 0.7; font-size: 0.9rem;">Loading metrics...</p>
-                </div>
+        <div class="panel">
+            <div class="panel-header" style="color: #ef4444;">
+                Action Required: Un-Invoiced
             </div>
+            <p style="font-size: 0.8rem; opacity: 0.7; margin-top: -15px; margin-bottom: 20px;">Jobs completed in this timeframe missing final ERP sync.</p>
+            
+            <div id="uninvoiced-list-container">
+                <p style="opacity: 0.7; font-size: 0.9rem;">Loading list...</p>
+            </div>
+        </div>
+    </div>
 
-            <div class="panel">
-                <div class="panel-header" style="color: #ef4444;">
-                    Action Required: Un-Invoiced
-                </div>
-                <p style="font-size: 0.8rem; opacity: 0.7; margin-top: -10px; margin-bottom: 15px;">Jobs completed in this timeframe missing final ERP sync.</p>
-                
-                <div id="uninvoiced-list-container">
-                    <p style="opacity: 0.7; font-size: 0.9rem;">Loading list...</p>
-                </div>
-            </div>
+    <div class="panel" style="background: transparent; padding: 0;">
+        <div class="panel-header" style="margin-bottom: 10px;">Master Fleet Schedule</div>
+        <div class="calendar-wrapper">
+            <div id="director-calendar"></div>
         </div>
     </div>
 </div>
@@ -179,7 +143,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
-                right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                right: 'dayGridMonth,timeGridWeek,listWeek' // Swapped day view for a clean list view option!
             },
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
@@ -188,10 +152,8 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             events: 'api/plant_actions.php?action=fetch_bookings',
             
             datesSet: function(info) {
-                // Update the visible subtitle
                 document.getElementById('dynamic-subtitle').innerText = "Current View: " + info.view.title;
                 
-                // Fetch the stats for these exact dates!
                 const fd = new FormData();
                 fd.append('action', 'get_dashboard_stats');
                 fd.append('start', info.startStr);
@@ -200,18 +162,16 @@ include 'header.php'; // Include your standard Estate Hub desktop header
                 fetch('api/plant_actions.php', { method: 'POST', body: fd })
                 .then(r => r.json())
                 .then(data => {
-                    // Update KPI Cards
                     document.getElementById('kpi-total').innerText = data.kpi.total_jobs || 0;
                     document.getElementById('kpi-pending').innerText = data.kpi.pending_jobs || 0;
                     document.getElementById('kpi-completed').innerText = data.kpi.completed_jobs || 0;
                     document.getElementById('kpi-revenue').innerText = '€' + parseFloat(data.kpi.invoiced_revenue || 0).toFixed(2);
                     
-                    // Update Driver List
                     const drvCont = document.getElementById('driver-list-container');
                     if (data.drivers.length === 0) {
                         drvCont.innerHTML = '<p style="opacity: 0.7; font-size: 0.9rem;">No hours scheduled in this view.</p>';
                     } else {
-                        let dHtml = '<table class="data-table"><thead><tr><th style="width:50%;">Driver</th><th>Jobs</th><th>Est. Hrs</th></tr></thead><tbody>';
+                        let dHtml = '<table class="data-table"><thead><tr><th style="width:40%;">Driver</th><th>Jobs</th><th>Est. Hrs</th></tr></thead><tbody>';
                         data.drivers.forEach(d => {
                             let act = parseFloat(d.actual_hours) > 0 ? `<br><small style="color: #10b981;">Act: ${parseFloat(d.actual_hours).toFixed(1)}h</small>` : '';
                             dHtml += `<tr>
@@ -224,7 +184,6 @@ include 'header.php'; // Include your standard Estate Hub desktop header
                         drvCont.innerHTML = dHtml;
                     }
 
-                    // Update Un-invoiced Jobs
                     const uninvCont = document.getElementById('uninvoiced-list-container');
                     if (data.uninvoiced.length === 0) {
                         uninvCont.innerHTML = '<div style="padding: 15px; background: rgba(16, 185, 129, 0.1); color: #10b981; border-radius: 8px; font-size: 0.9rem; font-weight: 600; text-align: center;"><i class="fas fa-check-circle"></i> All completed jobs are invoiced!</div>';
@@ -233,13 +192,15 @@ include 'header.php'; // Include your standard Estate Hub desktop header
                         data.uninvoiced.forEach(uj => {
                             let clientStr = uj.client_name ? uj.client_name : (uj.project_name ? uj.project_name : 'Unknown');
                             uHtml += `
-                            <div style="border: 1px solid rgba(100,116,139,0.2); border-radius: 8px; padding: 12px; background: rgba(0,0,0,0.05); overflow: hidden;">
-                                <div style="font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${uj.plant_name}</div>
-                                <div style="font-size: 0.8rem; opacity: 0.8; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                    <b>Date:</b> ${uj.formatted_date} | <b>Client:</b> ${clientStr}
+                            <div style="border: 1px solid rgba(100,116,139,0.2); border-radius: 8px; padding: 15px; background: rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center;">
+                                <div style="overflow: hidden;">
+                                    <div style="font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${uj.plant_name}</div>
+                                    <div style="font-size: 0.8rem; opacity: 0.8; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                        <b>Date:</b> ${uj.formatted_date} | <b>Client:</b> ${clientStr}
+                                    </div>
                                 </div>
-                                <button onclick="window.open('print_plant_invoice.php?booking_id=${uj.id}', '_blank')" style="margin-top: 8px; padding: 4px 8px; font-size: 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                                    Review & Invoice
+                                <button onclick="window.open('print_plant_invoice.php?booking_id=${uj.id}', '_blank')" style="min-width: 120px; padding: 8px 12px; font-size: 0.8rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
+                                    Invoice Job
                                 </button>
                             </div>`;
                         });
