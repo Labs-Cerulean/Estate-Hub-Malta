@@ -1,7 +1,7 @@
 <?php
 /**
  * plant_dashboard.php - Director's Desktop View for Plant Hub
- * Redesigned full-width stacked layout for maximum stability and visibility.
+ * Clean, standard FullCalendar implementation with reactive stats.
  */
 require_once 'init.php';
 require_once 'session-check.php';
@@ -21,7 +21,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
 
 <style>
-    /* Desktop Dashboard Structure */
+    /* Desktop Dashboard Structure - Clean & Native */
     .plant-dir-container { max-width: 1600px; margin: 0 auto; padding: 20px; width: 100%; box-sizing: border-box; }
     .page-title { font-size: 2rem; font-weight: 900; margin-bottom: 5px; opacity: 0.9; }
     .page-subtitle { font-size: 1rem; margin-bottom: 25px; opacity: 0.7; }
@@ -32,27 +32,34 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; margin-top: 5px; }
     
-    /* Reports Row (Middle) */
-    .reports-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; margin-bottom: 30px; }
+    /* THE MAGIC GRID FIX: minmax(0, X) stops tables from blowing out the layout infinitely */
+    .layout-grid { 
+        display: grid; 
+        grid-template-columns: 1fr; 
+        gap: 30px; 
+    }
+    @media(min-width: 1024px) {
+        .layout-grid {
+            grid-template-columns: minmax(0, 2.5fr) minmax(0, 1fr);
+        }
+    }
     
-    /* Panels */
-    .panel { padding: 25px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; }
-    .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 20px; opacity: 0.9;}
+    .panel { padding: 20px; margin-bottom: 20px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; }
+    .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
     
     /* Tables */
-    .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; table-layout: fixed; }
-    .data-table th { font-weight: 700; text-align: left; padding: 12px 10px; border-bottom: 2px solid rgba(100,116,139,0.2); opacity: 0.7; }
-    .data-table td { padding: 12px 10px; border-bottom: 1px solid rgba(100,116,139,0.1); word-wrap: break-word; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .data-table th { font-weight: 700; text-align: left; padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.2); opacity: 0.7; }
+    .data-table td { padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.1); }
     .data-table tr:last-child td { border-bottom: none; }
     
-    /* Calendar Overrides - Now safe because it's full width! */
-    .calendar-wrapper { width: 100%; overflow-x: auto; background: #fff; padding: 20px; border-radius: 12px; border: 1px solid rgba(100,116,139,0.2); }
-    .fc { font-size: 0.95rem; min-width: 800px; } /* Ensures it scrolls horizontally on tiny screens instead of breaking */
+    /* Clean FullCalendar Styling - NO TABLE OVERRIDES! */
+    .fc { font-size: 0.9rem; background: transparent; }
     .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(100,116,139,0.2) !important; }
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
     
-    .fc-event { white-space: normal !important; word-wrap: break-word !important; margin-bottom: 3px !important; }
-    .fc-event-title { white-space: normal !important; line-height: 1.4; padding: 4px; overflow-wrap: break-word !important; font-size: 0.85rem; }
+    /* Simple Event Text Wrapping */
+    .fc-event-title { white-space: normal !important; line-height: 1.4; padding: 2px 4px; }
     
     /* Simple Modal */
     #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
@@ -92,30 +99,31 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         </div>
     </div>
 
-    <div class="reports-grid">
-        <div class="panel">
-            <div class="panel-header">Driver Hours (Current View)</div>
-            <div id="driver-list-container">
-                <p style="opacity: 0.7; font-size: 0.9rem;">Loading metrics...</p>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-header" style="color: #ef4444;">
-                Action Required: Un-Invoiced
-            </div>
-            <p style="font-size: 0.8rem; opacity: 0.7; margin-top: -15px; margin-bottom: 20px;">Jobs completed in this timeframe missing final ERP sync.</p>
-            
-            <div id="uninvoiced-list-container">
-                <p style="opacity: 0.7; font-size: 0.9rem;">Loading list...</p>
-            </div>
-        </div>
-    </div>
-
-    <div class="panel" style="background: transparent; padding: 0;">
-        <div class="panel-header" style="margin-bottom: 10px;">Master Fleet Schedule</div>
-        <div class="calendar-wrapper">
+    <div class="layout-grid">
+        
+        <div class="panel" style="padding: 15px;">
+            <div class="panel-header" style="padding: 0 10px 10px 10px;">Master Fleet Schedule</div>
             <div id="director-calendar"></div>
+        </div>
+
+        <div>
+            <div class="panel" style="margin-bottom: 30px;">
+                <div class="panel-header">Driver Hours (Current View)</div>
+                <div id="driver-list-container">
+                    <p style="opacity: 0.7; font-size: 0.9rem;">Loading metrics...</p>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header" style="color: #ef4444;">
+                    Action Required: Un-Invoiced
+                </div>
+                <p style="font-size: 0.8rem; opacity: 0.7; margin-top: -10px; margin-bottom: 15px;">Jobs completed in this timeframe missing final ERP sync.</p>
+                
+                <div id="uninvoiced-list-container">
+                    <p style="opacity: 0.7; font-size: 0.9rem;">Loading list...</p>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -138,17 +146,18 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('director-calendar');
         
+        // Standard, clean FullCalendar v6 Initialization
         const calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
-                right: 'dayGridMonth,timeGridWeek,listWeek' // Swapped day view for a clean list view option!
+                right: 'dayGridMonth,timeGridWeek,listWeek'
             },
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
             allDaySlot: false,
-            contentHeight: 'auto',
+            contentHeight: 'auto', // Let JS handle height natively
             events: 'api/plant_actions.php?action=fetch_bookings',
             
             datesSet: function(info) {
@@ -231,6 +240,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             }
         });
         
+        // This command tells FullCalendar to measure its container and render perfectly.
         calendar.render();
     });
 </script>
