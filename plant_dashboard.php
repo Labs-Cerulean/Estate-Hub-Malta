@@ -21,7 +21,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
 
 <style>
-    /* Desktop Dashboard Structure - Clean & Native */
+    /* Desktop Dashboard Structure */
     .plant-dir-container { max-width: 1600px; margin: 0 auto; padding: 20px; width: 100%; box-sizing: border-box; }
     .page-title { font-size: 2rem; font-weight: 900; margin-bottom: 5px; opacity: 0.9; }
     .page-subtitle { font-size: 1rem; margin-bottom: 25px; opacity: 0.7; }
@@ -32,19 +32,35 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; margin-top: 5px; }
     
-    /* THE MAGIC GRID FIX: minmax(0, X) stops tables from blowing out the layout infinitely */
+    /* =========================================
+       THE INFINITE LOOP FIX: min-width: 0
+       ========================================= */
     .layout-grid { 
         display: grid; 
         grid-template-columns: 1fr; 
         gap: 30px; 
+        width: 100%; /* Ensure grid doesn't bleed off screen */
     }
     @media(min-width: 1024px) {
-        .layout-grid {
-            grid-template-columns: minmax(0, 2.5fr) minmax(0, 1fr);
+        .layout-grid { 
+            /* minmax(0, X) tells the grid to never expand based on child width */
+            grid-template-columns: minmax(0, 2.5fr) minmax(0, 1fr); 
         }
     }
     
-    .panel { padding: 20px; margin-bottom: 20px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; }
+    .panel { 
+        padding: 20px; 
+        margin-bottom: 20px; 
+        background: rgba(100, 116, 139, 0.05); 
+        border-radius: 12px; 
+        width: 100%; 
+        box-sizing: border-box; 
+        
+        /* THE SILVER BULLETS */
+        min-width: 0; 
+        overflow-x: hidden; 
+    }
+    
     .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
     
     /* Tables */
@@ -53,8 +69,8 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .data-table td { padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.1); }
     .data-table tr:last-child td { border-bottom: none; }
     
-    /* Clean FullCalendar Styling - NO TABLE OVERRIDES! */
-    .fc { font-size: 0.9rem; background: transparent; }
+    /* Clean FullCalendar Styling */
+    .fc { font-size: 0.9rem; background: transparent; width: 100%; }
     .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(100,116,139,0.2) !important; }
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
     
@@ -67,7 +83,6 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: inherit; opacity: 0.6; cursor: pointer; }
     .close-modal:hover { opacity: 1; }
 </style>
-
 <div class="plant-dir-container">
     <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 15px;">
         <div>
