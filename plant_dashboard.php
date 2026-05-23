@@ -1,7 +1,7 @@
 <?php
 /**
  * plant_dashboard.php - Director's Desktop View for Plant Hub
- * Restored clean CSS. Removed the buggy TimeGrid modules.
+ * Stripped of all white backgrounds and forced into a strict Flexbox layout.
  */
 require_once 'init.php';
 require_once 'session-check.php';
@@ -21,41 +21,45 @@ include 'header.php'; // Include your standard Estate Hub desktop header
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
 
 <style>
-    /* Clean, unobtrusive structure that won't fight your Estate Hub theme */
+    /* Clean, Theme-Agnostic Structure */
     .plant-dir-container { max-width: 1600px; margin: 0 auto; padding: 20px; width: 100%; box-sizing: border-box; }
-    .page-title { font-size: 2rem; font-weight: 900; margin-bottom: 5px; }
+    .page-title { font-size: 2rem; font-weight: 900; margin-bottom: 5px; opacity: 0.9; }
     .page-subtitle { font-size: 1rem; margin-bottom: 25px; opacity: 0.7; }
     
-    /* Top KPI Grid */
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
-    .kpi-card { padding: 20px; border-bottom-width: 4px; border-bottom-style: solid; border-radius: 8px; background: var(--card-bg, #ffffff); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    /* Top KPI Row - Fully Transparent Backgrounds */
+    .kpi-wrapper { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 30px; }
+    .kpi-card { flex: 1; min-width: 220px; padding: 20px; border-radius: 8px; background: rgba(128, 128, 128, 0.05); border-bottom: 4px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; margin-bottom: 8px; }
-    .kpi-value { font-size: 2.2rem; font-weight: 900; }
+    .kpi-value { font-size: 2.2rem; font-weight: 900; opacity: 0.9; }
     
-    /* Main Layout */
-    .layout-grid { display: grid; grid-template-columns: 1fr; gap: 30px; }
-    @media(min-width: 1024px) {
-        .layout-grid { grid-template-columns: 2.5fr 1fr; }
-    }
+    /* THE STEEL BOX FLEX LAYOUT */
+    .main-layout { display: flex; flex-wrap: wrap; gap: 30px; width: 100%; }
     
-    .panel { padding: 20px; margin-bottom: 20px; background: var(--card-bg, #ffffff); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); width: 100%; box-sizing: border-box; }
-    .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(0,0,0,0.05); padding-bottom: 10px; margin-bottom: 15px; }
+    /* min-width: 0 is the magic Flexbox rule that stops tables from causing infinite expansion */
+    .calendar-col { flex: 2.5; min-width: 0; max-width: 100%; overflow: hidden; }
+    .stats-col { flex: 1; min-width: 320px; max-width: 100%; }
+    
+    .panel { padding: 20px; margin-bottom: 20px; background: rgba(128, 128, 128, 0.05); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); width: 100%; box-sizing: border-box; }
+    .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(128, 128, 128, 0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
     
     /* Tables */
     .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-    .data-table th { font-weight: 700; text-align: left; padding: 10px; border-bottom: 1px solid rgba(0,0,0,0.1); opacity: 0.7; }
-    .data-table td { padding: 10px; border-bottom: 1px solid rgba(0,0,0,0.05); }
+    .data-table th { font-weight: 700; text-align: left; padding: 10px; border-bottom: 1px solid rgba(128,128,128,0.2); opacity: 0.7; }
+    .data-table td { padding: 10px; border-bottom: 1px solid rgba(128,128,128,0.1); opacity: 0.9; }
+    .data-table tr:last-child td { border-bottom: none; }
     
-    /* Clean FullCalendar Styling - NO CRAZY OVERRIDES */
-    .fc { font-size: 0.95rem; }
-    .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; }
-    .fc-event { cursor: pointer; }
+    /* Calendar Overrides */
+    .fc { font-size: 0.95rem; width: 100% !important; max-width: 100% !important; }
+    .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(128,128,128,0.2) !important; }
+    .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
+    .fc-event { white-space: normal !important; word-wrap: break-word !important; margin-bottom: 2px !important; cursor: pointer; }
+    .fc-event-title { white-space: normal !important; padding: 4px; }
     
-    /* Modal */
-    #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-    #jobModal { width: 500px; max-width: 90%; border-radius: 12px; padding: 30px; position: relative; background: #ffffff; color: #333; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2); }
-    .close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #999; cursor: pointer; }
-    .close-modal:hover { color: #333; }
+    /* Modal - Inherits Dark Theme nicely */
+    #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+    #jobModal { width: 500px; max-width: 90%; border-radius: 12px; padding: 30px; position: relative; background: #1e293b; color: #f8fafc; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    .close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #94a3b8; cursor: pointer; }
+    .close-modal:hover { color: #fff; }
 </style>
 
 <div class="plant-dir-container">
@@ -69,7 +73,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         </div>
     </div>
 
-    <div class="kpi-grid">
+    <div class="kpi-wrapper">
         <div class="kpi-card" style="border-bottom-color: #3b82f6;">
             <div class="kpi-title">Total Bookings</div>
             <div class="kpi-value" id="kpi-total">0</div>
@@ -83,19 +87,22 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             <div class="kpi-value" id="kpi-completed">0</div>
         </div>
         <div class="kpi-card" style="border-bottom-color: #8b5cf6;">
-            <div class="kpi-title" style="color: #8b5cf6;">Invoiced Revenue</div>
-            <div class="kpi-value" id="kpi-revenue" style="color: #8b5cf6;">€0.00</div>
+            <div class="kpi-title" style="color: #a78bfa;">Invoiced Revenue</div>
+            <div class="kpi-value" id="kpi-revenue" style="color: #a78bfa;">€0.00</div>
         </div>
     </div>
 
-    <div class="layout-grid">
-        <div class="panel" style="padding: 15px;">
-            <div class="panel-header" style="padding: 0 10px 10px 10px;">Master Fleet Schedule</div>
-            <div id="director-calendar"></div>
+    <div class="main-layout">
+        
+        <div class="calendar-col">
+            <div class="panel">
+                <div class="panel-header">Master Fleet Schedule</div>
+                <div id="director-calendar"></div>
+            </div>
         </div>
 
-        <div>
-            <div class="panel" style="margin-bottom: 30px;">
+        <div class="stats-col">
+            <div class="panel">
                 <div class="panel-header">Driver Hours (Current View)</div>
                 <div id="driver-list-container">
                     <p style="opacity: 0.7; font-size: 0.9rem;">Loading metrics...</p>
@@ -110,6 +117,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
                 </div>
             </div>
         </div>
+        
     </div>
 </div>
 
@@ -117,12 +125,12 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     <div id="jobModal">
         <button class="close-modal" onclick="document.getElementById('jobModalOverlay').style.display='none'"><i class="fas fa-times"></i></button>
         <h3 id="m_title" style="margin-top: 0; font-weight: 900; font-size: 1.5rem;">Job Details</h3>
-        <hr style="border: 1px solid #eee; margin: 15px 0;">
-        <div id="m_body" style="font-size: 1rem; line-height: 1.6;">
+        <hr style="border: 1px solid rgba(255,255,255,0.1); margin: 15px 0;">
+        <div id="m_body" style="font-size: 1rem; opacity: 0.9; line-height: 1.6;">
             Loading...
         </div>
         <div style="margin-top: 25px; display: flex; justify-content: flex-end;">
-            <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="padding: 10px 20px; background: #eee; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Close</button>
+            <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="padding: 10px 20px; background: rgba(255,255,255,0.1); color: inherit; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Close</button>
         </div>
     </div>
 </div>
@@ -136,8 +144,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
-                // THE FIX: Removed timeGridWeek & timeGridDay completely. 
-                right: 'dayGridMonth,listWeek,listDay'
+                right: 'dayGridMonth,listWeek,listDay' // List views are completely immune to table stretching bugs!
             },
             contentHeight: 'auto',
             events: 'api/plant_actions.php?action=fetch_bookings',
@@ -183,7 +190,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
                         data.uninvoiced.forEach(uj => {
                             let clientStr = uj.client_name ? uj.client_name : (uj.project_name ? uj.project_name : 'Unknown');
                             uHtml += `
-                            <div style="border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; padding: 15px; display: flex; justify-content: space-between; align-items: center;">
+                            <div style="border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 15px; background: rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center;">
                                 <div style="overflow: hidden;">
                                     <div style="font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${uj.plant_name}</div>
                                     <div style="font-size: 0.8rem; opacity: 0.8; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -213,7 +220,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
                         <div style="margin-bottom:10px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
                         <div style="margin-bottom:10px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span></div>
                         <div style="margin-bottom:10px;"><b>Target:</b> ${job.location_text}</div>
-                        ${job.comments ? `<div style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.03); border-left: 4px solid #3b82f6; border-radius: 4px;"><b>Notes:</b><br>${job.comments}</div>` : ''}
+                        ${job.comments ? `<div style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-left: 4px solid #3b82f6; border-radius: 4px;"><b>Notes:</b><br>${job.comments}</div>` : ''}
                     `;
                     document.getElementById('jobModalOverlay').style.display = 'flex';
                 });
