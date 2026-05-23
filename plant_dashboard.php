@@ -1,7 +1,7 @@
 <?php
 /**
  * plant_dashboard.php - Director's Desktop View for Plant Hub
- * High-level reporting, scheduling, and financial metrics.
+ * Fully reactive to calendar navigation.
  */
 require_once 'init.php';
 require_once 'session-check.php';
@@ -15,115 +15,78 @@ if (!$hasDirectorAccess) {
     die("Unauthorized Access. This dashboard is strictly restricted to Admins and Directors only.");
 }
 
-// 1. Calculate Weekly Date Boundaries
-$startOfWeek = date('Y-m-d', strtotime('monday this week'));
-$endOfWeek = date('Y-m-d', strtotime('sunday this week'));
-
-// 2. Fetch Weekly KPIs
-$statsStmt = $pdo->prepare("SELECT 
-    COUNT(id) as total_jobs,
-    SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_jobs,
-    SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_jobs,
-    SUM(CASE WHEN payment_status IN ('Invoiced', 'Settled') THEN final_subtotal ELSE 0 END) as invoiced_revenue
-    FROM plant_bookings 
-    WHERE booking_date >= ? AND booking_date <= ?");
-$statsStmt->execute([$startOfWeek, $endOfWeek]);
-$kpi = $statsStmt->fetch(PDO::FETCH_ASSOC);
-
-// 3. Fetch Driver Hours Leaderboard (Current Week)
-$driverStmt = $pdo->prepare("SELECT 
-    u.first_name, u.last_name, 
-    COUNT(pb.id) as job_count,
-    SUM(TIME_TO_SEC(TIMEDIFF(pb.end_time, pb.start_time))/3600) as scheduled_hours,
-    SUM(pb.final_hours) as actual_hours
-    FROM plant_bookings pb
-    JOIN users u ON pb.driver_id = u.id
-    WHERE pb.booking_date >= ? AND pb.booking_date <= ?
-    GROUP BY u.id
-    ORDER BY scheduled_hours DESC");
-$driverStmt->execute([$startOfWeek, $endOfWeek]);
-$driverStats = $driverStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// 4. Fetch Action Required: Completed but Uninvoiced Jobs
-$uninvoicedStmt = $pdo->query("SELECT pb.id, p.name as plant_name, pb.booking_date, pb.client_name, prj.name as project_name 
-    FROM plant_bookings pb 
-    JOIN plants p ON pb.plant_id = p.id
-    LEFT JOIN projects prj ON pb.project_id = prj.id
-    WHERE pb.status = 'Completed' AND pb.payment_status = 'Pending'
-    ORDER BY pb.booking_date ASC LIMIT 8");
-$uninvoicedJobs = $uninvoicedStmt->fetchAll(PDO::FETCH_ASSOC);
-
 include 'header.php'; // Include your standard Estate Hub desktop header
 ?>
 
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
 
 <style>
-    /* Desktop-Specific Dashboard Styling */
-    .plant-dir-container { max-width: 1600px; margin: 0 auto; padding: 20px; font-family: 'Inter', sans-serif; }
-    .page-title { font-size: 2rem; font-weight: 900; color: #0f172a; margin-bottom: 5px; }
-    .page-subtitle { color: #64748b; font-size: 1rem; margin-bottom: 25px; }
+    /* Desktop Dashboard Structure - Stripped of hardcoded colors to inherit EstateHub styles.css */
+    .plant-dir-container { max-width: 1600px; margin: 0 auto; padding: 20px; }
+    .page-title { font-size: 2rem; font-weight: 900; margin-bottom: 5px; opacity: 0.9; }
+    .page-subtitle { font-size: 1rem; margin-bottom: 25px; opacity: 0.7; }
     
     /* KPI Grid */
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
-    .kpi-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 2.2rem; font-weight: 900; color: #0f172a; margin-top: 5px; }
+    .kpi-card { padding: 20px; border-bottom-width: 4px; border-bottom-style: solid; border-radius: 8px; background: rgba(100, 116, 139, 0.05); }
+    .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; }
+    .kpi-value { font-size: 2.2rem; font-weight: 900; margin-top: 5px; }
     
-    /* CRASH FIX: Replaced CSS Grid with safe Flexbox Layout */
+    /* Layout */
     .layout-flex { display: flex; gap: 30px; flex-wrap: wrap; }
-    .calendar-panel { flex: 2.5; min-width: 0; /* min-width:0 is a flexbox safety lock */ }
+    .calendar-panel { flex: 2.5; min-width: 0; }
     .side-panel { flex: 1; min-width: 320px; }
     
-    .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); overflow: hidden; }
-    .panel-header { font-size: 1.2rem; font-weight: 800; color: #0f172a; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+    .panel { padding: 20px; margin-bottom: 20px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; }
+    .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
     
     /* Tables */
     .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-    .data-table th { background: #f8fafc; color: #475569; font-weight: 700; text-align: left; padding: 10px; border-bottom: 1px solid #e2e8f0; }
-    .data-table td { padding: 10px; border-bottom: 1px solid #e2e8f0; color: #0f172a; }
+    .data-table th { font-weight: 700; text-align: left; padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.2); opacity: 0.7; }
+    .data-table td { padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.1); }
     .data-table tr:last-child td { border-bottom: none; }
     
     /* Calendar Overrides */
-    .fc { font-size: 0.9rem; }
-    .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; color: #0f172a; }
+    .fc { font-size: 0.9rem; background: transparent !important; }
+    .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(100,116,139,0.2) !important; }
+    .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
     .fc-event-title { white-space: pre-wrap !important; line-height: 1.4; padding: 2px 4px; }
     
     /* Simple Modal */
-    #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.7); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-    #jobModal { background: #fff; width: 500px; max-width: 90%; border-radius: 16px; padding: 30px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); position: relative; }
-    .close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #94a3b8; cursor: pointer; }
-    .close-modal:hover { color: #0f172a; }
+    #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+    #jobModal { width: 500px; max-width: 90%; border-radius: 16px; padding: 30px; position: relative; background: #1e293b; color: #f8fafc; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    .close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: inherit; opacity: 0.6; cursor: pointer; }
+    .close-modal:hover { opacity: 1; }
 </style>
 
 <div class="plant-dir-container">
     <div style="display: flex; justify-content: space-between; align-items: flex-end;">
         <div>
             <h1 class="page-title">Fleet Director Dashboard</h1>
-            <p class="page-subtitle">Week of <?= date('d M Y', strtotime($startOfWeek)) ?> to <?= date('d M Y', strtotime($endOfWeek)) ?></p>
+            <p class="page-subtitle" id="dynamic-subtitle">Loading dates...</p>
         </div>
         <div style="margin-bottom: 25px;">
-            <a href="plant_bookings.php" class="btn btn-primary" target="_blank"><i class="fas fa-external-link-alt"></i> Open Operations Hub</a>
+            <a href="plant_bookings.php" target="_blank" style="padding: 10px 20px; background: #3b82f6; color: white; border-radius: 8px; text-decoration: none; font-weight: bold;"><i class="fas fa-external-link-alt"></i> Open Operations Hub</a>
         </div>
     </div>
 
     <div class="kpi-grid">
-        <div class="kpi-card" style="border-bottom: 4px solid #3b82f6;">
+        <div class="kpi-card" style="border-bottom-color: #3b82f6;">
             <div class="kpi-title">Total Scheduled Bookings</div>
-            <div class="kpi-value"><?= number_format($kpi['total_jobs'] ?? 0) ?></div>
+            <div class="kpi-value" id="kpi-total">0</div>
         </div>
-        <div class="kpi-card" style="border-bottom: 4px solid #f59e0b;">
+        <div class="kpi-card" style="border-bottom-color: #f59e0b;">
             <div class="kpi-title">Pending Execution</div>
-            <div class="kpi-value"><?= number_format($kpi['pending_jobs'] ?? 0) ?></div>
+            <div class="kpi-value" id="kpi-pending">0</div>
         </div>
-        <div class="kpi-card" style="border-bottom: 4px solid #10b981;">
+        <div class="kpi-card" style="border-bottom-color: #10b981;">
             <div class="kpi-title">Completed Jobs</div>
-            <div class="kpi-value"><?= number_format($kpi['completed_jobs'] ?? 0) ?></div>
+            <div class="kpi-value" id="kpi-completed">0</div>
         </div>
-        <div class="kpi-card" style="border-bottom: 4px solid #6366f1; background: #f8fafc;">
-            <div class="kpi-title" style="color: #4f46e5;">Invoiced Revenue (Week)</div>
-            <div class="kpi-value" style="color: #4f46e5;">€<?= number_format($kpi['invoiced_revenue'] ?? 0, 2) ?></div>
-            <div style="font-size: 0.75rem; color: #64748b; margin-top: 5px;">*Excludes un-invoiced/pending jobs</div>
+        <div class="kpi-card" style="border-bottom-color: #8b5cf6;">
+            <div class="kpi-title" style="color: #a78bfa;">Invoiced Revenue</div>
+            <div class="kpi-value" id="kpi-revenue" style="color: #a78bfa;">€0.00</div>
+            <div style="font-size: 0.75rem; opacity: 0.7; margin-top: 5px;">*Excludes un-invoiced/pending jobs</div>
         </div>
     </div>
 
@@ -138,62 +101,21 @@ include 'header.php'; // Include your standard Estate Hub desktop header
 
         <div class="side-panel">
             <div class="panel" style="margin-bottom: 30px;">
-                <div class="panel-header">Driver Hours (This Week)</div>
-                <?php if (empty($driverStats)): ?>
-                    <p style="color: #64748b; font-size: 0.9rem;">No hours scheduled this week.</p>
-                <?php else: ?>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Driver</th>
-                                <th>Jobs</th>
-                                <th>Est. Hrs</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($driverStats as $d): ?>
-                                <tr>
-                                    <td style="font-weight: 600;"><?= htmlspecialchars($d['first_name'] . ' ' . $d['last_name']) ?></td>
-                                    <td><?= $d['job_count'] ?></td>
-                                    <td>
-                                        <?= number_format($d['scheduled_hours'], 1) ?>h
-                                        <?php if ($d['actual_hours'] > 0): ?>
-                                            <br><small style="color: #10b981;">Act: <?= number_format($d['actual_hours'], 1) ?>h</small>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
+                <div class="panel-header">Driver Hours (Current View)</div>
+                <div id="driver-list-container">
+                    <p style="opacity: 0.7; font-size: 0.9rem;">Loading metrics...</p>
+                </div>
             </div>
 
             <div class="panel">
                 <div class="panel-header" style="color: #ef4444;">
                     Action Required: Un-Invoiced
                 </div>
-                <p style="font-size: 0.8rem; color: #64748b; margin-top: -10px; margin-bottom: 15px;">Jobs marked completed by drivers but missing final ERP sync.</p>
+                <p style="font-size: 0.8rem; opacity: 0.7; margin-top: -10px; margin-bottom: 15px;">Jobs completed in this timeframe missing final ERP sync.</p>
                 
-                <?php if (empty($uninvoicedJobs)): ?>
-                    <div style="padding: 15px; background: #ecfdf5; color: #065f46; border-radius: 8px; font-size: 0.9rem; font-weight: 600; text-align: center;">
-                        <i class="fas fa-check-circle"></i> All completed jobs are invoiced!
-                    </div>
-                <?php else: ?>
-                    <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <?php foreach ($uninvoicedJobs as $uj): ?>
-                            <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; background: #f8fafc;">
-                                <div style="font-weight: 700; font-size: 0.95rem; color: #0f172a;"><?= htmlspecialchars($uj['plant_name']) ?></div>
-                                <div style="font-size: 0.8rem; color: #64748b; margin-top: 3px;">
-                                    <b>Date:</b> <?= date('d M', strtotime($uj['booking_date'])) ?> | 
-                                    <b>Client:</b> <?= htmlspecialchars($uj['client_name'] ?: ($uj['project_name'] ?: 'Unknown')) ?>
-                                </div>
-                                <button onclick="window.open('print_plant_invoice.php?booking_id=<?= $uj['id'] ?>', '_blank')" style="margin-top: 8px; padding: 4px 8px; font-size: 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                                    Review & Invoice
-                                </button>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
+                <div id="uninvoiced-list-container">
+                    <p style="opacity: 0.7; font-size: 0.9rem;">Loading list...</p>
+                </div>
             </div>
         </div>
     </div>
@@ -202,13 +124,13 @@ include 'header.php'; // Include your standard Estate Hub desktop header
 <div id="jobModalOverlay">
     <div id="jobModal">
         <button class="close-modal" onclick="document.getElementById('jobModalOverlay').style.display='none'"><i class="fas fa-times"></i></button>
-        <h3 id="m_title" style="margin-top: 0; color: #0f172a; font-weight: 900; font-size: 1.5rem;">Job Details</h3>
-        <hr style="border: 1px solid #e2e8f0; margin: 15px 0;">
-        <div id="m_body" style="font-size: 1rem; color: #475569; line-height: 1.6;">
+        <h3 id="m_title" style="margin-top: 0; font-weight: 900; font-size: 1.5rem;">Job Details</h3>
+        <hr style="border: 1px solid rgba(255,255,255,0.1); margin: 15px 0;">
+        <div id="m_body" style="font-size: 1rem; opacity: 0.9; line-height: 1.6;">
             Loading...
         </div>
         <div style="margin-top: 25px; display: flex; justify-content: flex-end;">
-            <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="padding: 10px 20px; background: #e2e8f0; color: #0f172a; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Close</button>
+            <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="padding: 10px 20px; background: rgba(255,255,255,0.1); color: inherit; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Close</button>
         </div>
     </div>
 </div>
@@ -216,8 +138,9 @@ include 'header.php'; // Include your standard Estate Hub desktop header
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('director-calendar');
+        
         const calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: 'timeGridWeek',
+            initialView: 'dayGridMonth',
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
@@ -226,8 +149,72 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
             allDaySlot: false,
-            contentHeight: 'auto', // Fixes internal scrolling
+            contentHeight: 'auto',
             events: 'api/plant_actions.php?action=fetch_bookings',
+            
+            // MAGIC FIX: Triggers every time the calendar is moved or view changed
+            datesSet: function(info) {
+                // Update the visible subtitle
+                document.getElementById('dynamic-subtitle').innerText = "Current View: " + info.view.title;
+                
+                // Fetch the stats for these exact dates!
+                const fd = new FormData();
+                fd.append('action', 'get_dashboard_stats');
+                fd.append('start', info.startStr);
+                fd.append('end', info.endStr);
+                
+                fetch('api/plant_actions.php', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    // Update KPI Cards
+                    document.getElementById('kpi-total').innerText = data.kpi.total_jobs || 0;
+                    document.getElementById('kpi-pending').innerText = data.kpi.pending_jobs || 0;
+                    document.getElementById('kpi-completed').innerText = data.kpi.completed_jobs || 0;
+                    document.getElementById('kpi-revenue').innerText = '€' + parseFloat(data.kpi.invoiced_revenue || 0).toFixed(2);
+                    
+                    // Update Driver List
+                    const drvCont = document.getElementById('driver-list-container');
+                    if (data.drivers.length === 0) {
+                        drvCont.innerHTML = '<p style="opacity: 0.7; font-size: 0.9rem;">No hours scheduled in this view.</p>';
+                    } else {
+                        let dHtml = '<table class="data-table"><thead><tr><th>Driver</th><th>Jobs</th><th>Est. Hrs</th></tr></thead><tbody>';
+                        data.drivers.forEach(d => {
+                            let act = parseFloat(d.actual_hours) > 0 ? `<br><small style="color: #10b981;">Act: ${parseFloat(d.actual_hours).toFixed(1)}h</small>` : '';
+                            dHtml += `<tr>
+                                <td style="font-weight: 600;">${d.first_name} ${d.last_name}</td>
+                                <td>${d.job_count}</td>
+                                <td>${parseFloat(d.scheduled_hours).toFixed(1)}h ${act}</td>
+                            </tr>`;
+                        });
+                        dHtml += '</tbody></table>';
+                        drvCont.innerHTML = dHtml;
+                    }
+
+                    // Update Un-invoiced Jobs
+                    const uninvCont = document.getElementById('uninvoiced-list-container');
+                    if (data.uninvoiced.length === 0) {
+                        uninvCont.innerHTML = '<div style="padding: 15px; background: rgba(16, 185, 129, 0.1); color: #10b981; border-radius: 8px; font-size: 0.9rem; font-weight: 600; text-align: center;"><i class="fas fa-check-circle"></i> All completed jobs are invoiced!</div>';
+                    } else {
+                        let uHtml = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+                        data.uninvoiced.forEach(uj => {
+                            let clientStr = uj.client_name ? uj.client_name : (uj.project_name ? uj.project_name : 'Unknown');
+                            uHtml += `
+                            <div style="border: 1px solid rgba(100,116,139,0.2); border-radius: 8px; padding: 12px; background: rgba(0,0,0,0.05);">
+                                <div style="font-weight: 700; font-size: 0.95rem;">${uj.plant_name}</div>
+                                <div style="font-size: 0.8rem; opacity: 0.8; margin-top: 3px;">
+                                    <b>Date:</b> ${uj.formatted_date} | <b>Client:</b> ${clientStr}
+                                </div>
+                                <button onclick="window.open('print_plant_invoice.php?booking_id=${uj.id}', '_blank')" style="margin-top: 8px; padding: 4px 8px; font-size: 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                                    Review & Invoice
+                                </button>
+                            </div>`;
+                        });
+                        uHtml += '</div>';
+                        uninvCont.innerHTML = uHtml;
+                    }
+                });
+            },
+            
             eventClick: function(info) {
                 // Fetch full details from API and populate modal
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`)
@@ -242,13 +229,14 @@ include 'header.php'; // Include your standard Estate Hub desktop header
                         <div style="margin-bottom:10px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
                         <div style="margin-bottom:10px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span></div>
                         <div style="margin-bottom:10px;"><b>Target:</b> ${job.location_text}</div>
-                        ${job.comments ? `<div style="margin-top: 15px; padding: 15px; background: #f8fafc; border-left: 4px solid #6366f1; border-radius: 4px;"><b>Notes:</b><br>${job.comments}</div>` : ''}
+                        ${job.comments ? `<div style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-left: 4px solid #6366f1; border-radius: 4px;"><b>Notes:</b><br>${job.comments}</div>` : ''}
                     `;
                     
                     document.getElementById('jobModalOverlay').style.display = 'flex';
                 });
             }
         });
+        
         calendar.render();
     });
 </script>
