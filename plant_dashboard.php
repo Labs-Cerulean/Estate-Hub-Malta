@@ -32,14 +32,13 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; margin-top: 5px; }
     
-    /* Strict Flexbox Layout to prevent Calendar blowout */
+    /* Strict Flexbox Layout */
     .layout-flex { display: flex; gap: 30px; flex-wrap: wrap; width: 100%; }
     
-    /* The min-width: 0 and width: 100% force Flexbox to not let tables expand beyond the screen */
-    .calendar-panel { flex: 2.5; min-width: 0; max-width: 100%; overflow: hidden; }
+    .calendar-panel { flex: 2.5; min-width: 0; max-width: 100%; }
     .side-panel { flex: 1; min-width: 320px; max-width: 100%; }
     
-    .panel { padding: 20px; margin-bottom: 20px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; overflow: hidden; }
+    .panel { padding: 20px; margin-bottom: 20px; background: rgba(100, 116, 139, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; }
     .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
     
     /* Tables */
@@ -48,18 +47,44 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .data-table td { padding: 10px; border-bottom: 1px solid rgba(100,116,139,0.1); word-wrap: break-word; }
     .data-table tr:last-child td { border-bottom: none; }
     
-    /* Calendar Strict Width Overrides */
-    .fc { font-size: 0.9rem; background: transparent !important; width: 100%; max-width: 100%; }
-    .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(100,116,139,0.2) !important; }
+    /* ==============================================================
+       FULLCALENDAR CRASH FIXES: Strict Table Forcing
+       ============================================================== */
+    .fc { 
+        font-size: 0.9rem; 
+        background: transparent !important; 
+        width: 100% !important; 
+        max-width: 100% !important; 
+    }
+    
+    /* Forces the internal tables to rigidly obey the container width */
+    .fc-scrollgrid, .fc-scrollgrid table {
+        width: 100% !important;
+        table-layout: fixed !important;
+    }
+    
+    .fc-view-harness {
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { 
+        border-color: rgba(100,116,139,0.2) !important; 
+    }
+    
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
     
-    /* Force event titles to wrap properly without stretching the table cell */
+    /* Forces long multi-line text to wrap instead of stretching columns */
+    .fc-event {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+    }
     .fc-event-title { 
-        white-space: pre-wrap !important; 
-        line-height: 1.4; 
-        padding: 2px 4px; 
-        word-break: break-word !important; 
+        white-space: normal !important; 
+        line-height: 1.3; 
+        padding: 4px; 
         overflow-wrap: break-word !important; 
+        font-size: 0.8rem;
     }
     
     /* Simple Modal */
@@ -105,9 +130,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         <div class="calendar-panel">
             <div class="panel">
                 <div class="panel-header">Master Fleet Schedule</div>
-                <div style="width: 100%; overflow: hidden; position: relative;">
-                    <div id="director-calendar"></div>
-                </div>
+                <div id="director-calendar"></div>
             </div>
         </div>
 
@@ -227,7 +250,6 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             },
             
             eventClick: function(info) {
-                // Fetch full details from API and populate modal
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`)
                 .then(r => r.json())
                 .then(job => {
