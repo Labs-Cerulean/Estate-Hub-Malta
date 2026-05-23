@@ -1,7 +1,7 @@
 <?php
 /**
  * plant_dashboard.php - Director's Desktop View for Plant Hub
- * Clean, standard FullCalendar implementation with reactive stats.
+ * Clean Side-by-Side layout with strict grid containment.
  */
 require_once 'init.php';
 require_once 'session-check.php';
@@ -32,19 +32,17 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; margin-top: 5px; }
     
-    /* =========================================
-       THE INFINITE LOOP FIX: min-width: 0
-       ========================================= */
+    /* THE GRID CONTAINMENT FIX */
     .layout-grid { 
         display: grid; 
         grid-template-columns: 1fr; 
         gap: 30px; 
-        width: 100%; /* Ensure grid doesn't bleed off screen */
+        width: 100%;
     }
     @media(min-width: 1024px) {
-        .layout-grid { 
-            /* minmax(0, X) tells the grid to never expand based on child width */
-            grid-template-columns: minmax(0, 2.5fr) minmax(0, 1fr); 
+        .layout-grid {
+            /* minmax(0) forces the grid to ignore the 1-million-pixel child */
+            grid-template-columns: minmax(0, 2.5fr) minmax(0, 1fr);
         }
     }
     
@@ -55,10 +53,8 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         border-radius: 12px; 
         width: 100%; 
         box-sizing: border-box; 
-        
-        /* THE SILVER BULLETS */
-        min-width: 0; 
-        overflow-x: hidden; 
+        /* Strict boundary for the panel itself */
+        min-width: 0;
     }
     
     .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(100,116,139,0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
@@ -70,11 +66,11 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .data-table tr:last-child td { border-bottom: none; }
     
     /* Clean FullCalendar Styling */
-    .fc { font-size: 0.9rem; background: transparent; width: 100%; }
+    .fc { font-size: 0.9rem; background: transparent; }
     .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(100,116,139,0.2) !important; }
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
     
-    /* Simple Event Text Wrapping */
+    /* Allow text inside events to wrap nicely */
     .fc-event-title { white-space: normal !important; line-height: 1.4; padding: 2px 4px; }
     
     /* Simple Modal */
@@ -83,6 +79,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: inherit; opacity: 0.6; cursor: pointer; }
     .close-modal:hover { opacity: 1; }
 </style>
+
 <div class="plant-dir-container">
     <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 15px;">
         <div>
@@ -118,7 +115,11 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         
         <div class="panel" style="padding: 15px;">
             <div class="panel-header" style="padding: 0 10px 10px 10px;">Master Fleet Schedule</div>
-            <div id="director-calendar"></div>
+            
+            <div style="width: 100%; min-width: 0; overflow: hidden; position: relative;">
+                <div id="director-calendar"></div>
+            </div>
+            
         </div>
 
         <div>
@@ -161,9 +162,8 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('director-calendar');
         
-        // Standard, clean FullCalendar v6 Initialization
         const calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: 'dayGridMonth',
+            initialView: 'timeGridWeek', // Defaults to week view
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
@@ -172,7 +172,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             slotMinTime: '06:00:00',
             slotMaxTime: '20:00:00',
             allDaySlot: false,
-            contentHeight: 'auto', // Let JS handle height natively
+            contentHeight: 'auto',
             events: 'api/plant_actions.php?action=fetch_bookings',
             
             datesSet: function(info) {
@@ -255,7 +255,6 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             }
         });
         
-        // This command tells FullCalendar to measure its container and render perfectly.
         calendar.render();
     });
 </script>
