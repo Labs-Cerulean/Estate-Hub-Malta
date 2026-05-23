@@ -35,7 +35,7 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     /* MAIN SPLIT LAYOUT */
     .main-layout { display: flex; flex-wrap: wrap; gap: 30px; width: 100%; }
     
-    /* List View allows standard Flexbox to work natively without Min-Width hacks */
+    /* List View allows standard Flexbox to work natively */
     .calendar-col { flex: 2.5; background: rgba(128, 128, 128, 0.05); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
     .stats-col { flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 20px; }
     
@@ -49,33 +49,35 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .data-table tr:last-child td { border-bottom: none; }
     
     /* =========================================================
-       FULLCALENDAR LIST VIEW FIXES (White-on-White bug)
+       FULLCALENDAR NATIVE VARIABLES OVERRIDE
        ========================================================= */
-    .fc { font-size: 0.95rem; }
+    .fc { 
+        font-size: 0.95rem; 
+        
+        /* This kills the white backgrounds at the root level */
+        --fc-page-bg-color: transparent;
+        --fc-neutral-bg-color: rgba(255, 255, 255, 0.05); /* Soft highlight for date headers */
+        --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.1);
+        --fc-border-color: rgba(128, 128, 128, 0.2);
+    }
+    
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
     
-    /* Strip out FullCalendar's hardcoded white/grey backgrounds on the list headers */
-    .fc-theme-standard .fc-list, 
-    .fc-theme-standard .fc-list-day-cushion {
-        background: rgba(128, 128, 128, 0.05) !important;
-        border-color: rgba(128, 128, 128, 0.2) !important;
-    }
-    
-    /* Force all text in the list to inherit your native theme color */
-    .fc-list-day-text, 
-    .fc-list-day-side-text, 
-    .fc-list-event-time, 
-    .fc-list-event-title,
-    .fc-list-empty-cushion {
+    /* Aggressive override to ensure text doesn't vanish */
+    .fc .fc-list-day-cushion {
+        background-color: var(--fc-neutral-bg-color) !important;
         color: inherit !important;
         opacity: 0.9;
+        font-weight: bold;
     }
     
-    /* Hover effect for list rows */
-    .fc-list-event:hover td {
-        background: rgba(128, 128, 128, 0.15) !important;
-        cursor: pointer;
+    /* Ensure the list wrapper itself has no rogue white backgrounds */
+    .fc-theme-standard .fc-list {
+        background: transparent !important;
+        border: 1px solid var(--fc-border-color);
     }
+    
+    .fc-event { cursor: pointer; }
     
     /* Modal */
     #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
