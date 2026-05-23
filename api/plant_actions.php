@@ -80,6 +80,8 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
+    session_write_close(); // Prevent browser hanging
+    
     $nominalCache = [];
     foreach (['24', '26'] as $compId) {
         $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
@@ -165,11 +167,64 @@ if ($action == 'get_company_clients' && $isManager) {
     exit;
 }
 
+// NEW DYNAMIC DASHBOARD STATS FETCHER
+if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) {
+    // Read the exact dates the calendar is currently looking at
+    $startDate = date('Y-m-d', strtotime($_POST['start']));
+    $endDate = date('Y-m-d', strtotime($_POST['end']));
+
+    // 1. KPI Query
+    $statsStmt = $pdo->prepare("SELECT 
+        COUNT(id) as total_jobs,
+        SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_jobs,
+        SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_jobs,
+        SUM(CASE WHEN payment_status IN ('Invoiced', 'Settled') THEN final_subtotal ELSE 0 END) as invoiced_revenue
+        FROM plant_bookings 
+        WHERE booking_date >= ? AND booking_date <= ?");
+    $statsStmt->execute([$startDate, $endDate]);
+    $kpi = $statsStmt->fetch(PDO::FETCH_ASSOC);
+
+    // 2. Driver Leaderboard Query
+    $driverStmt = $pdo->prepare("SELECT 
+        u.first_name, u.last_name, 
+        COUNT(pb.id) as job_count,
+        SUM(TIME_TO_SEC(TIMEDIFF(pb.end_time, pb.start_time))/3600) as scheduled_hours,
+        SUM(pb.final_hours) as actual_hours
+        FROM plant_bookings pb
+        JOIN users u ON pb.driver_id = u.id
+        WHERE pb.booking_date >= ? AND pb.booking_date <= ?
+        GROUP BY u.id
+        ORDER BY scheduled_hours DESC");
+    $driverStmt->execute([$startDate, $endDate]);
+    $driverStats = $driverStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // 3. Uninvoiced Jobs Query
+    $uninvoicedStmt = $pdo->prepare("SELECT pb.id, p.name as plant_name, pb.booking_date, pb.client_name, prj.name as project_name 
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id
+        LEFT JOIN projects prj ON pb.project_id = prj.id
+        WHERE pb.status = 'Completed' AND pb.payment_status = 'Pending'
+        AND pb.booking_date >= ? AND pb.booking_date <= ?
+        ORDER BY pb.booking_date ASC LIMIT 15");
+    $uninvoicedStmt->execute([$startDate, $endDate]);
+    $uninvoicedJobs = $uninvoicedStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Format dates cleanly for JS rendering
+    foreach ($uninvoicedJobs as &$uj) {
+        $uj['formatted_date'] = date('d M', strtotime($uj['booking_date']));
+    }
+
+    echo json_encode([
+        'kpi' => $kpi,
+        'drivers' => $driverStats,
+        'uninvoiced' => $uninvoicedJobs
+    ]);
+    exit;
+}
+
 if ($action == 'fetch_bookings') {
     $events = [];
     
-    // BROWSER CRASH FIX: FullCalendar passes ISO8601 dates in 'start' and 'end' GET parameters. 
-    // We MUST use them to filter the SQL query, otherwise we download the entire database history.
     $startDate = $_GET['start'] ?? date('Y-m-d', strtotime('-1 month'));
     $endDate = $_GET['end'] ?? date('Y-m-d', strtotime('+1 month'));
 
@@ -195,7 +250,6 @@ if ($action == 'fetch_bookings') {
         $stmt->execute([$userId, $startSql, $endSql]);
     }
     
-    // Category Color Dictionary
     $catColors = [
         'Cranes' => '#eab308', // Yellow
         'Pumps' => '#3b82f6',  // Blue
@@ -212,7 +266,6 @@ if ($action == 'fetch_bookings') {
         $cat = $b['category'] ?: 'General';
         $color = $catColors[$cat] ?? '#6366f1';
         
-        // Build rich contextual titles
         $details = [];
         if (!empty($b['project_name'])) {
             $details[] = $b['project_name'];
@@ -232,15 +285,22 @@ if ($action == 'fetch_bookings') {
             $title .= "\n" . implode(" | ", $details);
         }
 
-        // Failsafe: Ensure null times don't crash FullCalendar's parser
         $sTime = !empty($b['start_time']) ? $b['start_time'] : '08:00:00';
         $eTime = !empty($b['end_time']) ? $b['end_time'] : '17:00:00';
+
+        $startIso = $b['booking_date'] . 'T' . $sTime;
+        
+        if (strtotime($eTime) < strtotime($sTime)) {
+            $endIso = date('Y-m-d', strtotime($b['booking_date'] . ' +1 day')) . 'T' . $eTime;
+        } else {
+            $endIso = $b['booking_date'] . 'T' . $eTime;
+        }
 
         $events[] = [
             'id' => $b['id'], 
             'title' => $title, 
-            'start' => $b['booking_date'] . 'T' . $sTime, 
-            'end' => $b['booking_date'] . 'T' . $eTime, 
+            'start' => $startIso, 
+            'end' => $endIso, 
             'backgroundColor' => $color, 
             'borderColor' => $color
         ];
