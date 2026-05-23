@@ -1,7 +1,7 @@
 <?php
 /**
  * plant_dashboard.php - Director's Desktop View for Plant Hub
- * Stripped of all white backgrounds and forced into a strict Flexbox layout.
+ * Bulletproof List-Only Architecture.
  */
 require_once 'init.php';
 require_once 'session-check.php';
@@ -21,25 +21,25 @@ include 'header.php'; // Include your standard Estate Hub desktop header
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
 
 <style>
-    /* Clean, Theme-Agnostic Structure */
+    /* Theme-Agnostic Structure */
     .plant-dir-container { max-width: 1600px; margin: 0 auto; padding: 20px; width: 100%; box-sizing: border-box; }
     .page-title { font-size: 2rem; font-weight: 900; margin-bottom: 5px; opacity: 0.9; }
     .page-subtitle { font-size: 1rem; margin-bottom: 25px; opacity: 0.7; }
     
-    /* Top KPI Row - Fully Transparent Backgrounds */
+    /* Top KPI Row */
     .kpi-wrapper { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 30px; }
     .kpi-card { flex: 1; min-width: 220px; padding: 20px; border-radius: 8px; background: rgba(128, 128, 128, 0.05); border-bottom: 4px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
     .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; margin-bottom: 8px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; opacity: 0.9; }
     
-    /* THE STEEL BOX FLEX LAYOUT */
+    /* MAIN SPLIT LAYOUT */
     .main-layout { display: flex; flex-wrap: wrap; gap: 30px; width: 100%; }
     
-    /* min-width: 0 is the magic Flexbox rule that stops tables from causing infinite expansion */
-    .calendar-col { flex: 2.5; min-width: 0; max-width: 100%; overflow: hidden; }
-    .stats-col { flex: 1; min-width: 320px; max-width: 100%; }
+    /* List View allows standard Flexbox to work natively without Min-Width hacks */
+    .calendar-col { flex: 2.5; background: rgba(128, 128, 128, 0.05); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .stats-col { flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 20px; }
     
-    .panel { padding: 20px; margin-bottom: 20px; background: rgba(128, 128, 128, 0.05); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); width: 100%; box-sizing: border-box; }
+    .panel { padding: 20px; background: rgba(128, 128, 128, 0.05); border-radius: 12px; width: 100%; box-sizing: border-box; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
     .panel-header { font-size: 1.2rem; font-weight: 800; border-bottom: 2px solid rgba(128, 128, 128, 0.2); padding-bottom: 10px; margin-bottom: 15px; opacity: 0.9;}
     
     /* Tables */
@@ -48,14 +48,36 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     .data-table td { padding: 10px; border-bottom: 1px solid rgba(128,128,128,0.1); opacity: 0.9; }
     .data-table tr:last-child td { border-bottom: none; }
     
-    /* Calendar Overrides */
-    .fc { font-size: 0.95rem; width: 100% !important; max-width: 100% !important; }
-    .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: rgba(128,128,128,0.2) !important; }
+    /* =========================================================
+       FULLCALENDAR LIST VIEW FIXES (White-on-White bug)
+       ========================================================= */
+    .fc { font-size: 0.95rem; }
     .fc .fc-toolbar-title { font-weight: 800 !important; font-size: 1.5rem !important; opacity: 0.9; }
-    .fc-event { white-space: normal !important; word-wrap: break-word !important; margin-bottom: 2px !important; cursor: pointer; }
-    .fc-event-title { white-space: normal !important; padding: 4px; }
     
-    /* Modal - Inherits Dark Theme nicely */
+    /* Strip out FullCalendar's hardcoded white/grey backgrounds on the list headers */
+    .fc-theme-standard .fc-list, 
+    .fc-theme-standard .fc-list-day-cushion {
+        background: rgba(128, 128, 128, 0.05) !important;
+        border-color: rgba(128, 128, 128, 0.2) !important;
+    }
+    
+    /* Force all text in the list to inherit your native theme color */
+    .fc-list-day-text, 
+    .fc-list-day-side-text, 
+    .fc-list-event-time, 
+    .fc-list-event-title,
+    .fc-list-empty-cushion {
+        color: inherit !important;
+        opacity: 0.9;
+    }
+    
+    /* Hover effect for list rows */
+    .fc-list-event:hover td {
+        background: rgba(128, 128, 128, 0.15) !important;
+        cursor: pointer;
+    }
+    
+    /* Modal */
     #jobModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
     #jobModal { width: 500px; max-width: 90%; border-radius: 12px; padding: 30px; position: relative; background: #1e293b; color: #f8fafc; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
     .close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #94a3b8; cursor: pointer; }
@@ -95,10 +117,8 @@ include 'header.php'; // Include your standard Estate Hub desktop header
     <div class="main-layout">
         
         <div class="calendar-col">
-            <div class="panel">
-                <div class="panel-header">Master Fleet Schedule</div>
-                <div id="director-calendar"></div>
-            </div>
+            <div class="panel-header" style="border-bottom:none; margin-bottom:10px;">Master Fleet Agenda</div>
+            <div id="director-calendar"></div>
         </div>
 
         <div class="stats-col">
@@ -110,8 +130,8 @@ include 'header.php'; // Include your standard Estate Hub desktop header
             </div>
 
             <div class="panel">
-                <div class="panel-header" style="color: #ef4444;">Action Required: Un-Invoiced</div>
-                <p style="font-size: 0.8rem; opacity: 0.7; margin-top: -10px; margin-bottom: 15px;">Jobs completed in this timeframe missing final ERP sync.</p>
+                <div class="panel-header" style="color: #ef4444;">Action Required</div>
+                <p style="font-size: 0.8rem; opacity: 0.7; margin-top: -10px; margin-bottom: 15px;">Jobs missing final ERP sync.</p>
                 <div id="uninvoiced-list-container">
                     <p style="opacity: 0.7; font-size: 0.9rem;">Loading list...</p>
                 </div>
@@ -140,13 +160,25 @@ include 'header.php'; // Include your standard Estate Hub desktop header
         const calendarEl = document.getElementById('director-calendar');
         
         const calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: 'dayGridMonth',
+            // Set default view to the Week List
+            initialView: 'listWeek',
+            
+            // Configure Toolbar to only use the 4 List Views
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
-                right: 'dayGridMonth,listWeek,listDay' // List views are completely immune to table stretching bugs!
+                right: 'listDay,listWeek,listMonth,listYear'
             },
-            contentHeight: 'auto',
+            
+            // Rename the buttons so they look clean to the user
+            views: {
+                listDay: { buttonText: 'Day' },
+                listWeek: { buttonText: 'Week' },
+                listMonth: { buttonText: 'Month' },
+                listYear: { buttonText: 'Year' }
+            },
+            
+            contentHeight: 'auto', // Perfectly safe to use in List view!
             events: 'api/plant_actions.php?action=fetch_bookings',
             
             datesSet: function(info) {
