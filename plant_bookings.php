@@ -245,6 +245,7 @@ $userId = $_SESSION['user_id'];
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
     const canViewLedger = <?= $canViewLedger ? 'true' : 'false' ?>;
+    const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>;
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -439,6 +440,7 @@ $userId = $_SESSION['user_id'];
             currentErpClients = res; 
             clientInput.placeholder = "start writing client here"; 
             clientInput.disabled = false; 
+            // PREVENT RACE CONDITION WIPE: We do not clear the .value here anymore
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
 
@@ -499,7 +501,6 @@ $userId = $_SESSION['user_id'];
         if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
     }
 
-    // Admins no longer edit closed jobs here! They edit them in the RFP!
     function initiateBookingEdit() {
         const j = window.currentActiveJob;
         if (!j) return;
@@ -753,8 +754,10 @@ $userId = $_SESSION['user_id'];
             let driverHtml = driverName ? `<span style="color:#10b981;">Assigned to ${driverName}</span>` : `<span style="color:#ef4444;">Unassigned</span>`;
             
             let erpStatusHtml = '';
+            let isSynced = job.invoice_sysref && job.invoice_sysref !== 'SUCCESS_NO_REF' && job.invoice_sysref !== 'N/A' && job.invoice_sysref !== '';
+
             if (job.payment_status === 'Invoiced' || job.payment_status === 'Settled') {
-                if (!job.invoice_sysref || job.invoice_sysref === 'N/A' || job.invoice_sysref === 'SUCCESS_NO_REF') {
+                if (!isSynced) {
                     erpStatusHtml = `<div style="background:#fffbeb; color:#b45309; padding:10px; border-radius:8px; margin-bottom:12px; font-weight:bold; border: 1px solid #fde68a;"><i class="fas fa-exclamation-triangle"></i> RFP Finalised - Local Only <div style="font-size:0.85rem; margin-top:4px; font-weight:normal;">Manual ERP Invoice Generation Required.</div></div>`;
                 } else {
                     erpStatusHtml = `<div style="background:#ecfdf5; color:#047857; padding:10px; border-radius:8px; margin-bottom:12px; font-weight:bold; border: 1px solid #a7f3d0;"><i class="fas fa-check-circle"></i> Finalized & Synced (Ref: ${job.invoice_sysref})</div>`;
@@ -798,9 +801,14 @@ $userId = $_SESSION['user_id'];
                 controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`; 
             }
             
+            // Correct Button Swap Logic for Admins vs Managers
             if (isManager && job.status === 'Completed') {
                 if (job.payment_status === 'Invoiced' || job.payment_status === 'Settled') {
-                    controlsHtml += `<button class="btn-heavy btn-gray" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-pdf"></i> View / Edit RFP</button>`;
+                    if (isAdmin && !isSynced) {
+                        controlsHtml += `<button class="btn-heavy btn-gray" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-pdf"></i> View / Edit RFP</button>`;
+                    } else {
+                        controlsHtml += `<button class="btn-heavy btn-gray" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-pdf"></i> View RFP</button>`;
+                    }
                 } else {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Generate & Sync Invoice</button>`;
                 }
@@ -882,6 +890,9 @@ $userId = $_SESSION['user_id'];
                     badge = `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
                 }
                 
+                // Safe button label logic based on Admin status and sync status
+                let btnLabel = (isAdmin && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) ? 'View / Edit RFP' : 'View RFP';
+                
                 return `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
                     <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
@@ -894,7 +905,7 @@ $userId = $_SESSION['user_id'];
                     </div>
                     <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
                         ${j.status === 'Completed' 
-                            ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View / Edit RFP</button>` 
+                            ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">${btnLabel}</button>` 
                             : `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`}
                     </div>
                 </div>`;
