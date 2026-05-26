@@ -50,7 +50,6 @@ $userId = $_SESSION['user_id'];
         
         #calendar { background: #ffffff; padding: 15px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.04); margin-bottom: 20px; border: 1px solid #f1f5f9; }
         
-        /* CALENDAR NATIVE THEME OVERRIDES */
         .fc { 
             --fc-page-bg-color: transparent;
             --fc-neutral-bg-color: #f8fafc;
@@ -246,7 +245,7 @@ $userId = $_SESSION['user_id'];
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
     const canViewLedger = <?= $canViewLedger ? 'true' : 'false' ?>;
-    const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>; // NEW: Strict Admin Flag
+    const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>;
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -395,7 +394,7 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
-    function updatePlantDropdown() {
+    function updatePlantDropdown(keepClientData = false) {
         const cat = document.getElementById('plant_category').value; 
         const pSelect = document.getElementById('plant_id');
         
@@ -411,11 +410,13 @@ $userId = $_SESSION['user_id'];
                 return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="false">${p.name} (${p.registration_plate||'N/A'})</option>`;
             }
         }).join('');
-        resetClientSearch();
+        
+        if (!keepClientData) resetClientSearch();
     }
 
-    function onPlantSelected() {
-        resetClientSearch();
+    function onPlantSelected(keepClientData = false) {
+        if (!keepClientData) resetClientSearch();
+        
         const pSelect = document.getElementById('plant_id');
         if(pSelect.selectedIndex <= 0 || pSelect.value === '') return;
         
@@ -427,8 +428,11 @@ $userId = $_SESSION['user_id'];
 
         const compId = opt.getAttribute('data-company-id');
         const clientInput = document.getElementById('client_name');
-        clientInput.placeholder = "Loading clients from ERP...";
-        clientInput.disabled = true;
+        
+        if (!keepClientData) {
+            clientInput.placeholder = "Loading clients from ERP...";
+            clientInput.disabled = true;
+        }
 
         fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
         .then(r => r.json())
@@ -436,6 +440,7 @@ $userId = $_SESSION['user_id'];
             currentErpClients = res; 
             clientInput.placeholder = "start writing client here"; 
             clientInput.disabled = false; 
+            // PREVENT RACE CONDITION WIPE: We do not clear the .value here anymore
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
 
@@ -496,14 +501,11 @@ $userId = $_SESSION['user_id'];
         if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
     }
 
-    // ====================================================
-    // EDIT LOGIC: strict safety checks for synced jobs
-    // ====================================================
     function initiateBookingEdit() {
         const j = window.currentActiveJob;
         if (!j) return;
         
-        let isSynced = j.invoice_sysref && j.invoice_sysref !== 'SUCCESS_NO_REF' && j.invoice_sysref !== '';
+        let isSynced = j.invoice_sysref && !['N/A', 'SUCCESS_NO_REF', ''].includes(j.invoice_sysref);
         
         if (j.status === 'Completed' && isSynced) {
             alert("This job has already been synced to the ERP (Ref: " + j.invoice_sysref + ") and cannot be modified locally.");
@@ -516,8 +518,9 @@ $userId = $_SESSION['user_id'];
         
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-edit text-blue-500"></i> Edit Booking';
         document.getElementById('edit_booking_id').value = j.id;
+        
         document.getElementById('plant_category').value = j.category;
-        updatePlantDropdown();
+        updatePlantDropdown(true); 
         
         document.getElementById('plant_id').value = j.plant_id;
         document.getElementById('driver_id').value = j.driver_id || '';
@@ -531,8 +534,9 @@ $userId = $_SESSION['user_id'];
         document.getElementById('loc_lat').value = j.location_lat || '';
         document.getElementById('loc_lng').value = j.location_lng || '';
         
-        onPlantSelected(); 
-        setTimeout(() => { document.getElementById('client_code').value = j.client_code || ''; document.getElementById('client_name').value = j.client_name || ''; }, 800);
+        document.getElementById('client_code').value = j.client_code || ''; 
+        document.getElementById('client_name').value = j.client_name || ''; 
+        onPlantSelected(true); // Preserve the Client text
 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-save"></i> Update Booking';
         showView('view-create');
@@ -745,9 +749,6 @@ $userId = $_SESSION['user_id'];
         });
     }
 
-    // ==========================================
-    // UPDATED BUTTON DISPLAY LOGIC
-    // ==========================================
     function loadJob(id) {
         fetch(`api/plant_actions.php?action=get_job&id=${id}`)
         .then(r => r.json())
@@ -762,8 +763,18 @@ $userId = $_SESSION['user_id'];
 
             let driverName = job.driver_first ? `${job.driver_first} ${job.driver_last}` : null;
             let driverHtml = driverName ? `<span style="color:#10b981;">Assigned to ${driverName}</span>` : `<span style="color:#ef4444;">Unassigned</span>`;
+            
+            let erpStatusHtml = '';
+            if (job.payment_status === 'Invoiced' || job.payment_status === 'Settled') {
+                if (!job.invoice_sysref || job.invoice_sysref === 'N/A' || job.invoice_sysref === 'SUCCESS_NO_REF') {
+                    erpStatusHtml = `<div style="background:#fffbeb; color:#b45309; padding:10px; border-radius:8px; margin-bottom:12px; font-weight:bold; border: 1px solid #fde68a;"><i class="fas fa-exclamation-triangle"></i> RFP Finalised - Local Only <div style="font-size:0.85rem; margin-top:4px; font-weight:normal;">Manual ERP Invoice Generation Required.</div></div>`;
+                } else {
+                    erpStatusHtml = `<div style="background:#ecfdf5; color:#047857; padding:10px; border-radius:8px; margin-bottom:12px; font-weight:bold; border: 1px solid #a7f3d0;"><i class="fas fa-check-circle"></i> Finalized & Synced (Ref: ${job.invoice_sysref})</div>`;
+                }
+            }
 
             document.getElementById('job-details').innerHTML = `
+                ${erpStatusHtml}
                 <div style="margin-bottom:12px; font-size: 1.2rem;"><b>Driver:</b> ${driverHtml}</div>
                 <div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
                 <div style="margin-bottom:12px;"><b>Type:</b> ${job.booking_type.toUpperCase()}</div>
@@ -778,7 +789,6 @@ $userId = $_SESSION['user_id'];
             let today = new Date().toISOString().split('T')[0];
             let canInteract = (!isManager && job.booking_date === today) || canManageFleet;
             
-            // "Claim Job" Button for unassigned jobs
             if (!isManager && (!job.driver_id || job.driver_id == 0) && job.status !== 'Completed') {
                 controlsHtml += `<button class="btn-heavy btn-blue" onclick="claimJob(${job.id})"><i class="fas fa-hand-paper"></i> Claim Job</button>`;
             }
@@ -791,15 +801,13 @@ $userId = $_SESSION['user_id'];
                 }
             }
             
-            // ERP Sync Check
-            let isSynced = job.invoice_sysref && job.invoice_sysref !== 'SUCCESS_NO_REF' && job.invoice_sysref !== '';
+            let isSynced = job.invoice_sysref && !['N/A', 'SUCCESS_NO_REF', ''].includes(job.invoice_sysref);
             
-            // ALLOW ADMIN TO EDIT COMPLETED (if not synced)
             let canEdit = false;
             if (isManager && job.status === 'Pending') {
                 canEdit = true;
             } else if (isAdmin && !isSynced) {
-                canEdit = true; // Admins can edit anything EXCEPT synced jobs
+                canEdit = true; 
             }
 
             if (canEdit) { 
@@ -810,8 +818,13 @@ $userId = $_SESSION['user_id'];
                 controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`; 
             }
             
-            if (isManager && job.status === 'Completed') { 
-                controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Generate / Sync Invoice</button>`; 
+            // RFP BUTTON SWAP
+            if (isManager && job.status === 'Completed') {
+                if (job.payment_status === 'Invoiced' || job.payment_status === 'Settled') {
+                    controlsHtml += `<button class="btn-heavy btn-gray" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-pdf"></i> View RFP / Delivery Note</button>`;
+                } else {
+                    controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Generate & Sync Invoice</button>`;
+                }
             }
 
             document.getElementById('punch-controls').innerHTML = controlsHtml; showView('view-job');
@@ -827,39 +840,24 @@ $userId = $_SESSION['user_id'];
 
     function claimJob(id) {
         if (!confirm("Are you sure you want to claim this job?")) return;
+        const fd = new FormData(); fd.append('action', 'claim_job'); fd.append('id', id);
         
-        const fd = new FormData();
-        fd.append('action', 'claim_job');
-        fd.append('id', id);
-        
-        fetch('api/plant_actions.php', { method: 'POST', body: fd })
-        .then(r => r.text())
-        .then(res => {
-            if (res === 'OK') {
-                alert("Job claimed successfully!");
-                loadJob(id); // Reload the modal to show the new button states
-                calendar.refetchEvents();
-            } else if (res === 'ERROR_OVERLAP') {
-                alert("Cannot claim job: You already have another job scheduled during this time.");
-            } else {
-                alert("Error: " + res);
-            }
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
+            if (res === 'OK') { alert("Job claimed successfully!"); loadJob(id); calendar.refetchEvents(); } 
+            else if (res === 'ERROR_OVERLAP') { alert("Cannot claim job: You already have another job scheduled during this time."); } 
+            else { alert("Error: " + res); }
         });
     }
 
     function cancelJob(id) {
         if (!confirm("Delete booking?")) return;
         const fd = new FormData(); fd.append('action', 'cancel_booking'); fd.append('id', id);
-        fetch('api/plant_actions.php', { method: 'POST', body: fd })
-        .then(r => r.text())
-        .then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
     }
 
     function punchJob(id, direction) {
         if (!confirm("Start Job?")) return;
-        fetch(`api/plant_actions.php?action=punch_${direction}&id=${id}`)
-        .then(r => r.text())
-        .then(res => { if (res === 'OK') { loadJob(id); calendar.refetchEvents(); } });
+        fetch(`api/plant_actions.php?action=punch_${direction}&id=${id}`).then(r => r.text()).then(res => { if (res === 'OK') { loadJob(id); calendar.refetchEvents(); } });
     }
 
     function startPunchOut(id, pricingType) { 
@@ -872,16 +870,13 @@ $userId = $_SESSION['user_id'];
 
     function submitPunchOut() {
         if (signaturePad.isEmpty()) { alert("Please obtain client signature."); return; }
-        
         const btn = event.target.closest('button'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
         
         const fd = new FormData(); fd.append('action', 'punch_out_complete'); fd.append('id', document.getElementById('punchout_booking_id').value);
         fd.append('qty_trips', document.getElementById('qty_trips').value); fd.append('rep_name', document.getElementById('rep_name').value);
         fd.append('rep_id', document.getElementById('rep_id').value); fd.append('signature', signaturePad.toDataURL());
         
-        fetch('api/plant_actions.php', { method: 'POST', body: fd })
-        .then(r => r.text())
-        .then(res => {
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
             if (res === 'OK') { alert("Completed!"); calendar.refetchEvents(); showView('view-calendar'); } 
             else { alert("Error: " + res); btn.disabled = false; }
         });
@@ -893,11 +888,21 @@ $userId = $_SESSION['user_id'];
         .then(r => r.json())
         .then(jobs => {
             document.getElementById('ledger-list').innerHTML = jobs.length === 0 ? '<p>No bookings.</p>' : jobs.map(j => {
-                let badge = j.payment_status === 'Invoiced' 
-                    ? `<span style="background:#fef08a; color:#854d0e; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">Invoiced</span>` 
-                    : `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
+                let badge = '';
+                let sysRef = '';
                 
-                let sysRef = j.invoice_sysref ? `<div style="color:#10b981; font-weight:bold; font-size:0.85rem; margin-top:5px;"><i class="fas fa-check-circle"></i> ERP Ref: ${j.invoice_sysref}</div>` : '';
+                // LEDGER STATUS UPDATE
+                if (j.payment_status === 'Invoiced' || j.payment_status === 'Settled') {
+                    if (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF') {
+                        badge = `<span style="background:#fef08a; color:#854d0e; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">RFP Finalised - Local Only</span>`;
+                        sysRef = `<div style="color:#ef4444; font-weight:bold; font-size:0.85rem; margin-top:5px;"><i class="fas fa-exclamation-circle"></i> Manual Invoice Required</div>`;
+                    } else {
+                        badge = `<span style="background:#ecfdf5; color:#047857; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">Synced & Finalised</span>`;
+                        sysRef = `<div style="color:#10b981; font-weight:bold; font-size:0.85rem; margin-top:5px;"><i class="fas fa-check-circle"></i> ERP Ref: ${j.invoice_sysref}</div>`;
+                    }
+                } else {
+                    badge = `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
+                }
                 
                 return `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
