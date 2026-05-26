@@ -9,7 +9,6 @@ $role = $_SESSION['role'];
 
 session_write_close(); // Prevent browser hanging
 
-// Access Flags
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
@@ -27,6 +26,7 @@ $apiKeys = [
     '26' => $praxApiKey, // PRAX API Key
     'default' => $praApiKey
 ];
+
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
 
 function getApiKey($companyId) {
@@ -37,6 +37,7 @@ function getApiKey($companyId) {
 function getJ2ApiData($endpoint, $apiKey) {
     global $apiUrlBase; 
     $url = $apiUrlBase . $endpoint; 
+    
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         "Content-Type: application/json", 
@@ -52,12 +53,16 @@ function getJ2ApiData($endpoint, $apiKey) {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
     curl_close($ch);
     
-    return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
+    if ($httpCode >= 200 && $httpCode < 300) {
+        return json_decode($response, true);
+    }
+    return [];
 }
 
 function postJ2ApiData($endpoint, $apiKey, $payload) {
     global $apiUrlBase; 
     $url = $apiUrlBase . $endpoint; 
+    
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         "Content-Type: application/json", 
@@ -82,7 +87,9 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
 // Driver Overlap Validation Logic
 // ==========================================
 function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $excludeBookingId = null) {
-    if (empty($driverId)) return true; // Unassigned is always allowed
+    if (empty($driverId)) {
+        return true; // Unassigned is always allowed
+    }
     
     $sql = "SELECT id, start_time, end_time FROM plant_bookings 
             WHERE driver_id = ? AND booking_date = ? AND status != 'Cancelled'";
@@ -99,12 +106,18 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
     
     $newStart = strtotime($date . ' ' . $startTime);
     $newEnd = strtotime($date . ' ' . $endTime);
-    if ($newEnd <= $newStart) $newEnd += 86400; // Account for overnight shift
+    
+    if ($newEnd <= $newStart) {
+        $newEnd += 86400; // Account for overnight shift
+    }
     
     foreach ($existing as $b) {
         $exStart = strtotime($date . ' ' . $b['start_time']);
         $exEnd = strtotime($date . ' ' . $b['end_time']);
-        if ($exEnd <= $exStart) $exEnd += 86400;
+        
+        if ($exEnd <= $exStart) {
+            $exEnd += 86400;
+        }
         
         // Mathematical check for time overlap
         if ($newStart < $exEnd && $newEnd > $exStart) {
@@ -116,7 +129,8 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
 
 if ($action == 'get_nominals' && $canManageFleet) {
     $apiKey = getApiKey($_GET['company_id'] ?? '');
-    echo json_encode(getJ2ApiData('/nominalcateg', $apiKey) ?: []); 
+    $data = getJ2ApiData('/nominalcateg', $apiKey);
+    echo json_encode($data ?: []); 
     exit;
 }
 
@@ -133,6 +147,7 @@ if ($action == 'get_fleet' && $canManageFleet) {
               LEFT JOIN clients bc ON p.billing_company_id = bc.id 
               WHERE p.status = 'Active' 
               ORDER BY p.category, p.name ASC";
+              
     $fleet = $pdo->query($query)->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode($fleet); 
     exit;
@@ -180,7 +195,9 @@ if ($action == 'form_data') {
         $p['is_misconfigured'] = !$isValidPricing || ($isFixedReq && !$hasFixed) || ($isVarReq && !$hasVar);
         
         $cat = empty($p['category']) ? 'General' : $p['category']; 
-        if(!isset($plants[$cat])) $plants[$cat] = []; 
+        if(!isset($plants[$cat])) {
+            $plants[$cat] = []; 
+        }
         $plants[$cat][] = $p; 
     }
     
@@ -226,6 +243,7 @@ if ($action == 'get_company_clients' && $isManager) {
     exit;
 }
 
+// DASHBOARD STATS FETCHER
 if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) {
     $startDate = !empty($_POST['start']) ? date('Y-m-d', strtotime($_POST['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_POST['end']) ? date('Y-m-d', strtotime($_POST['end'])) : date('Y-m-d', strtotime('+1 month'));
@@ -282,12 +300,13 @@ if ($action == 'fetch_bookings') {
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
     
-    // GLOBAL DRIVER VISIBILITY UPDATE: Everyone now pulls the full schedule
+    // GLOBAL VISIBILITY: All users pull the full schedule without driver restrictions
     $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
               FROM plant_bookings pb 
               JOIN plants p ON pb.plant_id = p.id 
               LEFT JOIN projects prj ON pb.project_id = prj.id
               WHERE pb.booking_date >= ? AND pb.booking_date <= ?";
+              
     $stmt = $pdo->prepare($query);
     $stmt->execute([$startDate, $endDate]);
     
@@ -304,16 +323,27 @@ if ($action == 'fetch_bookings') {
         $details = [];
         if (!empty($b['project_name'])) {
             $details[] = $b['project_name'];
-            if (!empty($b['locality'])) $details[] = $b['locality'];
-            if (!empty($b['client_name'])) $details[] = $b['client_name'];
+            if (!empty($b['locality'])) {
+                $details[] = $b['locality'];
+            }
+            if (!empty($b['client_name'])) {
+                $details[] = $b['client_name'];
+            }
         } else {
-            if (!empty($b['client_name'])) $details[] = $b['client_name'];
-            if (!empty($b['comments'])) $details[] = '"' . substr($b['comments'], 0, 40) . '..."';
+            if (!empty($b['client_name'])) {
+                $details[] = $b['client_name'];
+            }
+            if (!empty($b['comments'])) {
+                $details[] = '"' . substr($b['comments'], 0, 40) . '..."';
+            }
         }
         
         $statusInd = "";
-        if ($b['status'] == 'Completed') $statusInd = "✅ ";
-        elseif ($b['status'] == 'In Progress') $statusInd = "⏳ ";
+        if ($b['status'] == 'Completed') {
+            $statusInd = "✅ ";
+        } elseif ($b['status'] == 'In Progress') {
+            $statusInd = "⏳ ";
+        }
         
         $title = $statusInd . $b['plant_name'];
         if (!empty($details)) {
@@ -346,11 +376,14 @@ if ($action == 'fetch_bookings') {
 if ($action == 'save_plant' && $canManageFleet) {
     $pricingType = $_POST['pricing_type'];
     $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    
     $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
     $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
 
     if ($pricingType === 'hourly') { 
-        if (empty($nomVar) && !empty($nomFixed)) { $nomVar = $nomFixed; } 
+        if (empty($nomVar) && !empty($nomFixed)) { 
+            $nomVar = $nomFixed; 
+        } 
         $nomFixed = null; 
     } elseif ($pricingType === 'per_trip') { 
         $nomVar = null; 
@@ -361,6 +394,7 @@ if ($action == 'save_plant' && $canManageFleet) {
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
         $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id']
     ]);
+    
     echo "OK"; 
     exit;
 }
@@ -368,11 +402,14 @@ if ($action == 'save_plant' && $canManageFleet) {
 if ($action == 'update_plant' && $canManageFleet) {
     $pricingType = $_POST['pricing_type'];
     $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
+    
     $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
     $nomVar = !empty($_POST['nom_code_variable']) ? $_POST['nom_code_variable'] : null;
 
     if ($pricingType === 'hourly') { 
-        if (empty($nomVar) && !empty($nomFixed)) { $nomVar = $nomFixed; } 
+        if (empty($nomVar) && !empty($nomFixed)) { 
+            $nomVar = $nomFixed; 
+        } 
         $nomFixed = null; 
     } elseif ($pricingType === 'per_trip') { 
         $nomVar = null; 
@@ -383,6 +420,7 @@ if ($action == 'update_plant' && $canManageFleet) {
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
         $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
     ]);
+    
     echo "OK"; 
     exit;
 }
@@ -401,16 +439,27 @@ if ($action == 'create_booking' && $isManager) {
         exit;
     }
 
-    $stmt = $pdo->prepare("INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, start_time, end_time, comments, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $pdo->prepare("
+        INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, start_time, end_time, comments, created_by) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+    
     $stmt->execute([ 
-        $_POST['plant_id'], $driverId, $_POST['booking_type'], 
+        $_POST['plant_id'], 
+        $driverId, 
+        $_POST['booking_type'], 
         empty($_POST['project_id']) ? null : $_POST['project_id'], 
-        $_POST['client_name'], empty($_POST['client_code']) ? null : $_POST['client_code'], 
+        $_POST['client_name'], 
+        empty($_POST['client_code']) ? null : $_POST['client_code'], 
         empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], 
         empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], 
-        $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], 
-        $_POST['comments'], $userId 
+        $_POST['booking_date'], 
+        $_POST['start_time'], 
+        $_POST['end_time'], 
+        $_POST['comments'], 
+        $userId 
     ]); 
+    
     echo "OK"; 
     exit;
 }
@@ -443,22 +492,35 @@ if ($action == 'update_booking' && $isManager) {
         exit;
     }
 
-    $stmt = $pdo->prepare("UPDATE plant_bookings SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=?, comments=? WHERE id=?");
+    $stmt = $pdo->prepare("
+        UPDATE plant_bookings 
+        SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=?, comments=? 
+        WHERE id=?
+    ");
+    
     $stmt->execute([ 
-        $_POST['plant_id'], $driverId, $_POST['booking_type'], 
+        $_POST['plant_id'], 
+        $driverId, 
+        $_POST['booking_type'], 
         empty($_POST['project_id']) ? null : $_POST['project_id'], 
-        $_POST['client_name'], empty($_POST['client_code']) ? null : $_POST['client_code'], 
+        $_POST['client_name'], 
+        empty($_POST['client_code']) ? null : $_POST['client_code'], 
         empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], 
         empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], 
-        $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], 
-        $_POST['comments'], $editId 
+        $_POST['booking_date'], 
+        $_POST['start_time'], 
+        $_POST['end_time'], 
+        $_POST['comments'], 
+        $editId 
     ]); 
+    
     echo "OK"; 
     exit;
 }
 
 if ($action == 'cancel_booking' && $isManager) { 
-    $pdo->prepare("DELETE FROM plant_bookings WHERE id=?")->execute([$_POST['id']]); 
+    $stmt = $pdo->prepare("DELETE FROM plant_bookings WHERE id=?");
+    $stmt->execute([$_POST['id']]); 
     echo "OK"; 
     exit; 
 }
@@ -473,10 +535,12 @@ if ($action == 'get_job') {
         LEFT JOIN users u ON pb.driver_id = u.id 
         WHERE pb.id = ?
     "); 
+    
     $stmt->execute([$_GET['id']]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC); 
     
     $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; 
+    
     echo json_encode($job); 
     exit;
 }
@@ -493,13 +557,17 @@ if ($action == 'claim_job') {
         exit;
     }
     
-    $pdo->prepare("UPDATE plant_bookings SET driver_id = ? WHERE id = ?")->execute([$userId, $bookingId]);
+    $stmtUpdate = $pdo->prepare("UPDATE plant_bookings SET driver_id = ? WHERE id = ?");
+    $stmtUpdate->execute([$userId, $bookingId]);
+    
     echo "OK"; 
     exit;
 }
 
 if ($action == 'punch_in') { 
-    $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=COALESCE(driver_id, ?) WHERE id=?")->execute([$userId, $_GET['id']]); 
+    $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=COALESCE(driver_id, ?) WHERE id=?");
+    $stmt->execute([$userId, $_GET['id']]); 
+    
     echo "OK"; 
     exit; 
 }
@@ -507,7 +575,12 @@ if ($action == 'punch_in') {
 if ($action == 'punch_out_complete') {
     $bookingId = $_POST['id'];
     
-    $stmt = $pdo->prepare("UPDATE plant_bookings SET status='Completed', punch_out_time=NOW(), qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? WHERE id=?");
+    $stmt = $pdo->prepare("
+        UPDATE plant_bookings 
+        SET status='Completed', punch_out_time=NOW(), qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? 
+        WHERE id=?
+    ");
+    
     $stmt->execute([
         empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], 
         $_POST['rep_name'], 
@@ -518,6 +591,7 @@ if ($action == 'punch_out_complete') {
     
     $domain = APP_URL; 
     $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; 
+    
     @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); 
     
     echo "OK"; 
@@ -525,10 +599,16 @@ if ($action == 'punch_out_complete') {
 }
 
 function getNominalDetails($nomCode, $apiKey) {
-    if(empty($nomCode)) return null; 
+    if(empty($nomCode)) {
+        return null; 
+    }
+    
     $nominals = getJ2ApiData('/nominalcateg', $apiKey);
+    
     foreach($nominals as $n) { 
-        if(trim($n['NCCode']) == $nomCode) return $n; 
+        if(trim($n['NCCode']) == $nomCode) {
+            return $n; 
+        }
     } 
     return null;
 }
@@ -571,28 +651,81 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
     $lines = [];
+    
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
         $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
         if($fixedNom) { 
-            $lines[] = ["Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => $isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; 
+            $lines[] = [
+                "Type" => "N", 
+                "Code" => trim($fixedNom['NCCode']), 
+                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
+                "UOMLevel" => 1, 
+                "Location" => "01", 
+                "Qty" => 1, 
+                "Price" => $isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2'], 
+                "VATCode" => "VF", 
+                "DiscCalcOn" => "P", 
+                "DiscPer" => 0.0, 
+                "DR" => 0, 
+                "CR" => 0
+            ]; 
         }
         
         $extraHours = $finalHours - (float)$job['min_hours'];
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
             $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
             if($varNom) { 
-                $lines[] = ["Type" => "N", "Code" => trim($varNom['NCCode']), "Description" => substr(trim($varNom['NCDesc']), 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => $isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; 
+                $lines[] = [
+                    "Type" => "N", 
+                    "Code" => trim($varNom['NCCode']), 
+                    "Description" => substr(trim($varNom['NCDesc']), 0, 35), 
+                    "UOMLevel" => 1, 
+                    "Location" => "01", 
+                    "Qty" => $extraHours, 
+                    "Price" => $isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2'], 
+                    "VATCode" => "VF", 
+                    "DiscCalcOn" => "P", 
+                    "DiscPer" => 0.0, 
+                    "DR" => 0, 
+                    "CR" => 0
+                ]; 
             }
         }
     } elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
         $tripNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
         if($tripNom) { 
-            $lines[] = ["Type" => "N", "Code" => trim($tripNom['NCCode']), "Description" => substr(trim($tripNom['NCDesc']), 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, "Price" => $isInternal ? $tripNom['NCDefSP1'] : $tripNom['NCDefSP2'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0]; 
+            $lines[] = [
+                "Type" => "N", 
+                "Code" => trim($tripNom['NCCode']), 
+                "Description" => substr(trim($tripNom['NCDesc']), 0, 35), 
+                "UOMLevel" => 1, 
+                "Location" => "01", 
+                "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 
+                "Price" => $isInternal ? $tripNom['NCDefSP1'] : $tripNom['NCDefSP2'], 
+                "VATCode" => "VF", 
+                "DiscCalcOn" => "P", 
+                "DiscPer" => 0.0, 
+                "DR" => 0, 
+                "CR" => 0
+            ]; 
         }
     } else {
         $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; 
         $standardNom = getNominalDetails($standardCode, $apiKey);
-        $lines[] = ["Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), "UOMLevel" => 1, "Location" => "01", "Qty" => $finalHours, "Price" => $finalRate, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0];
+        $lines[] = [
+            "Type" => "N", 
+            "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, 
+            "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), 
+            "UOMLevel" => 1, 
+            "Location" => "01", 
+            "Qty" => $finalHours, 
+            "Price" => $finalRate, 
+            "VATCode" => "VF", 
+            "DiscCalcOn" => "P", 
+            "DiscPer" => 0.0, 
+            "DR" => 0, 
+            "CR" => 0
+        ];
     }
 
     if (empty($lines)) { 
@@ -659,17 +792,24 @@ if ($action == 'get_ledger' && $canViewLedger) {
 }
 
 if ($action == 'mark_settled' && $canViewLedger) { 
-    $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?")->execute([$_POST['id']]); 
+    $stmt = $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?");
+    $stmt->execute([$_POST['id']]); 
     echo "OK"; 
     exit; 
 }
 
 if ($action == 'get_nominals_for_job') {
-    $stmt = $pdo->prepare("SELECT p.nom_code_fixed, p.nom_code_variable, p.billing_company_id FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
+    $stmt = $pdo->prepare("
+        SELECT p.nom_code_fixed, p.nom_code_variable, p.billing_company_id 
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id 
+        WHERE pb.id = ?
+    "); 
     $stmt->execute([$_GET['booking_id']]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
     
     $apiKey = getApiKey($job['billing_company_id']);
+    
     echo json_encode([
         'fixed' => getNominalDetails($job['nom_code_fixed'], $apiKey), 
         'variable' => getNominalDetails($job['nom_code_variable'], $apiKey)
