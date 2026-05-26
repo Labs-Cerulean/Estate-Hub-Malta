@@ -53,7 +53,7 @@ $userId = $_SESSION['user_id'];
         /* CALENDAR NATIVE THEME OVERRIDES */
         .fc { 
             --fc-page-bg-color: transparent;
-            --fc-neutral-bg-color: #f8fafc; /* Safe Light grey for headers */
+            --fc-neutral-bg-color: #f8fafc;
             --fc-list-event-hover-bg-color: #f1f5f9;
             --fc-border-color: #e2e8f0;
         }
@@ -65,7 +65,6 @@ $userId = $_SESSION['user_id'];
         .fc-event { border-radius: 6px !important; border: none !important; padding: 3px 5px !important; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
         .fc-event-title { white-space: pre-wrap !important; line-height: 1.4; padding-bottom: 2px; }
         
-        /* FIX: Ensure List View headers aren't white-on-white */
         .fc .fc-list-day-cushion { background-color: var(--fc-neutral-bg-color) !important; color: #0f172a !important; opacity: 0.9; font-weight: bold; }
         .fc-list-day-text, .fc-list-day-side-text, .fc-list-event-time, .fc-list-event-title, .fc-list-empty-cushion { color: #0f172a !important; }
     </style>
@@ -247,6 +246,7 @@ $userId = $_SESSION['user_id'];
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
     const canViewLedger = <?= $canViewLedger ? 'true' : 'false' ?>;
+    const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>; // NEW: Strict Admin Flag
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -275,7 +275,6 @@ $userId = $_SESSION['user_id'];
 
     function initCalendar() {
         calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
-            // UPDATED: Now strictly using list views for stability
             initialView: isManager ? 'listMonth' : 'listDay',
             headerToolbar: { 
                 left: 'prev,next today', 
@@ -497,9 +496,23 @@ $userId = $_SESSION['user_id'];
         if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
     }
 
+    // ====================================================
+    // EDIT LOGIC: strict safety checks for synced jobs
+    // ====================================================
     function initiateBookingEdit() {
         const j = window.currentActiveJob;
         if (!j) return;
+        
+        let isSynced = j.invoice_sysref && j.invoice_sysref !== 'SUCCESS_NO_REF' && j.invoice_sysref !== '';
+        
+        if (j.status === 'Completed' && isSynced) {
+            alert("This job has already been synced to the ERP (Ref: " + j.invoice_sysref + ") and cannot be modified locally.");
+            return;
+        }
+        
+        if (j.status !== 'Pending') {
+            if (!confirm("This job is already marked as " + j.status + ". Are you sure you want to modify the logged times?")) return;
+        }
         
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-edit text-blue-500"></i> Edit Booking';
         document.getElementById('edit_booking_id').value = j.id;
@@ -733,7 +746,7 @@ $userId = $_SESSION['user_id'];
     }
 
     // ==========================================
-    // UPDATED: Driver Name and Claim Logic
+    // UPDATED BUTTON DISPLAY LOGIC
     // ==========================================
     function loadJob(id) {
         fetch(`api/plant_actions.php?action=get_job&id=${id}`)
@@ -747,7 +760,6 @@ $userId = $_SESSION['user_id'];
             let mapPre = job.location_lat ? `<div id="job-preview-map" style="width:100%; height:200px; border-radius:8px; border:1px solid #e2e8f0; margin-top:10px;"></div>` : '';
             let commHtml = job.comments ? `<div style="background:#fef3c7; border:1px solid #fde68a; padding:15px; border-radius:10px; margin-bottom:15px; color:#92400e; font-size:0.95rem;"><b>Notes:</b><br>${job.comments.replace(/\n/g, '<br>')}</div>` : '';
 
-            // Cleanly display Driver Name
             let driverName = job.driver_first ? `${job.driver_first} ${job.driver_last}` : null;
             let driverHtml = driverName ? `<span style="color:#10b981;">Assigned to ${driverName}</span>` : `<span style="color:#ef4444;">Unassigned</span>`;
 
@@ -779,9 +791,28 @@ $userId = $_SESSION['user_id'];
                 }
             }
             
-            if (isManager && job.status === 'Pending') { controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Booking</button>`; }
-            if (isManager && job.status !== 'Completed') { controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`; }
-            if (isManager && job.status === 'Completed') { controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Review & Invoice (ERP)</button>`; }
+            // ERP Sync Check
+            let isSynced = job.invoice_sysref && job.invoice_sysref !== 'SUCCESS_NO_REF' && job.invoice_sysref !== '';
+            
+            // ALLOW ADMIN TO EDIT COMPLETED (if not synced)
+            let canEdit = false;
+            if (isManager && job.status === 'Pending') {
+                canEdit = true;
+            } else if (isAdmin && !isSynced) {
+                canEdit = true; // Admins can edit anything EXCEPT synced jobs
+            }
+
+            if (canEdit) { 
+                controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Job Details</button>`; 
+            }
+            
+            if (isManager && job.status !== 'Completed') { 
+                controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`; 
+            }
+            
+            if (isManager && job.status === 'Completed') { 
+                controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Generate / Sync Invoice</button>`; 
+            }
 
             document.getElementById('punch-controls').innerHTML = controlsHtml; showView('view-job');
             
