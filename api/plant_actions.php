@@ -7,12 +7,14 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
-session_write_close(); 
+session_write_close(); // Prevent browser hanging
 
+// Access Flags
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
+// Dynamic API Key Mapper - Pulled securely from Environment Variables
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
@@ -21,8 +23,8 @@ if (!$praApiKey || !$praxApiKey) {
 }
 
 $apiKeys = [
-    '24' => $praApiKey,  
-    '26' => $praxApiKey, 
+    '24' => $praApiKey,  // PRA API Key
+    '26' => $praxApiKey, // PRAX API Key
     'default' => $praApiKey
 ];
 
@@ -52,10 +54,7 @@ function getJ2ApiData($endpoint, $apiKey) {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
     curl_close($ch);
     
-    if ($httpCode >= 200 && $httpCode < 300) {
-        return json_decode($response, true);
-    }
-    return [];
+    return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
 }
 
 function postJ2ApiData($endpoint, $apiKey, $payload) {
@@ -82,9 +81,12 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
     return ['code' => $httpCode, 'response' => $response];
 }
 
+// ==========================================
+// Driver Overlap Validation Logic
+// ==========================================
 function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $excludeBookingId = null) {
     if (empty($driverId)) {
-        return true; 
+        return true; // Unassigned is always allowed
     }
     
     $sql = "SELECT id, start_time, end_time FROM plant_bookings 
@@ -104,7 +106,7 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
     $newEnd = strtotime($date . ' ' . $endTime);
     
     if ($newEnd <= $newStart) {
-        $newEnd += 86400; 
+        $newEnd += 86400; // Account for overnight shift
     }
     
     foreach ($existing as $b) {
@@ -116,7 +118,7 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
         }
         
         if ($newStart < $exEnd && $newEnd > $exStart) {
-            return false; 
+            return false; // Collision detected!
         }
     }
     return true;
@@ -235,6 +237,7 @@ if ($action == 'get_company_clients' && $isManager) {
         }
     }
     echo json_encode($results); 
+    max_height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2); 
     exit;
 }
 
@@ -461,14 +464,15 @@ if ($action == 'update_booking' && $isManager) {
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $editId = $_POST['edit_id'];
     
-    // We strictly DO NOT allow editing a Completed job here anymore. That happens on the RFP page.
-    $checkStmt = $pdo->prepare("SELECT status FROM plant_bookings WHERE id = ?");
+    $checkStmt = $pdo->prepare("SELECT status, invoice_sysref FROM plant_bookings WHERE id = ?");
     $checkStmt->execute([$editId]);
     $existingJob = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($existingJob && $existingJob['status'] === 'Completed') {
-        echo "ERROR: Completed jobs cannot be edited here. Use the RFP Edit function instead.";
-        exit;
+    if ($existingJob) {
+        if ($existingJob['status'] === 'Completed') {
+            echo "ERROR: Completed jobs cannot be edited here. Use the RFP Edit function instead.";
+            exit;
+        }
     }
     
     if (!isDriverAvailable($pdo, $driverId, $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $editId)) {
@@ -616,7 +620,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     $apiKey = getApiKey($job['billing_company_id']);
     
-    // NEW: Update punch times from the RFP edit screen
+    // NEW OVERRIDE: Process modified punch clock hours from Admin input
     $punchIn = null;
     $punchOut = null;
     if (!empty($_POST['time_in']) && !empty($_POST['time_out'])) {
@@ -636,9 +640,12 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
     }
 
-    // Mark as invoiced locally
-    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?");
-    $stmtLocal->execute([$finalHours, $finalSubtotal, $bookingId]);
+    // NEW OVERRIDE: Save modified flat rates permanently 
+    $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
+    $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
+
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, payment_status='Invoiced' WHERE id=?");
+    $stmtLocal->execute([$finalHours, $finalSubtotal, $customRateFixed, $customRateVar, $bookingId]);
     
     if(empty($job['client_code'])) { 
         $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
@@ -652,25 +659,19 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
-    // Extract explicitly overridden rates from the RFP
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
     
-    $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
-    $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
+    // Determine the absolute payload rate for sync mapping
+    $syncPriceFixed = $customRateFixed !== null ? $customRateFixed : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
+    $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
     
     $lines = [];
-    
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
         if($fixedNom) { 
             $lines[] = [
-                "Type" => "N", 
-                "Code" => trim($fixedNom['NCCode']), 
-                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
-                "UOMLevel" => 1, 
-                "Location" => "01", 
-                "Qty" => 1, 
-                "Price" => $customRateFixed, 
+                "Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
+                "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => $syncPriceFixed, 
                 "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
             ]; 
         }
@@ -679,13 +680,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
             if($varNom) { 
                 $lines[] = [
-                    "Type" => "N", 
-                    "Code" => trim($varNom['NCCode']), 
-                    "Description" => substr(trim($varNom['NCDesc']), 0, 35), 
-                    "UOMLevel" => 1, 
-                    "Location" => "01", 
-                    "Qty" => $extraHours, 
-                    "Price" => $customRateVar, 
+                    "Type" => "N", "Code" => trim($varNom['NCCode']), "Description" => substr(trim($varNom['NCDesc']), 0, 35), 
+                    "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => $syncPriceVar, 
                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
                 ]; 
             }
@@ -693,13 +689,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     } elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
         if($fixedNom) { 
             $lines[] = [
-                "Type" => "N", 
-                "Code" => trim($fixedNom['NCCode']), 
-                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
-                "UOMLevel" => 1, 
-                "Location" => "01", 
-                "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 
-                "Price" => $customRateFixed, 
+                "Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
+                "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, "Price" => $syncPriceFixed, 
                 "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
             ]; 
         }
@@ -707,13 +698,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; 
         $standardNom = getNominalDetails($standardCode, $apiKey);
         $lines[] = [
-            "Type" => "N", 
-            "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, 
-            "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), 
-            "UOMLevel" => 1, 
-            "Location" => "01", 
-            "Qty" => $finalHours, 
-            "Price" => $customRateVar, 
+            "Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), 
+            "UOMLevel" => 1, "Location" => "01", "Qty" => $finalHours, "Price" => $syncPriceVar, 
             "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
         ];
     }
@@ -731,26 +717,11 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         "Type" => "IN", 
         "Transaction" => [ 
             "InvioceHeader" => [ 
-                "THTranCode" => "IN", 
-                "THDate" => date('Y-m-d'), 
-                "THUserID" => "API", 
-                "THCSCode" => $job['client_code'], 
-                "THName" => $job['client_name'], 
-                "THTaxNumber" => "", 
-                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), 
-                "THExtRef" => $jobRef, 
-                "THRevision" => "001", 
-                "THTotDiscF" => 0.0, 
-                "THTotDiscTIF" => 0.0, 
-                "THTotTaxF" => round($totalTax, 2), 
-                "THCurrency" => "EUR", 
-                "THExchRate" => 1, 
-                "THPayment" => "", 
-                "THPayRef" => "" 
+                "THTranCode" => "IN", "THDate" => date('Y-m-d'), "THUserID" => "API", "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", 
+                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), "THExtRef" => $jobRef, "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => round($totalTax, 2), "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => "" 
             ], 
             "InvioceItemLine" => [ "Lines" => $lines ], 
-            "Ledger" => "S", 
-            "OfflineDocRefs" => "" 
+            "Ledger" => "S", "OfflineDocRefs" => "" 
         ] 
     ];
 
