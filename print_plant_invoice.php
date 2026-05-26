@@ -5,6 +5,8 @@ require_once 'user-functions.php';
 require_once 'S3FileManager.php';
 
 $role = $_SESSION['role'] ?? '';
+$isAdmin = ($role === 'admin');
+
 $hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager', 'plant_driver']);
 if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
     die("Unauthorized Access to Invoice.");
@@ -100,7 +102,6 @@ $isTripBased = ($job['pricing_type'] == 'per_trip');
 $qtyValue = $isTripBased ? ($job['qty_trips'] > 0 ? $job['qty_trips'] : 1) : $hoursWorked;
 $qtyLabel = $isTripBased ? "Trips Executed" : "Total Hours Executed";
 
-// Fallback logic for In-House jobs so they don't say N/A
 if ($isInternal) {
     $clientDisplay = htmlspecialchars($job['developer_name']);
     $clientCodeDisplay = "IN-HOUSE (" . htmlspecialchars($job['project_name']) . ")";
@@ -110,6 +111,13 @@ if ($isInternal) {
 }
 
 $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) : 'N/A';
+
+// Determine Edit Lock State
+$sysRef = $job['invoice_sysref'] ?? '';
+$isSynced = !empty($sysRef) && !in_array($sysRef, ['N/A', 'SUCCESS_NO_REF']);
+
+// Allow edit if it's the very first time (Pending) OR if an Admin is editing a Local Only RFP
+$canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
 ?>
 
 <!DOCTYPE html>
@@ -139,13 +147,13 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
         .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 1.1rem; }
         .totals-final { border-top: 2px solid #000; padding-top: 8px; margin-top: 8px; font-size: 1.4rem; font-weight: 900; }
         
-        .live-calc { border: 1px solid #cbd5e1; padding: 5px; font-size: 1rem; font-family: inherit; border-radius: 6px; width: 80px; font-weight: bold; text-align: center; }
+        .live-calc { border: 1px solid #cbd5e1; padding: 3px 5px; font-size: 1rem; font-family: inherit; border-radius: 6px; width: 80px; font-weight: bold; text-align: center; }
         .live-calc:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
         
         @media print { 
             .no-print { display: none; } 
             body { padding: 0; font-size: 10px; } 
-            .live-calc { border: none; padding: 0; text-align: left; background: transparent; width: auto; }
+            .live-calc { border: none; padding: 0; text-align: left; background: transparent; width: auto; font-size: inherit; }
             .box { background: transparent; }
             .totals-box { background: transparent; }
         }
@@ -153,16 +161,16 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
 </head>
 <body>
     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; margin-bottom: 30px; color: #475569;">
-        <?php if ($job['payment_status'] === 'Pending'): ?>
+        <?php if ($canEdit): ?>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
-                <div><i class="fas fa-info-circle text-blue-500"></i> <b>Accountant Note:</b> The line items below are generated dynamically from the ERP Nominal setup. Adjust the final quantity/hours to recalculate the exact breakdown.</div>
+                <div><i class="fas fa-edit text-blue-500"></i> <b>Edit Mode:</b> You can adjust the times, quantities, and rates below before pushing the final RFP to the ERP.</div>
                 <div style="background:#e0e7ff; color:#4f46e5; padding:5px 10px; border-radius:6px; font-weight:bold;"><i class="fas fa-plug"></i> ERP Live Sync</div>
             </div>
             
             <div style="background: #fff; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; gap: 15px;">
                 <label style="font-weight:bold;">Final <?= $qtyLabel ?> to Bill:</label>
                 <input type="number" id="calc_master_qty" class="live-calc" value="<?= $job['final_hours'] ?? $qtyValue ?>" step="0.25" oninput="renderTable()">
-                <button id="printBtn" onclick="saveAndPrint()" style="padding:10px 20px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; border-radius: 8px; margin-left: auto;"><i class="fas fa-cloud-upload-alt"></i> Finalize & Push to ERP</button>
+                <button id="printBtn" onclick="saveAndPrint()" style="padding:10px 20px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; border-radius: 8px; margin-left: auto;"><i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP</button>
             </div>
         <?php else: ?>
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -173,8 +181,8 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
                     </div>
                 <?php else: ?>
                     <div>
-                        <i class="fas fa-check-circle" style="color: #10b981;"></i> <b>Invoice Finalized & Synced.</b> <br>
-                        ERP Reference: <b><?= htmlspecialchars($job['invoice_sysref']) ?></b>
+                        <i class="fas fa-lock" style="color: #475569;"></i> <b>Invoice Locked & Synced.</b> <br>
+                        ERP Reference: <b><span style="color:#10b981;"><?= htmlspecialchars($job['invoice_sysref']) ?></span></b>
                     </div>
                 <?php endif; ?>
                 <button onclick="window.print()" style="padding:10px 20px; background:#64748b; color:#fff; border:none; font-weight:bold; cursor:pointer; border-radius: 8px;"><i class="fas fa-print"></i> Re-Print PDF</button>
@@ -210,7 +218,20 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             <div class="data-row"><span class="data-label">Machinery</span><span class="data-val"><?= htmlspecialchars($job['plant_name']) ?> (<?= htmlspecialchars($job['category']) ?>)</span></div>
             <div class="data-row"><span class="data-label">Reg Plate</span><span class="data-val"><?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?></span></div>
             <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= htmlspecialchars($job['first_name'] ?? 'Unassigned') ?> <?= htmlspecialchars($job['last_name'] ?? '') ?></span></div>
-            <div class="data-row"><span class="data-label">Time Logged</span><span class="data-val"><?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?></span></div>
+            
+            <div class="data-row">
+                <span class="data-label">Time Logged</span>
+                <span class="data-val">
+                    <?php if ($canEdit && !$isTripBased): ?>
+                        <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
+                        <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
+                    <?php else: ?>
+                        <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
+                        <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
+                        <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                    <?php endif; ?>
+                </span>
+            </div>
         </div>
     </div>
 
@@ -262,98 +283,99 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
         const isInternal = <?= $isInternal ? 'true' : 'false' ?>;
         const jobRef = '<?= $jobRef ?>';
         
-        const fixedNom = <?= $fixedNom ? json_encode($fixedNom) : 'null' ?>;
-        const varNom = <?= $varNom ? json_encode($varNom) : 'null' ?>;
-        
         const rawNomFixed = '<?= htmlspecialchars($job['nom_code_fixed'] ?? '') ?>';
         const rawNomVar = '<?= htmlspecialchars($job['nom_code_variable'] ?? '') ?>';
+        const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
 
-        const isSaved = <?= $job['payment_status'] !== 'Pending' ? 'true' : 'false' ?>;
-        const savedSubtotal = <?= $job['final_subtotal'] ?? 0 ?>;
-        const savedHours = <?= $job['final_hours'] ?? 0 ?>;
+        let rateFixed = <?= $fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0 ?>;
+        let rateVar = <?= $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0 ?>;
+        
+        // If it was already manually overridden locally in the past, the DB only saves the final total.
+        // For editing, pulling the clean API defaults so the Admin can manually re-override them is safest.
 
         let currentSubtotal = 0;
-        let erpPayloadRate = 0; 
 
-        function getRate(nomObj) {
-            if(!nomObj) return 0;
-            return isInternal ? parseFloat(nomObj.NCDefSP1) : parseFloat(nomObj.NCDefSP2);
+        function recalcHours() {
+            const tIn = document.getElementById('edit_time_in').value;
+            const tOut = document.getElementById('edit_time_out').value;
+            if (tIn && tOut) {
+                const [hIn, mIn] = tIn.split(':').map(Number);
+                const [hOut, mOut] = tOut.split(':').map(Number);
+                let diff = (hOut + mOut/60) - (hIn + mIn/60);
+                if (diff < 0) diff += 24; 
+                document.getElementById('calc_master_qty').value = diff.toFixed(2);
+                renderTable();
+            }
         }
 
         function renderTable() {
-            let totalQty = isSaved ? savedHours : (parseFloat(document.getElementById('calc_master_qty').value) || 0);
+            let totalQty = parseFloat(document.getElementById('calc_master_qty').value) || 0;
             const tbody = document.getElementById('lines-body');
             let html = '';
             currentSubtotal = 0;
 
+            const fRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateFixed.toFixed(2)}" onchange="rateFixed = parseFloat(this.value) || 0; renderTable();">` : rateFixed.toFixed(2);
+            const vRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateVar.toFixed(2)}" onchange="rateVar = parseFloat(this.value) || 0; renderTable();">` : rateVar.toFixed(2);
+
             if (pricingType === 'fixed_then_hourly') {
-                const fCode = fixedNom ? fixedNom.NCCode.trim() : (rawNomFixed || 'MISSING');
-                const fDesc = fixedNom ? fixedNom.NCDesc.trim() : 'Fixed Callout Charge';
-                const fRate = getRate(fixedNom);
-                currentSubtotal += fRate;
+                const fCode = rawNomFixed || 'MISSING';
+                const fDesc = 'Fixed Callout Charge';
+                currentSubtotal += rateFixed;
                 
                 html += `<tr>
                     <td><b>${fCode}</b></td>
                     <td>${fDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
                     <td class="text-right">1.00</td>
-                    <td class="text-right">${fRate.toFixed(2)}</td>
-                    <td class="text-right"><b>${fRate.toFixed(2)}</b></td>
+                    <td class="text-right">${fRateInput}</td>
+                    <td class="text-right"><b>${rateFixed.toFixed(2)}</b></td>
                 </tr>`;
 
                 const extraHours = Math.max(0, totalQty - minHours);
                 if (extraHours > 0) {
-                    const vCode = varNom ? varNom.NCCode.trim() : (rawNomVar || 'MISSING');
-                    const vDesc = varNom ? varNom.NCDesc.trim() : 'Additional Hourly Rate';
-                    const vRate = getRate(varNom);
-                    const vTotal = extraHours * vRate;
+                    const vCode = rawNomVar || 'MISSING';
+                    const vDesc = 'Additional Hourly Rate';
+                    const vTotal = extraHours * rateVar;
                     currentSubtotal += vTotal;
                     
                     html += `<tr>
                         <td><b>${vCode}</b></td>
                         <td>${vDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Extra Hours > ${minHours})</i></td>
                         <td class="text-right">${extraHours.toFixed(2)}</td>
-                        <td class="text-right">${vRate.toFixed(2)}</td>
+                        <td class="text-right">${vRateInput}</td>
                         <td class="text-right"><b>${vTotal.toFixed(2)}</b></td>
                     </tr>`;
                 }
-                erpPayloadRate = 0; 
             } 
             else if (pricingType === 'per_trip') {
-                const tCode = fixedNom ? fixedNom.NCCode.trim() : (rawNomFixed || 'MISSING');
-                const tDesc = fixedNom ? fixedNom.NCDesc.trim() : 'Trip Execution Charge';
-                const tRate = getRate(fixedNom);
-                const tTotal = totalQty * tRate;
+                const tCode = rawNomFixed || 'MISSING';
+                const tDesc = 'Trip Execution Charge';
+                const tTotal = totalQty * rateFixed;
                 currentSubtotal += tTotal;
-                erpPayloadRate = tRate;
 
                 html += `<tr>
                     <td><b>${tCode}</b></td>
                     <td>${tDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
                     <td class="text-right">${totalQty.toFixed(2)} Trips</td>
-                    <td class="text-right">${tRate.toFixed(2)}</td>
+                    <td class="text-right">${fRateInput}</td>
                     <td class="text-right"><b>${tTotal.toFixed(2)}</b></td>
                 </tr>`;
             } 
             else {
-                const hCode = varNom ? varNom.NCCode.trim() : (rawNomVar || 'MISSING');
-                const hDesc = varNom ? varNom.NCDesc.trim() : 'Standard Hourly Operation';
-                const hRate = getRate(varNom);
-                const hTotal = totalQty * hRate;
+                const hCode = rawNomVar || 'MISSING';
+                const hDesc = 'Standard Hourly Operation';
+                const hTotal = totalQty * rateVar;
                 currentSubtotal += hTotal;
-                erpPayloadRate = hRate;
 
                 html += `<tr>
                     <td><b>${hCode}</b></td>
                     <td>${hDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
                     <td class="text-right">${totalQty.toFixed(2)} Hrs</td>
-                    <td class="text-right">${hRate.toFixed(2)}</td>
+                    <td class="text-right">${vRateInput}</td>
                     <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
                 </tr>`;
             }
 
             tbody.innerHTML = html;
-
-            if (isSaved && savedSubtotal > 0) { currentSubtotal = savedSubtotal; }
 
             const vat = currentSubtotal * 0.18;
             const total = currentSubtotal + vat;
@@ -367,7 +389,7 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
 
         function saveAndPrint() {
             const btn = document.getElementById('printBtn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pushing to ERP...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
             btn.disabled = true;
 
             const finalQty = document.getElementById('calc_master_qty').value;
@@ -376,18 +398,28 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             fd.append('action', 'finalize_and_invoice');
             fd.append('booking_id', <?= $bookingId ?>);
             fd.append('hours', finalQty); 
-            fd.append('rate', erpPayloadRate); 
             fd.append('subtotal', currentSubtotal); 
+            
+            // Backend will use these explicitly modified rates
+            fd.append('rate_fixed', rateFixed);
+            fd.append('rate_var', rateVar);
+            
+            // Pass the explicitly modified times
+            const timeIn = document.getElementById('edit_time_in');
+            const timeOut = document.getElementById('edit_time_out');
+            if (timeIn && timeOut) {
+                fd.append('time_in', timeIn.value);
+                fd.append('time_out', timeOut.value);
+            }
 
             fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
-                // If it succeeds OR saves locally as N/A, we consider it finalized for the UI
                 if (res.includes('OK')) {
-                    btn.innerHTML = '<i class="fas fa-check"></i> Finalized!';
+                    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
                     setTimeout(() => { location.reload(); }, 1200);
                 } else { 
                     alert(res); 
                     btn.disabled = false; 
-                    btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Finalize & Push to ERP';
+                    btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP';
                 }
             });
         }
