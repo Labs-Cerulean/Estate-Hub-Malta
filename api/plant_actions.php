@@ -7,13 +7,12 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
-session_write_close(); // Prevent browser hanging
+session_write_close(); 
 
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
-// Dynamic API Key Mapper - Pulled securely from Environment Variables
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
@@ -22,8 +21,8 @@ if (!$praApiKey || !$praxApiKey) {
 }
 
 $apiKeys = [
-    '24' => $praApiKey,  // PRA API Key
-    '26' => $praxApiKey, // PRAX API Key
+    '24' => $praApiKey,  
+    '26' => $praxApiKey, 
     'default' => $praApiKey
 ];
 
@@ -83,12 +82,9 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
     return ['code' => $httpCode, 'response' => $response];
 }
 
-// ==========================================
-// Driver Overlap Validation Logic
-// ==========================================
 function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $excludeBookingId = null) {
     if (empty($driverId)) {
-        return true; // Unassigned is always allowed
+        return true; 
     }
     
     $sql = "SELECT id, start_time, end_time FROM plant_bookings 
@@ -108,7 +104,7 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
     $newEnd = strtotime($date . ' ' . $endTime);
     
     if ($newEnd <= $newStart) {
-        $newEnd += 86400; // Account for overnight shift
+        $newEnd += 86400; 
     }
     
     foreach ($existing as $b) {
@@ -119,9 +115,8 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
             $exEnd += 86400;
         }
         
-        // Mathematical check for time overlap
         if ($newStart < $exEnd && $newEnd > $exStart) {
-            return false; // Collision detected!
+            return false; 
         }
     }
     return true;
@@ -243,7 +238,6 @@ if ($action == 'get_company_clients' && $isManager) {
     exit;
 }
 
-// DASHBOARD STATS FETCHER
 if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) {
     $startDate = !empty($_POST['start']) ? date('Y-m-d', strtotime($_POST['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_POST['end']) ? date('Y-m-d', strtotime($_POST['end'])) : date('Y-m-d', strtotime('+1 month'));
@@ -300,7 +294,6 @@ if ($action == 'fetch_bookings') {
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
     
-    // GLOBAL VISIBILITY: All users pull the full schedule without driver restrictions
     $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
               FROM plant_bookings pb 
               JOIN plants p ON pb.plant_id = p.id 
@@ -468,23 +461,14 @@ if ($action == 'update_booking' && $isManager) {
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $editId = $_POST['edit_id'];
     
-    $checkStmt = $pdo->prepare("SELECT status, invoice_sysref FROM plant_bookings WHERE id = ?");
+    // We strictly DO NOT allow editing a Completed job here anymore. That happens on the RFP page.
+    $checkStmt = $pdo->prepare("SELECT status FROM plant_bookings WHERE id = ?");
     $checkStmt->execute([$editId]);
     $existingJob = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($existingJob) {
-        // STRICT ERP LOCK CHECK (Ignores N/A and SUCCESS_NO_REF)
-        $isSynced = !empty($existingJob['invoice_sysref']) && !in_array($existingJob['invoice_sysref'], ['SUCCESS_NO_REF', 'N/A']);
-        
-        if ($isSynced) {
-            echo "ERROR: This job is locked because it has already synced to the ERP (Ref: " . $existingJob['invoice_sysref'] . ").";
-            exit;
-        }
-
-        if ($existingJob['status'] === 'Completed' && $role !== 'admin') {
-            echo "ERROR: Only System Admins can modify times on a completed job.";
-            exit;
-        }
+    if ($existingJob && $existingJob['status'] === 'Completed') {
+        echo "ERROR: Completed jobs cannot be edited here. Use the RFP Edit function instead.";
+        exit;
     }
     
     if (!isDriverAvailable($pdo, $driverId, $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $editId)) {
@@ -616,13 +600,8 @@ function getNominalDetails($nomCode, $apiKey) {
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
-    $finalRate = empty($_POST['rate']) ? 0 : (float)$_POST['rate'];
     $finalSubtotal = empty($_POST['subtotal']) ? 0 : (float)$_POST['subtotal'];
 
-    // Mark as invoiced locally first
-    $stmt = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_rate=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?");
-    $stmt->execute([$finalHours, $finalRate, $finalSubtotal, $bookingId]);
-    
     // Fetch full job data
     $stmt = $pdo->prepare("
         SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, 
@@ -637,7 +616,30 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     $apiKey = getApiKey($job['billing_company_id']);
     
-    // N/A FIX: Explicitly flag it locally in the database instead of failing out
+    // NEW: Update punch times from the RFP edit screen
+    $punchIn = null;
+    $punchOut = null;
+    if (!empty($_POST['time_in']) && !empty($_POST['time_out'])) {
+        $tInTime = strtotime($_POST['time_in']);
+        $tOutTime = strtotime($_POST['time_out']);
+        $outDate = $job['booking_date'];
+        
+        if ($tOutTime < $tInTime) {
+            $outDate = date('Y-m-d', strtotime($job['booking_date'] . ' +1 day'));
+        }
+        
+        $punchIn = $job['booking_date'] . ' ' . $_POST['time_in'] . ':00';
+        $punchOut = $outDate . ' ' . $_POST['time_out'] . ':00';
+    }
+
+    if ($punchIn && $punchOut) {
+        $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
+    }
+
+    // Mark as invoiced locally
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, payment_status='Invoiced' WHERE id=?");
+    $stmtLocal->execute([$finalHours, $finalSubtotal, $bookingId]);
+    
     if(empty($job['client_code'])) { 
         $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
         echo "OK_LOCAL_ONLY"; 
@@ -650,10 +652,16 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
+    // Extract explicitly overridden rates from the RFP
+    $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
+    $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
+    
+    $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
+    $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
+    
     $lines = [];
     
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
-        $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
         if($fixedNom) { 
             $lines[] = [
                 "Type" => "N", 
@@ -662,18 +670,13 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                 "UOMLevel" => 1, 
                 "Location" => "01", 
                 "Qty" => 1, 
-                "Price" => $isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2'], 
-                "VATCode" => "VF", 
-                "DiscCalcOn" => "P", 
-                "DiscPer" => 0.0, 
-                "DR" => 0, 
-                "CR" => 0
+                "Price" => $customRateFixed, 
+                "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
             ]; 
         }
         
         $extraHours = $finalHours - (float)$job['min_hours'];
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
-            $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
             if($varNom) { 
                 $lines[] = [
                     "Type" => "N", 
@@ -682,31 +685,22 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                     "UOMLevel" => 1, 
                     "Location" => "01", 
                     "Qty" => $extraHours, 
-                    "Price" => $isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2'], 
-                    "VATCode" => "VF", 
-                    "DiscCalcOn" => "P", 
-                    "DiscPer" => 0.0, 
-                    "DR" => 0, 
-                    "CR" => 0
+                    "Price" => $customRateVar, 
+                    "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
                 ]; 
             }
         }
     } elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
-        $tripNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
-        if($tripNom) { 
+        if($fixedNom) { 
             $lines[] = [
                 "Type" => "N", 
-                "Code" => trim($tripNom['NCCode']), 
-                "Description" => substr(trim($tripNom['NCDesc']), 0, 35), 
+                "Code" => trim($fixedNom['NCCode']), 
+                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
                 "UOMLevel" => 1, 
                 "Location" => "01", 
                 "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 
-                "Price" => $isInternal ? $tripNom['NCDefSP1'] : $tripNom['NCDefSP2'], 
-                "VATCode" => "VF", 
-                "DiscCalcOn" => "P", 
-                "DiscPer" => 0.0, 
-                "DR" => 0, 
-                "CR" => 0
+                "Price" => $customRateFixed, 
+                "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
             ]; 
         }
     } else {
@@ -719,12 +713,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
             "UOMLevel" => 1, 
             "Location" => "01", 
             "Qty" => $finalHours, 
-            "Price" => $finalRate, 
-            "VATCode" => "VF", 
-            "DiscCalcOn" => "P", 
-            "DiscPer" => 0.0, 
-            "DR" => 0, 
-            "CR" => 0
+            "Price" => $customRateVar, 
+            "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
         ];
     }
 
