@@ -245,7 +245,6 @@ $userId = $_SESSION['user_id'];
     const isManager = <?= $isManager ? 'true' : 'false' ?>;
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
     const canViewLedger = <?= $canViewLedger ? 'true' : 'false' ?>;
-    const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>;
     mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -440,7 +439,6 @@ $userId = $_SESSION['user_id'];
             currentErpClients = res; 
             clientInput.placeholder = "start writing client here"; 
             clientInput.disabled = false; 
-            // PREVENT RACE CONDITION WIPE: We do not clear the .value here anymore
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
 
@@ -501,20 +499,10 @@ $userId = $_SESSION['user_id'];
         if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
     }
 
+    // Admins no longer edit closed jobs here! They edit them in the RFP!
     function initiateBookingEdit() {
         const j = window.currentActiveJob;
         if (!j) return;
-        
-        let isSynced = j.invoice_sysref && !['N/A', 'SUCCESS_NO_REF', ''].includes(j.invoice_sysref);
-        
-        if (j.status === 'Completed' && isSynced) {
-            alert("This job has already been synced to the ERP (Ref: " + j.invoice_sysref + ") and cannot be modified locally.");
-            return;
-        }
-        
-        if (j.status !== 'Pending') {
-            if (!confirm("This job is already marked as " + j.status + ". Are you sure you want to modify the logged times?")) return;
-        }
         
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-edit text-blue-500"></i> Edit Booking';
         document.getElementById('edit_booking_id').value = j.id;
@@ -536,7 +524,7 @@ $userId = $_SESSION['user_id'];
         
         document.getElementById('client_code').value = j.client_code || ''; 
         document.getElementById('client_name').value = j.client_name || ''; 
-        onPlantSelected(true); // Preserve the Client text
+        onPlantSelected(true); 
 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-save"></i> Update Booking';
         showView('view-create');
@@ -801,27 +789,18 @@ $userId = $_SESSION['user_id'];
                 }
             }
             
-            let isSynced = job.invoice_sysref && !['N/A', 'SUCCESS_NO_REF', ''].includes(job.invoice_sysref);
-            
-            let canEdit = false;
+            // Managers can ONLY edit Pending/In Progress jobs here. Closed jobs are edited on the RFP.
             if (isManager && job.status === 'Pending') {
-                canEdit = true;
-            } else if (isAdmin && !isSynced) {
-                canEdit = true; 
-            }
-
-            if (canEdit) { 
-                controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Job Details</button>`; 
+                controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Booking Details</button>`; 
             }
             
             if (isManager && job.status !== 'Completed') { 
                 controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`; 
             }
             
-            // RFP BUTTON SWAP
             if (isManager && job.status === 'Completed') {
                 if (job.payment_status === 'Invoiced' || job.payment_status === 'Settled') {
-                    controlsHtml += `<button class="btn-heavy btn-gray" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-pdf"></i> View RFP / Delivery Note</button>`;
+                    controlsHtml += `<button class="btn-heavy btn-gray" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-pdf"></i> View / Edit RFP</button>`;
                 } else {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="window.open('print_plant_invoice.php?booking_id=${job.id}', '_blank')"><i class="fas fa-file-invoice-dollar"></i> Generate & Sync Invoice</button>`;
                 }
@@ -891,7 +870,6 @@ $userId = $_SESSION['user_id'];
                 let badge = '';
                 let sysRef = '';
                 
-                // LEDGER STATUS UPDATE
                 if (j.payment_status === 'Invoiced' || j.payment_status === 'Settled') {
                     if (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF') {
                         badge = `<span style="background:#fef08a; color:#854d0e; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">RFP Finalised - Local Only</span>`;
@@ -916,7 +894,7 @@ $userId = $_SESSION['user_id'];
                     </div>
                     <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
                         ${j.status === 'Completed' 
-                            ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View RFP</button>` 
+                            ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View / Edit RFP</button>` 
                             : `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`}
                     </div>
                 </div>`;
