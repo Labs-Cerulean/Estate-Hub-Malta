@@ -4,7 +4,7 @@ require_once 'session-check.php';
 require_once 'user-functions.php';
 require_once 'S3FileManager.php';
 
-// Auto-deploy database updates for new columns to save custom rates
+// Auto-deploy database updates for new columns to save custom rates locally
 try { 
     $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL"); 
     $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
@@ -206,7 +206,7 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         </div>
         <div class="text-right">
             <div class="title">Delivery Note / RFP</div>
-            <div style="margin-top: 5px; color: #475569;">Date: <b><?= date('d M Y') ?></b></div>
+            <div style="margin-top: 5px; color: #475569;">Date: <b><?= date('d M Y', strtotime($job['booking_date'])) ?></b></div>
             <div style="color: #475569;">Job Ref: <b style="color: #000;"><?= $jobRef ?></b></div>
         </div>
     </div>
