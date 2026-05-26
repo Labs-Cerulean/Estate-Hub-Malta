@@ -300,7 +300,7 @@ if ($action == 'fetch_bookings') {
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
     
-    // GLOBAL DRIVER VISIBILITY UPDATE: Everyone now pulls the full schedule
+    // GLOBAL VISIBILITY: All users pull the full schedule without driver restrictions
     $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
               FROM plant_bookings pb 
               JOIN plants p ON pb.plant_id = p.id 
@@ -468,15 +468,15 @@ if ($action == 'update_booking' && $isManager) {
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $editId = $_POST['edit_id'];
     
+    // STRICT LOCK: We completely reject editing Completed jobs through the standard modal. 
+    // Admins MUST use the RFP view to modify historical data safely.
     $checkStmt = $pdo->prepare("SELECT status FROM plant_bookings WHERE id = ?");
     $checkStmt->execute([$editId]);
     $existingJob = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($existingJob) {
-        if ($existingJob['status'] === 'Completed') {
-            echo "ERROR: Completed jobs cannot be edited here. Use the RFP Edit function instead.";
-            exit;
-        }
+    if ($existingJob && $existingJob['status'] === 'Completed') {
+        echo "ERROR: Completed jobs cannot be edited here. Admins must use the View RFP screen to modify completed jobs.";
+        exit;
     }
     
     if (!isDriverAvailable($pdo, $driverId, $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $editId)) {
@@ -682,7 +682,11 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                 "Location" => "01", 
                 "Qty" => 1, 
                 "Price" => $syncPriceFixed, 
-                "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+                "VATCode" => "VF", 
+                "DiscCalcOn" => "P", 
+                "DiscPer" => 0.0, 
+                "DR" => 0, 
+                "CR" => 0
             ]; 
         }
         
@@ -697,7 +701,11 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                     "Location" => "01", 
                     "Qty" => $extraHours, 
                     "Price" => $syncPriceVar, 
-                    "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+                    "VATCode" => "VF", 
+                    "DiscCalcOn" => "P", 
+                    "DiscPer" => 0.0, 
+                    "DR" => 0, 
+                    "CR" => 0
                 ]; 
             }
         }
@@ -711,7 +719,11 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
                 "Location" => "01", 
                 "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 
                 "Price" => $syncPriceFixed, 
-                "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+                "VATCode" => "VF", 
+                "DiscCalcOn" => "P", 
+                "DiscPer" => 0.0, 
+                "DR" => 0, 
+                "CR" => 0
             ]; 
         }
     } else {
@@ -726,7 +738,11 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
             "Location" => "01", 
             "Qty" => $finalHours, 
             "Price" => $syncPriceVar, 
-            "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+            "VATCode" => "VF", 
+            "DiscCalcOn" => "P", 
+            "DiscPer" => 0.0, 
+            "DR" => 0, 
+            "CR" => 0
         ];
     }
 
