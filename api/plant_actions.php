@@ -13,7 +13,7 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
-// Dynamic API Key Mapper
+// Dynamic API Key Mapper - Pulled securely from Environment Variables
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
@@ -22,8 +22,8 @@ if (!$praApiKey || !$praxApiKey) {
 }
 
 $apiKeys = [
-    '24' => $praApiKey,
-    '26' => $praxApiKey,
+    '24' => $praApiKey,  // PRA API Key
+    '26' => $praxApiKey, // PRAX API Key
     'default' => $praApiKey
 ];
 $apiUrlBase = 'https://j2api.agiusgroup.com/api/public';
@@ -64,7 +64,7 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
 }
 
 // ==========================================
-// NEW: Driver Overlap Validation Logic
+// Driver Overlap Validation Logic
 // ==========================================
 function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $excludeBookingId = null) {
     if (empty($driverId)) return true; // Unassigned is always allowed
@@ -325,7 +325,6 @@ if ($action == 'fetch_bookings') {
 }
 
 if ($action == 'save_plant' && $canManageFleet) {
-    // ... (unchanged)
     $pricingType = $_POST['pricing_type'];
     $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
     $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
@@ -340,7 +339,6 @@ if ($action == 'save_plant' && $canManageFleet) {
 }
 
 if ($action == 'update_plant' && $canManageFleet) {
-    // ... (unchanged)
     $pricingType = $_POST['pricing_type'];
     $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
     $nomFixed = !empty($_POST['nom_code_fixed']) ? $_POST['nom_code_fixed'] : null;
@@ -381,6 +379,30 @@ if ($action == 'create_booking' && $isManager) {
 if ($action == 'update_booking' && $isManager) {
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $editId = $_POST['edit_id'];
+    
+    // ==========================================
+    // NEW: STRICT BACKEND SECURITY CHECKS
+    // ==========================================
+    $checkStmt = $pdo->prepare("SELECT status, invoice_sysref FROM plant_bookings WHERE id = ?");
+    $checkStmt->execute([$editId]);
+    $existingJob = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($existingJob) {
+        $isSynced = !empty($existingJob['invoice_sysref']) && $existingJob['invoice_sysref'] !== 'SUCCESS_NO_REF';
+
+        // 1. ERP Lock Check
+        if ($isSynced) {
+            echo "ERROR: This job is locked because it has already synced to the ERP (Ref: " . $existingJob['invoice_sysref'] . ").";
+            exit;
+        }
+
+        // 2. Admin-Only Completed Edit Check
+        if ($existingJob['status'] === 'Completed' && $role !== 'admin') {
+            echo "ERROR: Only System Admins can modify times on a completed job.";
+            exit;
+        }
+    }
+    // ==========================================
     
     // Check if the driver is already booked for these hours (excluding this exact booking ID)
     if (!isDriverAvailable($pdo, $driverId, $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $editId)) {
@@ -454,7 +476,6 @@ function getNominalDetails($nomCode, $apiKey) {
 }
 
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
-    // ... (unchanged invoice logic)
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
     $finalRate = empty($_POST['rate']) ? 0 : (float)$_POST['rate'];
