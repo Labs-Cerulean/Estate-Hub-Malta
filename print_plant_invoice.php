@@ -4,7 +4,6 @@ require_once 'session-check.php';
 require_once 'user-functions.php';
 require_once 'S3FileManager.php';
 
-// Explicit authorization check to prevent the session manager from kicking the user
 $role = $_SESSION['role'] ?? '';
 $hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager', 'plant_driver']);
 if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
@@ -13,7 +12,6 @@ if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
 
 $bookingId = (int)($_GET['booking_id'] ?? 0);
 
-// 1. Fetch Job Data (Removed the non-existent prj.locality column)
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
            p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
@@ -33,7 +31,6 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
-// Dynamic API Key Mapper - Pulled securely from Environment Variables
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
@@ -42,13 +39,12 @@ if (!$praApiKey || !$praxApiKey) {
 }
 
 $apiKeys = [
-    '24' => $praApiKey,  // PRA API Key
-    '26' => $praxApiKey, // PRAX API Key
-    'default' => $praApiKey // Defaulting to PRA if billing company is missing/unknown
+    '24' => $praApiKey,  
+    '26' => $praxApiKey, 
+    'default' => $praApiKey 
 ];
 $apiKey = $apiKeys[$job['billing_company_id']] ?? $apiKeys['default'];
 
-// 2. Bulletproof API Fetcher
 function getJ2ApiData($endpoint, $apiKey) {
     $url = "https://j2api.agiusgroup.com/api/public" . $endpoint;
     $ch = curl_init($url);
@@ -60,8 +56,6 @@ function getJ2ApiData($endpoint, $apiKey) {
     ]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-    
-    // SECURITY FIX: Enforce strict SSL verification
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
     
     $response = curl_exec($ch); 
@@ -75,7 +69,6 @@ function getJ2ApiData($endpoint, $apiKey) {
     return [];
 }
 
-// 3. Extract exact Nominal Details directly from ERP
 $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
 $fixedNom = null; 
 $varNom = null;
@@ -89,7 +82,6 @@ if (!empty($allNominals)) {
 
 $isInternal = ($job['booking_type'] == 'in-house');
 
-// Cloudflare S3 Logo
 $s3 = new S3FileManager();
 $logoPath = $job['developer_logo'];
 if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
@@ -99,7 +91,6 @@ if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("PRA-%s-%04d", $jobYear, $bookingId);
 
-// Time Calculations
 $inTime = !empty($job['punch_in_time']) ? new DateTime($job['punch_in_time']) : new DateTime($job['booking_date'] . ' ' . $job['start_time']);
 $outTime = !empty($job['punch_out_time']) ? new DateTime($job['punch_out_time']) : new DateTime($job['booking_date'] . ' ' . $job['end_time']);
 $interval = $inTime->diff($outTime);
@@ -109,11 +100,17 @@ $isTripBased = ($job['pricing_type'] == 'per_trip');
 $qtyValue = $isTripBased ? ($job['qty_trips'] > 0 ? $job['qty_trips'] : 1) : $hoursWorked;
 $qtyLabel = $isTripBased ? "Trips Executed" : "Total Hours Executed";
 
-$clientDisplay = $job['client_name'] ? htmlspecialchars($job['client_name']) : 'N/A';
-$clientCodeDisplay = $job['client_code'] ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
+// Fallback logic for In-House jobs so they don't say N/A
+if ($isInternal) {
+    $clientDisplay = htmlspecialchars($job['developer_name']);
+    $clientCodeDisplay = "IN-HOUSE (" . htmlspecialchars($job['project_name']) . ")";
+} else {
+    $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
+    $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
+}
+
 $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) : 'N/A';
 ?>
-
 
 <!DOCTYPE html>
 <html>
@@ -169,7 +166,17 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             </div>
         <?php else: ?>
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div><i class="fas fa-check-circle" style="color: #10b981;"></i> <b>Invoice Finalized & Synced.</b> <br>ERP Reference: <b><?= htmlspecialchars($job['invoice_sysref'] ?? 'N/A') ?></b></div>
+                <?php if (empty($job['invoice_sysref']) || in_array($job['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'])): ?>
+                    <div>
+                        <i class="fas fa-exclamation-triangle" style="color: #f59e0b;"></i> <b style="color: #b45309;">RFP Finalised - Local Only.</b><br>
+                        <span style="color: #475569; font-size: 0.9rem;">Manual ERP Invoice Generation Required.</span>
+                    </div>
+                <?php else: ?>
+                    <div>
+                        <i class="fas fa-check-circle" style="color: #10b981;"></i> <b>Invoice Finalized & Synced.</b> <br>
+                        ERP Reference: <b><?= htmlspecialchars($job['invoice_sysref']) ?></b>
+                    </div>
+                <?php endif; ?>
                 <button onclick="window.print()" style="padding:10px 20px; background:#64748b; color:#fff; border:none; font-weight:bold; cursor:pointer; border-radius: 8px;"><i class="fas fa-print"></i> Re-Print PDF</button>
             </div>
         <?php endif; ?>
@@ -218,8 +225,7 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             </tr>
         </thead>
         <tbody id="lines-body">
-            <!-- Rendered by JS -->
-        </tbody>
+            </tbody>
     </table>
 
     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -251,7 +257,6 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
     </div>
 
     <script>
-        // Data injected securely from PHP
         const pricingType = '<?= $job['pricing_type'] ?>';
         const minHours = <?= (float)$job['min_hours'] ?>;
         const isInternal = <?= $isInternal ? 'true' : 'false' ?>;
@@ -259,13 +264,16 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
         
         const fixedNom = <?= $fixedNom ? json_encode($fixedNom) : 'null' ?>;
         const varNom = <?= $varNom ? json_encode($varNom) : 'null' ?>;
+        
+        const rawNomFixed = '<?= htmlspecialchars($job['nom_code_fixed'] ?? '') ?>';
+        const rawNomVar = '<?= htmlspecialchars($job['nom_code_variable'] ?? '') ?>';
 
         const isSaved = <?= $job['payment_status'] !== 'Pending' ? 'true' : 'false' ?>;
         const savedSubtotal = <?= $job['final_subtotal'] ?? 0 ?>;
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
 
         let currentSubtotal = 0;
-        let erpPayloadRate = 0; // The primary rate passed to the backend for standard lines
+        let erpPayloadRate = 0; 
 
         function getRate(nomObj) {
             if(!nomObj) return 0;
@@ -279,8 +287,7 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             currentSubtotal = 0;
 
             if (pricingType === 'fixed_then_hourly') {
-                // Line 1: Fixed Minimum (Always Qty 1)
-                const fCode = fixedNom ? fixedNom.NCCode.trim() : 'MISSING';
+                const fCode = fixedNom ? fixedNom.NCCode.trim() : (rawNomFixed || 'MISSING');
                 const fDesc = fixedNom ? fixedNom.NCDesc.trim() : 'Fixed Callout Charge';
                 const fRate = getRate(fixedNom);
                 currentSubtotal += fRate;
@@ -293,10 +300,9 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
                     <td class="text-right"><b>${fRate.toFixed(2)}</b></td>
                 </tr>`;
 
-                // Line 2: Variable Extra Hours
                 const extraHours = Math.max(0, totalQty - minHours);
                 if (extraHours > 0) {
-                    const vCode = varNom ? varNom.NCCode.trim() : 'MISSING';
+                    const vCode = varNom ? varNom.NCCode.trim() : (rawNomVar || 'MISSING');
                     const vDesc = varNom ? varNom.NCDesc.trim() : 'Additional Hourly Rate';
                     const vRate = getRate(varNom);
                     const vTotal = extraHours * vRate;
@@ -310,10 +316,10 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
                         <td class="text-right"><b>${vTotal.toFixed(2)}</b></td>
                     </tr>`;
                 }
-                erpPayloadRate = 0; // Not needed, backend recalculates F+V based on nominals
+                erpPayloadRate = 0; 
             } 
             else if (pricingType === 'per_trip') {
-                const tCode = fixedNom ? fixedNom.NCCode.trim() : 'MISSING';
+                const tCode = fixedNom ? fixedNom.NCCode.trim() : (rawNomFixed || 'MISSING');
                 const tDesc = fixedNom ? fixedNom.NCDesc.trim() : 'Trip Execution Charge';
                 const tRate = getRate(fixedNom);
                 const tTotal = totalQty * tRate;
@@ -329,8 +335,7 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
                 </tr>`;
             } 
             else {
-                // Standard Hourly
-                const hCode = varNom ? varNom.NCCode.trim() : 'MISSING';
+                const hCode = varNom ? varNom.NCCode.trim() : (rawNomVar || 'MISSING');
                 const hDesc = varNom ? varNom.NCDesc.trim() : 'Standard Hourly Operation';
                 const hRate = getRate(varNom);
                 const hTotal = totalQty * hRate;
@@ -348,7 +353,6 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
 
             tbody.innerHTML = html;
 
-            // Final safety check if it was previously saved
             if (isSaved && savedSubtotal > 0) { currentSubtotal = savedSubtotal; }
 
             const vat = currentSubtotal * 0.18;
@@ -359,7 +363,6 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             document.getElementById('tot_final').innerText = total.toFixed(2);
         }
 
-        // Initial Render
         renderTable();
 
         function saveAndPrint() {
@@ -372,13 +375,14 @@ $projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) 
             const fd = new FormData();
             fd.append('action', 'finalize_and_invoice');
             fd.append('booking_id', <?= $bookingId ?>);
-            fd.append('hours', finalQty); // Acts as QTY or Hours
-            fd.append('rate', erpPayloadRate); // The backend uses this if it's standard/trip
-            fd.append('subtotal', currentSubtotal); // The absolute truth for the ledger
+            fd.append('hours', finalQty); 
+            fd.append('rate', erpPayloadRate); 
+            fd.append('subtotal', currentSubtotal); 
 
             fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
-                if (res === 'OK') {
-                    btn.innerHTML = '<i class="fas fa-check"></i> Synced to ERP!';
+                // If it succeeds OR saves locally as N/A, we consider it finalized for the UI
+                if (res.includes('OK')) {
+                    btn.innerHTML = '<i class="fas fa-check"></i> Finalized!';
                     setTimeout(() => { location.reload(); }, 1200);
                 } else { 
                     alert(res); 
