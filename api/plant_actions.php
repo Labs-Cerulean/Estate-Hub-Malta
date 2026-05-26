@@ -54,7 +54,10 @@ function getJ2ApiData($endpoint, $apiKey) {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
     curl_close($ch);
     
-    return ($httpCode >= 200 && $httpCode < 300) ? json_decode($response, true) : [];
+    if ($httpCode >= 200 && $httpCode < 300) {
+        return json_decode($response, true);
+    }
+    return [];
 }
 
 function postJ2ApiData($endpoint, $apiKey, $payload) {
@@ -117,6 +120,7 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
             $exEnd += 86400;
         }
         
+        // Mathematical check for time overlap
         if ($newStart < $exEnd && $newEnd > $exStart) {
             return false; // Collision detected!
         }
@@ -237,7 +241,6 @@ if ($action == 'get_company_clients' && $isManager) {
         }
     }
     echo json_encode($results); 
-    max_height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2); 
     exit;
 }
 
@@ -297,6 +300,7 @@ if ($action == 'fetch_bookings') {
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
     
+    // GLOBAL DRIVER VISIBILITY UPDATE: Everyone now pulls the full schedule
     $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
               FROM plant_bookings pb 
               JOIN plants p ON pb.plant_id = p.id 
@@ -464,7 +468,7 @@ if ($action == 'update_booking' && $isManager) {
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $editId = $_POST['edit_id'];
     
-    $checkStmt = $pdo->prepare("SELECT status, invoice_sysref FROM plant_bookings WHERE id = ?");
+    $checkStmt = $pdo->prepare("SELECT status FROM plant_bookings WHERE id = ?");
     $checkStmt->execute([$editId]);
     $existingJob = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -667,11 +671,17 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
     
     $lines = [];
+    
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
         if($fixedNom) { 
             $lines[] = [
-                "Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
-                "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => $syncPriceFixed, 
+                "Type" => "N", 
+                "Code" => trim($fixedNom['NCCode']), 
+                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
+                "UOMLevel" => 1, 
+                "Location" => "01", 
+                "Qty" => 1, 
+                "Price" => $syncPriceFixed, 
                 "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
             ]; 
         }
@@ -680,8 +690,13 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
             if($varNom) { 
                 $lines[] = [
-                    "Type" => "N", "Code" => trim($varNom['NCCode']), "Description" => substr(trim($varNom['NCDesc']), 0, 35), 
-                    "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => $syncPriceVar, 
+                    "Type" => "N", 
+                    "Code" => trim($varNom['NCCode']), 
+                    "Description" => substr(trim($varNom['NCDesc']), 0, 35), 
+                    "UOMLevel" => 1, 
+                    "Location" => "01", 
+                    "Qty" => $extraHours, 
+                    "Price" => $syncPriceVar, 
                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
                 ]; 
             }
@@ -689,17 +704,28 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     } elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
         if($fixedNom) { 
             $lines[] = [
-                "Type" => "N", "Code" => trim($fixedNom['NCCode']), "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
-                "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, "Price" => $syncPriceFixed, 
+                "Type" => "N", 
+                "Code" => trim($fixedNom['NCCode']), 
+                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
+                "UOMLevel" => 1, 
+                "Location" => "01", 
+                "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 
+                "Price" => $syncPriceFixed, 
                 "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
             ]; 
         }
     } else {
         $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; 
         $standardNom = getNominalDetails($standardCode, $apiKey);
+        
         $lines[] = [
-            "Type" => "N", "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), 
-            "UOMLevel" => 1, "Location" => "01", "Qty" => $finalHours, "Price" => $syncPriceVar, 
+            "Type" => "N", 
+            "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, 
+            "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), 
+            "UOMLevel" => 1, 
+            "Location" => "01", 
+            "Qty" => $finalHours, 
+            "Price" => $syncPriceVar, 
             "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
         ];
     }
@@ -717,11 +743,26 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         "Type" => "IN", 
         "Transaction" => [ 
             "InvioceHeader" => [ 
-                "THTranCode" => "IN", "THDate" => date('Y-m-d'), "THUserID" => "API", "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", 
-                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), "THExtRef" => $jobRef, "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => round($totalTax, 2), "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => "" 
+                "THTranCode" => "IN", 
+                "THDate" => date('Y-m-d'), 
+                "THUserID" => "API", 
+                "THCSCode" => $job['client_code'], 
+                "THName" => $job['client_name'], 
+                "THTaxNumber" => "", 
+                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), 
+                "THExtRef" => $jobRef, 
+                "THRevision" => "001", 
+                "THTotDiscF" => 0.0, 
+                "THTotDiscTIF" => 0.0, 
+                "THTotTaxF" => round($totalTax, 2), 
+                "THCurrency" => "EUR", 
+                "THExchRate" => 1, 
+                "THPayment" => "", 
+                "THPayRef" => "" 
             ], 
             "InvioceItemLine" => [ "Lines" => $lines ], 
-            "Ledger" => "S", "OfflineDocRefs" => "" 
+            "Ledger" => "S", 
+            "OfflineDocRefs" => "" 
         ] 
     ];
 
