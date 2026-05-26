@@ -4,6 +4,12 @@ require_once 'session-check.php';
 require_once 'user-functions.php';
 require_once 'S3FileManager.php';
 
+// Auto-deploy database updates for new columns to save custom rates
+try { 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL"); 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
+} catch(PDOException $e) {}
+
 $role = $_SESSION['role'] ?? '';
 $isAdmin = ($role === 'admin');
 
@@ -286,13 +292,13 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         const rawNomFixed = '<?= htmlspecialchars($job['nom_code_fixed'] ?? '') ?>';
         const rawNomVar = '<?= htmlspecialchars($job['nom_code_variable'] ?? '') ?>';
         const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
-
-        let rateFixed = <?= $fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0 ?>;
-        let rateVar = <?= $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0 ?>;
         
-        // If it was already manually overridden locally in the past, the DB only saves the final total.
-        // For editing, pulling the clean API defaults so the Admin can manually re-override them is safest.
+        const savedHours = <?= $job['final_hours'] ?? 0 ?>;
 
+        // Smart Rate Retrieval: Pulls from DB if explicitly saved, otherwise gracefully defaults to API/Zero
+        let rateFixed = <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>;
+        let rateVar = <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>;
+        
         let currentSubtotal = 0;
 
         function recalcHours() {
@@ -303,13 +309,18 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
                 const [hOut, mOut] = tOut.split(':').map(Number);
                 let diff = (hOut + mOut/60) - (hIn + mIn/60);
                 if (diff < 0) diff += 24; 
-                document.getElementById('calc_master_qty').value = diff.toFixed(2);
+                
+                const qtyInput = document.getElementById('calc_master_qty');
+                if (qtyInput) qtyInput.value = diff.toFixed(2);
                 renderTable();
             }
         }
 
         function renderTable() {
-            let totalQty = parseFloat(document.getElementById('calc_master_qty').value) || 0;
+            // FIX: Safely extract quantity to prevent TypeError when page is locked for Managers
+            const qtyInput = document.getElementById('calc_master_qty');
+            let totalQty = qtyInput ? (parseFloat(qtyInput.value) || 0) : savedHours;
+            
             const tbody = document.getElementById('lines-body');
             let html = '';
             currentSubtotal = 0;
@@ -400,7 +411,7 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             fd.append('hours', finalQty); 
             fd.append('subtotal', currentSubtotal); 
             
-            // Backend will use these explicitly modified rates
+            // Pass the explicitly modified rates to be saved permanently
             fd.append('rate_fixed', rateFixed);
             fd.append('rate_var', rateVar);
             
