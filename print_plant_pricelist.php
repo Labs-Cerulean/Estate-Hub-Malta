@@ -8,6 +8,12 @@ require_once 'session-check.php';
 require_once 'user-functions.php';
 require_once 'S3FileManager.php'; // Required for Cloudflare R2 secure image loading
 
+// Auto-deploy database updates to ensure schema integrity on page load
+try { 
+    $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00"); 
+    $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL"); 
+} catch(PDOException $e) {}
+
 // Strict Role and Permission Authorization Protection
 $role = $_SESSION['role'] ?? '';
 $hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager']);
@@ -128,13 +134,21 @@ foreach ($plants as &$p) {
     
     $p['fixed_data'] = (!empty($p['nom_code_fixed']) && isset($companyCatalog[trim($p['nom_code_fixed'])])) ? $companyCatalog[trim($p['nom_code_fixed'])] : null;
     $p['var_data'] = (!empty($p['nom_code_variable']) && isset($companyCatalog[trim($p['nom_code_variable'])])) ? $companyCatalog[trim($p['nom_code_variable'])] : null;
+    $p['setup_data'] = (!empty($p['nom_code_setup']) && isset($companyCatalog[trim($p['nom_code_setup'])])) ? $companyCatalog[trim($p['nom_code_setup'])] : null;
     
     $p['is_valid_model'] = in_array($p['pricing_type'], ['fixed_then_hourly', 'hourly', 'per_trip']);
     $p['is_fixed_req'] = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip']);
     $p['is_var_req'] = in_array($p['pricing_type'], ['fixed_then_hourly', 'hourly']);
     
-    // BUG FIX: Ensure missing pricing types trigger the misconfigured lock in the audit too
-    $p['is_misconfigured'] = !$p['is_valid_model'] || ($p['is_fixed_req'] && !$p['fixed_data']) || ($p['is_var_req'] && !$p['var_data']);
+    // Strict requirement: Rock Saws MUST have a setup code mapped
+    $isSetupMisconfigured = false;
+    if ($p['category'] === 'Rock Saw') {
+        if (empty($p['nom_code_setup']) || !$p['setup_data']) {
+            $isSetupMisconfigured = true;
+        }
+    }
+    
+    $p['is_misconfigured'] = !$p['is_valid_model'] || ($p['is_fixed_req'] && !$p['fixed_data']) || ($p['is_var_req'] && !$p['var_data']) || $isSetupMisconfigured;
     $p['erp_online'] = $erpOnline;
 
     if (!$erpOnline) {
@@ -293,11 +307,11 @@ function formatPricingModel($type) {
     <table>
         <thead>
             <tr>
-                <th style="width: 22%; text-align: left;">Machinery Details</th>
+                <th style="width: 25%; text-align: left;">Machinery Details</th>
                 <th style="width: 18%; text-align: left;">Company Assignments</th>
-                <th style="width: 14%; text-align: center;">Pricing Model</th>
-                <th style="width: 23%; text-align: left;">Fixed Callout Nominal</th>
-                <th style="width: 23%; text-align: left;">Variable / Hourly Nominal</th>
+                <th style="width: 15%; text-align: center;">Pricing Model</th>
+                <th style="width: 21%; text-align: left;">Fixed Callout Nominal</th>
+                <th style="width: 21%; text-align: left;">Variable / Hourly Nominal</th>
             </tr>
         </thead>
         <tbody>
@@ -327,6 +341,32 @@ function formatPricingModel($type) {
                                 <span style="font-family: monospace; color: #0f172a; font-size: 0.75rem; margin-top: 6px; background: #e2e8f0; display: inline-block; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1;">
                                     <?= htmlspecialchars($p['registration_plate']) ?>
                                 </span>
+                            <?php endif; ?>
+                            
+                            <?php if ($p['category'] === 'Rock Saw'): ?>
+                                <div style="margin-top: 15px; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
+                                    <span style="font-size: 0.8rem; color: #1e3a8a; font-weight: 800;"><i class="fas fa-truck-loading"></i> Setup / Mob. Fee</span>
+                                    
+                                    <?php if (!$p['erp_online']): ?>
+                                        <span class="offline-msg" style="margin-top: 5px;"><i class="fas fa-wifi"></i> ERP Offline</span>
+                                    <?php elseif ($p['setup_data']): ?>
+                                        <div class="nominal-cell" style="margin-top: 5px; border-color: #bfdbfe; background: #eff6ff; padding: 8px;">
+                                            <strong style="color: #1e40af; font-size: 0.8rem;"><?= htmlspecialchars(trim($p['setup_data']['NCCode'])) ?></strong>
+                                            <div class="rate-grid" style="border-color: #bfdbfe; margin-top: 4px; padding-top: 4px;">
+                                                <div class="rate-item">
+                                                    <span class="rate-label" style="color: #3b82f6;">In-Hse:</span>
+                                                    <span class="rate-value" style="color: #1e40af;">€<?= number_format((float)$p['setup_data']['NCDefSP1'], 2) ?></span>
+                                                </div>
+                                                <div class="rate-item">
+                                                    <span class="rate-label" style="color: #3b82f6;">Comm:</span>
+                                                    <span class="rate-value" style="color: #1e40af;">€<?= number_format((float)$p['setup_data']['NCDefSP2'], 2) ?></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php else: ?>
+                                        <span class="error-msg" style="margin-top: 5px;"><i class="fas fa-exclamation-triangle"></i> Code Missing</span>
+                                    <?php endif; ?>
+                                </div>
                             <?php endif; ?>
                         </td>
 
@@ -372,7 +412,7 @@ function formatPricingModel($type) {
                                         </div>
                                     </div>
                                 <?php else: ?>
-                                    <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> nominal code required</span>
+                                    <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> code required</span>
                                 <?php endif; ?>
                             <?php elseif (!$p['is_valid_model']): ?>
                                 <span class="error-msg"><i class="fas fa-ban"></i> Invalid Setup</span>
@@ -401,7 +441,7 @@ function formatPricingModel($type) {
                                         </div>
                                     </div>
                                 <?php else: ?>
-                                    <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> nominal code required</span>
+                                    <span class="error-msg"><i class="fas fa-exclamation-triangle"></i> code required</span>
                                 <?php endif; ?>
                             <?php elseif (!$p['is_valid_model']): ?>
                                 <span class="error-msg"><i class="fas fa-ban"></i> Invalid Setup</span>
