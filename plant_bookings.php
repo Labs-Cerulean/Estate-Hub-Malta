@@ -108,6 +108,7 @@ $userId = $_SESSION['user_id'];
                             <option value="Other Trucks">Other Trucks</option>
                             <option value="Piling">Piling</option>
                             <option value="Pumps">Pumps</option>
+                            <option value="Rock Saw">Rock Saw</option>
                             <option value="Scarifier">Scarifier</option>
                         </select>
                     </div>
@@ -146,6 +147,20 @@ $userId = $_SESSION['user_id'];
                     </div>
                 </div>
                 
+                <div style="border: 2px dashed #bfdbfe; padding: 15px; border-radius: 12px; background: #eff6ff; margin-bottom: 15px;">
+                    <h4 style="margin-top:0; color:#1d4ed8; font-size:0.9rem; margin-bottom:10px;"><i class="fas fa-truck-loading"></i> Optional Setup / Mobilisation Fee</h4>
+                    <div style="display:flex; gap:10px; margin-bottom: 0;">
+                        <div style="flex:1;">
+                            <label style="color:#1e3a8a;">Default Fee (€)</label>
+                            <input type="number" id="new_plant_setup_fee" class="input-heavy" style="margin-bottom:0;" value="0.00" step="0.01">
+                        </div>
+                        <div style="flex:2;">
+                            <label style="color:#1e3a8a;">Setup Nominal Code</label>
+                            <select id="new_nom_setup" class="input-heavy" style="margin-bottom:0;"><option value="">Loading ERP...</option></select>
+                        </div>
+                    </div>
+                </div>
+                
                 <label>ERP Pre-Loaded Live Rates</label>
                 <div id="rate_display_box" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:15px; font-size: 0.95rem; color:#475569;">
                     <p style="margin:0; text-align:center;">Select Nominal Codes to view rates.</p>
@@ -178,6 +193,14 @@ $userId = $_SESSION['user_id'];
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1;"><label>Category</label><select id="plant_category" class="input-heavy" required onchange="updatePlantDropdown()"></select></div>
                     <div style="flex:2;"><label>Machinery</label><select id="plant_id" class="input-heavy" required onchange="onPlantSelected()"></select></div>
+                </div>
+
+                <div id="setup-fee-container" style="display:none; background:#eff6ff; padding:15px; border-radius:12px; margin-bottom:18px; border:1px solid #bfdbfe;">
+                    <label style="display:flex; align-items:center; gap:10px; margin:0; cursor:pointer; font-size:1.1rem; color:#1d4ed8; text-transform:none;">
+                        <input type="checkbox" id="apply_setup_fee" value="1" style="width:20px; height:20px; cursor:pointer;">
+                        <b style="padding-top:2px;">Apply One-Time Setup Fee (<span id="setup_fee_display_amount">€0.00</span>)</b>
+                    </label>
+                    <p style="font-size:0.8rem; color:#3b82f6; margin-top:5px; margin-bottom:0; font-weight:normal;">Check this if this is the first day of deployment and the mobilisation fee should be charged to the client.</p>
                 </div>
 
                 <label>Assigned Driver</label><select id="driver_id" class="input-heavy"></select>
@@ -412,18 +435,39 @@ $userId = $_SESSION['user_id'];
         }).join('');
         
         if (!keepClientData) resetClientSearch();
+        
+        // Reset the setup fee UI when changing category
+        document.getElementById('setup-fee-container').style.display = 'none';
+        document.getElementById('apply_setup_fee').checked = false;
     }
 
     function onPlantSelected(keepClientData = false) {
         if (!keepClientData) resetClientSearch();
         
         const pSelect = document.getElementById('plant_id');
-        if(pSelect.selectedIndex <= 0 || pSelect.value === '') return;
+        if(pSelect.selectedIndex <= 0 || pSelect.value === '') {
+            document.getElementById('setup-fee-container').style.display = 'none';
+            document.getElementById('apply_setup_fee').checked = false;
+            return;
+        }
         
         const opt = pSelect.options[pSelect.selectedIndex];
         if (opt.dataset.missing === 'true') {
             alert("Billing details for this vehicle are missing. Please configure them in the Fleet Setup before booking.");
             pSelect.value = ''; return;
+        }
+
+        // Check if the selected plant has a setup fee configured
+        const selectedPlantId = pSelect.value;
+        const selectedCat = document.getElementById('plant_category').value;
+        const plantObj = groupedPlants[selectedCat].find(p => p.id == selectedPlantId);
+        
+        if (plantObj && parseFloat(plantObj.setup_fee) > 0) {
+            document.getElementById('setup-fee-container').style.display = 'block';
+            document.getElementById('setup_fee_display_amount').innerText = '€' + parseFloat(plantObj.setup_fee).toFixed(2);
+        } else {
+            document.getElementById('setup-fee-container').style.display = 'none';
+            document.getElementById('apply_setup_fee').checked = false;
         }
 
         const compId = opt.getAttribute('data-company-id');
@@ -440,7 +484,6 @@ $userId = $_SESSION['user_id'];
             currentErpClients = res; 
             clientInput.placeholder = "start writing client here"; 
             clientInput.disabled = false; 
-            // PREVENT RACE CONDITION WIPE: We do not clear the .value here anymore
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
 
@@ -498,6 +541,8 @@ $userId = $_SESSION['user_id'];
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
         document.getElementById('createBookingForm').reset(); 
         
+        document.getElementById('setup-fee-container').style.display = 'none';
+        
         if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
     }
 
@@ -525,7 +570,17 @@ $userId = $_SESSION['user_id'];
         
         document.getElementById('client_code').value = j.client_code || ''; 
         document.getElementById('client_name').value = j.client_name || ''; 
+        
         onPlantSelected(true); 
+        
+        // Restore the checkbox state if it had a setup fee
+        setTimeout(() => {
+            if (parseFloat(j.setup_fee) > 0) {
+                document.getElementById('setup-fee-container').style.display = 'block';
+                document.getElementById('setup_fee_display_amount').innerText = '€' + parseFloat(j.setup_fee).toFixed(2);
+                document.getElementById('apply_setup_fee').checked = (j.apply_setup_fee == 1);
+            }
+        }, 100);
 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-save"></i> Update Booking';
         showView('view-create');
@@ -573,6 +628,8 @@ $userId = $_SESSION['user_id'];
         btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         
         const editId = document.getElementById('edit_booking_id').value;
+        const applySetup = document.getElementById('apply_setup_fee').checked ? 1 : 0;
+        
         const fd = new FormData(); 
         fd.append('action', editId ? 'update_booking' : 'create_booking'); 
         if (editId) fd.append('edit_id', editId);
@@ -589,6 +646,7 @@ $userId = $_SESSION['user_id'];
         fd.append('booking_date', document.getElementById('booking_date').value);
         fd.append('start_time', document.getElementById('start_time').value); 
         fd.append('end_time', document.getElementById('end_time').value);
+        fd.append('apply_setup_fee', applySetup);
 
         fetch('api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
@@ -608,11 +666,13 @@ $userId = $_SESSION['user_id'];
         if(!companyId) {
             document.getElementById('new_nom_fixed').innerHTML = '<option value="">-- Select Company First --</option>';
             document.getElementById('new_nom_var').innerHTML = '<option value="">-- Select Company First --</option>';
+            document.getElementById('new_nom_setup').innerHTML = '<option value="">-- Select Company First --</option>';
             erpNominals = []; return;
         }
         
         document.getElementById('new_nom_fixed').innerHTML = '<option value="">Loading ERP...</option>';
         document.getElementById('new_nom_var').innerHTML = '<option value="">Loading ERP...</option>';
+        document.getElementById('new_nom_setup').innerHTML = '<option value="">Loading ERP...</option>';
     
         fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
         .then(r => r.json())
@@ -621,6 +681,7 @@ $userId = $_SESSION['user_id'];
             const opts = '<option value="">-- Select Nominal Code --</option>' + res.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
             document.getElementById('new_nom_fixed').innerHTML = opts;
             document.getElementById('new_nom_var').innerHTML = opts;
+            document.getElementById('new_nom_setup').innerHTML = opts;
             updateRatesDisplay();
         });
     }
@@ -669,15 +730,18 @@ $userId = $_SESSION['user_id'];
         .then(r => r.json())
         .then(fleet => {
             window.fleetData = fleet;
-            document.getElementById('fleet-list').innerHTML = fleet.length === 0 ? '<p>No machinery.</p>' : fleet.map(p => `
+            document.getElementById('fleet-list').innerHTML = fleet.length === 0 ? '<p>No machinery.</p>' : fleet.map(p => {
+                let setupHtml = parseFloat(p.setup_fee) > 0 ? ` | <span style="color:#1d4ed8;">Setup: €${parseFloat(p.setup_fee).toFixed(2)}</span>` : '';
+                return `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:flex-start;">
                     <div>
                         <div style="font-weight:900; font-size:1.2rem;">${p.name} <span style="font-size:0.8rem; background:#e0e7ff; color:#4f46e5; padding:3px 6px; border-radius:4px;">${p.billing_company_name||'Unknown'}</span></div>
                         <div style="color:#64748b; font-size:0.95rem; margin-bottom: 8px;">Cat: <b>${p.category}</b> | Reg: <b>${p.registration_plate||'N/A'}</b></div>
-                        <div style="font-size:0.85rem; color:#b45309;">Fixed Nom: ${p.nom_code_fixed||'N/A'} | Var Nom: ${p.nom_code_variable||'N/A'}</div>
+                        <div style="font-size:0.85rem; color:#b45309;">Fixed Nom: ${p.nom_code_fixed||'N/A'} | Var Nom: ${p.nom_code_variable||'N/A'}${setupHtml}</div>
                     </div>
                     <button onclick="editPlant(${p.id})" style="background:#e2e8f0; color:#475569; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer;"><i class="fas fa-edit"></i> Edit</button>
-                </div>`).join('');
+                </div>`;
+            }).join('');
         }); 
         showView('view-fleet');
     }
@@ -694,9 +758,17 @@ $userId = $_SESSION['user_id'];
         document.getElementById('new_plant_reg').value = p.registration_plate;
         document.getElementById('new_plant_pricing').value = p.pricing_type;
         document.getElementById('new_plant_min_hrs').value = p.min_hours;
+        
+        // Populate the new Setup Fee fields
+        document.getElementById('new_plant_setup_fee').value = parseFloat(p.setup_fee || 0).toFixed(2);
 
         loadFleetNominals(p.billing_company_id);
-        setTimeout(() => { document.getElementById('new_nom_fixed').value = p.nom_code_fixed || ''; document.getElementById('new_nom_var').value = p.nom_code_variable || ''; togglePricingModel(); }, 300);
+        setTimeout(() => { 
+            document.getElementById('new_nom_fixed').value = p.nom_code_fixed || ''; 
+            document.getElementById('new_nom_var').value = p.nom_code_variable || ''; 
+            document.getElementById('new_nom_setup').value = p.nom_code_setup || ''; 
+            togglePricingModel(); 
+        }, 300);
         
         const saveBtn = document.getElementById('save_fleet_btn');
         saveBtn.innerHTML = '<i class="fas fa-save"></i> Update Machinery';
@@ -725,10 +797,16 @@ $userId = $_SESSION['user_id'];
         const fd = new FormData(); fd.append('action', editId ? 'update_plant' : 'save_plant');
         if (editId) fd.append('edit_plant_id', editId);
         
-        fd.append('category', document.getElementById('new_plant_cat').value); fd.append('name', document.getElementById('new_plant_name').value);
-        fd.append('reg', document.getElementById('new_plant_reg').value); fd.append('billing_company_id', document.getElementById('new_plant_comp').value); 
-        fd.append('pricing_type', pt); fd.append('min_hours', document.getElementById('new_plant_min_hrs').value); 
-        fd.append('nom_code_fixed', document.getElementById('new_nom_fixed').value); fd.append('nom_code_variable', document.getElementById('new_nom_var').value); 
+        fd.append('category', document.getElementById('new_plant_cat').value); 
+        fd.append('name', document.getElementById('new_plant_name').value);
+        fd.append('reg', document.getElementById('new_plant_reg').value); 
+        fd.append('billing_company_id', document.getElementById('new_plant_comp').value); 
+        fd.append('pricing_type', pt); 
+        fd.append('min_hours', document.getElementById('new_plant_min_hrs').value); 
+        fd.append('nom_code_fixed', document.getElementById('new_nom_fixed').value); 
+        fd.append('nom_code_variable', document.getElementById('new_nom_var').value); 
+        fd.append('setup_fee', document.getElementById('new_plant_setup_fee').value); 
+        fd.append('nom_code_setup', document.getElementById('new_nom_setup').value); 
 
         fetch('api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
@@ -763,13 +841,15 @@ $userId = $_SESSION['user_id'];
                     erpStatusHtml = `<div style="background:#ecfdf5; color:#047857; padding:10px; border-radius:8px; margin-bottom:12px; font-weight:bold; border: 1px solid #a7f3d0;"><i class="fas fa-check-circle"></i> Finalized & Synced (Ref: ${job.invoice_sysref})</div>`;
                 }
             }
+            
+            let setupBadgeHtml = job.apply_setup_fee == 1 ? `<span style="background:#dbeafe; color:#1e40af; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold; margin-left:10px;"><i class="fas fa-truck-loading"></i> Setup Fee Active</span>` : '';
 
             document.getElementById('job-details').innerHTML = `
                 ${erpStatusHtml}
                 <div style="margin-bottom:12px; font-size: 1.2rem;"><b>Driver:</b> ${driverHtml}</div>
                 <div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
                 <div style="margin-bottom:12px;"><b>Type:</b> ${job.booking_type.toUpperCase()}</div>
-                <div style="margin-bottom:12px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span></div>
+                <div style="margin-bottom:12px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span> ${setupBadgeHtml}</div>
                 ${commHtml}
                 <hr style="border: 1px solid #e2e8f0; margin: 20px 0;">
                 <div style="background:#f1f5f9; padding:12px; border-radius:8px; font-weight:bold;">${job.location_text}</div>
@@ -792,7 +872,6 @@ $userId = $_SESSION['user_id'];
                 }
             }
             
-            // Managers can ONLY edit Pending/In Progress jobs here. Closed jobs are edited on the RFP.
             if (isManager && job.status === 'Pending') {
                 controlsHtml += `<button class="btn-heavy btn-blue" onclick="initiateBookingEdit()"><i class="fas fa-edit"></i> Edit Booking Details</button>`; 
             }
@@ -801,7 +880,6 @@ $userId = $_SESSION['user_id'];
                 controlsHtml += `<button class="btn-heavy btn-red" onclick="cancelJob(${job.id})"><i class="fas fa-trash-alt"></i> Cancel Booking</button>`; 
             }
             
-            // Correct Button Swap Logic for Admins vs Managers
             if (isManager && job.status === 'Completed') {
                 if (job.payment_status === 'Invoiced' || job.payment_status === 'Settled') {
                     if (isAdmin && !isSynced) {
@@ -890,7 +968,6 @@ $userId = $_SESSION['user_id'];
                     badge = `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
                 }
                 
-                // Safe button label logic based on Admin status and sync status
                 let btnLabel = (isAdmin && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) ? 'View / Edit RFP' : 'View RFP';
                 
                 return `

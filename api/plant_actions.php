@@ -3,18 +3,27 @@ require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
 
+// Auto-deploy database updates for Setup Fee and Local Rate Overrides
+try { 
+    $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00"); 
+    $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL"); 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN apply_setup_fee TINYINT(1) DEFAULT 0"); 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_setup_fee DECIMAL(10,2) DEFAULT NULL"); 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL"); 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
+} catch(PDOException $e) {}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
 session_write_close(); // Prevent browser hanging
 
-// Access Flags
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
-// Dynamic API Key Mapper - Pulled securely from Environment Variables
+// Dynamic API Key Mapper
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
@@ -23,8 +32,8 @@ if (!$praApiKey || !$praxApiKey) {
 }
 
 $apiKeys = [
-    '24' => $praApiKey,  // PRA API Key
-    '26' => $praxApiKey, // PRAX API Key
+    '24' => $praApiKey,  
+    '26' => $praxApiKey, 
     'default' => $praApiKey
 ];
 
@@ -89,7 +98,7 @@ function postJ2ApiData($endpoint, $apiKey, $payload) {
 // ==========================================
 function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $excludeBookingId = null) {
     if (empty($driverId)) {
-        return true; // Unassigned is always allowed
+        return true; 
     }
     
     $sql = "SELECT id, start_time, end_time FROM plant_bookings 
@@ -109,7 +118,7 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
     $newEnd = strtotime($date . ' ' . $endTime);
     
     if ($newEnd <= $newStart) {
-        $newEnd += 86400; // Account for overnight shift
+        $newEnd += 86400; 
     }
     
     foreach ($existing as $b) {
@@ -120,9 +129,8 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
             $exEnd += 86400;
         }
         
-        // Mathematical check for time overlap
         if ($newStart < $exEnd && $newEnd > $exStart) {
-            return false; // Collision detected!
+            return false; 
         }
     }
     return true;
@@ -169,7 +177,7 @@ if ($action == 'form_data') {
         $nominalCache[$compId] = $indexed;
     }
 
-    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
+    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
     $plants = []; 
     
     foreach($plantsRaw as $p) { 
@@ -232,7 +240,6 @@ if ($action == 'get_company_clients' && $isManager) {
         foreach ($apiClients as $c) {
             $name = trim((string)($c['ClientName'] ?? '')); 
             $code = trim((string)($c['ClientCode'] ?? ''));
-            
             $status = isset($c['CliStatus']) ? (int)$c['CliStatus'] : (isset($c['clistatus']) ? (int)$c['clistatus'] : 1);
             
             if (!empty($name)) { 
@@ -313,7 +320,7 @@ if ($action == 'fetch_bookings') {
     $catColors = [
         'Cranes' => '#eab308', 'Pumps' => '#3b82f6', 'Booms' => '#f97316', 
         'Excavator' => '#ef4444', 'Piling' => '#8b5cf6', 'Drum Cutter' => '#14b8a6', 
-        'Other Trucks' => '#64748b', 'Scarifier' => '#ec4899', 'General' => '#6366f1'
+        'Rock Saw' => '#10b981', 'Other Trucks' => '#64748b', 'Scarifier' => '#ec4899', 'General' => '#6366f1'
     ];
 
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
@@ -346,6 +353,13 @@ if ($action == 'fetch_bookings') {
         }
         
         $title = $statusInd . $b['plant_name'];
+        
+        // Safely check for setup fee application
+        $hasSetupFee = isset($b['apply_setup_fee']) ? $b['apply_setup_fee'] : 0;
+        if ($hasSetupFee == 1) {
+            $title .= " [SETUP FEE]";
+        }
+        
         if (!empty($details)) {
             $title .= "\n" . implode(" | ", $details);
         }
@@ -389,10 +403,14 @@ if ($action == 'save_plant' && $canManageFleet) {
         $nomVar = null; 
     }
 
-    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?)");
+    $setupFee = empty($_POST['setup_fee']) ? 0.00 : (float)$_POST['setup_fee'];
+    $nomSetup = empty($_POST['nom_code_setup']) ? null : $_POST['nom_code_setup'];
+
+    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id']
+        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, 
+        $setupFee, $nomSetup, $_POST['billing_company_id']
     ]);
     
     echo "OK"; 
@@ -415,10 +433,14 @@ if ($action == 'update_plant' && $canManageFleet) {
         $nomVar = null; 
     }
 
-    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, billing_company_id=? WHERE id=?");
+    $setupFee = empty($_POST['setup_fee']) ? 0.00 : (float)$_POST['setup_fee'];
+    $nomSetup = empty($_POST['nom_code_setup']) ? null : $_POST['nom_code_setup'];
+
+    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, setup_fee=?, nom_code_setup=?, billing_company_id=? WHERE id=?");
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
-        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, $_POST['billing_company_id'], $_POST['edit_plant_id']
+        $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, 
+        $setupFee, $nomSetup, $_POST['billing_company_id'], $_POST['edit_plant_id']
     ]);
     
     echo "OK"; 
@@ -433,6 +455,7 @@ if ($action == 'get_drivers' && $canManageFleet) {
 
 if ($action == 'create_booking' && $isManager) {
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
+    $applySetupFee = isset($_POST['apply_setup_fee']) && $_POST['apply_setup_fee'] == '1' ? 1 : 0;
     
     if (!isDriverAvailable($pdo, $driverId, $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'])) {
         echo "ERROR_OVERLAP"; 
@@ -440,8 +463,8 @@ if ($action == 'create_booking' && $isManager) {
     }
 
     $stmt = $pdo->prepare("
-        INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, start_time, end_time, comments, created_by) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, start_time, end_time, comments, apply_setup_fee, created_by) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     
     $stmt->execute([ 
@@ -457,6 +480,7 @@ if ($action == 'create_booking' && $isManager) {
         $_POST['start_time'], 
         $_POST['end_time'], 
         $_POST['comments'], 
+        $applySetupFee,
         $userId 
     ]); 
     
@@ -468,16 +492,19 @@ if ($action == 'update_booking' && $isManager) {
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $editId = $_POST['edit_id'];
     
-    // STRICT LOCK: We completely reject editing Completed jobs through the standard modal. 
-    // Admins MUST use the RFP view to modify historical data safely.
-    $checkStmt = $pdo->prepare("SELECT status FROM plant_bookings WHERE id = ?");
+    $checkStmt = $pdo->prepare("SELECT status, apply_setup_fee FROM plant_bookings WHERE id = ?");
     $checkStmt->execute([$editId]);
     $existingJob = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($existingJob && $existingJob['status'] === 'Completed') {
-        echo "ERROR: Completed jobs cannot be edited here. Admins must use the View RFP screen to modify completed jobs.";
-        exit;
+    if ($existingJob) {
+        if ($existingJob['status'] === 'Completed') {
+            echo "ERROR: Completed jobs cannot be edited here. Admins must use the View RFP screen to modify completed jobs.";
+            exit;
+        }
     }
+    
+    // SAFE FALLBACK: If the UI doesn't send the checkbox (because we haven't updated it yet), preserve the historical state!
+    $applySetupFee = isset($_POST['apply_setup_fee']) ? ($_POST['apply_setup_fee'] == '1' ? 1 : 0) : ($existingJob['apply_setup_fee'] ?? 0);
     
     if (!isDriverAvailable($pdo, $driverId, $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $editId)) {
         echo "ERROR_OVERLAP"; 
@@ -486,7 +513,7 @@ if ($action == 'update_booking' && $isManager) {
 
     $stmt = $pdo->prepare("
         UPDATE plant_bookings 
-        SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=?, comments=? 
+        SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=?, comments=?, apply_setup_fee=? 
         WHERE id=?
     ");
     
@@ -503,6 +530,7 @@ if ($action == 'update_booking' && $isManager) {
         $_POST['start_time'], 
         $_POST['end_time'], 
         $_POST['comments'], 
+        $applySetupFee,
         $editId 
     ]); 
     
@@ -519,7 +547,7 @@ if ($action == 'cancel_booking' && $isManager) {
 
 if ($action == 'get_job') {
     $stmt = $pdo->prepare("
-        SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, 
+        SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee, 
                prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id 
@@ -608,11 +636,11 @@ function getNominalDetails($nomCode, $apiKey) {
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
-    $finalSubtotal = empty($_POST['subtotal']) ? 0 : (float)$_POST['subtotal'];
 
     // Fetch full job data
     $stmt = $pdo->prepare("
         SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, 
+               p.setup_fee, p.nom_code_setup,
                p.name as plant_name, u.first_name as driver_first, u.last_name as driver_last 
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id 
@@ -624,7 +652,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     $apiKey = getApiKey($job['billing_company_id']);
     
-    // NEW OVERRIDE: Process modified punch clock hours from Admin input
+    // Process modified punch clock hours from Admin input
     $punchIn = null;
     $punchOut = null;
     if (!empty($_POST['time_in']) && !empty($_POST['time_out'])) {
@@ -644,113 +672,98 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
     }
 
-    // NEW OVERRIDE: Save modified flat rates permanently 
+    // Capture explicit flat rates from the UI
     $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
     $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
-
-    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, payment_status='Invoiced' WHERE id=?");
-    $stmtLocal->execute([$finalHours, $finalSubtotal, $customRateFixed, $customRateVar, $bookingId]);
-    
-    if(empty($job['client_code'])) { 
-        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
-        echo "OK_LOCAL_ONLY"; 
-        exit; 
-    }
+    $customSetupFee = isset($_POST['setup_fee']) ? (float)$_POST['setup_fee'] : null;
 
     $isInternal = $job['booking_type'] == 'in-house'; 
-    $totalVal = $finalSubtotal; 
-    $totalTax = $totalVal * 0.18;
-    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
-    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
-    
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
+    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
     
-    // Determine the absolute payload rate for sync mapping
+    // Fallback logic to resolve the absolute rates
     $syncPriceFixed = $customRateFixed !== null ? $customRateFixed : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
     $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
     
+    $syncSetupPrice = 0;
+    $hasSetupFeeApplied = isset($job['apply_setup_fee']) ? $job['apply_setup_fee'] : 0;
+    
+    if ($hasSetupFeeApplied == 1 || $customSetupFee > 0) {
+        $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
+    }
+
+    // ABSOLUTE MATH ENGINE: Recalculate Subtotal securely on the server to prevent Sync rejection
     $lines = [];
+    $backendSubtotal = 0;
+
+    if ($syncSetupPrice > 0) {
+        $setupCode = $setupNom ? trim($setupNom['NCCode']) : (!empty($job['nom_code_setup']) ? $job['nom_code_setup'] : '0000');
+        $setupDesc = $setupNom ? substr(trim($setupNom['NCDesc']), 0, 35) : "Setup / Mobilisation Fee";
+        
+        $lines[] = [
+            "Type" => "N", "Code" => $setupCode, "Description" => $setupDesc, "UOMLevel" => 1, "Location" => "01", 
+            "Qty" => 1, "Price" => $syncSetupPrice, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+        ];
+        $backendSubtotal += $syncSetupPrice;
+    }
     
     if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
-        if($fixedNom) { 
-            $lines[] = [
-                "Type" => "N", 
-                "Code" => trim($fixedNom['NCCode']), 
-                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
-                "UOMLevel" => 1, 
-                "Location" => "01", 
-                "Qty" => 1, 
-                "Price" => $syncPriceFixed, 
-                "VATCode" => "VF", 
-                "DiscCalcOn" => "P", 
-                "DiscPer" => 0.0, 
-                "DR" => 0, 
-                "CR" => 0
-            ]; 
-        }
+        $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
+        $fDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Fixed Callout Charge";
+        
+        $lines[] = [
+            "Type" => "N", "Code" => $fCode, "Description" => $fDesc, "UOMLevel" => 1, "Location" => "01", 
+            "Qty" => 1, "Price" => $syncPriceFixed, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+        ]; 
+        $backendSubtotal += $syncPriceFixed;
         
         $extraHours = $finalHours - (float)$job['min_hours'];
         if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
-            if($varNom) { 
-                $lines[] = [
-                    "Type" => "N", 
-                    "Code" => trim($varNom['NCCode']), 
-                    "Description" => substr(trim($varNom['NCDesc']), 0, 35), 
-                    "UOMLevel" => 1, 
-                    "Location" => "01", 
-                    "Qty" => $extraHours, 
-                    "Price" => $syncPriceVar, 
-                    "VATCode" => "VF", 
-                    "DiscCalcOn" => "P", 
-                    "DiscPer" => 0.0, 
-                    "DR" => 0, 
-                    "CR" => 0
-                ]; 
-            }
+            $vCode = $varNom ? trim($varNom['NCCode']) : trim($job['nom_code_variable']);
+            $vDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Additional Hourly Rate";
+            
+            $lines[] = [
+                "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", 
+                "Qty" => $extraHours, "Price" => $syncPriceVar, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+            ]; 
+            $backendSubtotal += ($extraHours * $syncPriceVar);
         }
     } elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
-        if($fixedNom) { 
-            $lines[] = [
-                "Type" => "N", 
-                "Code" => trim($fixedNom['NCCode']), 
-                "Description" => substr(trim($fixedNom['NCDesc']), 0, 35), 
-                "UOMLevel" => 1, 
-                "Location" => "01", 
-                "Qty" => (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 
-                "Price" => $syncPriceFixed, 
-                "VATCode" => "VF", 
-                "DiscCalcOn" => "P", 
-                "DiscPer" => 0.0, 
-                "DR" => 0, 
-                "CR" => 0
-            ]; 
-        }
-    } else {
-        $standardCode = !empty($job['nom_code_variable']) ? $job['nom_code_variable'] : '0000'; 
-        $standardNom = getNominalDetails($standardCode, $apiKey);
+        $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
+        $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
+        $qty = (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1;
         
         $lines[] = [
-            "Type" => "N", 
-            "Code" => $standardNom ? trim($standardNom['NCCode']) : $standardCode, 
-            "Description" => substr($standardNom ? trim($standardNom['NCDesc']) : "Plant Operation", 0, 35), 
-            "UOMLevel" => 1, 
-            "Location" => "01", 
-            "Qty" => $finalHours, 
-            "Price" => $syncPriceVar, 
-            "VATCode" => "VF", 
-            "DiscCalcOn" => "P", 
-            "DiscPer" => 0.0, 
-            "DR" => 0, 
-            "CR" => 0
+            "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", 
+            "Qty" => $qty, "Price" => $syncPriceFixed, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
+        ]; 
+        $backendSubtotal += ($qty * $syncPriceFixed);
+    } else {
+        $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
+        $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
+        
+        $lines[] = [
+            "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", 
+            "Qty" => $finalHours, "Price" => $syncPriceVar, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
         ];
+        $backendSubtotal += ($finalHours * $syncPriceVar);
     }
 
-    if (empty($lines)) { 
+    // SAFELY RECORD THE MATH TO THE DATABASE
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, payment_status='Invoiced' WHERE id=?");
+    $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $bookingId]);
+    
+    if (empty($lines) || empty($job['client_code'])) { 
         $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
         echo "OK_LOCAL_ONLY"; 
         exit; 
     }
+
+    $totalVal = $backendSubtotal; 
+    $totalTax = $totalVal * 0.18;
+    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
+    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => 1, "Location" => "01" ];
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => 1, "Location" => "01" ];
@@ -760,7 +773,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         "Transaction" => [ 
             "InvioceHeader" => [ 
                 "THTranCode" => "IN", 
-                "THDate" => date('Y-m-d'), 
+                "THDate" => $job['booking_date'], 
                 "THUserID" => "API", 
                 "THCSCode" => $job['client_code'], 
                 "THName" => $job['client_name'], 
@@ -814,24 +827,5 @@ if ($action == 'mark_settled' && $canViewLedger) {
     $stmt->execute([$_POST['id']]); 
     echo "OK"; 
     exit; 
-}
-
-if ($action == 'get_nominals_for_job') {
-    $stmt = $pdo->prepare("
-        SELECT p.nom_code_fixed, p.nom_code_variable, p.billing_company_id 
-        FROM plant_bookings pb 
-        JOIN plants p ON pb.plant_id = p.id 
-        WHERE pb.id = ?
-    "); 
-    $stmt->execute([$_GET['booking_id']]); 
-    $job = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    $apiKey = getApiKey($job['billing_company_id']);
-    
-    echo json_encode([
-        'fixed' => getNominalDetails($job['nom_code_fixed'], $apiKey), 
-        'variable' => getNominalDetails($job['nom_code_variable'], $apiKey)
-    ]); 
-    exit;
 }
 ?>
