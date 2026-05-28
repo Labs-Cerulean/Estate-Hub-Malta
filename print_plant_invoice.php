@@ -23,6 +23,7 @@ $bookingId = (int)($_GET['booking_id'] ?? 0);
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
            p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
+           p.setup_fee, p.nom_code_setup,
            bc.name as developer_name, bc.logo_path as developer_logo, 
            bc.bank_name, bc.iban, bc.swift_bic, 
            prj.name as project_name,
@@ -291,13 +292,20 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         
         const rawNomFixed = '<?= htmlspecialchars($job['nom_code_fixed'] ?? '') ?>';
         const rawNomVar = '<?= htmlspecialchars($job['nom_code_variable'] ?? '') ?>';
+        const rawNomSetup = '<?= htmlspecialchars($job['nom_code_setup'] ?? '0000') ?>';
         const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
         
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
+        
+        // Determine if Setup Fee applies
+        const hasSetupFee = <?= (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) ? 'true' : 'false' ?>;
 
         // Smart Rate Retrieval: Pulls from DB if explicitly saved, otherwise gracefully defaults to API/Zero
         let rateFixed = <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>;
         let rateVar = <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>;
+        
+        // Retrieve the setup fee value specifically
+        let rateSetup = <?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>;
         
         let currentSubtotal = 0;
 
@@ -317,7 +325,6 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         }
 
         function renderTable() {
-            // FIX: Safely extract quantity to prevent TypeError when page is locked for Managers
             const qtyInput = document.getElementById('calc_master_qty');
             let totalQty = qtyInput ? (parseFloat(qtyInput.value) || 0) : savedHours;
             
@@ -327,6 +334,20 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
 
             const fRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateFixed.toFixed(2)}" onchange="rateFixed = parseFloat(this.value) || 0; renderTable();">` : rateFixed.toFixed(2);
             const vRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateVar.toFixed(2)}" onchange="rateVar = parseFloat(this.value) || 0; renderTable();">` : rateVar.toFixed(2);
+            
+            // Render Setup Fee first if applicable
+            if (hasSetupFee) {
+                const sRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateSetup.toFixed(2)}" onchange="rateSetup = parseFloat(this.value) || 0; renderTable();">` : rateSetup.toFixed(2);
+                currentSubtotal += rateSetup;
+                
+                html += `<tr>
+                    <td><b>${rawNomSetup}</b></td>
+                    <td>Setup / Mobilisation Fee<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                    <td class="text-right">1.00</td>
+                    <td class="text-right">${sRateInput}</td>
+                    <td class="text-right"><b>${rateSetup.toFixed(2)}</b></td>
+                </tr>`;
+            }
 
             if (pricingType === 'fixed_then_hourly') {
                 const fCode = rawNomFixed || 'MISSING';
@@ -414,6 +435,10 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             // Pass the explicitly modified rates to be saved permanently
             fd.append('rate_fixed', rateFixed);
             fd.append('rate_var', rateVar);
+            
+            if (hasSetupFee) {
+                fd.append('setup_fee', rateSetup);
+            }
             
             // Pass the explicitly modified times
             const timeIn = document.getElementById('edit_time_in');

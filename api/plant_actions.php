@@ -354,9 +354,7 @@ if ($action == 'fetch_bookings') {
         
         $title = $statusInd . $b['plant_name'];
         
-        // Safely check for setup fee application
-        $hasSetupFee = isset($b['apply_setup_fee']) ? $b['apply_setup_fee'] : 0;
-        if ($hasSetupFee == 1) {
+        if (isset($b['apply_setup_fee']) && $b['apply_setup_fee'] == 1) {
             $title .= " [SETUP FEE]";
         }
         
@@ -503,7 +501,6 @@ if ($action == 'update_booking' && $isManager) {
         }
     }
     
-    // SAFE FALLBACK: If the UI doesn't send the checkbox (because we haven't updated it yet), preserve the historical state!
     $applySetupFee = isset($_POST['apply_setup_fee']) ? ($_POST['apply_setup_fee'] == '1' ? 1 : 0) : ($existingJob['apply_setup_fee'] ?? 0);
     
     if (!isDriverAvailable($pdo, $driverId, $_POST['booking_date'], $_POST['start_time'], $_POST['end_time'], $editId)) {
@@ -637,7 +634,6 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
 
-    // Fetch full job data
     $stmt = $pdo->prepare("
         SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, 
                p.setup_fee, p.nom_code_setup,
@@ -672,7 +668,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
     }
 
-    // Capture explicit flat rates from the UI
+    // Capture explicit rates from the UI
     $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
     $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
     $customSetupFee = isset($_POST['setup_fee']) ? (float)$_POST['setup_fee'] : null;
@@ -693,7 +689,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
     }
 
-    // ABSOLUTE MATH ENGINE: Recalculate Subtotal securely on the server to prevent Sync rejection
+    // ABSOLUTE MATH ENGINE: Recalculate Subtotal securely on the server
     $lines = [];
     $backendSubtotal = 0;
 
