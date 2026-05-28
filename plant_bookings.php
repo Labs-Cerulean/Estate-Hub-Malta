@@ -417,7 +417,6 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
-    // Toggles the Setup Fee UI in the Fleet Setup strictly for Rock Saws
     function toggleFleetSetupFee() {
         const cat = document.getElementById('new_plant_cat').value;
         const container = document.getElementById('fleet-setup-fee-container');
@@ -430,12 +429,10 @@ $userId = $_SESSION['user_id'];
         }
     }
 
-    // Auto-populates the Setup Fee value from the ERP nominal code
     function updateSetupFeeValue() {
         const setupSel = document.getElementById('new_nom_setup');
         if(setupSel.selectedIndex > 0) {
             const opt = setupSel.options[setupSel.selectedIndex];
-            // Uses the default external price from the ERP as the template fee
             document.getElementById('new_plant_setup_fee').value = parseFloat(opt.dataset.ext).toFixed(2);
         } else {
             document.getElementById('new_plant_setup_fee').value = '0.00';
@@ -485,7 +482,6 @@ $userId = $_SESSION['user_id'];
         const selectedCat = document.getElementById('plant_category').value;
         const plantObj = groupedPlants[selectedCat].find(p => p.id == selectedPlantId);
         
-        // Strict Check: Only display setup fee option if it is specifically a Rock Saw with a fee > 0
         if (plantObj && plantObj.category === 'Rock Saw' && parseFloat(plantObj.setup_fee) > 0) {
             document.getElementById('setup-fee-container').style.display = 'block';
             document.getElementById('setup_fee_display_amount').innerText = '€' + parseFloat(plantObj.setup_fee).toFixed(2);
@@ -637,7 +633,9 @@ $userId = $_SESSION['user_id'];
 
         const bType = document.getElementById('booking_type').value;
         if (bType === 'in-house' && !document.getElementById('project_id').value) { showError('project_id'); } 
-        else if (bType === 'external' && !document.getElementById('client_code').value) { showError('client_name'); }
+        
+        // STRICT FIX: Always require ERP client for both internal and external jobs to prevent "No Client"
+        if (!document.getElementById('client_code').value) { showError('client_name'); }
 
         if (!document.getElementById('loc_lat').value || !document.getElementById('loc_lng').value) { showError('map'); }
 
@@ -777,7 +775,7 @@ $userId = $_SESSION['user_id'];
         document.getElementById('edit_plant_id').value = p.id;
         document.getElementById('new_plant_cat').value = p.category;
         
-        toggleFleetSetupFee(); // Securely toggle the visibility before setting values
+        toggleFleetSetupFee(); 
 
         document.getElementById('new_plant_comp').value = p.billing_company_id;
         document.getElementById('new_plant_name').value = p.name;
@@ -806,7 +804,7 @@ $userId = $_SESSION['user_id'];
         document.getElementById('fleet-form-title').innerText = "Register Machinery";
         document.getElementById('edit_plant_id').value = '';
         
-        toggleFleetSetupFee(); // Securely hide it
+        toggleFleetSetupFee(); 
         togglePricingModel(); 
         
         document.getElementById('save_fleet_btn').innerHTML = '<i class="fas fa-save"></i> Save to Fleet';
@@ -998,12 +996,17 @@ $userId = $_SESSION['user_id'];
                 
                 let btnLabel = (isAdmin && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) ? 'View / Edit RFP' : 'View RFP';
                 
+                // FIXED: We strictly output j.client_name exactly as you requested!
+                let displayClient = j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No ERP Client Selected') + ')' : (j.client_name || 'No ERP Client Selected');
+
+                let setupBadge = (j.apply_setup_fee == 1 || parseFloat(j.final_setup_fee) > 0) ? '<span style="background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:8px; vertical-align: middle;"><i class="fas fa-truck-loading"></i> Setup Fee</span>' : '';
+
                 return `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
                     <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
                         <div>
-                            <div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name}</div>
-                            <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No Client') + ')' : j.client_name}</div>
+                            <div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name} ${setupBadge}</div>
+                            <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${displayClient}</div>
                             ${sysRef}
                         </div>
                         <div style="text-align:right;">${badge}</div>

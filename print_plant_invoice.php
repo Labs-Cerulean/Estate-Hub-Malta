@@ -109,15 +109,10 @@ $isTripBased = ($job['pricing_type'] == 'per_trip');
 $qtyValue = $isTripBased ? ($job['qty_trips'] > 0 ? $job['qty_trips'] : 1) : $hoursWorked;
 $qtyLabel = $isTripBased ? "Trips Executed" : "Total Hours Executed";
 
-if ($isInternal) {
-    $clientDisplay = htmlspecialchars($job['developer_name']);
-    $clientCodeDisplay = "IN-HOUSE (" . htmlspecialchars($job['project_name']) . ")";
-} else {
-    $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
-    $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
-}
-
-$projectDisplay = $job['project_name'] ? htmlspecialchars($job['project_name']) : 'N/A';
+// FIX: We strictly pull the saved client data from the DB for BOTH internal and external jobs.
+$clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
+$clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
+$projectDisplay = !empty($job['project_name']) ? htmlspecialchars($job['project_name']) : 'N/A';
 
 // Determine Edit Lock State
 $sysRef = $job['invoice_sysref'] ?? '';
@@ -297,14 +292,10 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
         
-        // Determine if Setup Fee applies
         const hasSetupFee = <?= (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) ? 'true' : 'false' ?>;
 
-        // Smart Rate Retrieval: Pulls from DB if explicitly saved, otherwise gracefully defaults to API/Zero
         let rateFixed = <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>;
         let rateVar = <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>;
-        
-        // Retrieve the setup fee value specifically
         let rateSetup = <?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>;
         
         let currentSubtotal = 0;
@@ -335,7 +326,6 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             const fRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateFixed.toFixed(2)}" onchange="rateFixed = parseFloat(this.value) || 0; renderTable();">` : rateFixed.toFixed(2);
             const vRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateVar.toFixed(2)}" onchange="rateVar = parseFloat(this.value) || 0; renderTable();">` : rateVar.toFixed(2);
             
-            // Render Setup Fee first if applicable
             if (hasSetupFee) {
                 const sRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateSetup.toFixed(2)}" onchange="rateSetup = parseFloat(this.value) || 0; renderTable();">` : rateSetup.toFixed(2);
                 currentSubtotal += rateSetup;
@@ -432,7 +422,6 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             fd.append('hours', finalQty); 
             fd.append('subtotal', currentSubtotal); 
             
-            // Pass the explicitly modified rates to be saved permanently
             fd.append('rate_fixed', rateFixed);
             fd.append('rate_var', rateVar);
             
@@ -440,7 +429,6 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
                 fd.append('setup_fee', rateSetup);
             }
             
-            // Pass the explicitly modified times
             const timeIn = document.getElementById('edit_time_in');
             const timeOut = document.getElementById('edit_time_out');
             if (timeIn && timeOut) {
