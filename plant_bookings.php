@@ -99,7 +99,7 @@ $userId = $_SESSION['user_id'];
                 
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1;"><label>Category *</label>
-                        <select id="new_plant_cat" class="input-heavy" required>
+                        <select id="new_plant_cat" class="input-heavy" required onchange="toggleFleetSetupFee()">
                             <option value="">-- Select --</option>
                             <option value="Booms">Booms</option>
                             <option value="Cranes">Cranes</option>
@@ -147,16 +147,16 @@ $userId = $_SESSION['user_id'];
                     </div>
                 </div>
                 
-                <div style="border: 2px dashed #bfdbfe; padding: 15px; border-radius: 12px; background: #eff6ff; margin-bottom: 15px;">
+                <div id="fleet-setup-fee-container" style="display:none; border: 2px dashed #bfdbfe; padding: 15px; border-radius: 12px; background: #eff6ff; margin-bottom: 15px;">
                     <h4 style="margin-top:0; color:#1d4ed8; font-size:0.9rem; margin-bottom:10px;"><i class="fas fa-truck-loading"></i> Optional Setup / Mobilisation Fee</h4>
                     <div style="display:flex; gap:10px; margin-bottom: 0;">
+                        <div style="flex:2;">
+                            <label style="color:#1e3a8a;">Setup Nominal Code</label>
+                            <select id="new_nom_setup" class="input-heavy" style="margin-bottom:0;" onchange="updateSetupFeeValue()"><option value="">Loading ERP...</option></select>
+                        </div>
                         <div style="flex:1;">
                             <label style="color:#1e3a8a;">Default Fee (€)</label>
                             <input type="number" id="new_plant_setup_fee" class="input-heavy" style="margin-bottom:0;" value="0.00" step="0.01">
-                        </div>
-                        <div style="flex:2;">
-                            <label style="color:#1e3a8a;">Setup Nominal Code</label>
-                            <select id="new_nom_setup" class="input-heavy" style="margin-bottom:0;"><option value="">Loading ERP...</option></select>
                         </div>
                     </div>
                 </div>
@@ -417,6 +417,31 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
+    // Toggles the Setup Fee UI in the Fleet Setup strictly for Rock Saws
+    function toggleFleetSetupFee() {
+        const cat = document.getElementById('new_plant_cat').value;
+        const container = document.getElementById('fleet-setup-fee-container');
+        if (cat === 'Rock Saw') {
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+            document.getElementById('new_nom_setup').value = '';
+            document.getElementById('new_plant_setup_fee').value = '0.00';
+        }
+    }
+
+    // Auto-populates the Setup Fee value from the ERP nominal code
+    function updateSetupFeeValue() {
+        const setupSel = document.getElementById('new_nom_setup');
+        if(setupSel.selectedIndex > 0) {
+            const opt = setupSel.options[setupSel.selectedIndex];
+            // Uses the default external price from the ERP as the template fee
+            document.getElementById('new_plant_setup_fee').value = parseFloat(opt.dataset.ext).toFixed(2);
+        } else {
+            document.getElementById('new_plant_setup_fee').value = '0.00';
+        }
+    }
+
     function updatePlantDropdown(keepClientData = false) {
         const cat = document.getElementById('plant_category').value; 
         const pSelect = document.getElementById('plant_id');
@@ -436,7 +461,6 @@ $userId = $_SESSION['user_id'];
         
         if (!keepClientData) resetClientSearch();
         
-        // Reset the setup fee UI when changing category
         document.getElementById('setup-fee-container').style.display = 'none';
         document.getElementById('apply_setup_fee').checked = false;
     }
@@ -457,12 +481,12 @@ $userId = $_SESSION['user_id'];
             pSelect.value = ''; return;
         }
 
-        // Check if the selected plant has a setup fee configured
         const selectedPlantId = pSelect.value;
         const selectedCat = document.getElementById('plant_category').value;
         const plantObj = groupedPlants[selectedCat].find(p => p.id == selectedPlantId);
         
-        if (plantObj && parseFloat(plantObj.setup_fee) > 0) {
+        // Strict Check: Only display setup fee option if it is specifically a Rock Saw with a fee > 0
+        if (plantObj && plantObj.category === 'Rock Saw' && parseFloat(plantObj.setup_fee) > 0) {
             document.getElementById('setup-fee-container').style.display = 'block';
             document.getElementById('setup_fee_display_amount').innerText = '€' + parseFloat(plantObj.setup_fee).toFixed(2);
         } else {
@@ -573,9 +597,8 @@ $userId = $_SESSION['user_id'];
         
         onPlantSelected(true); 
         
-        // Restore the checkbox state if it had a setup fee
         setTimeout(() => {
-            if (parseFloat(j.setup_fee) > 0) {
+            if (j.category === 'Rock Saw' && parseFloat(j.setup_fee) > 0) {
                 document.getElementById('setup-fee-container').style.display = 'block';
                 document.getElementById('setup_fee_display_amount').innerText = '€' + parseFloat(j.setup_fee).toFixed(2);
                 document.getElementById('apply_setup_fee').checked = (j.apply_setup_fee == 1);
@@ -753,13 +776,15 @@ $userId = $_SESSION['user_id'];
         document.getElementById('fleet-form-title').innerText = "Edit Machinery";
         document.getElementById('edit_plant_id').value = p.id;
         document.getElementById('new_plant_cat').value = p.category;
+        
+        toggleFleetSetupFee(); // Securely toggle the visibility before setting values
+
         document.getElementById('new_plant_comp').value = p.billing_company_id;
         document.getElementById('new_plant_name').value = p.name;
         document.getElementById('new_plant_reg').value = p.registration_plate;
         document.getElementById('new_plant_pricing').value = p.pricing_type;
         document.getElementById('new_plant_min_hrs').value = p.min_hours;
         
-        // Populate the new Setup Fee fields
         document.getElementById('new_plant_setup_fee').value = parseFloat(p.setup_fee || 0).toFixed(2);
 
         loadFleetNominals(p.billing_company_id);
@@ -780,7 +805,10 @@ $userId = $_SESSION['user_id'];
         document.getElementById('fleetForm').reset();
         document.getElementById('fleet-form-title').innerText = "Register Machinery";
         document.getElementById('edit_plant_id').value = '';
+        
+        toggleFleetSetupFee(); // Securely hide it
         togglePricingModel(); 
+        
         document.getElementById('save_fleet_btn').innerHTML = '<i class="fas fa-save"></i> Save to Fleet';
         document.getElementById('cancel_edit_btn').style.display = 'none';
     }
