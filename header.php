@@ -18,7 +18,9 @@ $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation'
 $hasWorkSalesAccess = hasPermission('view_works_sales') || hasPermission('view_sales_demo_exc') || hasPermission('view_sales_const') || hasPermission('view_sales_finishes');
 
 $showCommercial = $hasWorkSalesAccess || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || hasPermission('view_nav_subcontractors') || isAdmin();
-$showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || in_array($userRole, ['admin', 'director']);
+
+// FIXED: Added view_plant_bookings and native Plant/Accountant roles to ensure the dropdown renders
+$showManagement = hasPermission('manage_clients') || hasPermission('manage_professionals') || hasPermission('manage_subcontractors') || hasPermission('manage_users') || hasPermission('view_plant_bookings') || in_array($userRole, ['admin', 'director', 'accountant', 'plant_manager']);
 
 // Fetch Pending Actions Count
 $pendingActionsCount = 0;
@@ -150,7 +152,7 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                                     </a>
                                 <?php endif; ?>
 
-                                <?php if (hasPermission('view_plant_bookings') || isAdmin()): ?>
+                                <?php if (hasPermission('view_plant_bookings') || in_array($userRole, ['admin', 'accountant', 'plant_manager'])): ?>
                                     <a href="plant_bookings.php" target="_blank" style="color: #FF9800; font-weight: 800;">
                                         <i class="fas fa-tractor"></i> Plant Operations Hub
                                     </a>
