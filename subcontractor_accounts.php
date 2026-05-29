@@ -300,6 +300,8 @@ require_once 'header.php';
 .badge-pay { background: rgba(16, 185, 129, 0.2); color: #10B981; }
 .badge-boq { background: rgba(139, 92, 246, 0.2); color: #8B5CF6; border: 1px solid rgba(139,92,246,0.5); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-top: 4px; display: inline-block;}
 .data-table th.col-divider, .data-table td.col-divider { border-left: 2px solid rgba(255,255,255,0.05); }
+.sortable-th { cursor: pointer; user-select: none; }
+.sortable-th:hover { color: var(--primary-color); }
 
 /* Progress Bar Styles */
 .progress-wrapper { width: 100%; background-color: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; height: 6px; margin-top: 6px; }
@@ -454,11 +456,10 @@ require_once 'header.php';
             $wStmt->execute([$sub_id, $selected_client_id]); 
             $works = $wStmt->fetchAll();
 
-            // Setup Filters
+            // Fetch All Transactions (With Filters for the Activity Log section)
             $filter_work_id = isset($_GET['filter_work_id']) ? $_GET['filter_work_id'] : '';
             $filter_type = isset($_GET['filter_type']) ? $_GET['filter_type'] : '';
 
-            // Fetch All Transactions (With Filters)
             $tQuery = "
                 SELECT t.*, w.work_reference 
                 FROM subcontractor_transactions t
@@ -487,15 +488,41 @@ require_once 'header.php';
             $tStmt->execute($tParams); 
             $transactions = $tStmt->fetchAll();
 
-            // Global Calculations
+            // Global Calculations for the Summary Cards (to pass to Javascript)
             $tot_cert = 0; $tot_paid = 0; $tot_inv = 0;
-            foreach ($transactions as $t) {
-                if ($t['transaction_type'] === 'Certification') $tot_cert += $t['amount'];
-                if ($t['transaction_type'] === 'Payment') $tot_paid += $t['amount'];
-                if ($t['transaction_type'] === 'Invoice') $tot_inv += $t['amount'];
+            $unlinkedCert = 0; $unlinkedInv = 0; $unlinkedPay = 0;
+            
+            // We calculate totals globally without the activity log filters influencing them.
+            // A separate query without filters guarantees true baseline sums.
+            $globalTxStmt = $pdo->prepare("SELECT transaction_type, amount, work_id FROM subcontractor_transactions WHERE subcontractor_id = ? AND client_id = ?");
+            $globalTxStmt->execute([$sub_id, $selected_client_id]);
+            $allTxs = $globalTxStmt->fetchAll();
+
+            foreach ($allTxs as $t) {
+                if ($t['transaction_type'] === 'Certification') {
+                    $tot_cert += $t['amount'];
+                    if (empty($t['work_id'])) $unlinkedCert += $t['amount'];
+                }
+                if ($t['transaction_type'] === 'Invoice') {
+                    $tot_inv += $t['amount'];
+                    if (empty($t['work_id'])) $unlinkedInv += $t['amount'];
+                }
+                if ($t['transaction_type'] === 'Payment') {
+                    $tot_paid += $t['amount'];
+                    if (empty($t['work_id'])) $unlinkedPay += $t['amount'];
+                }
             }
+            
             $due_cert_global = $tot_cert - $tot_paid;
             $due_inv_global = $tot_inv - $tot_paid;
+
+            // Extract unique projects to populate the Work Orders JS filter
+            $woProjects = [];
+            foreach($works as $w) {
+                if ($w['project_id'] && !isset($woProjects[$w['project_id']])) {
+                    $woProjects[$w['project_id']] = $w['project_name'];
+                }
+            }
             ?>
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
@@ -519,40 +546,54 @@ require_once 'header.php';
             <div class="summary-cards">
                 <div class="summary-card">
                     <h4>Total Certified (Inc VAT)</h4>
-                    <div class="value" style="color: #3B82F6;">€<?= number_format($tot_cert, 2) ?></div>
+                    <div id="card-cert" class="value" style="color: #3B82F6;">€<?= number_format($tot_cert, 2) ?></div>
                 </div>
                 <div class="summary-card">
                     <h4>Total Paid to Date</h4>
-                    <div class="value" style="color: #10B981;">€<?= number_format($tot_paid, 2) ?></div>
+                    <div id="card-pay" class="value" style="color: #10B981;">€<?= number_format($tot_paid, 2) ?></div>
                 </div>
                 <div class="summary-card">
                     <h4>True Liability (Due vs Cert)</h4>
-                    <div class="value <?= $due_cert_global > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_cert_global, 2) ?></div>
+                    <div id="card-due-cert" class="value <?= $due_cert_global > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_cert_global, 2) ?></div>
                 </div>
                 <div class="summary-card">
                     <h4>Paper Liability (Due vs Inv)</h4>
-                    <div class="value <?= $due_inv_global > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_inv_global, 2) ?></div>
+                    <div id="card-due-inv" class="value <?= $due_inv_global > 0 ? 'delta-negative' : 'delta-positive' ?>">€<?= number_format($due_inv_global, 2) ?></div>
                 </div>
             </div>
 
-            <h3 style="margin-top: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Work Orders & Progress</h3>
+            <h3 style="margin-top: 2rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">Work Orders & Progress</h3>
+            
+            <div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: center;">
+                <input type="text" id="woSearch" placeholder="🔍 Search Work Ref..." style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); width: 250px;" onkeyup="filterWOTable()">
+                
+                <select id="woProjectFilter" style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary); width: 250px;" onchange="filterWOTable()">
+                    <option value="">-- All Projects --</option>
+                    <?php foreach($woProjects as $pid => $pname): ?>
+                        <option value="<?= $pid ?>"><?= htmlspecialchars($pname) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                
+                <span style="font-size: 0.8rem; color: var(--text-muted);"><i class="fas fa-info-circle"></i> Click table headers to sort.</span>
+            </div>
+
             <div class="table-container" style="margin-bottom: 3rem;">
                 <table class="data-table" style="font-size: 0.85rem;">
                     <thead>
                         <tr>
-                            <th>Work Ref / Project</th>
-                            <th style="text-align: right;">Est. Value</th>
-                            <th style="text-align: right;">Certified</th>
-                            <th style="text-align: center; width: 100px;">% Progress</th>
-                            <th style="text-align: right;">Invoiced</th>
-                            <th style="text-align: right;">Paid</th>
-                            <th style="text-align: right;" class="col-divider">Pending Inv</th>
-                            <th style="text-align: right;">Due vs Cert</th>
-                            <th style="text-align: right;">Due vs Inv</th>
+                            <th class="sortable-th" onclick="sortWOTable(0, 'string')">Work Ref / Project <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th" style="text-align: right;" onclick="sortWOTable(1, 'number')">Est. Value <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th" style="text-align: right;" onclick="sortWOTable(2, 'number')">Certified <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th" style="text-align: center; width: 100px;" onclick="sortWOTable(3, 'number')">% Progress <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th" style="text-align: right;" onclick="sortWOTable(4, 'number')">Invoiced <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th" style="text-align: right;" onclick="sortWOTable(5, 'number')">Paid <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th col-divider" style="text-align: right;" onclick="sortWOTable(6, 'number')">Pending Inv <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th" style="text-align: right;" onclick="sortWOTable(7, 'number')">Due vs Cert <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
+                            <th class="sortable-th" style="text-align: right;" onclick="sortWOTable(8, 'number')">Due vs Inv <i class="fas fa-sort" style="font-size:0.75rem; color:var(--text-muted);"></i></th>
                             <?php if($canManage): ?><th style="text-align: center;">Actions</th><?php endif; ?>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="woBody">
                         <?php if (empty($works)): ?>
                             <tr><td colspan="<?= $canManage ? '10' : '9' ?>" style="text-align: center;">No Work Orders found.</td></tr>
                         <?php else: ?>
@@ -569,7 +610,7 @@ require_once 'header.php';
                                 $prog_pct = $w['total_inc_vat'] > 0 ? ($c_tot / $w['total_inc_vat']) * 100 : 0;
                                 $prog_class = $prog_pct > 100 ? 'over' : '';
                                 
-                                // Payload for specific modal stats (Using htmlspecialchars to prevent any HTML breakage)
+                                // Payload for specific modal stats
                                 $statsPayload = htmlspecialchars(json_encode([
                                     'tot' => $w['total_inc_vat'],
                                     'cert' => $c_tot,
@@ -577,10 +618,9 @@ require_once 'header.php';
                                     'pay' => $p_tot
                                 ]), ENT_QUOTES, 'UTF-8');
                                 
-                                // JSON Payload for the Edit button
                                 $wJson = htmlspecialchars(json_encode($w), ENT_QUOTES, 'UTF-8');
                             ?>
-                            <tr>
+                            <tr class="wo-row" data-project="<?= $w['project_id'] ?>" data-cert="<?= $c_tot ?>" data-inv="<?= $i_tot ?>" data-pay="<?= $p_tot ?>">
                                 <td>
                                     <div style="font-weight: 600; font-size: 0.95rem;"><?= htmlspecialchars($w['work_reference']) ?></div>
                                     <div style="color: var(--text-muted);">
@@ -695,7 +735,9 @@ require_once 'header.php';
                             <tr>
                                 <td><?= date('d M Y', strtotime($t['transaction_date'])) ?></td>
                                 <td><span class="badge <?= $badgeClass ?>"><?= htmlspecialchars($t['transaction_type']) ?></span></td>
-                                <td style="font-size: 0.85rem; color: var(--text-secondary);"><?= htmlspecialchars($t['work_reference'] ?? 'Global / Unlinked') ?></td>
+                                <td style="font-size: 0.85rem; color: var(--text-secondary); max-width: 200px; white-space: normal; word-wrap: break-word;">
+                                    <?= htmlspecialchars($t['work_reference'] ?? 'Global / Unlinked') ?>
+                                </td>
                                 <td><?= htmlspecialchars($t['reference']) ?></td>
                                 <td style="text-align: right; font-weight: bold;">€<?= number_format($t['amount'], 2) ?></td>
                                 <td><span style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($t['notes'] ?? '') ?></span></td>
@@ -910,6 +952,87 @@ require_once 'header.php';
         </div>
 
         <script>
+        // --- JS ENGINE FOR WORK ORDERS FILTER & SORT ---
+        const unlinkedCert = <?= isset($unlinkedCert) ? $unlinkedCert : 0 ?>;
+        const unlinkedInv = <?= isset($unlinkedInv) ? $unlinkedInv : 0 ?>;
+        const unlinkedPay = <?= isset($unlinkedPay) ? $unlinkedPay : 0 ?>;
+
+        function formatCurrency(val) {
+            return '€' + val.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        }
+
+        function filterWOTable() {
+            let search = document.getElementById('woSearch').value.toLowerCase();
+            let project = document.getElementById('woProjectFilter').value;
+            let rows = document.querySelectorAll('#woBody tr.wo-row');
+            
+            let sumCert = 0, sumInv = 0, sumPay = 0;
+            
+            rows.forEach(row => {
+                let text = row.innerText.toLowerCase();
+                let rowProj = row.getAttribute('data-project');
+                
+                let matchSearch = text.includes(search);
+                let matchProj = project === '' || rowProj === project;
+                
+                if (matchSearch && matchProj) {
+                    row.style.display = '';
+                    sumCert += parseFloat(row.getAttribute('data-cert')) || 0;
+                    sumInv += parseFloat(row.getAttribute('data-inv')) || 0;
+                    sumPay += parseFloat(row.getAttribute('data-pay')) || 0;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            // If no filters are active, re-include the global unlinked balances
+            let isFiltered = search !== '' || project !== '';
+            if (!isFiltered) {
+                sumCert += unlinkedCert;
+                sumInv += unlinkedInv;
+                sumPay += unlinkedPay;
+            }
+
+            let dueCert = sumCert - sumPay;
+            let dueInv = sumInv - sumPay;
+
+            // Dynamically update the Top Summary Cards!
+            document.getElementById('card-cert').innerText = formatCurrency(sumCert);
+            document.getElementById('card-pay').innerText = formatCurrency(sumPay);
+            
+            let elDueCert = document.getElementById('card-due-cert');
+            elDueCert.innerText = formatCurrency(dueCert);
+            elDueCert.className = 'value ' + (dueCert > 0 ? 'delta-negative' : 'delta-positive');
+
+            let elDueInv = document.getElementById('card-due-inv');
+            elDueInv.innerText = formatCurrency(dueInv);
+            elDueInv.className = 'value ' + (dueInv > 0 ? 'delta-negative' : 'delta-positive');
+        }
+
+        let sortDir = {};
+        function sortWOTable(colIdx, type) {
+            const tbody = document.getElementById('woBody');
+            const rows = Array.from(tbody.querySelectorAll('tr.wo-row'));
+            
+            sortDir[colIdx] = !sortDir[colIdx];
+            const dir = sortDir[colIdx] ? 1 : -1;
+            
+            rows.sort((a, b) => {
+                let valA = a.children[colIdx].innerText.replace(/[€,%]/g, '').trim();
+                let valB = b.children[colIdx].innerText.replace(/[€,%]/g, '').trim();
+                
+                if (type === 'number') {
+                    valA = parseFloat(valA.replace(/,/g, '')) || 0;
+                    valB = parseFloat(valB.replace(/,/g, '')) || 0;
+                    return (valA - valB) * dir;
+                } else {
+                    return valA.localeCompare(valB) * dir;
+                }
+            });
+            
+            rows.forEach(r => tbody.appendChild(r));
+        }
+
         // --- SAFE WRAPPERS ---
         function openWorkModal(data = null) {
             try {
@@ -1277,7 +1400,6 @@ require_once 'header.php';
                     authData.append('filename', file.name);
                     authData.append('mime_type', file.type || 'application/pdf');
 
-                    // Call THIS file securely, NOT the Sales API
                     let authRes = await fetch('subcontractor_accounts.php', { method: 'POST', body: authData });
                     let authJson = await authRes.json();
                     
