@@ -33,21 +33,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
             $projectName = trim($data[2] ?? '');
             $workRef     = trim($data[3] ?? '');
             $transDate   = trim($data[4] ?? '');
-            $transType   = trim($data[5] ?? 'Payment');
+            $transType   = trim($data[5] ?? '');
             $amount      = floatval(trim($data[6] ?? 0));
             $reference   = trim($data[7] ?? '');
             $notes       = trim($data[8] ?? '');
             
-            if (empty($subName) || empty($transDate)) {
+            if (empty($subName)) {
                 $errorCount++;
-                $errors[] = "Row $rowNum: Missing Subcontractor Name or Transaction Date.";
+                $errors[] = "Row $rowNum: Missing Subcontractor Name.";
                 continue;
             }
             
             // Format Date safely to match MySQL expectation
-            $parsedDate = date('Y-m-d', strtotime($transDate));
-            if ($parsedDate === '1970-01-01' || empty($parsedDate)) {
-                $parsedDate = date('Y-m-d'); // fallback to today if invalid
+            $parsedDate = null;
+            if (!empty($transDate)) {
+                $parsedDate = date('Y-m-d', strtotime($transDate));
+                if ($parsedDate === '1970-01-01') $parsedDate = date('Y-m-d');
+            } else {
+                $parsedDate = date('Y-m-d'); // fallback to today
             }
 
             try {
@@ -94,6 +97,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                     }
                 }
                 
+                // NEW: If the user just wants to setup the Work Order without a transaction, stop here and commit.
+                if (strtolower($transType) === 'work order setup' || empty($transType)) {
+                    $pdo->commit();
+                    $successCount++;
+                    continue; 
+                }
+
                 // 5. Securely Map Transaction Type to Enum
                 $validTypes = ['Certification','Payment','Invoice','Credit Note','Adjustment'];
                 if (!in_array($transType, $validTypes)) {
@@ -129,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
         }
         fclose($handle);
         
-        $message = "<div class='success'><i class='fas fa-check-circle'></i> Upload complete! $successCount rows imported successfully.</div>";
+        $message = "<div class='success'><i class='fas fa-check-circle'></i> Upload complete! $successCount rows processed successfully.</div>";
         if ($errorCount > 0) {
             $message .= "<div class='error'><i class='fas fa-exclamation-triangle'></i> $errorCount errors occurred:<br>" . implode("<br>", $errors) . "</div>";
         }
@@ -146,6 +156,7 @@ if (isset($_GET['download_template'])) {
     // Headers
     fputcsv($output, ['Subcontractor Name', 'Client Name', 'Project Name', 'Work Reference', 'Transaction Date (YYYY-MM-DD)', 'Transaction Type', 'Amount', 'Reference', 'Notes']);
     // Examples
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-01-10', 'Work Order Setup', '0.00', '', 'Contract signed. Setup only.']);
     fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Marble CP', '2024-05-15', 'Invoice', '15000.00', 'INV-001', 'First interim invoice']);
     fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Marble CP', '2024-06-01', 'Payment', '15000.00', 'CHQ 12345', 'Paid via BT']);
     fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Marble CP', '2024-06-15', 'Certification', '15000.00', 'CERT-01', 'Certified by Perit']);
@@ -200,6 +211,7 @@ if (isset($_GET['download_template'])) {
         <ul style="margin-top: 5px; margin-bottom: 0; padding-left: 20px;">
             <li>If the Subcontractor doesn't exist, the system will automatically create it.</li>
             <li>If the <b>Work Reference</b> doesn't exist, the system will auto-create it and map it to the Client and Project specified.</li>
+            <li><b>Work Orders Without Transactions:</b> Set the Transaction Type to <code>Work Order Setup</code> (or leave it blank). The system will safely create the Work Order without generating a financial transaction.</li>
         </ul>
     </div>
 </div>
