@@ -20,16 +20,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
     $file = $_FILES['csv_file']['tmp_name'];
     
     try {
-        // 1. Get all Work Orders for this subcontractor, ordered by oldest first (FIFO)
+        $pdo->beginTransaction();
+        
+        // 1. CLEAN SLATE SAFEGUARD: Delete any previous auto-allocated payments for this sub to strictly prevent double-paying
+        $pdo->prepare("DELETE FROM subcontractor_transactions WHERE subcontractor_id = ? AND transaction_type = 'Payment' AND reference = 'Auto-Alloc'")->execute([$subId]);
+        
+        // 2. Get all Work Orders for this subcontractor, ordered by oldest first (FIFO)
         $stmt = $pdo->prepare("SELECT id, work_reference, client_id FROM subcontractor_works WHERE subcontractor_id = ? ORDER BY id ASC");
         $stmt->execute([$subId]);
         $workOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // 2. Calculate current unpaid balances directly from the database
+        // 3. Calculate current unpaid balances directly from the database
         $balances = [];
         foreach ($workOrders as $wo) {
-            // Sum Invoices & Certifications
-            $stmtInv = $pdo->prepare("SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = ? AND transaction_type IN ('Invoice', 'Certification')");
+            // FIXED MATH: Strictly sum INVOICES only. Certificates are approvals, not compounding financial debt!
+            $stmtInv = $pdo->prepare("SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = ? AND transaction_type = 'Invoice'");
             $stmtInv->execute([$wo['id']]);
             $invoiced = (float)$stmtInv->fetchColumn();
             
@@ -38,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
             $stmtCN->execute([$wo['id']]);
             $credit = (float)$stmtCN->fetchColumn();
             
-            // Sum Existing Payments
+            // Sum Existing Manual Payments (We ignore the deleted auto-allocations)
             $stmtPaid = $pdo->prepare("SELECT SUM(amount) FROM subcontractor_transactions WHERE work_id = ? AND transaction_type = 'Payment'");
             $stmtPaid->execute([$wo['id']]);
             $paid = (float)$stmtPaid->fetchColumn();
@@ -55,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
             }
         }
         
-        // 3. Process the Payments CSV
+        // 4. Process the Payments CSV
         $handle = fopen($file, "r");
         $header = fgetcsv($handle); // Skip header row
         
@@ -87,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                         'client_id' => $b['client_id'],
                         'date' => $parsedDate,
                         'amount' => $payAmount,
-                        'notes' => "Auto-Allocated (Exact Match to {$b['ref']})"
+                        'notes' => "Auto-Allocated: Exact Match to {$b['ref']}"
                     ];
                     $b['due'] = 0;
                     $totalAllocated += $payAmount;
@@ -110,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                                 'client_id' => $b['client_id'],
                                 'date' => $parsedDate,
                                 'amount' => $payAmount,
-                                'notes' => "Auto-Allocated (FIFO Split to {$b['ref']})"
+                                'notes' => "Auto-Allocated: FIFO Split to {$b['ref']}"
                             ];
                             $b['due'] -= $payAmount;
                             $totalAllocated += $payAmount;
@@ -123,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                                 'client_id' => $b['client_id'],
                                 'date' => $parsedDate,
                                 'amount' => $b['due'],
-                                'notes' => "Auto-Allocated (FIFO Split to {$b['ref']})"
+                                'notes' => "Auto-Allocated: FIFO Split to {$b['ref']}"
                             ];
                             $payAmount -= $b['due'];
                             $totalAllocated += $b['due'];
@@ -155,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                     'client_id' => $advClientId,
                     'date' => $parsedDate,
                     'amount' => $payAmount,
-                    'notes' => "General Advance Allocation (Exceeded Invoices)"
+                    'notes' => "Advance Allocation: Kept on Account"
                 ];
                 $totalAllocated += $payAmount;
             }
@@ -165,16 +170,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
         // ----------------------------------------------------
         // FINAL EXECUTION
         // ----------------------------------------------------
-        $pdo->beginTransaction();
         $stmtInsTrans = $pdo->prepare("
             INSERT INTO subcontractor_transactions 
-            (subcontractor_id, client_id, work_id, transaction_date, transaction_type, amount, notes, created_by) 
-            VALUES (?, ?, ?, ?, 'Payment', ?, ?, ?)
+            (subcontractor_id, client_id, work_id, transaction_date, transaction_type, amount, reference, notes, created_by) 
+            VALUES (?, ?, ?, ?, 'Payment', ?, 'Auto-Alloc', ?, ?)
         ");
         
         foreach ($transactionsToInsert as $t) {
             $stmtInsTrans->execute([$subId, $t['client_id'], $t['work_id'], $t['date'], $t['amount'], $t['notes'], $_SESSION['user_id']]);
         }
+        
         $pdo->commit();
         
         $fmtTotal = number_format($totalAllocated, 2);
