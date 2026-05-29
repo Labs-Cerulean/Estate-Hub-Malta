@@ -14,6 +14,7 @@ $message = "";
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
     $file = $_FILES['csv_file']['tmp_name'];
+    $isZeroVat = isset($_POST['zero_vat']) && $_POST['zero_vat'] == '1';
     
     if (is_uploaded_file($file)) {
         $handle = fopen($file, "r");
@@ -91,25 +92,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                     $stmt->execute([$subId, $workRef]);
                     $workId = $stmt->fetchColumn();
                     
-                    // FIXED MATH: The uploaded amount IS the inclusive (Gross) total. We back-calculate the Net.
+                    // VAT LOGIC: If Zero VAT is checked, Exc = Inc. Otherwise, reverse 18% standard.
                     $calcIncVat = $amount;
-                    $calcExcVat = $amount / 1.18;
+                    $calcExcVat = $isZeroVat ? $amount : ($amount / 1.18);
+                    
                     $isSetup = (strtolower($transType) === 'work order setup' || empty($transType));
                     
                     if (!$workId) {
-                        // Create NEW Work Order: 
-                        // If it's the Setup phase, it injects the amounts and PO immediately.
-                        // If it's just an Invoice on an unknown contract, it sets the contract value to 0 to prevent inflating totals.
+                        // Create NEW Work Order
                         $poRef = $isSetup ? $reference : null;
-                        $insertAmt = $isSetup ? $calcExcVat : 0.00;
-                        $insertIncVat = $isSetup ? $calcIncVat : 0.00;
+                        $insertExc = $isSetup ? $calcExcVat : 0.00;
+                        $insertInc = $isSetup ? $calcIncVat : 0.00;
                         
                         $stmtIns = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, work_reference, po_reference, total_exc_vat, total_inc_vat) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                        $stmtIns->execute([$subId, $clientId, $projectId, $workRef, $poRef, $insertAmt, $insertIncVat]);
+                        $stmtIns->execute([$subId, $clientId, $projectId, $workRef, $poRef, $insertExc, $insertInc]);
                         $workId = $pdo->lastInsertId();
                     } else {
-                        // UPDATE EXISTING Work Order:
-                        // Allows the user to re-upload the Setup rows to safely inject the missing PO/Amount data
+                        // UPDATE EXISTING Work Order: Safely overwrites values without duplicating
                         if ($isSetup) {
                             $stmtUpd = $pdo->prepare("UPDATE subcontractor_works SET po_reference = ?, total_exc_vat = ?, total_inc_vat = ? WHERE id = ?");
                             $stmtUpd->execute([$reference, $calcExcVat, $calcIncVat, $workId]);
@@ -223,6 +222,15 @@ if (isset($_GET['download_template'])) {
             <label style="font-weight: 800; display: block; margin-bottom: 10px; color: #334155;">Step 2: Upload Completed CSV</label>
             <input type="file" name="csv_file" accept=".csv" required style="width: 100%; padding: 12px; border: 2px dashed #cbd5e1; border-radius: 8px; background: #fff; box-sizing: border-box; cursor: pointer;">
         </div>
+        
+        <div class="form-group" style="margin-top: 15px; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px solid #fde68a;">
+            <label style="display:flex; align-items:center; gap:10px; margin:0; cursor:pointer; font-size:1.05rem; color:#b45309; font-weight:700;">
+                <input type="checkbox" name="zero_vat" value="1" style="width:20px; height:20px; cursor:pointer;">
+                This Subcontractor is 0% VAT (Foreign / Exempt)
+            </label>
+            <p style="font-size:0.85rem; color:#d97706; margin-top:5px; margin-bottom:0; font-weight:normal;">Check this if the uploaded amounts should be treated as both the Net (Exclusive) and Gross (Inclusive) values.</p>
+        </div>
+
         <button type="submit" class="btn btn-green"><i class="fas fa-cloud-upload-alt"></i> Run Import</button>
     </form>
     
@@ -231,8 +239,8 @@ if (isset($_GET['download_template'])) {
         <ul style="margin-top: 5px; margin-bottom: 0; padding-left: 20px;">
             <li>If the Subcontractor doesn't exist, the system will automatically create it.</li>
             <li>If the <b>Work Reference</b> doesn't exist, the system will auto-create it and map it to the Client and Project specified.</li>
-            <li><b>Work Orders Without Transactions:</b> Set the Transaction Type to <code>Work Order Setup</code> (or leave it blank). The system will safely create the Work Order with its Estimated Value without generating a financial transaction.</li>
-            <li><b>Smart Overwrite:</b> If you already uploaded Work Orders and they had a 0 value, simply re-upload the same CSV! The system will detect them and update the values instantly without duplicating them.</li>
+            <li><b>Work Orders Without Transactions:</b> Set the Transaction Type to <code>Work Order Setup</code>. The system will safely create the Work Order with its Estimated Value without generating a financial transaction.</li>
+            <li><b>Smart Overwrite:</b> If you already uploaded Work Orders and the amounts were wrong, simply re-upload the same CSV! The system will automatically detect them and update the values perfectly.</li>
         </ul>
     </div>
 </div>
