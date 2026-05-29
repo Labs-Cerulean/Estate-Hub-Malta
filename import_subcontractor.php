@@ -34,7 +34,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
             $workRef     = trim($data[3] ?? '');
             $transDate   = trim($data[4] ?? '');
             $transType   = trim($data[5] ?? '');
-            $amount      = floatval(trim($data[6] ?? 0));
+            // Filter out commas in case amount is passed as "15,000.00"
+            $amount      = floatval(str_replace(',', '', trim($data[6] ?? 0))); 
             $reference   = trim($data[7] ?? '');
             $notes       = trim($data[8] ?? '');
             
@@ -90,14 +91,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                     $stmt->execute([$subId, $workRef]);
                     $workId = $stmt->fetchColumn();
                     
+                    // FIXED MATH: The uploaded amount IS the inclusive (Gross) total. We back-calculate the Net.
+                    $calcIncVat = $amount;
+                    $calcExcVat = $amount / 1.18;
+                    $isSetup = (strtolower($transType) === 'work order setup' || empty($transType));
+                    
                     if (!$workId) {
-                        $stmtIns = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, work_reference) VALUES (?, ?, ?, ?)");
-                        $stmtIns->execute([$subId, $clientId, $projectId, $workRef]);
+                        // Create NEW Work Order: 
+                        // If it's the Setup phase, it injects the amounts and PO immediately.
+                        // If it's just an Invoice on an unknown contract, it sets the contract value to 0 to prevent inflating totals.
+                        $poRef = $isSetup ? $reference : null;
+                        $insertAmt = $isSetup ? $calcExcVat : 0.00;
+                        $insertIncVat = $isSetup ? $calcIncVat : 0.00;
+                        
+                        $stmtIns = $pdo->prepare("INSERT INTO subcontractor_works (subcontractor_id, client_id, project_id, work_reference, po_reference, total_exc_vat, total_inc_vat) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                        $stmtIns->execute([$subId, $clientId, $projectId, $workRef, $poRef, $insertAmt, $insertIncVat]);
                         $workId = $pdo->lastInsertId();
+                    } else {
+                        // UPDATE EXISTING Work Order:
+                        // Allows the user to re-upload the Setup rows to safely inject the missing PO/Amount data
+                        if ($isSetup) {
+                            $stmtUpd = $pdo->prepare("UPDATE subcontractor_works SET po_reference = ?, total_exc_vat = ?, total_inc_vat = ? WHERE id = ?");
+                            $stmtUpd->execute([$reference, $calcExcVat, $calcIncVat, $workId]);
+                        }
                     }
                 }
                 
-                // NEW: If the user just wants to setup the Work Order without a transaction, stop here and commit.
+                // If the user just wants to setup the Work Order without a transaction, stop here and commit.
                 if (strtolower($transType) === 'work order setup' || empty($transType)) {
                     $pdo->commit();
                     $successCount++;
@@ -154,12 +174,12 @@ if (isset($_GET['download_template'])) {
     header('Content-Disposition: attachment; filename="subcontractor_upload_template.csv"');
     $output = fopen('php://output', 'w');
     // Headers
-    fputcsv($output, ['Subcontractor Name', 'Client Name', 'Project Name', 'Work Reference', 'Transaction Date (YYYY-MM-DD)', 'Transaction Type', 'Amount', 'Reference', 'Notes']);
+    fputcsv($output, ['Subcontractor Name', 'Client Name', 'Project Name', 'Work Reference', 'Transaction Date (YYYY-MM-DD)', 'Transaction Type', 'Amount (Inc VAT)', 'Reference', 'Notes']);
     // Examples
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-01-10', 'Work Order Setup', '0.00', '', 'Contract signed. Setup only.']);
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Marble CP', '2024-05-15', 'Invoice', '15000.00', 'INV-001', 'First interim invoice']);
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Marble CP', '2024-06-01', 'Payment', '15000.00', 'CHQ 12345', 'Paid via BT']);
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Marble CP', '2024-06-15', 'Certification', '15000.00', 'CERT-01', 'Certified by Perit']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-01-10', 'Work Order Setup', '25000.00', 'PO-2024-150', 'Contract signed. Setup only.']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-05-15', 'Invoice', '15000.00', 'INV-001', 'First interim invoice']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-06-01', 'Payment', '15000.00', 'CHQ 12345', 'Paid via BT']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-06-15', 'Certification', '15000.00', 'CERT-01', 'Certified by Perit']);
     fclose($output);
     exit;
 }
@@ -211,7 +231,8 @@ if (isset($_GET['download_template'])) {
         <ul style="margin-top: 5px; margin-bottom: 0; padding-left: 20px;">
             <li>If the Subcontractor doesn't exist, the system will automatically create it.</li>
             <li>If the <b>Work Reference</b> doesn't exist, the system will auto-create it and map it to the Client and Project specified.</li>
-            <li><b>Work Orders Without Transactions:</b> Set the Transaction Type to <code>Work Order Setup</code> (or leave it blank). The system will safely create the Work Order without generating a financial transaction.</li>
+            <li><b>Work Orders Without Transactions:</b> Set the Transaction Type to <code>Work Order Setup</code> (or leave it blank). The system will safely create the Work Order with its Estimated Value without generating a financial transaction.</li>
+            <li><b>Smart Overwrite:</b> If you already uploaded Work Orders and they had a 0 value, simply re-upload the same CSV! The system will detect them and update the values instantly without duplicating them.</li>
         </ul>
     </div>
 </div>
