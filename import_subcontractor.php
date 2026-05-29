@@ -12,6 +12,13 @@ if (!$isAllowed) {
 
 $message = "";
 
+// Helper function to force Excel's Windows-1252/ISO-8859-1 encoding into clean UTF-8
+function cleanExcelEncoding($string) {
+    if (empty($string)) return '';
+    // Detect and convert to UTF-8
+    return trim(mb_convert_encoding($string, 'UTF-8', 'UTF-8, ISO-8859-1, Windows-1252'));
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
     $file = $_FILES['csv_file']['tmp_name'];
     $isZeroVat = isset($_POST['zero_vat']) && $_POST['zero_vat'] == '1';
@@ -28,17 +35,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
         while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
             $rowNum++;
             
-            // Map Columns
-            $subName     = trim($data[0] ?? '');
-            $clientName  = trim($data[1] ?? '');
-            $projectName = trim($data[2] ?? '');
-            $workRef     = trim($data[3] ?? '');
-            $transDate   = trim($data[4] ?? '');
-            $transType   = trim($data[5] ?? '');
+            // Map Columns & Clean Excel Formatting
+            $subName     = cleanExcelEncoding($data[0] ?? '');
+            $clientName  = cleanExcelEncoding($data[1] ?? '');
+            $projectName = cleanExcelEncoding($data[2] ?? '');
+            $workRef     = cleanExcelEncoding($data[3] ?? '');
+            $transDate   = cleanExcelEncoding($data[4] ?? '');
+            $transType   = cleanExcelEncoding($data[5] ?? '');
             // Filter out commas in case amount is passed as "15,000.00"
             $amount      = floatval(str_replace(',', '', trim($data[6] ?? 0))); 
-            $reference   = trim($data[7] ?? '');
-            $notes       = trim($data[8] ?? '');
+            $reference   = cleanExcelEncoding($data[7] ?? '');
+            $notes       = cleanExcelEncoding($data[8] ?? '');
             
             if (empty($subName)) {
                 $errorCount++;
@@ -46,11 +53,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                 continue;
             }
             
-            // Format Date safely to match MySQL expectation
+            // Format Date safely to match MySQL expectation (Force European DD/MM/YYYY)
             $parsedDate = null;
             if (!empty($transDate)) {
-                $parsedDate = date('Y-m-d', strtotime($transDate));
-                if ($parsedDate === '1970-01-01') $parsedDate = date('Y-m-d');
+                // PHP strtotime interprets slashes as US (MM/DD/YYYY) and dashes as Euro (DD-MM-YYYY).
+                // We swap slashes to dashes so it accurately reads your DD/MM/YYYY Excel dates.
+                $cleanDate = str_replace('/', '-', $transDate);
+                $parsedDate = date('Y-m-d', strtotime($cleanDate));
+                
+                if ($parsedDate === '1970-01-01') {
+                    $parsedDate = date('Y-m-d'); // Fallback if still unreadable
+                }
             } else {
                 $parsedDate = date('Y-m-d'); // fallback to today
             }
@@ -173,12 +186,12 @@ if (isset($_GET['download_template'])) {
     header('Content-Disposition: attachment; filename="subcontractor_upload_template.csv"');
     $output = fopen('php://output', 'w');
     // Headers
-    fputcsv($output, ['Subcontractor Name', 'Client Name', 'Project Name', 'Work Reference', 'Transaction Date (YYYY-MM-DD)', 'Transaction Type', 'Amount (Inc VAT)', 'Reference', 'Notes']);
+    fputcsv($output, ['Subcontractor Name', 'Client Name', 'Project Name', 'Work Reference', 'Transaction Date (DD/MM/YYYY)', 'Transaction Type', 'Amount (Inc VAT)', 'Reference', 'Notes']);
     // Examples
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-01-10', 'Work Order Setup', '25000.00', 'PO-2024-150', 'Contract signed. Setup only.']);
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-05-15', 'Invoice', '15000.00', 'INV-001', 'First interim invoice']);
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-06-01', 'Payment', '15000.00', 'CHQ 12345', 'Paid via BT']);
-    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '2024-06-15', 'Certification', '15000.00', 'CERT-01', 'Certified by Perit']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '10/01/2024', 'Work Order Setup', '25000.00', 'PO-2024-150', 'Contract signed. Setup only.']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '15/05/2024', 'Invoice', '15000.00', 'INV-001', 'First interim invoice']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '01/06/2024', 'Payment', '15000.00', 'CHQ 12345', 'Paid via BT']);
+    fputcsv($output, ['Farruggia Marble', 'PRA Construction Ltd', 'Centrex', 'Centrex Phase 2', '15/06/2024', 'Certification', '15000.00', 'CERT-01', 'Certified by Perit']);
     fclose($output);
     exit;
 }
@@ -237,6 +250,8 @@ if (isset($_GET['download_template'])) {
     <div style="margin-top: 20px; font-size: 0.85rem; color: #64748b; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px solid #fde68a;">
         <strong><i class="fas fa-info-circle"></i> Smart Importer Features:</strong>
         <ul style="margin-top: 5px; margin-bottom: 0; padding-left: 20px;">
+            <li><b>Date Safe:</b> Now parses standard Excel/European DD/MM/YYYY formatting automatically.</li>
+            <li><b>Auto-Encoding:</b> The system automatically detects and converts special characters (like Façade) from Excel format to database-safe UTF-8 format.</li>
             <li>If the Subcontractor doesn't exist, the system will automatically create it.</li>
             <li>If the <b>Work Reference</b> doesn't exist, the system will auto-create it and map it to the Client and Project specified.</li>
             <li><b>Work Orders Without Transactions:</b> Set the Transaction Type to <code>Work Order Setup</code>. The system will safely create the Work Order with its Estimated Value without generating a financial transaction.</li>
