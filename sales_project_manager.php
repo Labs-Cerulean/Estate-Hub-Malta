@@ -15,12 +15,6 @@ if (!in_array($_SESSION['role'], $allowed_roles) && !hasPermission('manage_sales
 try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec("ALTER TABLE sales_properties ADD COLUMN block VARCHAR(50) DEFAULT ''");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN level VARCHAR(50) DEFAULT ''");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN type VARCHAR(50) DEFAULT 'Apartment'");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN bedrooms INT DEFAULT 0");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN bathrooms INT DEFAULT 0");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN internal_area DECIMAL(10,2) DEFAULT 0.00");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN external_area DECIMAL(10,2) DEFAULT 0.00");
     $pdo->exec("ALTER TABLE project_documents ADD COLUMN sort_order INT DEFAULT 0");
 } catch(PDOException $e) { /* Ignore if columns exist */ }
 
@@ -35,14 +29,14 @@ if (isset($_POST['action'])) {
         if ($action === 'load_project') {
             $pid = (int)$_POST['project_id'];
             
-            // Fixed the sorting here so the Manager UI sorts correctly!
+            // Strictly using real DB columns: floor_level and unit_type
             $stmtUnits = $pdo->prepare("
                 SELECT * FROM sales_properties 
                 WHERE project_id = ? 
                 ORDER BY 
                     block ASC, 
-                    CAST(level AS SIGNED) ASC, 
-                    FIELD(type, 'Garage', 'Parking Space', 'Commercial', 'Maisonette', 'Apartment', 'Penthouse', 'Villa', 'House'), 
+                    CAST(floor_level AS SIGNED) ASC, 
+                    FIELD(unit_type, 'garage', 'parking space', 'commercial', 'maisonette', 'apartment', 'penthouse', 'villa', 'house'), 
                     unit_name ASC
             ");
             $stmtUnits->execute([$pid]);
@@ -61,15 +55,22 @@ if (isset($_POST['action'])) {
             $unitsData = json_decode($_POST['units'], true);
             
             $pdo->beginTransaction();
-            $stmtUpdate = $pdo->prepare("UPDATE sales_properties SET unit_name=?, block=?, level=?, type=?, bedrooms=?, bathrooms=?, internal_area=?, external_area=?, shell_price=?, finishes_price=? WHERE id=? AND project_id=?");
-            $stmtInsert = $pdo->prepare("INSERT INTO sales_properties (project_id, unit_name, block, level, type, bedrooms, bathrooms, internal_area, external_area, shell_price, finishes_price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available')");
+            $stmtUpdate = $pdo->prepare("UPDATE sales_properties SET unit_name=?, block=?, floor_level=?, unit_type=?, description=?, internal_sqm=?, external_sqm=?, shell_price=?, finishes_price=? WHERE id=? AND project_id=?");
+            $stmtInsert = $pdo->prepare("INSERT INTO sales_properties (project_id, unit_name, block, floor_level, unit_type, description, internal_sqm, external_sqm, shell_price, finishes_price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available')");
             
             foreach ($unitsData as $u) {
                 if (!empty($u['id']) && $u['id'] > 0) {
-                    $stmtUpdate->execute([$u['unit_name'], $u['block'], $u['level'], $u['type'], (int)$u['bedrooms'], (int)$u['bathrooms'], (float)$u['internal_area'], (float)$u['external_area'], (float)$u['shell_price'], (float)$u['finishes_price'], $u['id'], $pid]);
+                    $stmtUpdate->execute([
+                        $u['unit_name'], $u['block'], $u['floor_level'], $u['unit_type'], $u['description'], 
+                        (float)$u['internal_sqm'], (float)$u['external_sqm'], (float)$u['shell_price'], (float)$u['finishes_price'], 
+                        $u['id'], $pid
+                    ]);
                 } else {
                     if (trim($u['unit_name']) !== '') {
-                        $stmtInsert->execute([$pid, $u['unit_name'], $u['block'], $u['level'], $u['type'], (int)$u['bedrooms'], (int)$u['bathrooms'], (float)$u['internal_area'], (float)$u['external_area'], (float)$u['shell_price'], (float)$u['finishes_price']]);
+                        $stmtInsert->execute([
+                            $pid, $u['unit_name'], $u['block'], $u['floor_level'], $u['unit_type'], $u['description'], 
+                            (float)$u['internal_sqm'], (float)$u['external_sqm'], (float)$u['shell_price'], (float)$u['finishes_price']
+                        ]);
                     }
                 }
             }
@@ -116,7 +117,7 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
 <style>
     .manager-container { max-width: 1400px; margin: 0 auto; padding: 20px; font-family: 'Inter', sans-serif; }
     .header-bar { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e2e8f0; }
-    .header-bar select { padding: 10px 15px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 1rem; width: 300px; outline: none; }
+    .header-bar select { padding: 10px 15px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 1rem; width: 300px; outline: none; background-color: #fff; color: #0f172a; }
     
     .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
     .tab { padding: 12px 25px; background: #e2e8f0; color: #475569; border-radius: 8px; cursor: pointer; font-weight: 700; transition: 0.2s; }
@@ -128,9 +129,11 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
     .frame-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     .frame-table th { background: #f8fafc; padding: 12px; text-align: left; color: #475569; font-weight: 800; border-bottom: 2px solid #cbd5e1; }
     .frame-table td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
-    .frame-input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 0.85rem; }
+    
+    /* Strict high-contrast styles to fix "white on white" UI bug */
+    .frame-input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 0.85rem; color: #0f172a; background-color: #ffffff; }
     .frame-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-    .frame-select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 0.85rem; background: #fff; }
+    .frame-select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 0.85rem; color: #0f172a; background-color: #ffffff; }
 
     .btn-heavy { padding: 10px 20px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
     .btn-blue { background: #3b82f6; color: #fff; } .btn-blue:hover { background: #2563eb; }
@@ -142,7 +145,7 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
     .media-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; background: #f8fafc; text-align: center; position: relative; }
     .media-card img, .media-card video { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; background: #e2e8f0; }
     .media-title { font-size: 0.8rem; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
-    .media-order { width: 60px; padding: 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 10px; }
+    .media-order { width: 60px; padding: 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 10px; color: #0f172a; background-color: #ffffff; }
     
     .loader { display: none; text-align: center; padding: 40px; color: #3b82f6; font-size: 1.2rem; font-weight: bold; }
 </style>
@@ -184,17 +187,16 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
                 <table class="frame-table" id="frameTable">
                     <thead>
                         <tr>
-                            <th>Unit Name</th>
-                            <th>Block</th>
-                            <th>Level</th>
-                            <th>Property Type</th>
-                            <th style="width: 70px;">Beds</th>
-                            <th style="width: 70px;">Baths</th>
-                            <th style="width: 80px;">Int SQM</th>
-                            <th style="width: 80px;">Ext SQM</th>
-                            <th style="width: 110px;">Shell Price (€)</th>
-                            <th style="width: 110px;">Finishes (€)</th>
-                            <th style="width: 60px;">Action</th>
+                            <th style="min-width: 120px;">Unit Name</th>
+                            <th style="width: 70px;">Block</th>
+                            <th style="width: 70px;">Level</th>
+                            <th style="width: 140px;">Property Type</th>
+                            <th style="min-width: 160px;">Description</th>
+                            <th style="width: 90px;">Int SQM</th>
+                            <th style="width: 90px;">Ext SQM</th>
+                            <th style="width: 120px;">Shell Price (€)</th>
+                            <th style="width: 120px;">Finishes (€)</th>
+                            <th style="width: 60px; text-align: center;">Action</th>
                         </tr>
                     </thead>
                     <tbody id="frameBody">
@@ -205,21 +207,32 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
 
         <div id="mediaTab" class="tab-content">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h4 style="margin: 0;">Sales Gallery Media</h4>
+                <h4 style="margin: 0; color: #0f172a;">Sales Gallery Media</h4>
                 <button class="btn-heavy btn-blue" onclick="saveMediaOrder()"><i class="fas fa-sort-numeric-down"></i> Save Display Order</button>
             </div>
             <div class="media-grid" id="mediaGrid"></div>
         </div>
 
         <div id="floorTab" class="tab-content">
-            <h4 style="margin: 0 0 20px 0;">Attached Floor Plans</h4>
+            <h4 style="margin: 0 0 20px 0; color: #0f172a;">Attached Floor Plans</h4>
             <div id="floorPlanList"></div>
         </div>
     </div>
 </div>
 
 <script>
-    const types = ['Apartment', 'Penthouse', 'Maisonette', 'House', 'Villa', 'Commercial', 'Garage', 'Parking Space'];
+    // Enum mapping matching your database strictly
+    const unitTypes = [
+        { val: 'apartment', label: 'Apartment' },
+        { val: 'penthouse', label: 'Penthouse' },
+        { val: 'maisonette', label: 'Maisonette' },
+        { val: 'house', label: 'House' },
+        { val: 'villa', label: 'Villa' },
+        { val: 'commercial', label: 'Commercial' },
+        { val: 'garage', label: 'Garage' },
+        { val: 'parking space', label: 'Parking Space' }
+    ];
+
     let currentUnits = [];
     let currentMedia = [];
 
@@ -267,17 +280,16 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
         const tr = document.createElement('tr');
         tr.setAttribute('data-id', u.id || 0);
         
-        let typeOpts = types.map(t => `<option value="${t}" ${u.type === t ? 'selected' : ''}>${t}</option>`).join('');
+        let typeOpts = unitTypes.map(t => `<option value="${t.val}" ${u.unit_type === t.val ? 'selected' : ''}>${t.label}</option>`).join('');
 
         tr.innerHTML = `
             <td><input type="text" class="frame-input inp-name" value="${u.unit_name || ''}" placeholder="Apt 1"></td>
             <td><input type="text" class="frame-input inp-block" value="${u.block || ''}" placeholder="A"></td>
-            <td><input type="text" class="frame-input inp-level" value="${u.level || ''}" placeholder="1"></td>
+            <td><input type="text" class="frame-input inp-level" value="${u.floor_level || ''}" placeholder="1"></td>
             <td><select class="frame-select inp-type">${typeOpts}</select></td>
-            <td><input type="number" class="frame-input inp-bed" value="${u.bedrooms || 0}"></td>
-            <td><input type="number" class="frame-input inp-bath" value="${u.bathrooms || 0}"></td>
-            <td><input type="number" step="0.01" class="frame-input inp-int" value="${u.internal_area || 0}"></td>
-            <td><input type="number" step="0.01" class="frame-input inp-ext" value="${u.external_area || 0}"></td>
+            <td><input type="text" class="frame-input inp-desc" value="${u.description || ''}" placeholder="e.g. 1 BED & STUDY"></td>
+            <td><input type="number" step="0.01" class="frame-input inp-int" value="${u.internal_sqm || 0}"></td>
+            <td><input type="number" step="0.01" class="frame-input inp-ext" value="${u.external_sqm || 0}"></td>
             <td><input type="number" step="0.01" class="frame-input inp-shell" value="${u.shell_price || 0}"></td>
             <td><input type="number" step="0.01" class="frame-input inp-fin" value="${u.finishes_price || 0}"></td>
             <td style="text-align:center;">
@@ -287,15 +299,26 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
         return tr;
     }
 
-    function addNewRow() { document.getElementById('frameBody').appendChild(createRow({}, currentUnits.length)); }
+    function addNewRow() { 
+        document.getElementById('frameBody').appendChild(createRow({}, currentUnits.length)); 
+    }
 
     function deleteUnit(id, btnEl) {
         if (!confirm("Are you sure you want to delete this unit? This will permanently remove it from the Sales Hub.")) return;
         if (id === 0) { btnEl.closest('tr').remove(); return; }
 
-        const fd = new FormData(); fd.append('action', 'delete_unit'); fd.append('unit_id', id);
-        fetch('sales_project_manager.php', { method: 'POST', body: fd }).then(r=>r.json()).then(data => {
-            if(data.success) { btnEl.closest('tr').remove(); } else { alert("Error deleting unit."); }
+        const fd = new FormData(); 
+        fd.append('action', 'delete_unit'); 
+        fd.append('unit_id', id);
+        
+        fetch('sales_project_manager.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if(data.success) { 
+                btnEl.closest('tr').remove(); 
+            } else { 
+                alert("Error deleting unit."); 
+            }
         });
     }
 
@@ -309,25 +332,36 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
                 id: row.getAttribute('data-id'),
                 unit_name: row.querySelector('.inp-name').value,
                 block: row.querySelector('.inp-block').value,
-                level: row.querySelector('.inp-level').value,
-                type: row.querySelector('.inp-type').value,
-                bedrooms: row.querySelector('.inp-bed').value,
-                bathrooms: row.querySelector('.inp-bath').value,
-                internal_area: row.querySelector('.inp-int').value,
-                external_area: row.querySelector('.inp-ext').value,
+                floor_level: row.querySelector('.inp-level').value,
+                unit_type: row.querySelector('.inp-type').value,
+                description: row.querySelector('.inp-desc').value,
+                internal_sqm: row.querySelector('.inp-int').value,
+                external_sqm: row.querySelector('.inp-ext').value,
                 shell_price: row.querySelector('.inp-shell').value,
                 finishes_price: row.querySelector('.inp-fin').value,
             });
         });
 
-        const btn = event.target; const ogText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...'; btn.disabled = true;
+        const btn = event.target; 
+        const ogText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...'; 
+        btn.disabled = true;
 
-        const fd = new FormData(); fd.append('action', 'save_frame'); fd.append('project_id', pid); fd.append('units', JSON.stringify(payload));
+        const fd = new FormData(); 
+        fd.append('action', 'save_frame'); 
+        fd.append('project_id', pid); 
+        fd.append('units', JSON.stringify(payload));
 
-        fetch('sales_project_manager.php', { method: 'POST', body: fd }).then(r=>r.json()).then(data => {
+        fetch('sales_project_manager.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
             btn.innerHTML = ogText; btn.disabled = false;
-            if(data.success) { alert("Frame updated successfully!"); loadProjectData(); } else { alert("Error saving frame: " + data.message); }
+            if(data.success) { 
+                alert("Frame updated successfully!"); 
+                loadProjectData(); 
+            } else { 
+                alert("Error saving frame: " + data.message); 
+            }
         });
     }
 
@@ -346,7 +380,7 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
                 floorHtml += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:15px; border:1px solid #cbd5e1; border-radius:8px; margin-bottom:10px;">
                         <div>
-                            <strong><i class="fas fa-layer-group text-blue-500"></i> Level: ${lvl}</strong>
+                            <strong style="color: #0f172a;"><i class="fas fa-layer-group text-blue-500"></i> Level: ${lvl}</strong>
                             <div style="font-size:0.8rem; color:#64748b; margin-top:4px;">File: ${m.file_path.split('/').pop()}</div>
                         </div>
                         <div>
@@ -368,29 +402,57 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
             }
         });
 
-        if (!hasFloors) floorHtml = '<div style="padding:20px; text-align:center; color:#64748b; background:#f8fafc; border-radius:8px;">No floor plans uploaded for this project yet. Use the Sales Hub Media Uploader to add them.</div>';
+        if (!hasFloors) {
+            floorHtml = '<div style="padding:20px; text-align:center; color:#64748b; background:#f8fafc; border-radius:8px;">No floor plans uploaded for this project yet. Use the Sales Hub Media Uploader to add them.</div>';
+        }
         floorList.innerHTML = floorHtml;
-        if (mediaGrid.innerHTML === '') mediaGrid.innerHTML = '<div style="grid-column: 1/-1; padding:20px; text-align:center; color:#64748b; background:#f8fafc; border-radius:8px;">No visual media uploaded yet. Use the Sales Hub Media Uploader to add renders and videos.</div>';
+        
+        if (mediaGrid.innerHTML === '') {
+            mediaGrid.innerHTML = '<div style="grid-column: 1/-1; padding:20px; text-align:center; color:#64748b; background:#f8fafc; border-radius:8px;">No visual media uploaded yet. Use the Sales Hub Media Uploader to add renders and videos.</div>';
+        }
     }
 
     function deleteMedia(id) {
         if(!confirm("Are you sure you want to permanently delete this file?")) return;
-        const fd = new FormData(); fd.append('action', 'delete_media'); fd.append('media_id', id);
-        fetch('sales_project_manager.php', { method: 'POST', body: fd }).then(r=>r.json()).then(data => { if(data.success) loadProjectData(); });
+        const fd = new FormData(); 
+        fd.append('action', 'delete_media'); 
+        fd.append('media_id', id);
+        
+        fetch('sales_project_manager.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => { 
+            if(data.success) loadProjectData(); 
+        });
     }
 
     function saveMediaOrder() {
         let sortData = [];
-        document.querySelectorAll('.media-card').forEach(card => { sortData.push({ id: card.getAttribute('data-id'), order: card.querySelector('.inp-sort').value }); });
+        document.querySelectorAll('.media-card').forEach(card => { 
+            sortData.push({ 
+                id: card.getAttribute('data-id'), 
+                order: card.querySelector('.inp-sort').value 
+            }); 
+        });
 
-        const btn = event.target; const og = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...'; btn.disabled = true;
+        const btn = event.target; 
+        const og = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...'; 
+        btn.disabled = true;
 
-        const fd = new FormData(); fd.append('action', 'update_media_order'); fd.append('sort_data', JSON.stringify(sortData));
-        fetch('sales_project_manager.php', { method: 'POST', body: fd }).then(r=>r.json()).then(data => {
+        const fd = new FormData(); 
+        fd.append('action', 'update_media_order'); 
+        fd.append('sort_data', JSON.stringify(sortData));
+        
+        fetch('sales_project_manager.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
             btn.innerHTML = og; btn.disabled = false;
-            if(data.success) { alert("Display order saved successfully!"); loadProjectData(); }
+            if(data.success) { 
+                alert("Display order saved successfully!"); 
+                loadProjectData(); 
+            }
         });
     }
 </script>
+
 <?php require_once 'footer.php'; ?>
