@@ -54,7 +54,7 @@ foreach ($docsStmt->fetchAll() as $d) {
     ];
 }
 
-$uStmt = $pdo->prepare("SELECT * FROM sales_properties WHERE project_id = ? ORDER BY floor_level ASC, unit_type ASC, unit_name ASC");
+$uStmt = $pdo->prepare("SELECT * FROM sales_properties WHERE project_id = ? ORDER BY     CAST(level AS SIGNED) ASC,     FIELD(type, 'Garage', 'Parking Space', 'Commercial', 'Maisonette', 'Apartment', 'Penthouse', 'Villa', 'House'),     unit_name ASC");
 $uStmt->execute([$projectId]);
 $units = $uStmt->fetchAll(PDO::FETCH_ASSOC);
 
