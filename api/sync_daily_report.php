@@ -110,29 +110,43 @@ try {
         } else {
             $projectAliases = ['harbeia' => 'harbea', 'tal-gruwa' => 'gruwa'];
             foreach ($projectAliases as $wrong => $right) {
-                $searchString = str_replace($wrong, $right, $searchString);
+                if (strpos($searchString, $wrong) !== false) {
+                    $searchString = str_replace($wrong, $right, $searchString);
+                }
             }
+
+            // EXACT TOKEN MATCHING ENGINE: Extracts words/numbers as strict array elements
+            preg_match_all('/[a-zA-Z0-9]+/', $searchString, $csvMatches);
+            $csvTokens = $csvMatches[0];
 
             foreach ($dbUnits as $dbU) {
                 $dbProjNameLower = strtolower($dbU['project_name']);
                 $projParts = explode(' ', $dbProjNameLower);
                 $searchProj = $projParts[0]; 
 
-                if (strpos($searchString, $searchProj) !== false) {
-                    $coreUnitName = preg_replace('/\(.*?\)/', '', $dbU['unit_name']); 
+                // Check if project name roughly matches
+                if (in_array($searchProj, $csvTokens) || strpos($searchString, $searchProj) !== false) {
+                    $coreUnitName = preg_replace('/\(.*?\)/', '', strtolower($dbU['unit_name'])); 
                     preg_match_all('/[a-zA-Z0-9]+/', $coreUnitName, $matches);
                     
                     $unitTokens = [];
                     foreach ($matches[0] as $t) {
-                        if (!in_array(strtolower($t), $ignoreWords)) $unitTokens[] = strtolower($t);
+                        if (!in_array($t, $ignoreWords)) $unitTokens[] = $t;
                     }
 
                     $allTokensMatch = true;
                     foreach ($unitTokens as $token) {
-                        if (strpos($searchString, $token) === false) { $allTokensMatch = false; break; }
+                        // STRICT FIX: The individual token (e.g. "105") MUST exist as its own distinct word/number in the CSV
+                        if (!in_array($token, $csvTokens)) { 
+                            $allTokensMatch = false; 
+                            break; 
+                        }
                     }
 
-                    if ($allTokensMatch && count($unitTokens) > 0) { $matchedId = $dbU['id']; break; }
+                    if ($allTokensMatch && count($unitTokens) > 0) { 
+                        $matchedId = $dbU['id']; 
+                        break; 
+                    }
                 }
             }
         }
