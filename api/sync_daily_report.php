@@ -42,11 +42,9 @@ try {
     $handle = fopen($file, "r");
     if (!$handle) throw new Exception('Could not read the CSV file.');
 
-    // We now explicitly select 'status' here so we can check it later for immunity
     $stmt = $pdo->query("SELECT sp.id, sp.unit_name, sp.status, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
     $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // PERFORMANCE FIX: Create an O(1) lookup table indexed by Unit ID
     $dbUnitsById = [];
     foreach ($dbUnits as $u) {
         $dbUnitsById[$u['id']] = $u;
@@ -92,14 +90,17 @@ try {
         $price = floatval(preg_replace('/[^0-9.]/', '', $csvPriceRaw));
         $finishesPrice = floatval(preg_replace('/[^0-9.]/', '', $csvFinishesRaw)); 
         
+        // --- NEW STATUS MAPPING LOGIC ---
         $dbStatus = 'Available';
         $csvStatusLower = strtolower($csvStatus);
         
-        if (strpos($csvStatusLower, 'stock') !== false) $dbStatus = 'Available';
-        elseif (strpos($csvStatusLower, 'pos') !== false) $dbStatus = 'Sold';
-        elseif (strpos($csvStatusLower, 'contract') !== false) $dbStatus = 'Sold';
-        elseif (strpos($csvStatusLower, 'progress') !== false) $dbStatus = 'Proceeding';
-        elseif (strpos($csvStatusLower, 'hold') !== false) $dbStatus = 'On Hold';
+        $soldStatuses = ['new', 'in review', 'pos', 'in progress', 'deal to pos', 'signed deed'];
+        
+        if (in_array($csvStatusLower, $soldStatuses) || strpos($csvStatusLower, 'pos') !== false || strpos($csvStatusLower, 'contract') !== false) {
+            $dbStatus = 'Sold';
+        } elseif (strpos($csvStatusLower, 'stock') !== false) {
+            $dbStatus = 'Available';
+        }
 
         $searchString = strtolower($csvUnitStringRaw);
         $matchedId = null;
@@ -144,14 +145,14 @@ try {
 
             // 2. Absolute Immunity: Never let internal accounting overwrite a 3rd Party Resale
             if ($currentDbStatus === 'Resale') {
-                continue; // Skip this unit entirely
+                continue; 
             }
 
-            // 3. Active Agent Protection: Prevent destructive downgrades from laggy CSVs
+            // 3. Active Agent Protection: 
+            // If the CSV says "Stock" (Available) but the DB is currently "On Hold", we protect the hold.
+            // If the CSV says "Sold" (New, POS, etc.), it WILL overwrite the hold.
             $activeAgentStatuses = ['On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold Pending Approval', 'POS Pending Approval', 'Contract Pending Approval'];
             if (in_array($currentDbStatus, $activeAgentStatuses) && $dbStatus === 'Available') {
-                // The CSV thinks it's available, but an agent is actively working it. 
-                // We keep the agent's status intact, but still let the price update below if needed.
                 $dbStatus = $currentDbStatus; 
             }
 
