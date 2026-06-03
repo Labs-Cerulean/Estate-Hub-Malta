@@ -141,7 +141,6 @@ require_once 'header.php';
     
     .sh-project-divider { background: rgba(0,0,0,0.3); padding: 12px 20px; font-weight: 800; color: #fff; font-size: 1.1rem; border-left: 4px solid var(--sh-avail); border-radius: 8px; margin-bottom: 10px; margin-top: 10px;}
     
-    .sh-status-select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-border); background: var(--sh-bg-panel); color: #fff; font-weight: bold; cursor: pointer; font-size: 0.85rem; margin-bottom: 10px; outline: none; }
     .sh-resale-input { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-resale); background: rgba(168,85,247,0.1); color: #fff; font-weight: bold; margin-bottom: 10px; outline: none; }
     
     .sh-price-hidden { color: var(--sh-text-muted) !important; font-style: italic !important; font-size: 0.9rem !important; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px; }
@@ -468,7 +467,7 @@ require_once 'header.php';
     }
 
     // ========================================================
-    // SIDEBAR FILTER ENGINE (Unified & Robust)
+    // SIDEBAR FILTER ENGINE
     // ========================================================
     function setStatusTab(filterType) {
         document.getElementById('btnFilterAll').className = filterType === 'All' ? 'sh-tab active' : 'sh-tab';
@@ -487,7 +486,6 @@ require_once 'header.php';
             const rawType = (card.getAttribute('data-type') || '').toLowerCase();
             const cardStatus = card.getAttribute('data-status');
             
-            // Safe Numeric Extraction
             let pureNumericPrice = 0;
             const priceMatch = card.innerText.match(/€[\d,]+/);
             if (priceMatch) pureNumericPrice = parseFloat(priceMatch[0].replace(/[€,]/g, ''));
@@ -707,7 +705,6 @@ require_once 'header.php';
             if (status === 'Reserved') status = 'Proceeding';
             if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
 
-            // Preserve data-type if passed from backend
             let unitTypeAttr = card.getAttribute('data-type') || '';
 
             card.className = 'sh-card';
@@ -746,23 +743,28 @@ require_once 'header.php';
             controlWrapper.style.paddingTop = '15px';
             controlWrapper.style.borderTop = '1px solid var(--sh-border)';
 
+            // --- REFACTORED STATUS CONTROLS ---
+            let controls = `<div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; margin-bottom:10px;">Status: <span style="color:#fff;">${status}</span></div>`;
+
             if (currentViewMode === 'manager') {
-                controlWrapper.innerHTML = `
-                    <label class="sh-label">Update Status</label>
-                    <select class="sh-status-select" id="status-${unitId}" onchange="handleStatusChange(${unitId}, this)">
-                        <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
-                        <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
-                        <option value="Resale" ${status === 'Resale' ? 'selected' : ''}>Resale</option>
-                        <option value="BOM" ${status === 'BOM' ? 'selected' : ''}>BOM</option>
-                        <option value="Proceeding" ${status === 'Proceeding' ? 'selected' : ''}>Proceeding</option>
-                        <option value="Proceeding Pending Approval" ${status === 'Proceeding Pending Approval' ? 'selected' : ''}>Proceeding Pending Approval</option>
-                        <option value="Sold" ${status === 'Sold' ? 'selected' : ''}>Sold</option>
-                        <option value="Sold Pending Approval" ${status === 'Sold Pending Approval' ? 'selected' : ''}>Sold Pending Approval</option>
-                    </select>
-                    <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" style="display: ${status === 'Resale' ? 'block' : 'none'};">
+                if (status === 'Available' || status === 'BOM') {
+                    controls += `
+                        <div style="display:flex; gap:10px; margin-bottom:10px;">
+                            <button class="sh-btn sh-btn-warning" style="margin:0;" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Place on Hold</button>
+                            <button class="sh-btn" style="margin:0; background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.3);" onclick="markResale(${unitId})"><i class="fas fa-exchange-alt"></i> Resale</button>
+                        </div>
+                    `;
+                } else if (status === 'On Hold' || status === 'Proceeding') {
+                     controls += `<button class="sh-btn sh-btn-success" style="margin-bottom:10px;" onclick="releaseHoldFromLedger(${unitId})"><i class="fas fa-unlock"></i> Release Hold</button>`;
+                } else if (status === 'Resale') {
+                     controls += `
+                        <button class="sh-btn sh-btn-success" style="margin-bottom:10px;" onclick="cancelResale(${unitId})"><i class="fas fa-undo"></i> Cancel Resale</button>
+                        <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" onblur="updateResalePrice(${unitId}, this.value)">
+                     `;
+                }
 
+                controls += `
                     <button class="sh-btn sh-btn-warning" style="background:transparent; border:1px dashed var(--sh-border);" onclick="togglePriceEdit(${unitId})">✎ Modify Pricing</button>
-
                     <div id="price_edit_${unitId}" style="display:none; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; border:1px solid var(--sh-border); margin-top:10px;">
                         <label class="sh-label">Shell Price (€)</label>
                         <input type="number" id="inp_sh_${unitId}" class="sh-input" style="margin-bottom:10px;">
@@ -772,17 +774,17 @@ require_once 'header.php';
                     </div>
                 `;
             } else {
+                // Agent View
                 if (status === 'Available' || status === 'BOM') {
-                    controlWrapper.innerHTML = `
+                    controls += `
                         <div style="display:flex; gap:10px;">
-                            <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Hold</button>
-                            <button class="sh-btn sh-btn-success" onclick="requestReserve(${unitId})"><i class="fas fa-check"></i> Proceed</button>
+                            <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Place on Hold</button>
                         </div>
                     `;
-                } else {
-                    controlWrapper.innerHTML = `<div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center;">Current Status: <span style="color:#fff;">${status}</span></div>`;
                 }
             }
+
+            controlWrapper.innerHTML = controls;
 
             if (oldControls) { oldControls.parentNode.replaceChild(controlWrapper, oldControls); } 
             else { card.appendChild(controlWrapper); }
@@ -794,20 +796,22 @@ require_once 'header.php';
     // ========================================================
     // ACTION FUNCTIONS
     // ========================================================
-    function handleStatusChange(unitId, selectElement) {
-        const newStatus = selectElement.value;
-        const resaleInput = document.getElementById('resale_input_' + unitId);
-        
-        if (newStatus === 'Resale') {
-            resaleInput.style.display = 'block'; resaleInput.focus();
-            resaleInput.onblur = () => { if(resaleInput.value) sendStatusToServer(unitId, newStatus, selectElement, resaleInput.value); };
-        } else {
-            resaleInput.style.display = 'none'; sendStatusToServer(unitId, newStatus, selectElement, null);
-        }
+    function markResale(propertyId) {
+        if(!confirm("Mark this unit as a 3rd Party Resale?")) return;
+        sendStatusToServer(propertyId, 'Resale', null);
+    }
+    
+    function cancelResale(propertyId) {
+        if(!confirm("Cancel Resale and revert unit to Available?")) return;
+        sendStatusToServer(propertyId, 'Available', null);
+    }
+    
+    function updateResalePrice(propertyId, price) {
+        if(!price) return;
+        sendStatusToServer(propertyId, 'Resale', price);
     }
 
-    function sendStatusToServer(propertyId, newStatus, selectElement, resalePrice) {
-        selectElement.disabled = true;
+    function sendStatusToServer(propertyId, newStatus, resalePrice = null) {
         let formData = new FormData(); 
         formData.append('property_id', propertyId); 
         formData.append('new_status', newStatus); 
@@ -816,9 +820,8 @@ require_once 'header.php';
         fetch('api/manager_update_status.php', { method: 'POST', body: formData })
         .then(r => r.json())
         .then(data => {
-            selectElement.disabled = false;
             if(data.success) { 
-                showToast(`Status updated to ${newStatus}`, 'success'); 
+                showToast(`Status updated successfully!`, 'success'); 
                 if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
             } else { 
                 showToast("Error: " + data.message, 'error'); 
@@ -851,21 +854,6 @@ require_once 'header.php';
                 showToast("Put on hold!", "success"); 
                 if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
             } else {
-                // WE ADDED THIS ERROR TOAST
-                showToast("Error: " + data.message, "error"); 
-            }
-        }).catch(err => showToast("System Error: " + err.message, "error"));
-    }
-
-    function requestReserve(propertyId) {
-        if(!confirm("Are you sure you want to transition this unit to Proceeding?")) return;
-        let formData = new FormData(); formData.append('action', 'request_reserved'); formData.append('property_id', propertyId);
-        fetch('api/sales_actions.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
-            if(data.success) { 
-                showToast("Status updated to Proceeding!", "success"); 
-                if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
-            } else {
-                // WE ADDED THIS ERROR TOAST
                 showToast("Error: " + data.message, "error"); 
             }
         }).catch(err => showToast("System Error: " + err.message, "error"));
@@ -919,7 +907,6 @@ require_once 'header.php';
         }
     });
 
-
 // DAILY SYNC ENGINE
 function processDailySync(input) {
     if (input.files.length === 0) return;
@@ -935,7 +922,6 @@ function processDailySync(input) {
     .then(data => {
         if (data.success) {
             if (data.not_found && data.not_found.length > 0) {
-                // Show Translation UI
                 showTranslationModal(data.message, data.not_found, data.all_db_units);
             } else {
                 alert(data.message + "\n\n100% Match Rate!");
@@ -950,7 +936,7 @@ function processDailySync(input) {
         alert("A network error occurred during sync.");
     });
     
-    input.value = ""; // Reset input
+    input.value = ""; 
 }
 
 function showTranslationModal(successMessage, missingItems, dbUnits) {
@@ -979,13 +965,11 @@ function showTranslationModal(successMessage, missingItems, dbUnits) {
         </div>
     </div>`;
 
-    // Remove old modal if exists
     let oldModal = document.getElementById('translatorModal');
     if (oldModal) oldModal.remove();
 
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-    // Build Options string for dropdown
     let optionsHtml = `<option value="">-- Select DB Unit --</option>`;
     dbUnits.forEach(u => {
         optionsHtml += `<option value="${u.id}">${u.project_name} - ${u.unit_name}</option>`;
@@ -1012,10 +996,9 @@ function showTranslationModal(successMessage, missingItems, dbUnits) {
 }
 
 function saveTranslation(index, btnElement, isIgnore) {
-    // Safely grab the exact text from the table row!
     let csvName = document.getElementById(`missing_name_${index}`).innerText;
     
-    let unitId = -1; // Default to ignore
+    let unitId = -1; 
     const selectEl = document.getElementById(`trans_select_${index}`);
     
     if (!isIgnore) {
@@ -1043,7 +1026,6 @@ function saveTranslation(index, btnElement, isIgnore) {
             btnElement.innerHTML = isIgnore ? '<i class="fas fa-eye-slash"></i> Ignored!' : '<i class="fas fa-check"></i> Linked!';
             selectEl.disabled = true;
             
-            // Disable the sibling button
             const siblingBtn = isIgnore ? btnElement.previousElementSibling : btnElement.nextElementSibling;
             if (siblingBtn) {
                 siblingBtn.style.opacity = '0.5';
@@ -1058,7 +1040,6 @@ function saveTranslation(index, btnElement, isIgnore) {
 }
 
 function openHoldLedger() {
-    // Added a cache-buster here too, so the ledger is always perfectly up to date
     fetch('api/get_holds_ledger.php?_t=' + Date.now())
         .then(response => response.json())
         .then(data => {
@@ -1067,7 +1048,6 @@ function openHoldLedger() {
                 return;
             }
 
-            // Extract unique project names for the filter dropdown
             let uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
             let projectOptions = uniqueProjects.map(p => `<option value="${p}">${p}</option>`).join('');
 
@@ -1113,7 +1093,6 @@ function openHoldLedger() {
 
                     let expiryDisplay = hold.is_legacy ? '<span style="color:var(--sh-text-muted);">N/A</span>' : new Date(hold.hold_expiry).toLocaleString();
 
-                    // Added a class and a data attribute for the filter to target
                     html += `
                         <tr class="ledger-row" data-project="${hold.project_name}" style="border-bottom: 1px solid var(--sh-border-light);">
                             <td style="padding: 12px 10px;">${hold.project_name}</td>
@@ -1144,9 +1123,9 @@ function filterLedgerTable() {
     
     rows.forEach(row => {
         if (filter === 'All' || row.getAttribute('data-project') === filter) {
-            row.style.display = ''; // Show row
+            row.style.display = ''; 
         } else {
-            row.style.display = 'none'; // Hide row
+            row.style.display = 'none'; 
         }
     });
 }
@@ -1163,7 +1142,7 @@ function releaseHoldFromLedger(propertyId) {
     .then(data => {
         if(data.success) { 
             showToast("Hold released successfully!", "success"); 
-            openHoldLedger(); // Refresh the ledger immediately
+            openHoldLedger(); 
             if (lastLoadedProjects.length > 0) setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
         } else { 
             showToast("Error: " + data.message, "error"); 
