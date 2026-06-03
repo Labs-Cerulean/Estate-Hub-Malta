@@ -115,107 +115,155 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
 ?>
 
 <style>
-    .manager-container { max-width: 1400px; margin: 0 auto; padding: 20px; font-family: 'Inter', sans-serif; }
-    .header-bar { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e2e8f0; }
-    .header-bar select { padding: 10px 15px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 1rem; width: 300px; outline: none; background-color: #fff; color: #0f172a; }
+    /* Dark Mode Theme aligned with Sales Hub */
+    :root {
+        --pm-bg-base: #0f172a;
+        --pm-bg-panel: #1e293b;
+        --pm-border: #334155;
+        --pm-text-main: #f8fafc;
+        --pm-text-muted: #94a3b8;
+        --pm-accent: #3b82f6;
+    }
+
+    /* Wrap the entire page in the dark theme */
+    .manager-wrapper { 
+        background-color: var(--pm-bg-base); 
+        min-height: 100vh; 
+        padding-top: 20px; 
+        padding-bottom: 50px;
+    }
+
+    .manager-container { 
+        max-width: 1500px; 
+        margin: 0 auto; 
+        padding: 0 20px; 
+        font-family: 'Inter', sans-serif; 
+        color: var(--pm-text-main); 
+    }
+    
+    /* Strict Overrides to kill global CSS conflicts */
+    .manager-container input, .manager-container select { 
+        background-color: var(--pm-bg-base) !important; 
+        color: var(--pm-text-main) !important; 
+        border: 1px solid var(--pm-border) !important; 
+    }
+
+    .header-bar { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        background: var(--pm-bg-panel); 
+        padding: 20px; 
+        border-radius: 12px; 
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+        margin-bottom: 20px; 
+        border: 1px solid var(--pm-border); 
+    }
+    .header-bar h2 { color: var(--pm-text-main) !important; }
+    .header-bar select { padding: 10px 15px; border-radius: 8px; font-size: 1rem; width: 300px; outline: none; }
     
     .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-    .tab { padding: 12px 25px; background: #e2e8f0; color: #475569; border-radius: 8px; cursor: pointer; font-weight: 700; transition: 0.2s; }
-    .tab.active { background: #3b82f6; color: #fff; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3); }
-    .tab-content { display: none; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+    .tab { padding: 12px 25px; background: var(--pm-bg-base); color: var(--pm-text-muted); border-radius: 8px; cursor: pointer; font-weight: 700; transition: 0.2s; border: 1px solid var(--pm-border); }
+    .tab.active { background: rgba(59, 130, 246, 0.1); color: var(--pm-accent); border-color: var(--pm-accent); }
+    
+    .tab-content { display: none; background: var(--pm-bg-panel); padding: 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--pm-border); }
     .tab-content.active { display: block; }
+    .tab-content h4 { color: var(--pm-text-main); }
 
     /* Frame Editor Table */
     .frame-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-    .frame-table th { background: #f8fafc; padding: 12px; text-align: left; color: #475569; font-weight: 800; border-bottom: 2px solid #cbd5e1; }
-    .frame-table td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
+    .frame-table th { background: var(--pm-bg-base); padding: 12px; text-align: left; color: var(--pm-text-muted); font-weight: 800; border-bottom: 2px solid var(--pm-border); }
+    .frame-table td { padding: 8px; border-bottom: 1px solid var(--pm-border); }
     
-    /* Strict high-contrast styles to fix "white on white" UI bug */
-    .frame-input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 0.85rem; color: #0f172a; background-color: #ffffff; }
-    .frame-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-    .frame-select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 0.85rem; color: #0f172a; background-color: #ffffff; }
+    .frame-input { width: 100%; padding: 8px; border-radius: 6px; outline: none; font-size: 0.85rem; }
+    .frame-input:focus { border-color: var(--pm-accent) !important; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+    .frame-select { width: 100%; padding: 8px; border-radius: 6px; outline: none; font-size: 0.85rem; }
 
+    /* Buttons */
     .btn-heavy { padding: 10px 20px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
-    .btn-blue { background: #3b82f6; color: #fff; } .btn-blue:hover { background: #2563eb; }
-    .btn-green { background: #10b981; color: #fff; } .btn-green:hover { background: #059669; }
-    .btn-red { background: #ef4444; color: #fff; } .btn-red:hover { background: #dc2626; }
-    .btn-gray { background: #e2e8f0; color: #475569; } .btn-gray:hover { background: #cbd5e1; }
+    .btn-blue { background: rgba(59, 130, 246, 0.1); color: var(--pm-accent); border: 1px solid rgba(59, 130, 246, 0.3); } .btn-blue:hover { background: var(--pm-accent); color:#fff; }
+    .btn-green { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); } .btn-green:hover { background: #10b981; color:#fff; }
+    .btn-red { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); } .btn-red:hover { background: #ef4444; color:#fff; }
+    .btn-gray { background: var(--pm-bg-base); color: var(--pm-text-muted); border: 1px solid var(--pm-border); } .btn-gray:hover { background: var(--pm-border); color: #fff;}
 
+    /* Media Grid */
     .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
-    .media-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; background: #f8fafc; text-align: center; position: relative; }
-    .media-card img, .media-card video { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; background: #e2e8f0; }
-    .media-title { font-size: 0.8rem; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
-    .media-order { width: 60px; padding: 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 10px; color: #0f172a; background-color: #ffffff; }
+    .media-card { border: 1px solid var(--pm-border); border-radius: 12px; padding: 10px; background: var(--pm-bg-base); text-align: center; position: relative; }
+    .media-card img, .media-card video { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; background: var(--pm-bg-panel); }
+    .media-title { font-size: 0.8rem; font-weight: 700; color: var(--pm-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
+    .media-order { width: 60px; padding: 4px; text-align: center; border-radius: 4px; margin-bottom: 10px; }
     
-    .loader { display: none; text-align: center; padding: 40px; color: #3b82f6; font-size: 1.2rem; font-weight: bold; }
+    .loader { display: none; text-align: center; padding: 40px; color: var(--pm-accent); font-size: 1.2rem; font-weight: bold; }
 </style>
 
-<div class="manager-container">
-    <div class="header-bar">
-        <div>
-            <a href="sales_hub.php" style="color: #64748b; text-decoration: none; font-size: 0.9rem; font-weight: bold;">&larr; Back to Sales Hub</a>
-            <h2 style="margin: 5px 0 0 0; color: #0f172a; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Project Frame & Media Manager</h2>
-            <p style="margin: 5px 0 0 0; color: #64748b; font-size: 0.9rem;">Surgically edit project frames, adjust properties, and organize media.</p>
-        </div>
-        <div>
-            <label style="font-weight: 800; color: #475569; margin-right: 10px;">Select Project:</label>
-            <select id="projectSelect" onchange="loadProjectData()">
-                <option value="">-- Choose a Project --</option>
-                <?php foreach($projects as $p): ?>
-                    <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-    </div>
-
-    <div id="workspace" style="display: none;">
-        <div class="tabs">
-            <div class="tab active" onclick="switchTab('frameTab', this)"><i class="fas fa-table"></i> Live Frame Editor</div>
-            <div class="tab" onclick="switchTab('mediaTab', this)"><i class="fas fa-images"></i> Media & Renders</div>
-            <div class="tab" onclick="switchTab('floorTab', this)"><i class="fas fa-map"></i> Floor Plans</div>
-        </div>
-
-        <div id="loader" class="loader"><i class="fas fa-spinner fa-spin"></i> Loading Project Data...</div>
-
-        <div id="frameTab" class="tab-content active">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
-                <button class="btn-heavy btn-gray" onclick="addNewRow()"><i class="fas fa-plus"></i> Add New Unit</button>
-                <button class="btn-heavy btn-green" onclick="saveFrame()"><i class="fas fa-save"></i> Save All Frame Changes</button>
+<div class="manager-wrapper">
+    <div class="manager-container">
+        <div class="header-bar">
+            <div>
+                <a href="sales_hub.php" style="color: var(--pm-text-muted); text-decoration: none; font-size: 0.9rem; font-weight: bold;">&larr; Back to Sales Hub</a>
+                <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Project Frame & Media Manager</h2>
+                <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Surgically edit project frames, adjust properties, and organize media.</p>
             </div>
-            
-            <div style="overflow-x: auto;">
-                <table class="frame-table" id="frameTable">
-                    <thead>
-                        <tr>
-                            <th style="min-width: 120px;">Unit Name</th>
-                            <th style="width: 70px;">Block</th>
-                            <th style="width: 70px;">Level</th>
-                            <th style="width: 140px;">Property Type</th>
-                            <th style="min-width: 160px;">Description</th>
-                            <th style="width: 90px;">Int SQM</th>
-                            <th style="width: 90px;">Ext SQM</th>
-                            <th style="width: 120px;">Shell Price (€)</th>
-                            <th style="width: 120px;">Finishes (€)</th>
-                            <th style="width: 60px; text-align: center;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="frameBody">
-                    </tbody>
-                </table>
+            <div>
+                <label style="font-weight: 800; color: var(--pm-text-muted); margin-right: 10px;">Select Project:</label>
+                <select id="projectSelect" onchange="loadProjectData()">
+                    <option value="">-- Choose a Project --</option>
+                    <?php foreach($projects as $p): ?>
+                        <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
         </div>
 
-        <div id="mediaTab" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h4 style="margin: 0; color: #0f172a;">Sales Gallery Media</h4>
-                <button class="btn-heavy btn-blue" onclick="saveMediaOrder()"><i class="fas fa-sort-numeric-down"></i> Save Display Order</button>
+        <div id="workspace" style="display: none;">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('frameTab', this)"><i class="fas fa-table"></i> Live Frame Editor</div>
+                <div class="tab" onclick="switchTab('mediaTab', this)"><i class="fas fa-images"></i> Media & Renders</div>
+                <div class="tab" onclick="switchTab('floorTab', this)"><i class="fas fa-map"></i> Floor Plans</div>
             </div>
-            <div class="media-grid" id="mediaGrid"></div>
-        </div>
 
-        <div id="floorTab" class="tab-content">
-            <h4 style="margin: 0 0 20px 0; color: #0f172a;">Attached Floor Plans</h4>
-            <div id="floorPlanList"></div>
+            <div id="loader" class="loader"><i class="fas fa-spinner fa-spin"></i> Loading Project Data...</div>
+
+            <div id="frameTab" class="tab-content active">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                    <button class="btn-heavy btn-gray" onclick="addNewRow()"><i class="fas fa-plus"></i> Add New Unit</button>
+                    <button class="btn-heavy btn-green" onclick="saveFrame()"><i class="fas fa-save"></i> Save All Frame Changes</button>
+                </div>
+                
+                <div style="overflow-x: auto;">
+                    <table class="frame-table" id="frameTable">
+                        <thead>
+                            <tr>
+                                <th style="min-width: 120px;">Unit Name</th>
+                                <th style="width: 70px;">Block</th>
+                                <th style="width: 70px;">Level</th>
+                                <th style="width: 140px;">Property Type</th>
+                                <th style="min-width: 160px;">Description</th>
+                                <th style="width: 90px;">Int SQM</th>
+                                <th style="width: 90px;">Ext SQM</th>
+                                <th style="width: 120px;">Shell Price (€)</th>
+                                <th style="width: 120px;">Finishes (€)</th>
+                                <th style="width: 60px; text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="frameBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="mediaTab" class="tab-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h4 style="margin: 0;">Sales Gallery Media</h4>
+                    <button class="btn-heavy btn-blue" onclick="saveMediaOrder()"><i class="fas fa-sort-numeric-down"></i> Save Display Order</button>
+                </div>
+                <div class="media-grid" id="mediaGrid"></div>
+            </div>
+
+            <div id="floorTab" class="tab-content">
+                <h4 style="margin: 0 0 20px 0;">Attached Floor Plans</h4>
+                <div id="floorPlanList"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -378,10 +426,10 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
                 hasFloors = true;
                 let lvl = m.title.replace('Floor Plan - ', '');
                 floorHtml += `
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:15px; border:1px solid #cbd5e1; border-radius:8px; margin-bottom:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--pm-bg-base); padding:15px; border:1px solid var(--pm-border); border-radius:8px; margin-bottom:10px;">
                         <div>
-                            <strong style="color: #0f172a;"><i class="fas fa-layer-group text-blue-500"></i> Level: ${lvl}</strong>
-                            <div style="font-size:0.8rem; color:#64748b; margin-top:4px;">File: ${m.file_path.split('/').pop()}</div>
+                            <strong style="color: var(--pm-text-main);"><i class="fas fa-layer-group text-blue-500"></i> Level: ${lvl}</strong>
+                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${m.file_path.split('/').pop()}</div>
                         </div>
                         <div>
                             <a href="${m.file_path}" target="_blank" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
@@ -394,7 +442,7 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
                     <div class="media-card" data-id="${m.id}">
                         ${mediaEl}
                         <div class="media-title">${m.sub_category}</div>
-                        <label style="font-size:0.7rem; color:#64748b;">Display Order:</label><br>
+                        <label style="font-size:0.7rem; color:var(--pm-text-muted);">Display Order:</label><br>
                         <input type="number" class="media-order inp-sort" value="${m.sort_order || 0}">
                         <br>
                         <button class="btn-heavy btn-red" style="width:100%; padding:6px; font-size:0.8rem;" onclick="deleteMedia(${m.id})"><i class="fas fa-trash"></i> Delete</button>
@@ -403,12 +451,12 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
         });
 
         if (!hasFloors) {
-            floorHtml = '<div style="padding:20px; text-align:center; color:#64748b; background:#f8fafc; border-radius:8px;">No floor plans uploaded for this project yet. Use the Sales Hub Media Uploader to add them.</div>';
+            floorHtml = '<div style="padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No floor plans uploaded for this project yet. Use the Sales Hub Media Uploader to add them.</div>';
         }
         floorList.innerHTML = floorHtml;
         
         if (mediaGrid.innerHTML === '') {
-            mediaGrid.innerHTML = '<div style="grid-column: 1/-1; padding:20px; text-align:center; color:#64748b; background:#f8fafc; border-radius:8px;">No visual media uploaded yet. Use the Sales Hub Media Uploader to add renders and videos.</div>';
+            mediaGrid.innerHTML = '<div style="grid-column: 1/-1; padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No visual media uploaded yet. Use the Sales Hub Media Uploader to add renders and videos.</div>';
         }
     }
 
