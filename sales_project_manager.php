@@ -44,7 +44,32 @@ if (isset($_POST['action'])) {
 
             $stmtMedia = $pdo->prepare("SELECT * FROM project_documents WHERE project_id = ? AND category = 'Sales' ORDER BY sort_order ASC, id ASC");
             $stmtMedia->execute([$pid]);
-            $media = $stmtMedia->fetchAll(PDO::FETCH_ASSOC);
+            $mediaRaw = $stmtMedia->fetchAll(PDO::FETCH_ASSOC);
+
+            // --- FIX: CLOUDFLARE/S3 PRESIGNED URL GENERATOR ---
+            $media = [];
+            $s3Loaded = false;
+            $s3 = null;
+
+            foreach ($mediaRaw as $m) {
+                $path = $m['file_path'];
+                
+                // If the path is an internal S3/Cloudflare key (doesn't start with http)
+                if (!empty($path) && strpos($path, 'http') === false) {
+                    if (!$s3Loaded) {
+                        require_once 'S3FileManager.php';
+                        $s3 = new S3FileManager();
+                        $s3Loaded = true;
+                    }
+                    try {
+                        // Generate a secure viewing URL valid for 2 hours
+                        $m['file_path'] = $s3->getPresignedUrl($path, '+120 minutes');
+                    } catch (Exception $e) {
+                        // Fallback to original path if Cloudflare fails
+                    }
+                }
+                $media[] = $m;
+            }
 
             echo json_encode(['success' => true, 'units' => $units, 'media' => $media]);
             exit;
