@@ -3,6 +3,9 @@ require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
 
+// Force Malta Timezone strictly for all operations in this file
+date_default_timezone_set('Europe/Malta');
+
 // Auto-deploy database updates for Setup Fee and Local Rate Overrides
 try { 
     $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00"); 
@@ -581,24 +584,33 @@ if ($action == 'claim_job') {
     exit;
 }
 
+// ---------------------------------------------------------
+// SECURE PUNCH-IN/OUT (FORCING MALTA TIMEZONE)
+// ---------------------------------------------------------
 if ($action == 'punch_in') { 
-    $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=NOW(), driver_id=COALESCE(driver_id, ?) WHERE id=?");
-    $stmt->execute([$userId, $_GET['id']]); 
+    // Secure Server-side Time Generation
+    $punchTime = date('Y-m-d H:i:s');
+    
+    $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?) WHERE id=?");
+    $stmt->execute([$punchTime, $userId, $_GET['id']]); 
     
     echo "OK"; 
     exit; 
 }
 
 if ($action == 'punch_out_complete') {
+    // Secure Server-side Time Generation
+    $punchTime = date('Y-m-d H:i:s');
     $bookingId = $_POST['id'];
     
     $stmt = $pdo->prepare("
         UPDATE plant_bookings 
-        SET status='Completed', punch_out_time=NOW(), qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? 
+        SET status='Completed', punch_out_time=?, qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? 
         WHERE id=?
     ");
     
     $stmt->execute([
+        $punchTime,
         empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], 
         $_POST['rep_name'], 
         $_POST['rep_id'], 
