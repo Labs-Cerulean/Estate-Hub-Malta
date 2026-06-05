@@ -18,9 +18,7 @@ try {
     $pdo->exec("ALTER TABLE sales_properties ADD COLUMN hold_expiry DATETIME DEFAULT NULL");
     $pdo->exec("ALTER TABLE sales_properties ADD COLUMN shell_price DECIMAL(10,2) DEFAULT NULL");
     $pdo->exec("ALTER TABLE sales_properties ADD COLUMN finishes_price DECIMAL(10,2) DEFAULT NULL");
-} catch(PDOException $e) { 
-    // Silently ignore if columns already exist 
-}
+} catch(PDOException $e) { /* Silently ignore if columns already exist */ }
 require_once 'header.php';
 ?>
 
@@ -56,17 +54,8 @@ require_once 'header.php';
     #sh-wrapper { position: relative; height: 100vh; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; color: var(--sh-text-main); }
     #sales-map { position: absolute; top: 0; bottom: 0; width: 100%; left: 0; }
     
-    .mapboxgl-ctrl-top-right { 
-        top: 20px; left: 50% !important; right: auto !important; 
-        transform: translateX(-50%); z-index: 20; display: flex; 
-    }
-    
-    .mapboxgl-ctrl-group { 
-        display: flex !important; flex-direction: row !important; 
-        background: var(--sh-bg-panel); border: 2px solid var(--sh-avail); 
-        border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); overflow: hidden; 
-    }
-    
+    .mapboxgl-ctrl-top-right { top: 20px; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 20; display: flex; }
+    .mapboxgl-ctrl-group { display: flex !important; flex-direction: row !important; background: var(--sh-bg-panel); border: 2px solid var(--sh-avail); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); overflow: hidden; }
     .mapboxgl-ctrl-group button { filter: invert(1); width: 45px; height: 45px; transition: 0.2s; }
     .mapboxgl-ctrl-group button:hover { background: rgba(255,255,255,0.1); }
     
@@ -96,7 +85,6 @@ require_once 'header.php';
     .sh-btn-danger { background: rgba(239, 68, 68, 0.1); color: var(--sh-danger); border: 1px solid rgba(239, 68, 68, 0.3); }
     .sh-btn-danger:hover { background: var(--sh-danger); color: #fff; }
     
-    /* Sidebar */
     .sh-sidebar {
         position: fixed; top: 0; right: -500px; width: 500px; height: 100vh;
         background-color: var(--sh-bg-panel); color: var(--sh-text-main);
@@ -300,6 +288,8 @@ require_once 'header.php';
                 <option value="default">Standard Order</option>
                 <option value="price_asc">Price: Low to High</option>
                 <option value="price_desc">Price: High to Low</option>
+                <option value="floor_asc">Floor: Low to High</option>
+                <option value="floor_desc">Floor: High to Low</option>
             </select>
             <button class="sh-pdf-btn" onclick="generateLivePricelist()">
                 <i class="fas fa-file-pdf"></i> Pricelist
@@ -313,15 +303,23 @@ require_once 'header.php';
 
 <div id="viewPlanModal" class="vanilla-modal">
     <div class="vanilla-modal-content large">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--sh-border); padding-bottom: 15px; margin-bottom: 15px;">
-            <h4 style="margin: 0; color: #fff;"><i class="fas fa-map"></i> Floor Plan Viewer</h4>
-            <div style="display: flex; gap: 10px;">
-                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(-0.25)"><i class="fas fa-search-minus"></i></button>
-                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="resetPlan()"><i class="fas fa-compress"></i></button>
-                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(0.25)"><i class="fas fa-search-plus"></i></button>
-                <span class="vanilla-close" style="margin-left: 15px;" onclick="document.getElementById('viewPlanModal').style.display='none'">&times;</span>
+        <div style="display: flex; flex-direction: column; border-bottom: 1px solid var(--sh-border); padding-bottom: 15px; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <h4 style="margin: 0; color: #fff; display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-map"></i> Floor Plan Viewer
+                </h4>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(-0.25)"><i class="fas fa-search-minus"></i></button>
+                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="resetPlan()"><i class="fas fa-compress"></i></button>
+                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(0.25)"><i class="fas fa-search-plus"></i></button>
+                    <span class="vanilla-close" style="margin-left: 15px;" onclick="closePlanModal()">&times;</span>
+                </div>
             </div>
+            
+            <div id="multiPlanTabs" style="display: flex; gap: 10px; margin-top: 15px; overflow-x: auto;"></div>
         </div>
+        
         <div style="flex: 1; overflow: hidden; background: #e2e8f0; border-radius: 8px;">
             <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%;">
                 <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none;"></iframe>
@@ -503,7 +501,6 @@ require_once 'header.php';
         const statusFilter = document.getElementById('btnFilterAll').classList.contains('active') ? 'All' : 'Available';
         const sortMode = document.getElementById('agentSortDropdown').value;
 
-        // Apply filters to display/hide
         const cards = document.querySelectorAll('.sh-card');
         cards.forEach(card => {
             const rawType = (card.getAttribute('data-type') || '').toLowerCase();
@@ -523,7 +520,6 @@ require_once 'header.php';
             card.style.display = show ? 'block' : 'none';
         });
 
-        // Apply dynamic sorting within each project group
         const groups = document.querySelectorAll('.project-unit-group');
         groups.forEach(group => {
             const groupCards = Array.from(group.querySelectorAll('.sh-card'));
@@ -533,19 +529,27 @@ require_once 'header.php';
                     return parseInt(a.getAttribute('data-index') || 0) - parseInt(b.getAttribute('data-index') || 0);
                 }
 
-                let priceA = 0; let priceB = 0;
-                const m1 = a.innerText.match(/€[\d,]+/); 
-                if(m1) priceA = parseFloat(m1[0].replace(/[€,]/g, ''));
-                
-                const m2 = b.innerText.match(/€[\d,]+/); 
-                if(m2) priceB = parseFloat(m2[0].replace(/[€,]/g, ''));
+                if (sortMode === 'price_asc' || sortMode === 'price_desc') {
+                    let priceA = 0; let priceB = 0;
+                    const m1 = a.innerText.match(/€[\d,]+/); 
+                    if(m1) priceA = parseFloat(m1[0].replace(/[€,]/g, ''));
+                    
+                    const m2 = b.innerText.match(/€[\d,]+/); 
+                    if(m2) priceB = parseFloat(m2[0].replace(/[€,]/g, ''));
 
-                if(sortMode === 'price_asc') return priceA - priceB;
-                if(sortMode === 'price_desc') return priceB - priceA;
+                    return sortMode === 'price_asc' ? priceA - priceB : priceB - priceA;
+                }
+
+                if (sortMode === 'floor_asc' || sortMode === 'floor_desc') {
+                    let floorA = parseInt(a.getAttribute('data-floor') || 0);
+                    let floorB = parseInt(b.getAttribute('data-floor') || 0);
+
+                    return sortMode === 'floor_asc' ? floorA - floorB : floorB - floorA;
+                }
+                
                 return 0;
             });
 
-            // Re-appends sorted DOM elements
             groupCards.forEach(c => group.appendChild(c)); 
         });
     }
@@ -564,11 +568,39 @@ require_once 'header.php';
         }, 3000);
     }
 
+    // MULTI-PLAN ENGINE UPDATES
     let currentPlanZoom = 1;
-    function openPlanModal(url) { 
+    function openPlanModal(urlData) { 
         document.getElementById('viewPlanModal').style.display = 'block'; 
-        document.getElementById('planIframe').src = url; 
+        const tabsDiv = document.getElementById('multiPlanTabs');
+        tabsDiv.innerHTML = '';
         resetPlan(); 
+
+        let urls = urlData.split(',');
+        
+        if (urls.length === 1) {
+            document.getElementById('planIframe').src = urls[0].trim();
+        } else {
+            urls.forEach((url, index) => {
+                let btn = document.createElement('button');
+                btn.className = 'sh-btn sh-btn-info';
+                btn.style.margin = '0';
+                btn.style.padding = '6px 12px';
+                btn.style.width = 'auto';
+                btn.style.minWidth = '80px';
+                btn.innerText = 'Plan ' + (index + 1);
+                
+                btn.onclick = function() {
+                    document.getElementById('planIframe').src = url.trim();
+                    Array.from(tabsDiv.children).forEach(b => b.style.opacity = '0.4');
+                    this.style.opacity = '1';
+                };
+                
+                if (index !== 0) btn.style.opacity = '0.4';
+                tabsDiv.appendChild(btn);
+            });
+            document.getElementById('planIframe').src = urls[0].trim();
+        }
     }
     
     function closePlanModal() { 
@@ -784,6 +816,14 @@ require_once 'header.php';
         
         cards.forEach(card => {
             card.setAttribute('data-index', indexCounter++); // Needed to restore default order
+            
+            // Extract the floor level dynamically so JS sorting functions properly
+            let floorLevel = card.getAttribute('data-floor');
+            if (!floorLevel) {
+                let textMatch = card.innerText.match(/(Level|Floor)\s*[:-]?\s*([-]?\d+)/i);
+                if (textMatch) floorLevel = textMatch[2];
+            }
+            card.setAttribute('data-floor', floorLevel || '0');
             
             let unitId = card.getAttribute('data-unit-id');
             if (!unitId) {
