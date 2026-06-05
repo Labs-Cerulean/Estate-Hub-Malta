@@ -39,7 +39,10 @@ try {
         FROM sales_properties sp 
         LEFT JOIN users u ON sp.held_by_agent_id = u.id 
         WHERE sp.project_id = ? 
-        ORDER BY sp.floor_level ASC, sp.unit_type, sp.unit_name
+        ORDER BY 
+            CAST(sp.floor_level AS SIGNED) ASC, 
+            FIELD(sp.unit_type, 'garage', 'parking space', 'commercial', 'maisonette', 'apartment', 'penthouse', 'villa', 'house'), 
+            sp.unit_name ASC
     ");
     $stmt->execute([$project_id]);
     $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
