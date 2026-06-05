@@ -184,11 +184,16 @@ try {
             }
 
             $floorLvl = trim($u['floor_level']);
-            if (isset($plans[$floorLvl])) {
-                $safeUrl = htmlspecialchars($plans[$floorLvl], ENT_QUOTES, 'UTF-8');
-                $html .= "<div style='margin-bottom: 12px;'>
-                            <button class='btn' style='display: block; width: 100%; background: rgba(14, 165, 233, 0.1); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='openPlanModal(\"{$safeUrl}\")'><i class='fas fa-map' style='margin-right: 5px;'></i> View Plan</button>
-                          </div>";
+            // Fetch all plans for this floor level, grouped into an array
+            $stmtPlans = $pdo->prepare("SELECT file_path FROM project_documents WHERE project_id = ? AND category = 'Sales' AND sub_category = 'Floor Plan' AND title = ? ORDER BY sort_order ASC, id ASC");
+            $stmtPlans->execute([$pid, 'Floor Plan - ' . $row['floor_level']]);
+            $plans = $stmtPlans->fetchAll(PDO::FETCH_COLUMN);
+            
+            // If plans exist, comma-separate their URLs to pass to the JS Modal
+            if (!empty($plans)) {
+                // Note: If storing internal keys, you must pass them through your S3 getPresignedUrl() here before adding to $urls array
+                $urlList = implode(',', $plans);
+                echo '<button class="sh-btn sh-btn-info" onclick="openPlanModal(\'' . htmlspecialchars($urlList) . '\')"><i class="fas fa-map"></i> View Plan(s)</button>';
             }
             
             $html .= "</div>"; 
