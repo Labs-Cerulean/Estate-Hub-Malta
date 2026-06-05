@@ -539,8 +539,12 @@ require_once 'header.php';
                 }
 
                 if (sortMode === 'floor_asc' || sortMode === 'floor_desc') {
-                    let floorA = parseInt(a.getAttribute('data-floor') || 0);
-                    let floorB = parseInt(b.getAttribute('data-floor') || 0);
+                    // We extract the numerical floor level directly from the injected HTML attribute
+                    let floorAStr = a.getAttribute('data-floor');
+                    let floorBStr = b.getAttribute('data-floor');
+                    
+                    let floorA = floorAStr ? parseInt(floorAStr, 10) : 0;
+                    let floorB = floorBStr ? parseInt(floorBStr, 10) : 0;
 
                     return sortMode === 'floor_asc' ? floorA - floorB : floorB - floorA;
                 }
