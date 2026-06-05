@@ -303,25 +303,23 @@ require_once 'header.php';
 
 <div id="viewPlanModal" class="vanilla-modal">
     <div class="vanilla-modal-content large">
-        <div style="display: flex; flex-direction: column; border-bottom: 1px solid var(--sh-border); padding-bottom: 15px; margin-bottom: 15px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                <h4 style="margin: 0; color: #fff; display: flex; align-items: center; gap: 10px;">
-                    <i class="fas fa-map"></i> Floor Plan Viewer
-                </h4>
-                
-                <div style="display: flex; gap: 10px;">
-                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(-0.25)"><i class="fas fa-search-minus"></i></button>
-                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="resetPlan()"><i class="fas fa-compress"></i></button>
-                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(0.25)"><i class="fas fa-search-plus"></i></button>
-                    <span class="vanilla-close" style="margin-left: 15px;" onclick="closePlanModal()">&times;</span>
-                </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--sh-border); padding-bottom: 15px; margin-bottom: 15px;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <h4 style="margin: 0; color: #fff;"><i class="fas fa-map"></i> Floor Plan Viewer</h4>
+                <span id="planCountDisplay" style="color: var(--sh-avail); font-weight: 800; font-size: 0.9rem;"></span>
             </div>
-            
-            <div id="multiPlanTabs" style="display: flex; gap: 10px; margin-top: 15px; overflow-x: auto;"></div>
+            <div style="display: flex; gap: 10px;">
+                <button id="planPrevBtn" class="sh-btn sh-btn-warning" style="margin:0; padding: 6px 12px; width:auto; display:none;" onclick="changePlanSlide(-1)"><i class="fas fa-arrow-left"></i> Prev</button>
+                <button id="planNextBtn" class="sh-btn sh-btn-warning" style="margin:0; padding: 6px 12px; width:auto; display:none;" onclick="changePlanSlide(1)">Next <i class="fas fa-arrow-right"></i></button>
+                
+                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(-0.25)"><i class="fas fa-search-minus"></i></button>
+                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="resetPlan()"><i class="fas fa-compress"></i></button>
+                <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width:auto;" onclick="zoomPlan(0.25)"><i class="fas fa-search-plus"></i></button>
+                <span class="vanilla-close" style="margin-left: 15px;" onclick="closePlanModal()">&times;</span>
+            </div>
         </div>
-        
         <div style="flex: 1; overflow: hidden; background: #e2e8f0; border-radius: 8px;">
-            <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%;">
+            <div id="planTransformContainer" style="transition: transform 0.3s ease; width: 100%; height: 100%; transform-origin: top left;">
                 <iframe id="planIframe" src="" style="width: 100%; height: 100%; border: none;"></iframe>
             </div>
         </div>
@@ -570,39 +568,42 @@ require_once 'header.php';
 
     // MULTI-PLAN ENGINE UPDATES
     let currentPlanZoom = 1;
-    function openPlanModal(urlData) { 
-        document.getElementById('viewPlanModal').style.display = 'block'; 
-        const tabsDiv = document.getElementById('multiPlanTabs');
-        tabsDiv.innerHTML = '';
-        resetPlan(); 
+    let currentPlans = [];
+    let currentPlanIndex = 0;
 
-        let urls = urlData.split(',');
+    function openPlanModal(urlsStr) { 
+        currentPlans = urlsStr.split(',');
+        currentPlanIndex = 0;
+        document.getElementById('viewPlanModal').style.display = 'block'; 
+        renderPlanIframe();
+    }
+
+    function renderPlanIframe() {
+        document.getElementById('planIframe').src = currentPlans[currentPlanIndex];
+        resetPlan();
         
-        if (urls.length === 1) {
-            document.getElementById('planIframe').src = urls[0].trim();
+        let prevBtn = document.getElementById('planPrevBtn');
+        let nextBtn = document.getElementById('planNextBtn');
+        let countDisp = document.getElementById('planCountDisplay');
+        
+        if (currentPlans.length > 1) {
+            prevBtn.style.display = 'inline-flex';
+            nextBtn.style.display = 'inline-flex';
+            countDisp.innerText = `Plan ${currentPlanIndex + 1} of ${currentPlans.length}`;
         } else {
-            urls.forEach((url, index) => {
-                let btn = document.createElement('button');
-                btn.className = 'sh-btn sh-btn-info';
-                btn.style.margin = '0';
-                btn.style.padding = '6px 12px';
-                btn.style.width = 'auto';
-                btn.style.minWidth = '80px';
-                btn.innerText = 'Plan ' + (index + 1);
-                
-                btn.onclick = function() {
-                    document.getElementById('planIframe').src = url.trim();
-                    Array.from(tabsDiv.children).forEach(b => b.style.opacity = '0.4');
-                    this.style.opacity = '1';
-                };
-                
-                if (index !== 0) btn.style.opacity = '0.4';
-                tabsDiv.appendChild(btn);
-            });
-            document.getElementById('planIframe').src = urls[0].trim();
+            prevBtn.style.display = 'none';
+            nextBtn.style.display = 'none';
+            countDisp.innerText = '';
         }
     }
-    
+
+    function changePlanSlide(dir) {
+        currentPlanIndex += dir;
+        if (currentPlanIndex < 0) currentPlanIndex = currentPlans.length - 1;
+        if (currentPlanIndex >= currentPlans.length) currentPlanIndex = 0;
+        renderPlanIframe();
+    }
+
     function closePlanModal() { 
         document.getElementById('viewPlanModal').style.display = 'none'; 
         document.getElementById('planIframe').src = ''; 
