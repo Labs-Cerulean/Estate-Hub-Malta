@@ -18,25 +18,28 @@ try {
     $s3 = new S3FileManager();
 
     // Fetch Media Links for the Sidebar Carousel and Floor Plans
-    $docStmt = $pdo->prepare("SELECT sub_category, title, file_path FROM project_documents WHERE project_id = ? AND category = 'Sales' ORDER BY created_at ASC");
+    $docStmt = $pdo->prepare("SELECT sub_category, title, file_path FROM project_documents WHERE project_id = ? AND category = 'Sales' ORDER BY sort_order ASC, created_at ASC");
     $docStmt->execute([$project_id]);
     $docs = $docStmt->fetchAll(PDO::FETCH_ASSOC);
     
     $renders = []; $videos = []; $plans = []; 
     foreach ($docs as $d) {
-        $url = $s3->getPresignedUrl($d['file_path'], '+60 minutes');
+        $url = $s3->getPresignedUrl($d['file_path'], '+120 minutes');
         if ($d['sub_category'] === 'Render (Image)') {
             $renders[] = $url;
         } elseif ($d['sub_category'] === 'Render (Video)') {
             $videos[] = $url;
         } elseif ($d['sub_category'] === 'Floor Plan') {
-            if (preg_match('/Level (.*)/i', $d['title'], $matches)) {
-                $plans[trim($matches[1])] = $url;
+            // Safely extract the floor number without breaking on negative hyphens (e.g. "Floor Plan - -1")
+            $level = trim(str_replace('Floor Plan - ', '', $d['title']));
+            if (!isset($plans[$level])) {
+                $plans[$level] = []; // Initialize array to hold MULTIPLE files for this floor
             }
+            $plans[$level][] = $url;
         }
     }
 
-    // Fetch Units & Assigned Agent Names
+    // Fetch Units & Assigned Agent Names (Forced Math Sorting applied to floor_level)
     $stmt = $pdo->prepare("
         SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
                u.first_name, u.last_name 
@@ -44,7 +47,8 @@ try {
         LEFT JOIN users u ON sp.held_by_agent_id = u.id 
         WHERE sp.project_id = ? 
         ORDER BY 
-            CAST(sp.floor_level AS SIGNED) ASC, 
+            sp.block ASC,
+            (sp.floor_level + 0) ASC, 
             FIELD(sp.unit_type, 'garage', 'parking space', 'commercial', 'maisonette', 'apartment', 'penthouse', 'villa', 'house'), 
             sp.unit_name ASC
     ");
@@ -96,7 +100,6 @@ try {
 
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
-            // --- START BEAUTIFUL CARD (Added data-type for strict filtering) ---
             $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
@@ -137,7 +140,6 @@ try {
                         </div>
                       </div>";
 
-            // --- MANAGER EDIT PRICE FORM ---
             if ($is_manager) {
                 $html .= "
                         <div id='price_edit_{$u['id']}' class='p-3 mb-3' style='display:none; background: rgba(14, 165, 233, 0.05); border-radius: 10px; border: 1px solid rgba(14, 165, 233, 0.2);'>
@@ -158,7 +160,6 @@ try {
                         </div>";
             }
 
-            // --- ACTION BUTTONS (VERTICAL BLOCK LAYOUT) ---
             $html .= "<div style='display: block; width: 100%; margin-top: 20px;'>"; 
             
             if ($is_manager) {
@@ -187,19 +188,23 @@ try {
                 }
             }
 
-            // --- FLOOR PLAN BUTTON ---
+            // --- FLOOR PLAN BUTTON (SUPPORTS MULTIPLE FILES) ---
             $floorLvl = trim($u['floor_level']);
-            if (isset($plans[$floorLvl])) {
-                $planUrl = htmlspecialchars($plans[$floorLvl], ENT_QUOTES, 'UTF-8');
+            if (isset($plans[$floorLvl]) && count($plans[$floorLvl]) > 0) {
+                // Safely embed multiple comma-separated URLs into a data attribute
+                $urlList = htmlspecialchars(implode(',', $plans[$floorLvl]), ENT_QUOTES, 'UTF-8');
+                $count = count($plans[$floorLvl]);
+                $btnText = $count > 1 ? "View Floor Plans ({$count})" : "View Floor Plan";
+                
                 $html .= "<div style='margin-bottom: 12px;'>
-                            <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' onclick='openPlanModal(\"{$planUrl}\")'>
-                                <i class='fas fa-map' style='margin-right: 5px;'></i> View Floor Plan
+                            <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' data-urls='{$urlList}' onclick='openPlanModal(this.getAttribute(\"data-urls\"))'>
+                                <i class='fas fa-map' style='margin-right: 5px;'></i> {$btnText}
                             </button>
                           </div>";
             }
             
-            $html .= "</div>"; // End Actions Block
-            $html .= "</div></div>"; // End Card
+            $html .= "</div>"; 
+            $html .= "</div></div>"; 
         }
         $html .= '</div>';
     }
