@@ -30,24 +30,27 @@ try {
         } elseif ($d['sub_category'] === 'Render (Video)') {
             $videos[] = $url;
         } elseif ($d['sub_category'] === 'Floor Plan') {
-            // Safely extract the floor number without breaking on negative hyphens (e.g. "Floor Plan - -1")
-            $level = trim(str_replace('Floor Plan - ', '', $d['title']));
-            if (!isset($plans[$level])) {
-                $plans[$level] = []; // Initialize array to hold MULTIPLE files for this floor
+            // STRICT EXTRACTION: Pull the exact integer from the title (supports "Level -1", "Floor Plan - -1", etc)
+            if (preg_match('/-?\d+/', $d['title'], $matches)) {
+                $level = strval(intval($matches[0])); 
+                if (!isset($plans[$level])) {
+                    $plans[$level] = [];
+                }
+                $plans[$level][] = $url;
             }
-            $plans[$level][] = $url;
         }
     }
 
-    // Fetch Units & Assigned Agent Names (Forced Math Sorting applied to floor_level)
+    // Fetch Units & Assigned Agent Names
+    // MATH SORTING: (sp.floor_level + 0) forces MySQL to mathematically calculate the value (-3 < 0) rather than sorting strings alphabetically
     $stmt = $pdo->prepare("
         SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
-               u.first_name, u.last_name 
+               u.first_name, u.last_name, sp.block 
         FROM sales_properties sp 
         LEFT JOIN users u ON sp.held_by_agent_id = u.id 
         WHERE sp.project_id = ? 
         ORDER BY 
-            sp.block ASC,
+            NULLIF(TRIM(sp.block), '') ASC,
             (sp.floor_level + 0) ASC, 
             FIELD(sp.unit_type, 'garage', 'parking space', 'commercial', 'maisonette', 'apartment', 'penthouse', 'villa', 'house'), 
             sp.unit_name ASC
@@ -100,6 +103,7 @@ try {
 
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
+            // --- START BEAUTIFUL CARD ---
             $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
@@ -140,6 +144,7 @@ try {
                         </div>
                       </div>";
 
+            // --- MANAGER EDIT PRICE FORM ---
             if ($is_manager) {
                 $html .= "
                         <div id='price_edit_{$u['id']}' class='p-3 mb-3' style='display:none; background: rgba(14, 165, 233, 0.05); border-radius: 10px; border: 1px solid rgba(14, 165, 233, 0.2);'>
@@ -160,6 +165,7 @@ try {
                         </div>";
             }
 
+            // --- ACTION BUTTONS (VERTICAL BLOCK LAYOUT) ---
             $html .= "<div style='display: block; width: 100%; margin-top: 20px;'>"; 
             
             if ($is_manager) {
