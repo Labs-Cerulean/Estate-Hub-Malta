@@ -54,10 +54,15 @@ foreach ($docsStmt->fetchAll() as $d) {
     ];
 }
 
-$uStmt = $pdo->prepare("SELECT * FROM sales_properties WHERE project_id = ? ORDER BY     ORDER BY 
-    CAST(floor_level AS SIGNED) ASC, 
-    FIELD(unit_type, 'garage', 'parking space', 'commercial', 'maisonette', 'apartment', 'penthouse', 'villa', 'house'), 
-    unit_name ASC");
+// FIXED: Removed the double "ORDER BY" syntax
+$uStmt = $pdo->prepare("
+    SELECT * FROM sales_properties 
+    WHERE project_id = ? 
+    ORDER BY 
+        CAST(floor_level AS SIGNED) ASC, 
+        FIELD(unit_type, 'garage', 'parking space', 'commercial', 'maisonette', 'apartment', 'penthouse', 'villa', 'house'), 
+        unit_name ASC
+");
 $uStmt->execute([$projectId]);
 $units = $uStmt->fetchAll(PDO::FETCH_ASSOC);
 
