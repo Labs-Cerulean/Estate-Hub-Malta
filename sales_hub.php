@@ -336,10 +336,19 @@ require_once 'header.php';
                 <option value="">-- Choose Project --</option>
                 <?php
                 try {
-                    $stmt = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC");
+                    // Grouped by Locality
+                    $stmt = $pdo->query("SELECT id, name, city FROM projects ORDER BY city ASC, name ASC");
+                    $current_city = '';
                     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { 
+                        $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
+                        if ($city !== $current_city) {
+                            if ($current_city !== '') echo '</optgroup>';
+                            echo '<optgroup label="' . htmlspecialchars($city) . '">';
+                            $current_city = $city;
+                        }
                         echo '<option value="' . htmlspecialchars($row['id']) . '">' . htmlspecialchars($row['name']) . '</option>'; 
                     }
+                    if ($current_city !== '') echo '</optgroup>';
                 } catch (Exception $e) {}
                 ?>
             </select>
@@ -360,10 +369,19 @@ require_once 'header.php';
                 <option value="">-- Choose Project --</option>
                 <?php
                 try {
-                    $stmt = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC");
+                    // Grouped by Locality
+                    $stmt = $pdo->query("SELECT id, name, city FROM projects ORDER BY city ASC, name ASC");
+                    $current_city = '';
                     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { 
+                        $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
+                        if ($city !== $current_city) {
+                            if ($current_city !== '') echo '</optgroup>';
+                            echo '<optgroup label="' . htmlspecialchars($city) . '">';
+                            $current_city = $city;
+                        }
                         echo '<option value="' . htmlspecialchars($row['id']) . '">' . htmlspecialchars($row['name']) . '</option>'; 
                     }
+                    if ($current_city !== '') echo '</optgroup>';
                 } catch (Exception $e) {}
                 ?>
             </select>
