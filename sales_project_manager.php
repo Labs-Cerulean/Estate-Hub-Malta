@@ -156,13 +156,31 @@ if (isset($_POST['action'])) {
         }
 
         if ($action === 'delete_unit') {
-            $pdo->prepare("DELETE FROM sales_properties WHERE id = ?")->execute([(int)$_POST['unit_id']]);
+            $unit_id = (int)$_POST['unit_id'];
+            $stmt = $pdo->prepare("SELECT unit_name, status FROM sales_properties WHERE id = ?");
+            $stmt->execute([$unit_id]);
+            $unit = $stmt->fetch();
+            
+            if ($unit) {
+                $pdo->prepare("DELETE FROM sales_properties WHERE id = ?")->execute([$unit_id]);
+                $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)")
+                    ->execute([$unit_id, $_SESSION['user_id'], 'Unit Deleted', $unit['status'], 'Deleted', "Permanently deleted unit: " . $unit['unit_name']]);
+            }
             echo json_encode(['success' => true]);
             exit;
         }
 
         if ($action === 'delete_media') {
-            $pdo->prepare("DELETE FROM project_documents WHERE id = ?")->execute([(int)$_POST['media_id']]);
+            $media_id = (int)$_POST['media_id'];
+            $stmt = $pdo->prepare("SELECT title, project_id FROM project_documents WHERE id = ?");
+            $stmt->execute([$media_id]);
+            $media = $stmt->fetch();
+            
+            if ($media) {
+                $pdo->prepare("DELETE FROM project_documents WHERE id = ?")->execute([$media_id]);
+                $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)")
+                    ->execute([0, $_SESSION['user_id'], 'Media Deleted', 'Active', 'Deleted', "[Project " . $media['project_id'] . " Media] Deleted file: " . $media['title']]);
+            }
             echo json_encode(['success' => true]);
             exit;
         }
@@ -173,10 +191,11 @@ if (isset($_POST['action'])) {
             foreach ($sortData as $item) {
                 $stmt->execute([(int)$item['order'], (int)$item['id']]);
             }
+            $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)")
+                ->execute([0, $_SESSION['user_id'], 'Media Reordered', 'N/A', 'N/A', "User updated the display order of the media gallery"]);
             echo json_encode(['success' => true]);
             exit;
         }
-
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
@@ -187,7 +206,13 @@ if (isset($_POST['action'])) {
 $pageTitle = 'Sales Project Manager';
 require_once 'header.php';
 
-$projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+// Fetch projects grouped by locality
+$projectsRaw = $pdo->query("SELECT id, name, city FROM projects ORDER BY city ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$projectsByCity = [];
+foreach ($projectsRaw as $p) {
+    $city = trim($p['city']) ? trim($p['city']) : 'Uncategorized Locations';
+    $projectsByCity[$city][] = $p;
+}
 ?>
 
 <style>
@@ -282,10 +307,14 @@ $projects = $pdo->query("SELECT id, name FROM projects ORDER BY name ASC")->fetc
             </div>
             <div>
                 <label style="font-weight: 800; color: var(--pm-text-muted); margin-right: 10px;">Select Project:</label>
-                <select id="projectSelect" onchange="loadProjectData()">
+               <select id="projectSelect" onchange="loadProjectData()" style="padding: 10px 15px; border-radius: 8px; font-size: 1rem; width: 300px; outline: none;">
                     <option value="">-- Choose a Project --</option>
-                    <?php foreach($projects as $p): ?>
-                        <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
+                    <?php foreach($projectsByCity as $city => $projs): ?>
+                        <optgroup label="<?= htmlspecialchars($city) ?>">
+                            <?php foreach($projs as $p): ?>
+                                <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
+                            <?php endforeach; ?>
+                        </optgroup>
                     <?php endforeach; ?>
                 </select>
             </div>
