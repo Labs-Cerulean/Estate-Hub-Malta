@@ -92,8 +92,9 @@ try {
     $ignoreWords = ['apt', 'apartment', 'blk', 'block', 'ph', 'penthouse', 'mais', 'maisonette', 'garage', 'car', 'space', 'house', 'pt', 'level', 'lv', 'cs', 'gr', 'residences'];
 
     $updatedCount = 0;
+    $matchedCount = 0; // Track total units mapped
     $notFound = [];
-    $priceConflicts = []; // NEW FOR ITEM 5
+    $priceConflicts = []; 
     $colUnit = -1; $colStatus = -1; $colPrice = -1; $colFinishes = -1; 
     $isHeaderFound = false;
 
@@ -184,6 +185,8 @@ try {
 
         // --- EXECUTION LAYER ---
         if ($matchedId && $matchedId > 0) {
+            $matchedCount++; // Acknowledge the unit was found in the CSV
+            
             $oldUnit = $dbUnitsById[$matchedId];
             $currentDbStatus = $oldUnit['status'];
 
@@ -199,7 +202,6 @@ try {
             $dbShell = (float)$oldUnit['shell_price'];
             $dbFin = (float)$oldUnit['finishes_price'];
             
-            // Only check if CSV actually provided a price (>0) and it's different from the DB
             if (($price > 0 && $price !== $dbShell) || ($finishesPrice > 0 && $finishesPrice !== $dbFin)) {
                 $hasPriceConflict = true;
                 $priceConflicts[] = [
@@ -213,21 +215,32 @@ try {
                 ];
             }
 
-            // Execute Status change ONLY (Prices are skipped if there's a conflict)
-            if ($oldUnit['status'] !== $dbStatus) {
-                $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
-                $updateStmt->execute([$dbStatus, $matchedId]);
+            // SMART EXECUTION: Only update fields that actually changed
+            $logChanges = [];
+            $newShell = $dbShell;
+            $newFin = $dbFin;
+
+            if (!$hasPriceConflict && ($price > 0 || $finishesPrice > 0) && ($price !== $dbShell || $finishesPrice !== $dbFin)) {
+                $newShell = $price > 0 ? $price : $dbShell;
+                $newFin = $finishesPrice > 0 ? $finishesPrice : $dbFin;
+                
+                if ($newShell !== $dbShell) $logChanges[] = "Shell: €{$dbShell} -> €{$newShell}";
+                if ($newFin !== $dbFin) $logChanges[] = "Finishes: €{$dbFin} -> €{$newFin}";
+            }
+
+            if ($currentDbStatus !== $dbStatus) {
+                $logChanges[] = "Status: {$currentDbStatus} -> {$dbStatus}";
+            }
+
+            // Only run query if something changed
+            if (!empty($logChanges)) {
+                $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
+                $updateStmt->execute([$dbStatus, $newShell, $newFin, $matchedId]);
                 
                 $stmtLog->execute([
-                    $matchedId, $userId, 'CSV Sync Update', $oldUnit['status'], $dbStatus, "Daily CSV Sync: Status updated"
+                    $matchedId, $userId, 'CSV Sync Update', $currentDbStatus, $dbStatus, "Daily Sync: " . implode(', ', $logChanges)
                 ]);
                 $updatedCount++;
-            }
-            
-            // If there's no conflict, but prices were updated cleanly (this catches rare cases, but mostly handled by the prompt now)
-            if (!$hasPriceConflict && ($price > 0 || $finishesPrice > 0) && ($price !== $dbShell || $finishesPrice !== $dbFin)) {
-                $updateStmt = $pdo->prepare("UPDATE sales_properties SET shell_price = ?, finishes_price = ? WHERE id = ?");
-                $updateStmt->execute([$price, $finishesPrice, $matchedId]);
             }
 
         } elseif ($matchedId != -1) {
@@ -238,11 +251,12 @@ try {
     $pdo->commit();
     fclose($handle);
 
+    // Provide the reassuring split counts
     echo json_encode([
         'success' => true,
-        'message' => "Successfully updated {$updatedCount} statuses.",
+        'message' => "Scanned {$matchedCount} linked units. Applied new updates to {$updatedCount} units.",
         'not_found' => $notFound,
-        'price_conflicts' => $priceConflicts, // Return conflicts to the frontend
+        'price_conflicts' => $priceConflicts,
         'all_db_units' => $dbUnits 
     ]);
 
