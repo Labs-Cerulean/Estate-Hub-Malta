@@ -32,8 +32,15 @@ try {
         $update->execute([$new_status, $property_id]);
     }
 
+    $justification = 'Updated via Map UI Dropdown';
+    if ($new_status === 'Resale' && $resale_price > 0) {
+        $justification .= " (Asking: €{$resale_price})";
+    }
+
     $log = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
-    $log->execute([$property_id, $_SESSION['user_id'], 'Manager Direct Status Override', $old_status, $new_status, 'Updated via Map UI Dropdown']);
+    $log->execute([$property_id, $_SESSION['user_id'], 'Manager Direct Status Override', $old_status, $new_status, $justification]);
+
+    echo json_encode(['success' => true, 'message' => 'Status updated successfully!']);
 
     echo json_encode(['success' => true, 'message' => 'Status updated successfully!']);
 } catch (Exception $e) {
