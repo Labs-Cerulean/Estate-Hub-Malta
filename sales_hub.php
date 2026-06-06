@@ -156,45 +156,74 @@ require_once 'header.php';
     .sh-toast { padding: 15px 25px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 12px; color: #fff; animation: shToastIn 0.3s forwards; }
     @keyframes shToastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* =========================================
+   /* =========================================
        MOBILE VIEW OPTIMIZATION
        ========================================= */
     @media (max-width: 768px) {
-        /* Move the overlay box to snap to the bottom of the screen */
+        /* 1. Hide the main website header completely */
+        header, #header, .navbar, .topbar, .top-header { display: none !important; }
+        
+        /* 2. Hide the map entirely & transform the wrapper */
+        #sales-map, .mapboxgl-control-container { display: none !important; }
+        
+        #sh-wrapper {
+            height: auto;
+            min-height: 100vh;
+            overflow-y: auto;
+            background: var(--sh-bg-base);
+        }
+        
+        /* The floating overlay converts into a standard, full-screen dashboard page */
         .sh-overlay {
-            top: auto;
-            bottom: 0;
+            position: relative;
+            top: 0;
             left: 0;
             width: 100%;
-            border-radius: 20px 20px 0 0;
-            max-height: 45vh; /* Takes up bottom 45% of screen */
-            padding: 15px;
-            border-left: none;
-            border-right: none;
-            border-bottom: none;
-            box-shadow: 0 -10px 40px rgba(0,0,0,0.8);
-        }
-        
-        /* The side-panel sliding out must cover the whole screen, not just 500px */
-        .sh-sidebar {
-            width: 100%;
-            right: -100%;
-        }
-        
-        /* Hide complex map drawing controls (Polygon tool) as they are bad on touchscreens anyway */
-        .mapboxgl-ctrl-top-right {
-            display: none !important; 
+            height: auto;
+            max-height: none;
+            border-radius: 0;
+            background: transparent; /* Blends perfectly into the background */
+            box-shadow: none;
+            border: none;
+            padding: 20px 15px;
         }
 
-        /* Adjust the header sizes inside the overlay */
-        .sh-overlay-title { font-size: 1.1rem; margin-bottom: 10px; }
+        /* Hide map-specific buttons (Reset Map & Polygon hints) */
+        .hide-map-controls-mobile { display: none !important; }
+
+        /* 3. Make the 'View Holds Ledger' Modal Mobile Friendly */
+        .vanilla-modal-content {
+            width: 95% !important;
+            margin: 2.5vh auto !important;
+            padding: 15px !important;
+            max-height: 95vh !important;
+        }
+        .vanilla-modal-content.large {
+            width: 100% !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            max-height: 100vh !important;
+            max-width: 100% !important;
+            border: none !important;
+        }
         
-        /* Compress the KPI Row slightly so it fits neatly */
+        /* Ensure the table scrolls horizontally and doesn't get crushed */
+        #holdLedgerContent {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        #holdLedgerContent table {
+            white-space: nowrap; /* Prevents text from wrapping awkwardly on tiny screens */
+            font-size: 0.85rem;
+        }
+        
+        /* Ensure the Sidebar still slides out to 100% width cleanly */
+        .sh-sidebar { width: 100%; right: -100%; }
+        .sh-overlay-title { font-size: 1.1rem; margin-bottom: 10px; }
         .sh-kpi-row { padding: 10px 15px; }
         .sh-kpi { padding: 6px 10px; margin: 0 4px; }
         .sh-kpi-val { font-size: 1.1rem; }
-        
-        /* Adjust tabs for small screens */
         .sh-filter-row { flex-direction: column; align-items: flex-start; gap: 15px; }
         .sh-tabs { width: 100%; justify-content: space-between; }
         .sh-tab { flex: 1; text-align: center; padding: 8px 10px; font-size: 0.75rem; }
@@ -262,11 +291,11 @@ require_once 'header.php';
             <button class="sh-btn" style="margin-bottom: 10px; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="openHoldLedger()">
                 <i class="fas fa-list"></i> View Holds Ledger
             </button>
-            <button class="sh-btn sh-btn-danger" style="margin-bottom: 15px;" onclick="resetMap()">
+            <button class="sh-btn sh-btn-danger hide-map-controls-mobile" style="margin-bottom: 15px;" onclick="resetMap()">
                 <i class="fas fa-undo-alt"></i> Reset Map & Clear Filters
             </button>
 
-            <div style="text-align: center; color: var(--sh-text-muted); font-size: 0.75rem; margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+            <div class="hide-map-controls-mobile" style="text-align: center; color: var(--sh-text-muted); font-size: 0.75rem; margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
                 <i class="fas fa-draw-polygon text-info mb-2" style="font-size: 1.5rem;"></i><br>
                 Click the Polygon icon top-center to outline an area. <br><b>Double-click</b> to close the shape.
             </div>
