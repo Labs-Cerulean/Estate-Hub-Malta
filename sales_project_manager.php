@@ -84,13 +84,11 @@ if (isset($_POST['action'])) {
             $stmtUpdate = $pdo->prepare("UPDATE sales_properties SET unit_name=?, block=?, floor_level=?, unit_type=?, description=?, internal_sqm=?, external_sqm=?, shell_price=?, finishes_price=? WHERE id=? AND project_id=?");
             $stmtInsert = $pdo->prepare("INSERT INTO sales_properties (project_id, unit_name, block, floor_level, unit_type, description, internal_sqm, external_sqm, shell_price, finishes_price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available')");
             
-            // Log pre-statements
             $stmtGetOld = $pdo->prepare("SELECT * FROM sales_properties WHERE id = ?");
             $stmtLog = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
             
             foreach ($unitsData as $u) {
                 if (!empty($u['id']) && $u['id'] > 0) {
-                    // Fetch old state before making the update
                     $stmtGetOld->execute([$u['id']]);
                     $oldUnit = $stmtGetOld->fetch(PDO::FETCH_ASSOC);
 
@@ -100,25 +98,42 @@ if (isset($_POST['action'])) {
                         $u['id'], $pid
                     ]);
 
-                    // Smart Log Comparison
+                    // --- 100% BULLETPROOF AUDIT CHECKER ---
                     if ($oldUnit) {
                         $changes = [];
-                        if ((float)$oldUnit['shell_price'] != (float)$u['shell_price']) $changes[] = "Shell: {$oldUnit['shell_price']} -> {$u['shell_price']}";
-                        if ((float)$oldUnit['finishes_price'] != (float)$u['finishes_price']) $changes[] = "Finishes: {$oldUnit['finishes_price']} -> {$u['finishes_price']}";
-                        if ($oldUnit['floor_level'] != $u['floor_level']) $changes[] = "Floor: {$oldUnit['floor_level']} -> {$u['floor_level']}";
-                        if ($oldUnit['unit_name'] != $u['unit_name']) $changes[] = "Name: {$oldUnit['unit_name']} -> {$u['unit_name']}";
-                        if ($oldUnit['block'] != $u['block']) $changes[] = "Block: {$oldUnit['block']} -> {$u['block']}";
-                        if ((float)$oldUnit['internal_sqm'] != (float)$u['internal_sqm']) $changes[] = "Int SQM: {$oldUnit['internal_sqm']} -> {$u['internal_sqm']}";
+                        $fields_to_check = [
+                            'unit_name' => 'Name', 'block' => 'Block', 'floor_level' => 'Level',
+                            'unit_type' => 'Type', 'description' => 'Desc', 
+                            'internal_sqm' => 'IntSQM', 'external_sqm' => 'ExtSQM',
+                            'shell_price' => 'Shell', 'finishes_price' => 'Finishes'
+                        ];
+
+                        foreach ($fields_to_check as $col => $label) {
+                            $old_val = $oldUnit[$col];
+                            $new_val = $u[$col];
+                            
+                            // Strict math comparison for numbers to prevent "150000.00 -> 150000" triggering a false log
+                            if (in_array($col, ['internal_sqm', 'external_sqm', 'shell_price', 'finishes_price'])) {
+                                if ((float)$old_val !== (float)$new_val) {
+                                    $changes[] = "{$label}: " . (float)$old_val . " -> " . (float)$new_val;
+                                }
+                            } else {
+                                if ((string)$old_val !== (string)$new_val) {
+                                    $changes[] = "{$label}: '{$old_val}' -> '{$new_val}'";
+                                }
+                            }
+                        }
                         
                         if (!empty($changes)) {
-                            $justification = "Bulk Edit: " . implode(', ', $changes);
+                            // If a user changed 9 things at once, truncate safely so it doesn't break the DB insert
+                            $justification = "Bulk Edit: " . implode(' | ', $changes);
                             $stmtLog->execute([
                                 $u['id'], 
                                 $userId, 
                                 'Project Manager Edit', 
                                 $oldUnit['status'], 
                                 $oldUnit['status'], 
-                                substr($justification, 0, 255) // Ensure it fits in the db column
+                                substr($justification, 0, 255) 
                             ]);
                         }
                     }
@@ -129,14 +144,8 @@ if (isset($_POST['action'])) {
                             (float)$u['internal_sqm'], (float)$u['external_sqm'], (float)$u['shell_price'], (float)$u['finishes_price']
                         ]);
                         
-                        $newId = $pdo->lastInsertId();
                         $stmtLog->execute([
-                            $newId, 
-                            $userId, 
-                            'Unit Created', 
-                            'New', 
-                            'Available', 
-                            'Unit added via Project Manager frame editor'
+                            $pdo->lastInsertId(), $userId, 'Unit Created', 'New', 'Available', 'Created via Manager Frame Editor'
                         ]);
                     }
                 }
