@@ -42,7 +42,7 @@ try {
     $handle = fopen($file, "r");
     if (!$handle) throw new Exception('Could not read the CSV file.');
 
-    $stmt = $pdo->query("SELECT sp.id, sp.unit_name, sp.status, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
+    $stmt = $pdo->query("SELECT sp.id, sp.unit_name, sp.status, sp.shell_price, sp.finishes_price, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
     $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $dbUnitsById = [];
@@ -64,8 +64,12 @@ try {
     $isHeaderFound = false;
 
     $pdo->beginTransaction();
+    
+    // Prepare logger for sync updates
+    $stmtLog = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
+    $userId = $_SESSION['user_id'];
 
-    while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
+    while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {{
         if (!$isHeaderFound) {
             foreach ($data as $index => $val) {
                 $valStr = strtolower(trim($val));
@@ -170,15 +174,41 @@ try {
                 $dbStatus = $currentDbStatus; 
             }
 
-            // 4. Safe Execution
-            if ($price > 0 || $finishesPrice > 0) {
-                $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
-                $updateStmt->execute([$dbStatus, $price, $finishesPrice, $matchedId]);
-            } else {
-                $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
-                $updateStmt->execute([$dbStatus, $matchedId]);
+            // 4. Safe Execution & Logging
+            $oldUnit = $dbUnitsById[$matchedId];
+            $changes = [];
+            
+            if ($oldUnit['status'] !== $dbStatus) {
+                $changes[] = "Status: {$oldUnit['status']} -> {$dbStatus}";
             }
-            $updatedCount++;
+            if ($price > 0 && (float)$oldUnit['shell_price'] !== (float)$price) {
+                $changes[] = "Shell: {$oldUnit['shell_price']} -> {$price}";
+            }
+            if ($finishesPrice > 0 && (float)$oldUnit['finishes_price'] !== (float)$finishesPrice) {
+                $changes[] = "Finishes: {$oldUnit['finishes_price']} -> {$finishesPrice}";
+            }
+
+            // Only execute and log if something actually changed
+            if (!empty($changes)) {
+                if ($price > 0 || $finishesPrice > 0) {
+                    $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
+                    $updateStmt->execute([$dbStatus, $price, $finishesPrice, $matchedId]);
+                } else {
+                    $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
+                    $updateStmt->execute([$dbStatus, $matchedId]);
+                }
+                
+                $justification = "Daily CSV Sync: " . implode(', ', $changes);
+                $stmtLog->execute([
+                    $matchedId,
+                    $userId,
+                    'CSV Sync Update',
+                    $oldUnit['status'],
+                    $dbStatus,
+                    substr($justification, 0, 255)
+                ]);
+                $updatedCount++;
+            }
         } elseif ($matchedId != -1) {
             $notFound[] = ['csv_name' => $csvUnitStringRaw, 'status' => $csvStatus, 'price' => $price];
         }
