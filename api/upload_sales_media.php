@@ -64,6 +64,12 @@ try {
         $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, uploaded_by) VALUES (?, 'Sales', ?, ?, ?, ?, ?)");
         $stmt->execute([$project_id, $media_type, $title, $fileKey, $ext, $_SESSION['user_id']]);
         
+        // --- LOG THE UPLOAD ---
+        $logStmt = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
+        $logStmt->execute([0, $_SESSION['user_id'], 'Media Uploaded', 'None', 'Active', "[Project {$project_id} Media] Uploaded {$media_type}: {$title}"]);
+        
+        echo json_encode(['success' => true, 'message' => 'Media successfully uploaded to Cloudflare!']);
+        
         echo json_encode(['success' => true, 'message' => 'Media successfully uploaded to Cloudflare!']);
         exit;
     }
