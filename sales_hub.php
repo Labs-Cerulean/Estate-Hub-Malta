@@ -155,6 +155,50 @@ require_once 'header.php';
     #sh-toast-container { position: fixed; bottom: 30px; right: 30px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
     .sh-toast { padding: 15px 25px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 12px; color: #fff; animation: shToastIn 0.3s forwards; }
     @keyframes shToastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* =========================================
+       MOBILE VIEW OPTIMIZATION
+       ========================================= */
+    @media (max-width: 768px) {
+        /* Move the overlay box to snap to the bottom of the screen */
+        .sh-overlay {
+            top: auto;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            border-radius: 20px 20px 0 0;
+            max-height: 45vh; /* Takes up bottom 45% of screen */
+            padding: 15px;
+            border-left: none;
+            border-right: none;
+            border-bottom: none;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.8);
+        }
+        
+        /* The side-panel sliding out must cover the whole screen, not just 500px */
+        .sh-sidebar {
+            width: 100%;
+            right: -100%;
+        }
+        
+        /* Hide complex map drawing controls (Polygon tool) as they are bad on touchscreens anyway */
+        .mapboxgl-ctrl-top-right {
+            display: none !important; 
+        }
+
+        /* Adjust the header sizes inside the overlay */
+        .sh-overlay-title { font-size: 1.1rem; margin-bottom: 10px; }
+        
+        /* Compress the KPI Row slightly so it fits neatly */
+        .sh-kpi-row { padding: 10px 15px; }
+        .sh-kpi { padding: 6px 10px; margin: 0 4px; }
+        .sh-kpi-val { font-size: 1.1rem; }
+        
+        /* Adjust tabs for small screens */
+        .sh-filter-row { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .sh-tabs { width: 100%; justify-content: space-between; }
+        .sh-tab { flex: 1; text-align: center; padding: 8px 10px; font-size: 0.75rem; }
+    }
 </style>
 
 <div id="holdLedgerModal" class="vanilla-modal">
@@ -336,7 +380,7 @@ require_once 'header.php';
                 <option value="">-- Choose Project --</option>
                 <?php
                 try {
-                    // Grouped by Locality
+                    // Shows ALL projects so brand new empty ones can be initialized
                     $stmt = $pdo->query("SELECT id, name, city FROM projects ORDER BY city ASC, name ASC");
                     $current_city = '';
                     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { 
@@ -557,7 +601,6 @@ require_once 'header.php';
                 }
 
                 if (sortMode === 'floor_asc' || sortMode === 'floor_desc') {
-                    // We extract the numerical floor level directly from the injected HTML attribute
                     let floorAStr = a.getAttribute('data-floor');
                     let floorBStr = b.getAttribute('data-floor');
                     
@@ -588,7 +631,6 @@ require_once 'header.php';
         }, 3000);
     }
 
-    // MULTI-PLAN ENGINE UPDATES
     let currentPlanZoom = 1;
     let currentPlans = [];
     let currentPlanIndex = 0;
@@ -779,7 +821,6 @@ require_once 'header.php';
                     allHtml += `<div class="sh-project-divider"><i class="fas fa-building"></i> ${p.project_name}</div>`;
                 }
                 
-                // Wrap in a group container to preserve multi-project integrity when sorting
                 allHtml += `<div class="project-unit-group">` + processUnitHtmlSafely(unitData.html) + `</div>`;
 
                 if (unitData.media) {
@@ -838,9 +879,8 @@ require_once 'header.php';
         let indexCounter = 0;
         
         cards.forEach(card => {
-            card.setAttribute('data-index', indexCounter++); // Needed to restore default order
+            card.setAttribute('data-index', indexCounter++);
             
-            // Extract the floor level dynamically so JS sorting functions properly
             let floorLevel = card.getAttribute('data-floor');
             if (!floorLevel) {
                 let textMatch = card.innerText.match(/(Level|Floor)\s*[:-]?\s*([-]?\d+)/i);
@@ -901,7 +941,9 @@ require_once 'header.php';
 
             let resalePrice = card.querySelector('.resale-input')?.value || card.querySelector('input[placeholder*="Resale"]')?.value || '';
             const oldControls = card.querySelector('select[onchange^="managerUpdateStatus"]')?.parentNode || card.querySelector('.action-buttons') || card.querySelector('form');
-            card.querySelectorAll('select, input, button[onclick*="togglePriceEdit"], .resale-input').forEach(el => el.remove());
+            
+            // FULL CLEANUP OF OLD BUTTONS (Fixes duplicate Hold/Reserve buttons - Item 6)
+            card.querySelectorAll('select, input, button[onclick*="togglePriceEdit"], button[onclick*="holdProperty"], button[onclick*="requestReserve"], button[onclick*="markResale"], .resale-input').forEach(el => el.remove());
 
             const controlWrapper = document.createElement('div');
             controlWrapper.style.marginTop = '15px'; 
@@ -1039,6 +1081,29 @@ require_once 'header.php';
         .then(data => {
             if(data.success) { 
                 showToast("Put on hold!", "success"); 
+                if (lastLoadedProjects.length > 0) {
+                    setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+                }
+            } else { 
+                showToast("Error: " + data.message, "error"); 
+            }
+        })
+        .catch(err => showToast("System Error: " + err.message, "error"));
+    }
+
+    // MISSING RESERVE UNIT FUNCTION ADDED (Fixes Item 7)
+    function requestReserve(propertyId) {
+        if(!confirm("Are you sure you want to request to reserve this unit?")) return;
+        
+        let formData = new FormData(); 
+        formData.append('action', 'request_reserved'); 
+        formData.append('property_id', propertyId);
+        
+        fetch('api/sales_actions.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if(data.success) { 
+                showToast("Reservation requested successfully!", "success"); 
                 if (lastLoadedProjects.length > 0) {
                     setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
                 }
