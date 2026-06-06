@@ -369,8 +369,8 @@ require_once 'header.php';
                 <option value="">-- Choose Project --</option>
                 <?php
                 try {
-                    // Grouped by Locality
-                    $stmt = $pdo->query("SELECT id, name, city FROM projects ORDER BY city ASC, name ASC");
+                    // Matches Jump To Project (Only projects with units)
+                    $stmt = $pdo->query("SELECT DISTINCT p.id, p.name, p.city FROM projects p INNER JOIN sales_properties sp ON p.id = sp.project_id ORDER BY p.city ASC, p.name ASC");
                     $current_city = '';
                     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { 
                         $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
