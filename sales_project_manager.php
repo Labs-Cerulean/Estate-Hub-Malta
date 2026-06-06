@@ -206,8 +206,8 @@ if (isset($_POST['action'])) {
 $pageTitle = 'Sales Project Manager';
 require_once 'header.php';
 
-// Fetch projects grouped by locality
-$projectsRaw = $pdo->query("SELECT id, name, city FROM projects ORDER BY city ASC, name ASC")->fetchAll(PDO::FETCH_ASSOC);
+// Fetch ONLY projects that have active sales units (Matches Jump to Project)
+$projectsRaw = $pdo->query("SELECT DISTINCT p.id, p.name, p.city FROM projects p INNER JOIN sales_properties sp ON p.id = sp.project_id ORDER BY p.city ASC, p.name ASC")->fetchAll(PDO::FETCH_ASSOC);
 $projectsByCity = [];
 foreach ($projectsRaw as $p) {
     $city = trim($p['city']) ? trim($p['city']) : 'Uncategorized Locations';
