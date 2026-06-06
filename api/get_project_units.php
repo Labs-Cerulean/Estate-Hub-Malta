@@ -51,7 +51,7 @@ try {
         WHERE sp.project_id = ? 
         ORDER BY 
             NULLIF(TRIM(sp.block), '') ASC,
-            (sp.floor_level + 0) ASC, 
+            CAST(sp.floor_level AS SIGNED) ASC, 
             FIELD(sp.unit_type, 'garage', 'parking space', 'commercial', 'maisonette', 'apartment', 'penthouse', 'villa', 'house'), 
             sp.unit_name ASC
     ");
@@ -104,7 +104,9 @@ try {
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
             // --- START BEAUTIFUL CARD ---
-            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
+            // Fix: Added data-floor attribute so JS can mathematically sort negative floors
+            $floorLevelSafe = htmlspecialchars(trim($u['floor_level']), ENT_QUOTES, 'UTF-8');
+            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---
