@@ -1263,8 +1263,18 @@ require_once 'header.php';
     }
 
     function showUnifiedMatrixModal(data) {
-        let optionsHtml = `<option value="">-- Select Database Unit --</option>`;
-        data.all_db_units.forEach(u => { optionsHtml += `<option value="${u.id}">${u.project_name} - ${u.unit_name}</option>`; });
+        // Build Grouped Options by Project
+        let optionsHtml = `<option value="">-- Select Database Unit (Ignore) --</option>`;
+        let currentProject = '';
+        data.all_db_units.forEach(u => { 
+            if (u.project_name !== currentProject) {
+                if (currentProject !== '') optionsHtml += `</optgroup>`;
+                optionsHtml += `<optgroup label="${u.project_name}">`;
+                currentProject = u.project_name;
+            }
+            optionsHtml += `<option value="${u.id}">${u.unit_name}</option>`; 
+        });
+        if (currentProject !== '') optionsHtml += `</optgroup>`;
 
         let html = `
         <div id="unifiedMatrixModal" class="vanilla-modal" style="display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.95); z-index:9999;">
@@ -1281,17 +1291,30 @@ require_once 'header.php';
                     <div style="margin-bottom: 30px; border: 1px solid var(--sh-danger); border-radius: 8px; overflow: hidden;">
                         <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-bottom: 1px solid var(--sh-danger); font-weight: bold; color: #fff;">
                             <i class="fas fa-link text-danger"></i> Unmapped CSV Rows (${data.not_found.length})
-                            <div style="font-size: 0.8rem; color: var(--sh-text-muted); font-weight: normal; margin-top: 5px;">Link these to a database unit. They will be saved for all future syncs.</div>
+                            <div style="font-size: 0.8rem; color: var(--sh-text-muted); font-weight: normal; margin-top: 5px;">Link these to a database unit, or leave blank to safely ignore them.</div>
                         </div>
                         <div style="padding: 15px; background: var(--sh-bg-base);">
-                            ${data.not_found.map((item, i) => `
+                            ${data.not_found.map((item, i) => {
+                                // Inject the 'selected' attribute into the HTML string if a recommendation was made
+                                let rowOptionsHtml = optionsHtml;
+                                let borderColor = 'var(--sh-danger)';
+                                let badgeHtml = '';
+                                
+                                if (item.recommended_id) {
+                                    rowOptionsHtml = rowOptionsHtml.replace(`value="${item.recommended_id}"`, `value="${item.recommended_id}" selected`);
+                                    borderColor = 'var(--sh-proc)';
+                                    badgeHtml = `<div style="font-size: 0.75rem; color: var(--sh-proc); font-weight: bold;"><i class="fas fa-magic"></i> AI Suggested</div>`;
+                                }
+                                
+                                return `
                                 <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
                                     <div style="flex: 1; min-width: 250px; color: var(--sh-danger); font-weight: bold; font-size: 0.9rem;">${item.csv_name}</div>
                                     <div style="flex: 1; min-width: 250px;">
-                                        <select class="sh-select sync-trans-select" data-csv="${item.csv_name.replace(/"/g, '&quot;')}" style="margin:0; width: 100%; border-color: var(--sh-danger);">${optionsHtml}</select>
+                                        <select class="sh-select sync-trans-select" data-csv="${item.csv_name.replace(/"/g, '&quot;')}" style="margin:0; width: 100%; border-color: ${borderColor};">${rowOptionsHtml}</select>
                                     </div>
-                                </div>
-                            `).join('')}
+                                    ${badgeHtml}
+                                </div>`;
+                            }).join('')}
                         </div>
                     </div>` : ''}
 
