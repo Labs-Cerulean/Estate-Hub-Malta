@@ -1,5 +1,4 @@
 <?php
-// Prevent raw HTML errors from corrupting the JSON response
 error_reporting(0);
 ini_set('display_errors', 0);
 
@@ -11,9 +10,7 @@ if (!in_array($_SESSION['role'], ['admin', 'sales_manager', 'director', 'system_
     exit;
 }
 
-// Ensure strict JSON header
 header('Content-Type: application/json; charset=utf-8');
-
 $action = $_POST['action'] ?? 'analyze';
 
 // =========================================================================
@@ -26,7 +23,6 @@ if ($action === 'commit') {
         
         $stmtLog = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
         
-        // 1. Save Unmapped Translations
         if (!empty($payload['translations'])) {
             $stmtTrans = $pdo->prepare("INSERT INTO sync_translations (csv_name, db_unit_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE db_unit_id = ?");
             foreach ($payload['translations'] as $t) {
@@ -34,7 +30,6 @@ if ($action === 'commit') {
             }
         }
         
-        // 2. Commit Resolved Prices
         if (!empty($payload['prices'])) {
             $stmtPrice = $pdo->prepare("UPDATE sales_properties SET shell_price = ?, finishes_price = ? WHERE id = ?");
             $stmtGetOldPrices = $pdo->prepare("SELECT shell_price, finishes_price FROM sales_properties WHERE id = ?");
@@ -42,7 +37,6 @@ if ($action === 'commit') {
             foreach ($payload['prices'] as $p) {
                 $stmtGetOldPrices->execute([$p['id']]);
                 $oldPriceData = $stmtGetOldPrices->fetch(PDO::FETCH_ASSOC);
-                
                 $stmtPrice->execute([$p['shell'], $p['finishes'], $p['id']]);
                 
                 $justification = "Sync Matrix: Shell €{$oldPriceData['shell_price']} -> €{$p['shell']} | Fin: €{$oldPriceData['finishes_price']} -> €{$p['finishes']}";
@@ -50,7 +44,6 @@ if ($action === 'commit') {
             }
         }
         
-        // 3. Commit Status Changes
         if (!empty($payload['statuses'])) {
             $stmtClearAgent = $pdo->prepare("UPDATE sales_properties SET status = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
             $stmtKeepAgent = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
@@ -73,7 +66,6 @@ if ($action === 'commit') {
     }
     exit;
 }
-
 
 // =========================================================================
 // ACTION 2: DRY RUN / ANALYZE CSV (Default)
@@ -102,14 +94,32 @@ try {
 
     $ignoreWords = ['apt', 'apartment', 'blk', 'block', 'ph', 'penthouse', 'mais', 'maisonette', 'garage', 'car', 'space', 'house', 'pt', 'level', 'lv', 'cs', 'gr', 'residences'];
 
+    // --- HIGH PERFORMANCE PRE-PROCESSING (Prevents Server Crash) ---
+    $processedDbUnits = [];
+    foreach ($dbUnits as $dbU) {
+        $dbProjNameLower = strtolower($dbU['project_name']);
+        $projParts = explode(' ', $dbProjNameLower);
+        $coreUnitName = preg_replace('/\(.*?\)/', '', strtolower($dbU['unit_name'])); 
+        preg_match_all('/[a-zA-Z0-9]+/', $coreUnitName, $matches);
+        
+        $unitTokens = [];
+        foreach ($matches[0] as $t) { 
+            if (!in_array($t, $ignoreWords)) $unitTokens[] = $t; 
+        }
+        
+        $processedDbUnits[] = [
+            'id' => $dbU['id'],
+            'projFirstWord' => $projParts[0] ?? '',
+            'unitTokens' => $unitTokens
+        ];
+    }
+
     $scannedCount = 0; $matchedCount = 0;
     $status_changes = []; $price_conflicts = []; $not_found = [];
     $colUnit = -1; $colStatus = -1; $colPrice = -1; $colFinishes = -1; 
     $isHeaderFound = false;
 
     while (($raw_data = fgetcsv($handle, 10000, ",")) !== FALSE) {
-        
-        // CRITICAL FIX: Force every cell in the CSV to be perfectly clean UTF-8
         $data = [];
         foreach ($raw_data as $cell) {
             $data[] = function_exists('mb_convert_encoding') 
@@ -142,7 +152,7 @@ try {
         $price = floatval(preg_replace('/[^0-9.]/', '', $csvPriceRaw));
         $finishesPrice = floatval(preg_replace('/[^0-9.]/', '', $csvFinishesRaw)); 
         
-        // --- MATCHING ENGINE ---
+        // --- MATCHING ENGINE (Now blazing fast) ---
         $searchString = strtolower($csvUnitStringRaw);
         $matchedId = null;
 
@@ -156,20 +166,16 @@ try {
             preg_match_all('/[a-zA-Z0-9]+/', $searchString, $csvMatches);
             $csvTokens = $csvMatches[0];
 
-            foreach ($dbUnits as $dbU) {
-                $dbProjNameLower = strtolower($dbU['project_name']);
-                $projParts = explode(' ', $dbProjNameLower);
-                if (in_array($projParts[0], $csvTokens) || strpos($searchString, $projParts[0]) !== false) {
-                    $coreUnitName = preg_replace('/\(.*?\)/', '', strtolower($dbU['unit_name'])); 
-                    preg_match_all('/[a-zA-Z0-9]+/', $coreUnitName, $matches);
-                    $unitTokens = [];
-                    foreach ($matches[0] as $t) { if (!in_array($t, $ignoreWords)) $unitTokens[] = $t; }
-
+            foreach ($processedDbUnits as $pdbU) {
+                if (in_array($pdbU['projFirstWord'], $csvTokens) || strpos($searchString, $pdbU['projFirstWord']) !== false) {
                     $allTokensMatch = true;
-                    foreach ($unitTokens as $token) {
+                    foreach ($pdbU['unitTokens'] as $token) {
                         if (!in_array($token, $csvTokens)) { $allTokensMatch = false; break; }
                     }
-                    if ($allTokensMatch && count($unitTokens) > 0) { $matchedId = $dbU['id']; break; }
+                    if ($allTokensMatch && count($pdbU['unitTokens']) > 0) { 
+                        $matchedId = $pdbU['id']; 
+                        break; 
+                    }
                 }
             }
         }
@@ -180,7 +186,6 @@ try {
             $oldUnit = $dbUnitsById[$matchedId];
             $currentDbStatus = $oldUnit['status'];
 
-            // 1. Detect Price Conflicts
             $dbShell = (float)$oldUnit['shell_price'];
             $dbFin = (float)$oldUnit['finishes_price'];
             if (($price > 0 && $price !== $dbShell) || ($finishesPrice > 0 && $finishesPrice !== $dbFin)) {
@@ -194,7 +199,6 @@ try {
                 ];
             }
 
-            // 2. Detect Status Changes
             if ($currentDbStatus === 'Resale') continue; 
 
             $dbStatus = 'Available';
@@ -237,7 +241,6 @@ try {
         'all_db_units' => $dbUnits 
     ];
 
-    // CRITICAL FIX: Safe JSON stringification preventing crash on bad characters
     $jsonResponse = defined('JSON_INVALID_UTF8_SUBSTITUTE') 
         ? json_encode($responseArray, JSON_INVALID_UTF8_SUBSTITUTE) 
         : json_encode($responseArray);
