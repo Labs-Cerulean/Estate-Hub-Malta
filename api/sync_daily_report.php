@@ -2,69 +2,77 @@
 require_once '../config.php';
 require_once '../session-check.php';
 
-// Only allow Managers/Admins to run the sync
 if (!in_array($_SESSION['role'], ['admin', 'sales_manager', 'director', 'system_manager'])) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;
 }
 
-// ---------------------------------------------------------
-// ACTION: RESOLVE PRICE CONFLICT (NEW FOR ITEM 5)
-// ---------------------------------------------------------
-if (isset($_POST['action']) && $_POST['action'] === 'resolve_price_conflict') {
+$action = $_POST['action'] ?? 'analyze';
+
+// =========================================================================
+// ACTION 1: COMMIT THE APPROVED MATRIX REPORT
+// =========================================================================
+if ($action === 'commit') {
     try {
-        $unitId = (int)$_POST['unit_id'];
-        $shell = (float)$_POST['shell_price'];
-        $finishes = (float)$_POST['finishes_price'];
+        $payload = json_decode($_POST['payload'], true);
+        $pdo->beginTransaction();
         
-        $stmtGetOld = $pdo->prepare("SELECT shell_price, finishes_price FROM sales_properties WHERE id = ?");
-        $stmtGetOld->execute([$unitId]);
-        $oldUnit = $stmtGetOld->fetch(PDO::FETCH_ASSOC);
-
-        $stmt = $pdo->prepare("UPDATE sales_properties SET shell_price = ?, finishes_price = ? WHERE id = ?");
-        $stmt->execute([$shell, $finishes, $unitId]);
+        $stmtLog = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
         
-        $log = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
-        $log->execute([
-            $unitId, 
-            $_SESSION['user_id'], 
-            'CSV Sync Price Resolution', 
-            "Shell: {$oldUnit['shell_price']}, Fin: {$oldUnit['finishes_price']}", 
-            "Shell: {$shell}, Fin: {$finishes}", 
-            "Manager resolved a price conflict during CSV Sync."
-        ]);
-
+        // 1. Save Unmapped Translations
+        if (!empty($payload['translations'])) {
+            $stmtTrans = $pdo->prepare("INSERT INTO sync_translations (csv_name, db_unit_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE db_unit_id = ?");
+            foreach ($payload['translations'] as $t) {
+                $stmtTrans->execute([$t['csv_name'], $t['db_unit_id'], $t['db_unit_id']]);
+            }
+        }
+        
+        // 2. Commit Resolved Prices with EXACT Audit Logging
+        if (!empty($payload['prices'])) {
+            $stmtPrice = $pdo->prepare("UPDATE sales_properties SET shell_price = ?, finishes_price = ? WHERE id = ?");
+            $stmtGetOldPrices = $pdo->prepare("SELECT shell_price, finishes_price FROM sales_properties WHERE id = ?");
+            
+            foreach ($payload['prices'] as $p) {
+                // Fetch the exact old prices just before overwriting for the audit log
+                $stmtGetOldPrices->execute([$p['id']]);
+                $oldPriceData = $stmtGetOldPrices->fetch(PDO::FETCH_ASSOC);
+                
+                $stmtPrice->execute([$p['shell'], $p['finishes'], $p['id']]);
+                
+                $justification = "Sync Matrix: Shell €{$oldPriceData['shell_price']} -> €{$p['shell']} | Fin: €{$oldPriceData['finishes_price']} -> €{$p['finishes']}";
+                $stmtLog->execute([$p['id'], $_SESSION['user_id'], 'CSV Sync Price Update', 'Price Override', 'Price Override', substr($justification, 0, 255)]);
+            }
+        }
+        
+        // 3. Commit Status Changes
+        if (!empty($payload['statuses'])) {
+            $stmtClearAgent = $pdo->prepare("UPDATE sales_properties SET status = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
+            $stmtKeepAgent = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
+            
+            foreach ($payload['statuses'] as $s) {
+                // If it transitions to a completely sold or fully available state, rip away agent holds
+                if (in_array($s['new_status'], ['Available', 'Sold', 'Sold - POS', 'Sold - Contract', 'Resale'])) {
+                    $stmtClearAgent->execute([$s['new_status'], $s['id']]);
+                } else {
+                    $stmtKeepAgent->execute([$s['new_status'], $s['id']]);
+                }
+                $stmtLog->execute([$s['id'], $_SESSION['user_id'], 'CSV Sync Status Update', $s['old_status'], $s['new_status'], "Updated via Sync Matrix Approval"]);
+            }
+        }
+        
+        $pdo->commit();
         echo json_encode(['success' => true]);
     } catch (Exception $e) {
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => "Database Error: " . $e->getMessage()]);
     }
     exit;
 }
 
-// ---------------------------------------------------------
-// ACTION: SAVE NEW TRANSLATION
-// ---------------------------------------------------------
-if (isset($_POST['action']) && $_POST['action'] === 'save_translation') {
-    try {
-        $csvName = trim($_POST['csv_name'] ?? '');
-        $dbUnitId = isset($_POST['unit_id']) ? intval($_POST['unit_id']) : null;
 
-        if ($csvName && $dbUnitId !== null) {
-            $stmt = $pdo->prepare("INSERT INTO sync_translations (csv_name, db_unit_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE db_unit_id = ?");
-            $stmt->execute([$csvName, $dbUnitId, $dbUnitId]);
-            echo json_encode(['success' => true]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Invalid data']);
-        }
-    } catch (Exception $e) {
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    }
-    exit;
-}
-
-// ---------------------------------------------------------
-// ACTION: PROCESS CSV UPLOAD
-// ---------------------------------------------------------
+// =========================================================================
+// ACTION 2: DRY RUN / ANALYZE CSV (Default)
+// =========================================================================
 if (!isset($_FILES['sync_csv']) || $_FILES['sync_csv']['error'] !== UPLOAD_ERR_OK) {
     echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error.']);
     exit;
@@ -79,9 +87,7 @@ try {
     $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $dbUnitsById = [];
-    foreach ($dbUnits as $u) {
-        $dbUnitsById[$u['id']] = $u;
-    }
+    foreach ($dbUnits as $u) { $dbUnitsById[$u['id']] = $u; }
 
     $stmtTrans = $pdo->query("SELECT csv_name, db_unit_id FROM sync_translations");
     $savedTranslations = [];
@@ -91,17 +97,10 @@ try {
 
     $ignoreWords = ['apt', 'apartment', 'blk', 'block', 'ph', 'penthouse', 'mais', 'maisonette', 'garage', 'car', 'space', 'house', 'pt', 'level', 'lv', 'cs', 'gr', 'residences'];
 
-    $updatedCount = 0;
-    $matchedCount = 0; // Track total units mapped
-    $notFound = [];
-    $priceConflicts = []; 
+    $scannedCount = 0; $matchedCount = 0;
+    $status_changes = []; $price_conflicts = []; $not_found = [];
     $colUnit = -1; $colStatus = -1; $colPrice = -1; $colFinishes = -1; 
     $isHeaderFound = false;
-
-    $pdo->beginTransaction();
-    
-    $stmtLog = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
-    $userId = $_SESSION['user_id'];
 
     while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
         if (!$isHeaderFound) {
@@ -120,23 +119,16 @@ try {
         
         $csvUnitStringRaw = trim($data[$colUnit]);
         $csvStatus = trim($data[$colStatus]);
+        if (empty($csvUnitStringRaw) || empty($csvStatus)) continue;
+        
+        $scannedCount++;
         $csvPriceRaw = isset($data[$colPrice]) ? trim($data[$colPrice]) : '';
         $csvFinishesRaw = isset($data[$colFinishes]) ? trim($data[$colFinishes]) : '';
-
-        if (empty($csvUnitStringRaw) || empty($csvStatus)) continue;
 
         $price = floatval(preg_replace('/[^0-9.]/', '', $csvPriceRaw));
         $finishesPrice = floatval(preg_replace('/[^0-9.]/', '', $csvFinishesRaw)); 
         
-        $dbStatus = 'Available';
-        $csvStatusLower = strtolower($csvStatus);
-        $soldStatuses = ['new', 'in review', 'pos', 'in progress', 'deal to pos', 'signed deed'];
-        if (in_array($csvStatusLower, $soldStatuses) || strpos($csvStatusLower, 'pos') !== false || strpos($csvStatusLower, 'contract') !== false) {
-            $dbStatus = 'Sold';
-        } elseif (strpos($csvStatusLower, 'stock') !== false) {
-            $dbStatus = 'Available';
-        }
-
+        // --- MATCHING ENGINE ---
         $searchString = strtolower($csvUnitStringRaw);
         $matchedId = null;
 
@@ -145,125 +137,93 @@ try {
         } else {
             $projectAliases = ['harbeia' => 'harbea', 'tal-gruwa' => 'gruwa'];
             foreach ($projectAliases as $wrong => $right) {
-                if (strpos($searchString, $wrong) !== false) {
-                    $searchString = str_replace($wrong, $right, $searchString);
-                }
+                if (strpos($searchString, $wrong) !== false) $searchString = str_replace($wrong, $right, $searchString);
             }
-
             preg_match_all('/[a-zA-Z0-9]+/', $searchString, $csvMatches);
             $csvTokens = $csvMatches[0];
 
             foreach ($dbUnits as $dbU) {
                 $dbProjNameLower = strtolower($dbU['project_name']);
                 $projParts = explode(' ', $dbProjNameLower);
-                $searchProj = $projParts[0]; 
-
-                if (in_array($searchProj, $csvTokens) || strpos($searchString, $searchProj) !== false) {
+                if (in_array($projParts[0], $csvTokens) || strpos($searchString, $projParts[0]) !== false) {
                     $coreUnitName = preg_replace('/\(.*?\)/', '', strtolower($dbU['unit_name'])); 
                     preg_match_all('/[a-zA-Z0-9]+/', $coreUnitName, $matches);
-                    
                     $unitTokens = [];
-                    foreach ($matches[0] as $t) {
-                        if (!in_array($t, $ignoreWords)) $unitTokens[] = $t;
-                    }
+                    foreach ($matches[0] as $t) { if (!in_array($t, $ignoreWords)) $unitTokens[] = $t; }
 
                     $allTokensMatch = true;
                     foreach ($unitTokens as $token) {
-                        if (!in_array($token, $csvTokens)) { 
-                            $allTokensMatch = false; 
-                            break; 
-                        }
+                        if (!in_array($token, $csvTokens)) { $allTokensMatch = false; break; }
                     }
-
-                    if ($allTokensMatch && count($unitTokens) > 0) { 
-                        $matchedId = $dbU['id']; 
-                        break; 
-                    }
+                    if ($allTokensMatch && count($unitTokens) > 0) { $matchedId = $dbU['id']; break; }
                 }
             }
         }
 
-        // --- EXECUTION LAYER ---
+        // --- ANALYSIS ENGINE ---
         if ($matchedId && $matchedId > 0) {
-            $matchedCount++; // Acknowledge the unit was found in the CSV
-            
+            $matchedCount++;
             $oldUnit = $dbUnitsById[$matchedId];
             $currentDbStatus = $oldUnit['status'];
 
-            if ($currentDbStatus === 'Resale') continue; 
-
-            $activeAgentStatuses = ['On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold Pending Approval', 'POS Pending Approval', 'Contract Pending Approval'];
-            if (in_array($currentDbStatus, $activeAgentStatuses) && $dbStatus === 'Available') {
-                $dbStatus = $currentDbStatus; 
-            }
-
-            // --- ITEM 5: PRICE MISMATCH DETECTION ---
-            $hasPriceConflict = false;
+            // 1. Detect Price Conflicts
             $dbShell = (float)$oldUnit['shell_price'];
             $dbFin = (float)$oldUnit['finishes_price'];
-            
             if (($price > 0 && $price !== $dbShell) || ($finishesPrice > 0 && $finishesPrice !== $dbFin)) {
-                $hasPriceConflict = true;
-                $priceConflicts[] = [
+                $price_conflicts[] = [
                     'id' => $matchedId,
                     'project_name' => $oldUnit['project_name'],
                     'unit_name' => $oldUnit['unit_name'],
-                    'db_shell' => $dbShell,
-                    'db_fin' => $dbFin,
-                    'csv_shell' => $price > 0 ? $price : $dbShell,
+                    'db_shell' => $dbShell, 'db_fin' => $dbFin,
+                    'csv_shell' => $price > 0 ? $price : $dbShell, 
                     'csv_fin' => $finishesPrice > 0 ? $finishesPrice : $dbFin
                 ];
             }
 
-            // SMART EXECUTION: Only update fields that actually changed
-            $logChanges = [];
-            $newShell = $dbShell;
-            $newFin = $dbFin;
+            // 2. Detect Status Changes (Fixed to respect specific sold states)
+            if ($currentDbStatus === 'Resale') continue; 
 
-            if (!$hasPriceConflict && ($price > 0 || $finishesPrice > 0) && ($price !== $dbShell || $finishesPrice !== $dbFin)) {
-                $newShell = $price > 0 ? $price : $dbShell;
-                $newFin = $finishesPrice > 0 ? $finishesPrice : $dbFin;
-                
-                if ($newShell !== $dbShell) $logChanges[] = "Shell: €{$dbShell} -> €{$newShell}";
-                if ($newFin !== $dbFin) $logChanges[] = "Finishes: €{$dbFin} -> €{$newFin}";
+            $dbStatus = 'Available';
+            $csvStatusLower = strtolower($csvStatus);
+            if (in_array($csvStatusLower, ['pos', 'deal to pos'])) {
+                $dbStatus = (strpos($currentDbStatus, 'Sold') !== false) ? $currentDbStatus : 'Sold - POS';
+            } elseif (in_array($csvStatusLower, ['contract', 'signed deed'])) {
+                $dbStatus = 'Sold - Contract';
+            } elseif (in_array($csvStatusLower, ['new', 'in review', 'in progress'])) {
+                $dbStatus = (strpos($currentDbStatus, 'Sold') !== false) ? $currentDbStatus : 'Proceeding';
+            } elseif (strpos($csvStatusLower, 'stock') !== false) {
+                $dbStatus = 'Available';
             }
 
             if ($currentDbStatus !== $dbStatus) {
-                $logChanges[] = "Status: {$currentDbStatus} -> {$dbStatus}";
-            }
-
-            // Only run query if something changed
-            if (!empty($logChanges)) {
-                $updateStmt = $pdo->prepare("UPDATE sales_properties SET status = ?, shell_price = ?, finishes_price = ? WHERE id = ?");
-                $updateStmt->execute([$dbStatus, $newShell, $newFin, $matchedId]);
-                
-                $stmtLog->execute([
-                    $matchedId, $userId, 'CSV Sync Update', $currentDbStatus, $dbStatus, "Daily Sync: " . implode(', ', $logChanges)
-                ]);
-                $updatedCount++;
+                $activeAgentStatuses = ['On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold Pending Approval', 'POS Pending Approval', 'Contract Pending Approval'];
+                if (!(in_array($currentDbStatus, $activeAgentStatuses) && $dbStatus === 'Available')) {
+                    $status_changes[] = [
+                        'id' => $matchedId,
+                        'project_name' => $oldUnit['project_name'],
+                        'unit_name' => $oldUnit['unit_name'],
+                        'old_status' => $currentDbStatus,
+                        'new_status' => $dbStatus
+                    ];
+                }
             }
 
         } elseif ($matchedId != -1) {
-            $notFound[] = ['csv_name' => $csvUnitStringRaw, 'status' => $csvStatus, 'price' => $price];
+            $not_found[] = ['csv_name' => $csvUnitStringRaw, 'status' => $csvStatus];
         }
     }
-    
-    $pdo->commit();
     fclose($handle);
 
-    // Provide the reassuring split counts
     echo json_encode([
         'success' => true,
-        'message' => "Scanned {$matchedCount} linked units. Applied new updates to {$updatedCount} units.",
-        'not_found' => $notFound,
-        'price_conflicts' => $priceConflicts,
+        'stats' => ['scanned' => $scannedCount, 'mapped' => $matchedCount],
+        'status_changes' => $status_changes,
+        'price_conflicts' => $price_conflicts,
+        'not_found' => $not_found,
         'all_db_units' => $dbUnits 
     ]);
 
 } catch (Exception $e) {
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-    echo json_encode(['success' => false, 'message' => "Database Error: " . $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => "Error: " . $e->getMessage()]);
 }
 ?>
