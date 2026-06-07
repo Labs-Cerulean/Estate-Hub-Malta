@@ -1227,7 +1227,7 @@ require_once 'header.php';
 
     let currentSyncPayload = { translations: [], prices: [], statuses: [] };
 
-    function processDailySync(input) {
+   function processDailySync(input) {
         if (input.files.length === 0) return;
         const file = input.files[0]; 
         const formData = new FormData(); 
@@ -1237,16 +1237,27 @@ require_once 'header.php';
         showToast("Analyzing CSV... Please wait.", "success");
         
         fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
-        .then(r => r.json())
+        .then(async r => {
+            const text = await r.text(); // Get raw server output first
+            try {
+                return JSON.parse(text); // Try parsing to JSON safely
+            } catch (e) {
+                console.error("SERVER CRASH REPORT:", text); // Dumps the actual PHP error into the dev console
+                throw new Error("Server crashed or returned invalid data. Press F12 to check the console.");
+            }
+        })
         .then(data => {
             if (data.success) { 
-                currentSyncPayload.statuses = data.status_changes; // Pre-load safe status updates
+                currentSyncPayload.statuses = data.status_changes; 
                 showUnifiedMatrixModal(data);
             } else { 
                 alert("Error: " + data.message); 
             }
         })
-        .catch(err => { console.error(err); alert("A network error occurred."); });
+        .catch(err => { 
+            console.error(err); 
+            alert("Sync Failed: " + err.message); 
+        });
         input.value = ""; 
     }
 
@@ -1383,16 +1394,25 @@ require_once 'header.php';
         btn.disabled = true;
 
         fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
-        .then(r => r.json())
+        .then(async r => {
+            const text = await r.text();
+            try { return JSON.parse(text); } 
+            catch (e) { throw new Error("Server crashed during commit. Response: " + text); }
+        })
         .then(data => {
             if (data.success) {
                 alert("Sync successfully committed!");
                 location.reload();
             } else {
-                alert("Error: " + data.message);
+                alert("Database Error: " + data.message);
                 btn.innerHTML = 'Commit Approved Changes';
                 btn.disabled = false;
             }
+        })
+        .catch(err => { 
+            alert("Commit Failed: " + err.message); 
+            btn.innerHTML = 'Commit Approved Changes';
+            btn.disabled = false;
         });
     }
 
