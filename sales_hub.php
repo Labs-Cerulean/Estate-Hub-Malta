@@ -1276,7 +1276,7 @@ require_once 'header.php';
                                 <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
                                     <div style="flex: 1; min-width: 250px; color: var(--sh-danger); font-weight: bold; font-size: 0.9rem;">${item.csv_name}</div>
                                     <div style="flex: 1; min-width: 250px;">
-                                        <select class="sh-select sync-trans-select" data-csv="${item.csv_name}" style="margin:0; width: 100%; border-color: var(--sh-danger);">${optionsHtml}</select>
+                                        <select class="sh-select sync-trans-select" data-csv="${item.csv_name.replace(/"/g, '&quot;')}" style="margin:0; width: 100%; border-color: var(--sh-danger);">${optionsHtml}</select>
                                     </div>
                                 </div>
                             `).join('')}
@@ -1346,7 +1346,7 @@ require_once 'header.php';
 
                 <div style="padding: 20px; border-top: 1px solid var(--sh-border); background: var(--sh-bg-base); display: flex; justify-content: flex-end; gap: 15px;">
                     <button class="sh-btn sh-btn-danger" style="width: auto; margin: 0;" onclick="document.getElementById('unifiedMatrixModal').remove()">Cancel</button>
-                    <button class="sh-btn sh-btn-success" style="width: auto; margin: 0;" onclick="commitSyncMatrix()">Commit Approved Changes</button>
+                    <button class="sh-btn sh-btn-success" style="width: auto; margin: 0;" onclick="commitSyncMatrix(this)">Commit Approved Changes</button>
                 </div>
             </div>
         </div>`;
@@ -1356,7 +1356,7 @@ require_once 'header.php';
         document.body.insertAdjacentHTML('beforeend', html);
     }
 
-    function commitSyncMatrix() {
+    function commitSyncMatrix(btn) {
         // Collect translations
         currentSyncPayload.translations = [];
         document.querySelectorAll('.sync-trans-select').forEach(sel => {
@@ -1379,7 +1379,6 @@ require_once 'header.php';
         formData.append('action', 'commit');
         formData.append('payload', JSON.stringify(currentSyncPayload));
 
-        const btn = event.target;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         btn.disabled = true;
 
@@ -1393,148 +1392,6 @@ require_once 'header.php';
                 alert("Error: " + data.message);
                 btn.innerHTML = 'Commit Approved Changes';
                 btn.disabled = false;
-            }
-        });
-    }
-
-    function saveTranslation(index, btnElement, isIgnore) {
-        let csvName = document.getElementById(`missing_name_${index}`).innerText;
-        let unitId = -1; 
-        const selectEl = document.getElementById(`trans_select_${index}`);
-        
-        if (!isIgnore) { 
-            unitId = selectEl.value; 
-            if (!unitId) { 
-                alert("Please select a unit from the dropdown first."); 
-                return; 
-            } 
-        }
-
-        const originalText = btnElement.innerHTML; 
-        btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; 
-        btnElement.disabled = true;
-        
-        const formData = new FormData(); 
-        formData.append('action', 'save_translation'); 
-        formData.append('csv_name', csvName); 
-        formData.append('unit_id', unitId);
-
-        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                btnElement.className = "sh-btn sh-btn-success"; 
-                btnElement.innerHTML = isIgnore ? '<i class="fas fa-eye-slash"></i> Ignored!' : '<i class="fas fa-check"></i> Linked!';
-                selectEl.disabled = true; 
-                
-                const siblingBtn = isIgnore ? btnElement.previousElementSibling : btnElement.nextElementSibling;
-                if (siblingBtn) { 
-                    siblingBtn.style.opacity = '0.5'; 
-                    siblingBtn.disabled = true; 
-                }
-            } else { 
-                alert("Failed to save action."); 
-                btnElement.innerHTML = originalText; 
-                btnElement.disabled = false; 
-            }
-        });
-    }
-
-    // --- ITEM 5: PRICE CONFLICT MODAL & RESOLUTION ---
-    function showPriceConflictModal(successMessage, conflicts) {
-        let modalHtml = `
-        <div id="priceConflictModal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; display:flex; align-items:center; justify-content:center;">
-            <div style="background:var(--sh-bg-panel); padding:25px; border-radius:12px; max-width:900px; width:95%; max-height:85vh; overflow-y:auto; border:1px solid var(--sh-border); box-shadow: 0 10px 30px rgba(0,0,0,0.5); color: #fff;">
-                <h2 style="margin-top:0;"><i class="fas fa-exclamation-triangle text-warning"></i> Price Mismatches Detected</h2>
-                <p style="color:var(--sh-avail); font-weight:bold; font-size:1.1rem;">${successMessage}</p>
-                <p style="color:var(--sh-text-muted); font-size:0.9rem;">The CSV contains different prices for the units below. Please choose whether to keep the existing Database price or overwrite it with the CSV price.</p>
-                
-                <div style="overflow-x: auto;">
-                    <table style="width:100%; border-collapse: collapse; margin-top:15px; font-size: 0.9rem;">
-                        <thead>
-                            <tr style="border-bottom: 2px solid var(--sh-border); text-align:left; background: rgba(0,0,0,0.2);">
-                                <th style="padding:12px;">Unit</th>
-                                <th style="padding:12px; border-left: 1px solid var(--sh-border);">Database Price</th>
-                                <th style="padding:12px; border-left: 1px solid var(--sh-border);">CSV Upload Price</th>
-                                <th style="padding:12px; text-align: right;">Resolution</th>
-                            </tr>
-                        </thead>
-                        <tbody id="priceConflictTableBody">
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div style="margin-top: 25px; text-align: right; border-top: 1px solid var(--sh-border); padding-top: 15px;">
-                    <button class="sh-btn sh-btn-success" style="width: auto; display: inline-block;" onclick="location.reload();"><i class="fas fa-check-double"></i> Done & Refresh Map</button>
-                </div>
-            </div>
-        </div>`;
-
-        let oldModal = document.getElementById('priceConflictModal'); 
-        if (oldModal) oldModal.remove();
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-        const tbody = document.getElementById('priceConflictTableBody');
-        conflicts.forEach((c, index) => {
-            let tr = document.createElement('tr'); 
-            tr.style.borderBottom = "1px solid var(--sh-border)";
-            
-            // Highlight what changed
-            let dbShellText = c.db_shell !== c.csv_shell ? `<span style="color:var(--sh-danger); font-weight:bold;">€${c.db_shell}</span>` : `€${c.db_shell}`;
-            let csvShellText = c.db_shell !== c.csv_shell ? `<span style="color:var(--sh-avail); font-weight:bold;">€${c.csv_shell}</span>` : `€${c.csv_shell}`;
-            
-            let dbFinText = c.db_fin !== c.csv_fin ? `<span style="color:var(--sh-danger); font-weight:bold;">€${c.db_fin}</span>` : `€${c.db_fin}`;
-            let csvFinText = c.db_fin !== c.csv_fin ? `<span style="color:var(--sh-avail); font-weight:bold;">€${c.csv_fin}</span>` : `€${c.csv_fin}`;
-
-            tr.innerHTML = `
-                <td style="padding:12px;">
-                    <strong>${c.project_name}</strong><br>
-                    <span style="color:var(--sh-text-muted);">${c.unit_name}</span>
-                </td>
-                <td style="padding:12px; border-left: 1px solid var(--sh-border); background: rgba(239, 68, 68, 0.05);">
-                    Shell: ${dbShellText}<br>Fin: ${dbFinText}
-                </td>
-                <td style="padding:12px; border-left: 1px solid var(--sh-border); background: rgba(16, 185, 129, 0.05);">
-                    Shell: ${csvShellText}<br>Fin: ${csvFinText}
-                </td>
-                <td style="padding:12px; text-align: right; white-space: nowrap;">
-                    <button class="sh-btn sh-btn-warning" style="margin:0 0 5px 0; padding: 6px 12px; width: 100%;" onclick="resolvePriceConflict(${index}, this, ${c.id}, ${c.db_shell}, ${c.db_fin})">Keep DB Price</button>
-                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px; width: 100%;" onclick="resolvePriceConflict(${index}, this, ${c.id}, ${c.csv_shell}, ${c.csv_fin})">Use CSV Price</button>
-                </td>`;
-            tbody.appendChild(tr);
-        });
-    }
-
-    function resolvePriceConflict(index, btnElement, unitId, chosenShell, chosenFinishes) {
-        const originalText = btnElement.innerHTML; 
-        btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; 
-        btnElement.disabled = true;
-        
-        const formData = new FormData(); 
-        formData.append('action', 'resolve_price_conflict'); 
-        formData.append('unit_id', unitId);
-        formData.append('shell_price', chosenShell);
-        formData.append('finishes_price', chosenFinishes);
-
-        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                btnElement.className = "sh-btn sh-btn-success"; 
-                btnElement.innerHTML = '<i class="fas fa-check"></i> Resolved!';
-                
-                // Disable the sibling button so they don't double click
-                const parentTd = btnElement.parentElement;
-                Array.from(parentTd.children).forEach(childBtn => {
-                    if (childBtn !== btnElement) {
-                        childBtn.style.opacity = '0.3';
-                        childBtn.disabled = true;
-                    }
-                });
-            } else { 
-                alert("Failed to resolve conflict: " + data.message); 
-                btnElement.innerHTML = originalText; 
-                btnElement.disabled = false; 
             }
         });
     }
