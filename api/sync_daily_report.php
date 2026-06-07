@@ -68,7 +68,7 @@ if ($action === 'commit') {
 }
 
 // =========================================================================
-// ACTION 2: DRY RUN / ANALYZE CSV (Default)
+// ACTION 2: DRY RUN / ANALYZE CSV (Strict Integrity Engine)
 // =========================================================================
 if (!isset($_FILES['sync_csv']) || $_FILES['sync_csv']['error'] !== UPLOAD_ERR_OK) {
     echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error.']);
@@ -92,25 +92,20 @@ try {
         $savedTranslations[strtolower($row['csv_name'])] = $row['db_unit_id'];
     }
 
-    $ignoreWords = ['apt', 'apartment', 'blk', 'block', 'ph', 'penthouse', 'mais', 'maisonette', 'garage', 'car', 'space', 'house', 'pt', 'level', 'lv', 'cs', 'gr', 'residences'];
-
-    // --- HIGH PERFORMANCE PRE-PROCESSING (Prevents Server Crash) ---
+    // --- NEW: ZERO-TOLERANCE STRICT MATCHER ---
     $processedDbUnits = [];
     foreach ($dbUnits as $dbU) {
-        $dbProjNameLower = strtolower($dbU['project_name']);
-        $projParts = explode(' ', $dbProjNameLower);
-        $coreUnitName = preg_replace('/\(.*?\)/', '', strtolower($dbU['unit_name'])); 
-        preg_match_all('/[a-zA-Z0-9]+/', $coreUnitName, $matches);
+        $cleanProj = preg_replace('/\s+/', ' ', strtolower(trim($dbU['project_name'])));
+        $projParts = explode(' ', $cleanProj);
         
-        $unitTokens = [];
-        foreach ($matches[0] as $t) { 
-            if (!in_array($t, $ignoreWords)) $unitTokens[] = $t; 
-        }
+        $cleanUnit = preg_replace('/\s+/', ' ', strtolower(trim($dbU['unit_name'])));
+        // Strict Regex: The CSV must contain the EXACT unit name as standalone words
+        $unitRegex = '/\b' . preg_quote($cleanUnit, '/') . '\b/';
         
         $processedDbUnits[] = [
             'id' => $dbU['id'],
             'projFirstWord' => $projParts[0] ?? '',
-            'unitTokens' => $unitTokens
+            'unitRegex' => $unitRegex
         ];
     }
 
@@ -152,31 +147,24 @@ try {
         $price = floatval(preg_replace('/[^0-9.]/', '', $csvPriceRaw));
         $finishesPrice = floatval(preg_replace('/[^0-9.]/', '', $csvFinishesRaw)); 
         
-        // --- MATCHING ENGINE (Now blazing fast) ---
-        $searchString = strtolower($csvUnitStringRaw);
+        // --- STRICT MATCHING EXECUTION ---
+        $searchString = preg_replace('/\s+/', ' ', strtolower($csvUnitStringRaw));
         $matchedId = null;
 
         if (isset($savedTranslations[$searchString])) {
             $matchedId = $savedTranslations[$searchString];
         } else {
-            $projectAliases = ['harbeia' => 'harbea', 'tal-gruwa' => 'gruwa'];
-            foreach ($projectAliases as $wrong => $right) {
-                if (strpos($searchString, $wrong) !== false) $searchString = str_replace($wrong, $right, $searchString);
-            }
-            preg_match_all('/[a-zA-Z0-9]+/', $searchString, $csvMatches);
-            $csvTokens = $csvMatches[0];
-
+            $matchedIds = [];
             foreach ($processedDbUnits as $pdbU) {
-                if (in_array($pdbU['projFirstWord'], $csvTokens) || strpos($searchString, $pdbU['projFirstWord']) !== false) {
-                    $allTokensMatch = true;
-                    foreach ($pdbU['unitTokens'] as $token) {
-                        if (!in_array($token, $csvTokens)) { $allTokensMatch = false; break; }
-                    }
-                    if ($allTokensMatch && count($pdbU['unitTokens']) > 0) { 
-                        $matchedId = $pdbU['id']; 
-                        break; 
+                if (strpos($searchString, $pdbU['projFirstWord']) !== false) {
+                    if (preg_match($pdbU['unitRegex'], $searchString)) {
+                        $matchedIds[] = $pdbU['id'];
                     }
                 }
+            }
+            // AMBIGUITY SHIELD: Must match exactly 1 unit. If 2+ match, abort to Unmapped!
+            if (count($matchedIds) === 1) {
+                $matchedId = $matchedIds[0];
             }
         }
 
@@ -203,14 +191,16 @@ try {
 
             $dbStatus = 'Available';
             $csvStatusLower = strtolower($csvStatus);
-            if (in_array($csvStatusLower, ['pos', 'deal to pos'])) {
-                $dbStatus = (strpos($currentDbStatus, 'Sold') !== false) ? $currentDbStatus : 'Sold - POS';
+            if (in_array($csvStatusLower, ['pos'])) {
+                $dbStatus = 'Sold - POS';
             } elseif (in_array($csvStatusLower, ['contract', 'signed deed'])) {
                 $dbStatus = 'Sold - Contract';
-            } elseif (in_array($csvStatusLower, ['new', 'in review', 'in progress'])) {
-                $dbStatus = (strpos($currentDbStatus, 'Sold') !== false) ? $currentDbStatus : 'Proceeding';
-            } elseif (strpos($csvStatusLower, 'stock') !== false) {
+            } elseif (in_array($csvStatusLower, ['deal to pos', 'in progress', 'new', 'in review'])) {
+                $dbStatus = 'Proceeding';
+            } elseif (strpos($csvStatusLower, 'stock') !== false || $csvStatusLower === 'available') {
                 $dbStatus = 'Available';
+            } else {
+                $dbStatus = $currentDbStatus;
             }
 
             if ($currentDbStatus !== $dbStatus) {
@@ -226,7 +216,7 @@ try {
                 }
             }
 
-        } elseif ($matchedId != -1) {
+        } else {
             $not_found[] = ['csv_name' => $csvUnitStringRaw, 'status' => $csvStatus];
         }
     }
