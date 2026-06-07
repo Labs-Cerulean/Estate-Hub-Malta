@@ -1,4 +1,8 @@
 <?php
+// Prevent raw HTML errors from corrupting the JSON response
+error_reporting(0);
+ini_set('display_errors', 0);
+
 require_once '../config.php';
 require_once '../session-check.php';
 
@@ -6,6 +10,9 @@ if (!in_array($_SESSION['role'], ['admin', 'sales_manager', 'director', 'system_
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;
 }
+
+// Ensure strict JSON header
+header('Content-Type: application/json; charset=utf-8');
 
 $action = $_POST['action'] ?? 'analyze';
 
@@ -27,13 +34,12 @@ if ($action === 'commit') {
             }
         }
         
-        // 2. Commit Resolved Prices with EXACT Audit Logging
+        // 2. Commit Resolved Prices
         if (!empty($payload['prices'])) {
             $stmtPrice = $pdo->prepare("UPDATE sales_properties SET shell_price = ?, finishes_price = ? WHERE id = ?");
             $stmtGetOldPrices = $pdo->prepare("SELECT shell_price, finishes_price FROM sales_properties WHERE id = ?");
             
             foreach ($payload['prices'] as $p) {
-                // Fetch the exact old prices just before overwriting for the audit log
                 $stmtGetOldPrices->execute([$p['id']]);
                 $oldPriceData = $stmtGetOldPrices->fetch(PDO::FETCH_ASSOC);
                 
@@ -50,7 +56,6 @@ if ($action === 'commit') {
             $stmtKeepAgent = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
             
             foreach ($payload['statuses'] as $s) {
-                // If it transitions to a completely sold or fully available state, rip away agent holds
                 if (in_array($s['new_status'], ['Available', 'Sold', 'Sold - POS', 'Sold - Contract', 'Resale'])) {
                     $stmtClearAgent->execute([$s['new_status'], $s['id']]);
                 } else {
@@ -102,7 +107,16 @@ try {
     $colUnit = -1; $colStatus = -1; $colPrice = -1; $colFinishes = -1; 
     $isHeaderFound = false;
 
-    while (($data = fgetcsv($handle, 10000, ",")) !== FALSE) {
+    while (($raw_data = fgetcsv($handle, 10000, ",")) !== FALSE) {
+        
+        // CRITICAL FIX: Force every cell in the CSV to be perfectly clean UTF-8
+        $data = [];
+        foreach ($raw_data as $cell) {
+            $data[] = function_exists('mb_convert_encoding') 
+                ? mb_convert_encoding($cell, 'UTF-8', 'UTF-8, ISO-8859-1, Windows-1252') 
+                : $cell;
+        }
+
         if (!$isHeaderFound) {
             foreach ($data as $index => $val) {
                 $valStr = strtolower(trim($val));
@@ -180,7 +194,7 @@ try {
                 ];
             }
 
-            // 2. Detect Status Changes (Fixed to respect specific sold states)
+            // 2. Detect Status Changes
             if ($currentDbStatus === 'Resale') continue; 
 
             $dbStatus = 'Available';
@@ -214,16 +228,27 @@ try {
     }
     fclose($handle);
 
-    echo json_encode([
+    $responseArray = [
         'success' => true,
         'stats' => ['scanned' => $scannedCount, 'mapped' => $matchedCount],
         'status_changes' => $status_changes,
         'price_conflicts' => $price_conflicts,
         'not_found' => $not_found,
         'all_db_units' => $dbUnits 
-    ]);
+    ];
+
+    // CRITICAL FIX: Safe JSON stringification preventing crash on bad characters
+    $jsonResponse = defined('JSON_INVALID_UTF8_SUBSTITUTE') 
+        ? json_encode($responseArray, JSON_INVALID_UTF8_SUBSTITUTE) 
+        : json_encode($responseArray);
+
+    if ($jsonResponse === false) {
+        echo json_encode(['success' => false, 'message' => "System JSON Encoding Failed. Check for illegal characters in CSV."]);
+    } else {
+        echo $jsonResponse;
+    }
 
 } catch (Exception $e) {
-    echo json_encode(['success' => false, 'message' => "Error: " . $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => "Server Logic Error: " . $e->getMessage()]);
 }
 ?>
