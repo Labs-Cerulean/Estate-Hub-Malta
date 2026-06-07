@@ -1238,15 +1238,16 @@ require_once 'header.php';
         
         fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
         .then(async r => {
-            const text = await r.text(); // Get raw server output first
+            const text = await r.text();
             try {
-                return JSON.parse(text); // Try parsing to JSON safely
+                return JSON.parse(text);
             } catch (e) {
-                console.error("SERVER CRASH REPORT:", text); // Dumps the actual PHP error into the dev console
+                console.error("SERVER CRASH REPORT:", text);
                 throw new Error("Server crashed or returned invalid data. Press F12 to check the console.");
             }
         })
         .then(data => {
+            input.value = ""; // Moved clearing to AFTER safe dispatch
             if (data.success) { 
                 currentSyncPayload.statuses = data.status_changes; 
                 showUnifiedMatrixModal(data);
@@ -1255,10 +1256,10 @@ require_once 'header.php';
             }
         })
         .catch(err => { 
+            input.value = ""; 
             console.error(err); 
             alert("Sync Failed: " + err.message); 
         });
-        input.value = ""; 
     }
 
     function showUnifiedMatrixModal(data) {
