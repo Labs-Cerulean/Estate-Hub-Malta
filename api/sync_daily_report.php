@@ -92,14 +92,15 @@ try {
         $savedTranslations[strtolower($row['csv_name'])] = $row['db_unit_id'];
     }
 
-    // --- NEW: ZERO-TOLERANCE STRICT MATCHER ---
+    $ignoreWords = ['apt', 'apartment', 'blk', 'block', 'ph', 'penthouse', 'mais', 'maisonette', 'garage', 'car', 'space', 'house', 'pt', 'level', 'lv', 'cs', 'gr', 'residences'];
+
+    // --- ZERO-TOLERANCE STRICT MATCHER PRE-PROCESSING ---
     $processedDbUnits = [];
     foreach ($dbUnits as $dbU) {
         $cleanProj = preg_replace('/\s+/', ' ', strtolower(trim($dbU['project_name'])));
         $projParts = explode(' ', $cleanProj);
         
         $cleanUnit = preg_replace('/\s+/', ' ', strtolower(trim($dbU['unit_name'])));
-        // Strict Regex: The CSV must contain the EXACT unit name as standalone words
         $unitRegex = '/\b' . preg_quote($cleanUnit, '/') . '\b/';
         
         $processedDbUnits[] = [
@@ -162,7 +163,6 @@ try {
                     }
                 }
             }
-            // AMBIGUITY SHIELD: Must match exactly 1 unit. If 2+ match, abort to Unmapped!
             if (count($matchedIds) === 1) {
                 $matchedId = $matchedIds[0];
             }
@@ -217,7 +217,28 @@ try {
             }
 
         } else {
-            $not_found[] = ['csv_name' => $csvUnitStringRaw, 'status' => $csvStatus];
+            // --- "BEST GUESS" RECOMMENDATION ENGINE ---
+            $bestMatchId = '';
+            $highestPercent = 0;
+            $cleanSearch = trim(strtolower($csvUnitStringRaw));
+            
+            foreach ($dbUnits as $dbU) {
+                $cleanDb = trim(strtolower($dbU['project_name'] . ' ' . $dbU['unit_name']));
+                similar_text($cleanSearch, $cleanDb, $percent);
+                
+                if ($percent > $highestPercent) {
+                    $highestPercent = $percent;
+                    $bestMatchId = $dbU['id'];
+                }
+            }
+            
+            $recommendedId = ($highestPercent > 65) ? $bestMatchId : '';
+            
+            $not_found[] = [
+                'csv_name' => $csvUnitStringRaw, 
+                'status' => $csvStatus,
+                'recommended_id' => $recommendedId
+            ];
         }
     }
     fclose($handle);
