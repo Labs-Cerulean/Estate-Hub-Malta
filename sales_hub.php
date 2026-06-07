@@ -1225,95 +1225,175 @@ require_once 'header.php';
         }
     });
 
+    let currentSyncPayload = { translations: [], prices: [], statuses: [] };
+
     function processDailySync(input) {
         if (input.files.length === 0) return;
         const file = input.files[0]; 
         const formData = new FormData(); 
         formData.append('sync_csv', file);
+        formData.append('action', 'analyze');
         
-        showToast("Syncing data... Please wait.", "success");
+        showToast("Analyzing CSV... Please wait.", "success");
         
         fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
         .then(r => r.json())
         .then(data => {
             if (data.success) { 
-                // 1. Check for missing translations
-                if (data.not_found && data.not_found.length > 0) { 
-                    showTranslationModal(data.message, data.not_found, data.all_db_units); 
-                } 
-                // 2. Check for Price Conflicts
-                else if (data.price_conflicts && data.price_conflicts.length > 0) {
-                    showPriceConflictModal(data.message, data.price_conflicts);
-                } 
-                // 3. Perfect Sync
-                else { 
-                    alert(data.message + "\n\n100% Match Rate. No price conflicts found!"); 
-                    location.reload(); 
-                } 
+                currentSyncPayload.statuses = data.status_changes; // Pre-load safe status updates
+                showUnifiedMatrixModal(data);
             } else { 
                 alert("Error: " + data.message); 
             }
         })
-        .catch(err => { 
-            console.error(err); 
-            alert("A network error occurred during sync."); 
-        });
-        
+        .catch(err => { console.error(err); alert("A network error occurred."); });
         input.value = ""; 
     }
 
-    function showTranslationModal(successMessage, missingItems, dbUnits) {
-        let modalHtml = `
-        <div id="translatorModal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:flex; align-items:center; justify-content:center;">
-            <div style="background:var(--sh-card-bg); padding:25px; border-radius:12px; max-width:800px; width:90%; max-height:85vh; overflow-y:auto; border:1px solid var(--sh-border); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-                <h2 style="margin-top:0; color:var(--sh-text);">Sync Complete, but some items need mapping</h2>
-                <p style="color:var(--sh-success); font-weight:bold; font-size:1.1rem;">${successMessage}</p>
-                <p style="color:var(--sh-text-muted); font-size:0.9rem;">The system couldn't automatically match the items below. Link them to the correct Database Unit, and the system will remember this translation for next time.</p>
+    function showUnifiedMatrixModal(data) {
+        let optionsHtml = `<option value="">-- Select Database Unit --</option>`;
+        data.all_db_units.forEach(u => { optionsHtml += `<option value="${u.id}">${u.project_name} - ${u.unit_name}</option>`; });
+
+        let html = `
+        <div id="unifiedMatrixModal" class="vanilla-modal" style="display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.95); z-index:9999;">
+            <div class="vanilla-modal-content large" style="width: 95%; max-width: 1200px; height: 90vh; margin: 5vh auto; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 12px; background: var(--sh-bg-panel); border: 1px solid var(--sh-border);">
                 
-                <table style="width:100%; border-collapse: collapse; margin-top:15px;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid var(--sh-border); text-align:left;">
-                            <th style="padding:10px; color:var(--sh-text);">Unrecognized Name from CSV</th>
-                            <th style="padding:10px; color:var(--sh-text);">Link to Database Unit</th>
-                            <th style="padding:10px; color:var(--sh-text);">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="translatorTableBody">
-                    </tbody>
-                </table>
-                
-                <div style="margin-top: 25px; text-align: right;">
-                    <button class="sh-btn sh-btn-success" onclick="location.reload();">Done & Refresh Map</button>
+                <div style="padding: 20px; border-bottom: 1px solid var(--sh-border); display: flex; justify-content: space-between; align-items: center; background: var(--sh-bg-base);">
+                    <h3 style="margin: 0; color: #fff;"><i class="fas fa-file-csv text-info"></i> CSV Sync Analysis Report</h3>
+                    <div style="font-size: 0.9rem; color: var(--sh-text-muted);">Scanned: ${data.stats.scanned} | Mapped: ${data.stats.mapped}</div>
+                </div>
+
+                <div style="flex: 1; overflow-y: auto; padding: 20px;">
+                    
+                    ${data.not_found.length > 0 ? `
+                    <div style="margin-bottom: 30px; border: 1px solid var(--sh-danger); border-radius: 8px; overflow: hidden;">
+                        <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-bottom: 1px solid var(--sh-danger); font-weight: bold; color: #fff;">
+                            <i class="fas fa-link text-danger"></i> Unmapped CSV Rows (${data.not_found.length})
+                            <div style="font-size: 0.8rem; color: var(--sh-text-muted); font-weight: normal; margin-top: 5px;">Link these to a database unit. They will be saved for all future syncs.</div>
+                        </div>
+                        <div style="padding: 15px; background: var(--sh-bg-base);">
+                            ${data.not_found.map((item, i) => `
+                                <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
+                                    <div style="flex: 1; min-width: 250px; color: var(--sh-danger); font-weight: bold; font-size: 0.9rem;">${item.csv_name}</div>
+                                    <div style="flex: 1; min-width: 250px;">
+                                        <select class="sh-select sync-trans-select" data-csv="${item.csv_name}" style="margin:0; width: 100%; border-color: var(--sh-danger);">${optionsHtml}</select>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>` : ''}
+
+                    ${data.price_conflicts.length > 0 ? `
+                    <div style="margin-bottom: 30px; border: 1px solid var(--sh-proc); border-radius: 8px; overflow: hidden;">
+                        <div style="background: rgba(245, 158, 11, 0.1); padding: 15px; border-bottom: 1px solid var(--sh-proc); font-weight: bold; color: #fff;">
+                            <i class="fas fa-euro-sign text-warning"></i> Price Mismatches (${data.price_conflicts.length})
+                            <div style="font-size: 0.8rem; color: var(--sh-text-muted); font-weight: normal; margin-top: 5px;">Choose whether to update your system with the incoming CSV prices.</div>
+                        </div>
+                        <div style="overflow-x: auto; background: var(--sh-bg-base);">
+                            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse; text-align: left; color: #fff;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid var(--sh-border);">
+                                        <th style="padding: 10px;">Property</th>
+                                        <th style="padding: 10px;">DB Prices</th>
+                                        <th style="padding: 10px;">CSV Prices</th>
+                                        <th style="padding: 10px; text-align: center;">Resolution</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${data.price_conflicts.map((c, i) => `
+                                        <tr style="border-bottom: 1px solid var(--sh-border-light);">
+                                            <td style="padding: 10px;"><strong>${c.project_name}</strong><br><span style="color:var(--sh-text-muted);">${c.unit_name}</span></td>
+                                            <td style="padding: 10px; color: var(--sh-text-muted);">Sh: €${c.db_shell}<br>Fin: €${c.db_fin}</td>
+                                            <td style="padding: 10px; color: var(--sh-avail);">Sh: €${c.csv_shell}<br>Fin: €${c.csv_fin}</td>
+                                            <td style="padding: 10px; text-align: center; white-space: nowrap;">
+                                                <label style="margin-right: 15px; cursor: pointer;"><input type="radio" name="price_res_${i}" class="sync-price-radio" value="db" checked> Keep DB</label>
+                                                <label style="cursor: pointer; color: var(--sh-avail);"><input type="radio" name="price_res_${i}" class="sync-price-radio" value="csv" data-id="${c.id}" data-shell="${c.csv_shell}" data-fin="${c.csv_fin}"> Use CSV</label>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>` : ''}
+
+                    ${data.status_changes.length > 0 ? `
+                    <div style="border: 1px solid var(--sh-avail); border-radius: 8px; overflow: hidden;">
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 15px; border-bottom: 1px solid var(--sh-avail); font-weight: bold; color: #fff;">
+                            <i class="fas fa-sync text-success"></i> Status Updates To Apply (${data.status_changes.length})
+                        </div>
+                        <div style="overflow-x: auto; background: var(--sh-bg-base);">
+                            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse; text-align: left; color: #fff;">
+                                <tbody>
+                                    ${data.status_changes.map(s => `
+                                        <tr style="border-bottom: 1px solid var(--sh-border-light);">
+                                            <td style="padding: 10px;"><strong>${s.project_name}</strong> - ${s.unit_name}</td>
+                                            <td style="padding: 10px;"><span style="color:var(--sh-text-muted); text-decoration:line-through;">${s.old_status}</span> &rarr; <span style="color:var(--sh-avail); font-weight:bold;">${s.new_status}</span></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>` : ''}
+
+                    ${data.not_found.length === 0 && data.price_conflicts.length === 0 && data.status_changes.length === 0 ? `
+                        <div style="text-align: center; padding: 50px; color: var(--sh-avail);">
+                            <i class="fas fa-check-circle fa-4x mb-3"></i>
+                            <h3>100% Match! No updates required.</h3>
+                        </div>
+                    ` : ''}
+
+                </div>
+
+                <div style="padding: 20px; border-top: 1px solid var(--sh-border); background: var(--sh-bg-base); display: flex; justify-content: flex-end; gap: 15px;">
+                    <button class="sh-btn sh-btn-danger" style="width: auto; margin: 0;" onclick="document.getElementById('unifiedMatrixModal').remove()">Cancel</button>
+                    <button class="sh-btn sh-btn-success" style="width: auto; margin: 0;" onclick="commitSyncMatrix()">Commit Approved Changes</button>
                 </div>
             </div>
         </div>`;
 
-        let oldModal = document.getElementById('translatorModal'); 
+        let oldModal = document.getElementById('unifiedMatrixModal'); 
         if (oldModal) oldModal.remove();
-        
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        document.body.insertAdjacentHTML('beforeend', html);
+    }
 
-        let optionsHtml = `<option value="">-- Select DB Unit --</option>`;
-        dbUnits.forEach(u => { 
-            optionsHtml += `<option value="${u.id}">${u.project_name} - ${u.unit_name}</option>`; 
+    function commitSyncMatrix() {
+        // Collect translations
+        currentSyncPayload.translations = [];
+        document.querySelectorAll('.sync-trans-select').forEach(sel => {
+            if (sel.value) {
+                currentSyncPayload.translations.push({ csv_name: sel.getAttribute('data-csv'), db_unit_id: sel.value });
+            }
         });
 
-        const tbody = document.getElementById('translatorTableBody');
-        missingItems.forEach((item, index) => {
-            let tr = document.createElement('tr'); 
-            tr.style.borderBottom = "1px solid var(--sh-border)";
-            tr.innerHTML = `
-                <td id="missing_name_${index}" style="padding:10px; color:var(--sh-danger); font-weight:bold; font-size:0.9rem;">${item.csv_name}</td>
-                <td style="padding:10px;">
-                    <select id="trans_select_${index}" class="sh-input" style="width:100%; margin:0;">
-                        ${optionsHtml}
-                    </select>
-                </td>
-                <td style="padding:10px; white-space: nowrap;">
-                    <button class="sh-btn sh-btn-info" style="margin:0; padding: 6px 12px;" onclick="saveTranslation(${index}, this, false)">Save Link</button>
-                    <button class="sh-btn sh-btn-warning" style="margin:0 0 0 5px; padding: 6px 12px; background: #6c757d; border:none; color:white;" onclick="saveTranslation(${index}, this, true)">Ignore</button>
-                </td>`;
-            tbody.appendChild(tr);
+        // Collect accepted CSV prices
+        currentSyncPayload.prices = [];
+        document.querySelectorAll('.sync-price-radio:checked').forEach(rad => {
+            if (rad.value === 'csv') {
+                currentSyncPayload.prices.push({
+                    id: rad.getAttribute('data-id'), shell: rad.getAttribute('data-shell'), finishes: rad.getAttribute('data-fin')
+                });
+            }
+        });
+
+        const formData = new FormData();
+        formData.append('action', 'commit');
+        formData.append('payload', JSON.stringify(currentSyncPayload));
+
+        const btn = event.target;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        btn.disabled = true;
+
+        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert("Sync successfully committed!");
+                location.reload();
+            } else {
+                alert("Error: " + data.message);
+                btn.innerHTML = 'Commit Approved Changes';
+                btn.disabled = false;
+            }
         });
     }
 
