@@ -101,7 +101,7 @@ try {
         $projParts = explode(' ', $cleanProj);
         
         $cleanUnit = preg_replace('/\s+/', ' ', strtolower(trim($dbU['unit_name'])));
-        $unitRegex = '/\b' . preg_quote($cleanUnit, '/') . '\b/';
+        $unitRegex = '/\b' . preg_quote($cleanUnit, '/') . '\b/'; // Fixes "Garage 5" vs "House 5"
         
         $processedDbUnits[] = [
             'id' => $dbU['id'],
@@ -114,6 +114,9 @@ try {
     $status_changes = []; $price_conflicts = []; $not_found = [];
     $colUnit = -1; $colStatus = -1; $colPrice = -1; $colFinishes = -1; 
     $isHeaderFound = false;
+
+    // DEDUPLICATION SHIELD: Prevents 1 DB unit from being mapped to 2 CSV rows
+    $processed_mapped_ids = [];
 
     while (($raw_data = fgetcsv($handle, 10000, ",")) !== FALSE) {
         $data = [];
@@ -170,15 +173,22 @@ try {
 
         // --- ANALYSIS ENGINE ---
         if ($matchedId && $matchedId > 0) {
+            
+            // DEDUPLICATION EXECUTION
+            if (isset($processed_mapped_ids[$matchedId])) continue;
+            $processed_mapped_ids[$matchedId] = true;
+
             $matchedCount++;
             $oldUnit = $dbUnitsById[$matchedId];
             $currentDbStatus = $oldUnit['status'];
 
             $dbShell = (float)$oldUnit['shell_price'];
             $dbFin = (float)$oldUnit['finishes_price'];
+            
             if (($price > 0 && $price !== $dbShell) || ($finishesPrice > 0 && $finishesPrice !== $dbFin)) {
                 $price_conflicts[] = [
                     'id' => $matchedId,
+                    'csv_source_name' => $csvUnitStringRaw,
                     'project_name' => $oldUnit['project_name'],
                     'unit_name' => $oldUnit['unit_name'],
                     'db_shell' => $dbShell, 'db_fin' => $dbFin,
@@ -208,6 +218,7 @@ try {
                 if (!(in_array($currentDbStatus, $activeAgentStatuses) && $dbStatus === 'Available')) {
                     $status_changes[] = [
                         'id' => $matchedId,
+                        'csv_source_name' => $csvUnitStringRaw,
                         'project_name' => $oldUnit['project_name'],
                         'unit_name' => $oldUnit['unit_name'],
                         'old_status' => $currentDbStatus,
@@ -217,7 +228,7 @@ try {
             }
 
         } else {
-            // --- "BEST GUESS" RECOMMENDATION ENGINE ---
+            // --- "BEST GUESS" AI ENGINE ---
             $bestMatchId = '';
             $highestPercent = 0;
             $cleanSearch = trim(strtolower($csvUnitStringRaw));
@@ -225,7 +236,6 @@ try {
             foreach ($dbUnits as $dbU) {
                 $cleanDb = trim(strtolower($dbU['project_name'] . ' ' . $dbU['unit_name']));
                 similar_text($cleanSearch, $cleanDb, $percent);
-                
                 if ($percent > $highestPercent) {
                     $highestPercent = $percent;
                     $bestMatchId = $dbU['id'];
@@ -237,7 +247,8 @@ try {
             $not_found[] = [
                 'csv_name' => $csvUnitStringRaw, 
                 'status' => $csvStatus,
-                'recommended_id' => $recommendedId
+                'recommended_id' => $recommendedId,
+                'recommended_full_name' => $recommendedId ? $dbUnitsById[$recommendedId]['project_name'] . ' - ' . $dbUnitsById[$recommendedId]['unit_name'] : ''
             ];
         }
     }
