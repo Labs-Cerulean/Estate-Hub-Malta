@@ -1291,30 +1291,40 @@ require_once 'header.php';
                     <div style="margin-bottom: 30px; border: 1px solid var(--sh-danger); border-radius: 8px; overflow: hidden;">
                         <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-bottom: 1px solid var(--sh-danger); font-weight: bold; color: #fff;">
                             <i class="fas fa-link text-danger"></i> Unmapped CSV Rows (${data.not_found.length})
-                            <div style="font-size: 0.8rem; color: var(--sh-text-muted); font-weight: normal; margin-top: 5px;">Link these to a database unit, or leave blank to safely ignore them.</div>
+                            <div style="font-size: 0.8rem; color: var(--sh-text-muted); font-weight: normal; margin-top: 5px;">Link these to a database unit, or click Ignore to safely discard them.</div>
                         </div>
-                        <div style="padding: 15px; background: var(--sh-bg-base);">
-                            ${data.not_found.map((item, i) => {
-                                // Inject the 'selected' attribute into the HTML string if a recommendation was made
-                                let rowOptionsHtml = optionsHtml;
-                                let borderColor = 'var(--sh-danger)';
-                                let badgeHtml = '';
-                                
-                                if (item.recommended_id) {
-                                    rowOptionsHtml = rowOptionsHtml.replace(`value="${item.recommended_id}"`, `value="${item.recommended_id}" selected`);
-                                    borderColor = 'var(--sh-proc)';
-                                    badgeHtml = `<div style="font-size: 0.75rem; color: var(--sh-proc); font-weight: bold;"><i class="fas fa-magic"></i> AI Suggested</div>`;
-                                }
-                                
-                                return `
-                                <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
-                                    <div style="flex: 1; min-width: 250px; color: var(--sh-danger); font-weight: bold; font-size: 0.9rem;">${item.csv_name}</div>
-                                    <div style="flex: 1; min-width: 250px;">
-                                        <select class="sh-select sync-trans-select" data-csv="${item.csv_name.replace(/"/g, '&quot;')}" style="margin:0; width: 100%; border-color: ${borderColor};">${rowOptionsHtml}</select>
-                                    </div>
-                                    ${badgeHtml}
-                                </div>`;
-                            }).join('')}
+                        <div style="overflow-x: auto; background: var(--sh-bg-base);">
+                            <table style="width: 100%; text-align: left; border-collapse: collapse; color: #fff; font-size: 0.9rem;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid var(--sh-border); background: rgba(0,0,0,0.2);">
+                                        <th style="padding: 12px; width: 50%;">CSV Upload Data</th>
+                                        <th style="padding: 12px; width: 50%; border-left: 1px solid var(--sh-border);">Database Link</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${data.not_found.map((item, i) => {
+                                        let rowOptionsHtml = optionsHtml;
+                                        let borderColor = 'var(--sh-danger)';
+                                        let badgeHtml = '';
+                                        if (item.recommended_id) {
+                                            rowOptionsHtml = rowOptionsHtml.replace('value="' + item.recommended_id + '"', 'value="' + item.recommended_id + '" selected');
+                                            borderColor = 'var(--sh-proc)';
+                                            badgeHtml = \`<div style="font-size: 0.75rem; color: var(--sh-proc); font-weight: bold; margin-bottom: 5px;"><i class="fas fa-magic"></i> AI Suggested: \${item.recommended_full_name}</div>\`;
+                                        }
+                                        return \`
+                                        <tr class="unmapped-row" style="border-bottom: 1px solid var(--sh-border-light);">
+                                            <td style="padding: 12px; color: var(--sh-danger); font-weight: bold;">\${item.csv_name}</td>
+                                            <td style="padding: 12px; border-left: 1px solid var(--sh-border);">
+                                                \${badgeHtml}
+                                                <div style="display: flex; gap: 10px;">
+                                                    <select class="sh-select sync-trans-select" data-csv="\${item.csv_name.replace(/"/g, '&quot;')}" style="margin:0; flex: 1; border-color: \${borderColor};">\${rowOptionsHtml}</select>
+                                                    <button class="sh-btn sh-btn-danger" style="margin:0; width: auto; padding: 0 15px;" onclick="this.closest('.unmapped-row').style.opacity='0.3'; this.closest('.unmapped-row').querySelector('select').value='';"><i class="fas fa-times"></i> Ignore</button>
+                                                </div>
+                                            </td>
+                                        </tr>\`;
+                                    }).join('')}
+                                </tbody>
+                            </table>
                         </div>
                     </div>` : ''}
 
@@ -1322,25 +1332,28 @@ require_once 'header.php';
                     <div style="margin-bottom: 30px; border: 1px solid var(--sh-proc); border-radius: 8px; overflow: hidden;">
                         <div style="background: rgba(245, 158, 11, 0.1); padding: 15px; border-bottom: 1px solid var(--sh-proc); font-weight: bold; color: #fff;">
                             <i class="fas fa-euro-sign text-warning"></i> Price Mismatches (${data.price_conflicts.length})
-                            <div style="font-size: 0.8rem; color: var(--sh-text-muted); font-weight: normal; margin-top: 5px;">Choose whether to update your system with the incoming CSV prices.</div>
                         </div>
                         <div style="overflow-x: auto; background: var(--sh-bg-base);">
-                            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse; text-align: left; color: #fff;">
+                            <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse; text-align: left; color: #fff;">
                                 <thead>
-                                    <tr style="border-bottom: 1px solid var(--sh-border);">
-                                        <th style="padding: 10px;">Property</th>
-                                        <th style="padding: 10px;">DB Prices</th>
-                                        <th style="padding: 10px;">CSV Prices</th>
-                                        <th style="padding: 10px; text-align: center;">Resolution</th>
+                                    <tr style="border-bottom: 1px solid var(--sh-border); background: rgba(0,0,0,0.2);">
+                                        <th style="padding: 12px; width: 35%;">CSV Upload Data</th>
+                                        <th style="padding: 12px; width: 35%; border-left: 1px solid var(--sh-border);">Database Match</th>
+                                        <th style="padding: 12px; width: 30%; text-align: right; border-left: 1px solid var(--sh-border);">Resolution</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     ${data.price_conflicts.map((c, i) => `
                                         <tr style="border-bottom: 1px solid var(--sh-border-light);">
-                                            <td style="padding: 10px;"><strong>${c.project_name}</strong><br><span style="color:var(--sh-text-muted);">${c.unit_name}</span></td>
-                                            <td style="padding: 10px; color: var(--sh-text-muted);">Sh: €${c.db_shell}<br>Fin: €${c.db_fin}</td>
-                                            <td style="padding: 10px; color: var(--sh-avail);">Sh: €${c.csv_shell}<br>Fin: €${c.csv_fin}</td>
-                                            <td style="padding: 10px; text-align: center; white-space: nowrap;">
+                                            <td style="padding: 12px;">
+                                                <strong>${c.csv_source_name}</strong><br>
+                                                <span style="color:var(--sh-avail);">Sh: €${c.csv_shell} | Fin: €${c.csv_fin}</span>
+                                            </td>
+                                            <td style="padding: 12px; border-left: 1px solid var(--sh-border);">
+                                                <strong>${c.project_name} - ${c.unit_name}</strong><br>
+                                                <span style="color:var(--sh-text-muted);">Sh: €${c.db_shell} | Fin: €${c.db_fin}</span>
+                                            </td>
+                                            <td style="padding: 12px; text-align: right; border-left: 1px solid var(--sh-border); white-space: nowrap;">
                                                 <label style="margin-right: 15px; cursor: pointer;"><input type="radio" name="price_res_${i}" class="sync-price-radio" value="db" checked> Keep DB</label>
                                                 <label style="cursor: pointer; color: var(--sh-avail);"><input type="radio" name="price_res_${i}" class="sync-price-radio" value="csv" data-id="${c.id}" data-shell="${c.csv_shell}" data-fin="${c.csv_fin}"> Use CSV</label>
                                             </td>
@@ -1357,12 +1370,28 @@ require_once 'header.php';
                             <i class="fas fa-sync text-success"></i> Status Updates To Apply (${data.status_changes.length})
                         </div>
                         <div style="overflow-x: auto; background: var(--sh-bg-base);">
-                            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse; text-align: left; color: #fff;">
+                            <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse; text-align: left; color: #fff;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid var(--sh-border); background: rgba(0,0,0,0.2);">
+                                        <th style="padding: 12px; width: 35%;">CSV Upload Data</th>
+                                        <th style="padding: 12px; width: 35%; border-left: 1px solid var(--sh-border);">Database Match</th>
+                                        <th style="padding: 12px; width: 30%; text-align: right; border-left: 1px solid var(--sh-border);">Action</th>
+                                    </tr>
+                                </thead>
                                 <tbody>
                                     ${data.status_changes.map(s => `
                                         <tr style="border-bottom: 1px solid var(--sh-border-light);">
-                                            <td style="padding: 10px;"><strong>${s.project_name}</strong> - ${s.unit_name}</td>
-                                            <td style="padding: 10px;"><span style="color:var(--sh-text-muted); text-decoration:line-through;">${s.old_status}</span> &rarr; <span style="color:var(--sh-avail); font-weight:bold;">${s.new_status}</span></td>
+                                            <td style="padding: 12px;">
+                                                <strong>${s.csv_source_name}</strong><br>
+                                                <span style="color:var(--sh-avail);">New Status: ${s.new_status}</span>
+                                            </td>
+                                            <td style="padding: 12px; border-left: 1px solid var(--sh-border);">
+                                                <strong>${s.project_name} - ${s.unit_name}</strong><br>
+                                                <span style="color:var(--sh-text-muted);">Current: ${s.old_status}</span>
+                                            </td>
+                                            <td style="padding: 12px; text-align: right; border-left: 1px solid var(--sh-border);">
+                                                <span style="color:var(--sh-avail); font-weight:bold;">Update to ${s.new_status} <i class="fas fa-check"></i></span>
+                                            </td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
