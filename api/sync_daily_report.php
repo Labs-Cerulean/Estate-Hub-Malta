@@ -14,6 +14,35 @@ header('Content-Type: application/json; charset=utf-8');
 $action = $_POST['action'] ?? 'analyze';
 
 // =========================================================================
+// ACTION: GET IGNORED LEDGER
+// =========================================================================
+if ($action === 'get_ignored_ledger') {
+    try {
+        $stmt = $pdo->query("SELECT id, csv_name FROM sync_translations WHERE db_unit_id = -1 ORDER BY csv_name ASC");
+        $ignored = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'ignored' => $ignored]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// =========================================================================
+// ACTION: RESTORE SINGLE IGNORED ROW
+// =========================================================================
+if ($action === 'restore_ignored_row') {
+    try {
+        $id = (int)$_POST['translation_id'];
+        $stmt = $pdo->prepare("DELETE FROM sync_translations WHERE id = ? AND db_unit_id = -1");
+        $stmt->execute([$id]);
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// =========================================================================
 // ACTION 1: COMMIT THE APPROVED MATRIX REPORT
 // =========================================================================
 if ($action === 'commit') {
@@ -157,6 +186,7 @@ try {
 
         if (isset($savedTranslations[$searchString])) {
             $matchedId = $savedTranslations[$searchString];
+            if ($matchedId == -1) continue; // 🛑 Permanently Ignored! Skip this row instantly.
         } else {
             $matchedIds = [];
             foreach ($processedDbUnits as $pdbU) {
