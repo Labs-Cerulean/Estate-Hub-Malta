@@ -260,6 +260,15 @@ require_once 'header.php';
     </div>
 </div>
 
+<div id="ignoredLedgerModal" class="vanilla-modal">
+    <div class="vanilla-modal-content large" style="max-width: 800px; height: 80vh; display: flex; flex-direction: column;">
+        <div style="text-align: right; margin-bottom: 10px;">
+            <span class="vanilla-close" onclick="document.getElementById('ignoredLedgerModal').style.display='none'">&times;</span>
+        </div>
+        <div id="ignoredLedgerContent" style="flex: 1; overflow-y: auto; padding-right: 15px;"></div>
+    </div>
+</div>
+
 <div id="sh-toast-container"></div>
 
 <div id="sh-lightbox" class="sh-lightbox">
@@ -335,6 +344,10 @@ require_once 'header.php';
                     <i class="fas fa-sync-alt"></i> 1-Click Daily Sync
                 </button>
                 <input type="file" id="dailySyncInput" accept=".csv" style="display:none;" onchange="processDailySync(this)">
+
+                <button class="sh-btn" style="background: rgba(239, 68, 68, 0.1); color: var(--sh-danger); border: 1px dashed rgba(239, 68, 68, 0.3); margin-bottom: 15px;" onclick="openIgnoredLedger()">
+                    <i class="fas fa-eye-slash"></i> Manage Ignored CSV Rows
+                </button>
                 
                 <button id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
                     <i class="fas fa-eye"></i> View as Agent
@@ -1285,7 +1298,10 @@ require_once 'header.php';
 
     function showUnifiedMatrixModal(data) {
         // Build Grouped Options by Project
-        let optionsHtml = `<option value="">-- Ignore this unit --</option>`;
+        let optionsHtml = `
+            <option value="">-- Skip for today --</option>
+            <option value="-1" style="color: var(--sh-danger); font-weight: bold;">🛑 Permanently Ignore</option>
+        `;
         let currentProject = '';
         data.all_db_units.forEach(u => { 
             if (u.project_name !== currentProject) {
@@ -1321,7 +1337,7 @@ require_once 'header.php';
                         ${badgeHtml}
                         <div style="display: flex; gap: 10px;">
                             <select class="sh-select sync-trans-select" data-csv="${safeCsvName}" style="margin:0; flex: 1; border-color: ${borderColor};">${rowOptionsHtml}</select>
-                            <button class="sh-btn sh-btn-danger" style="margin:0; width: auto; padding: 0 15px;" onclick="this.closest('.unmapped-row').style.opacity='0.3'; this.closest('.unmapped-row').querySelector('select').value='';"><i class="fas fa-times"></i> Ignore</button>
+                            <button class="sh-btn sh-btn-danger" style="margin:0; width: auto; padding: 0 15px;" title="Permanently Ignore this row" onclick="this.closest('.unmapped-row').style.opacity='0.3'; this.closest('.unmapped-row').querySelector('select').value='-1';"><i class="fas fa-eye-slash"></i> Ignore Forever</button>
                         </div>
                     </td>
                 </tr>`;
@@ -1615,6 +1631,68 @@ require_once 'header.php';
             } else { 
                 showToast("Error: " + data.message, "error"); 
             } 
+        });
+    }
+
+    function openIgnoredLedger() {
+        let formData = new FormData();
+        formData.append('action', 'get_ignored_ledger');
+        
+        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if(!data.success) { showToast("Error loading ledger", "error"); return; }
+            
+            let html = `
+            <div style="position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10; border-bottom: 1px solid var(--sh-border); margin-bottom: 15px;">
+                <h3 style="color: #fff; margin: 0;"><i class="fas fa-eye-slash text-danger"></i> Permanently Ignored CSV Rows</h3>
+                <p style="color: var(--sh-text-muted); font-size: 0.85rem; margin-top: 5px;">These CSV rows are currently skipped during the Daily Sync. Restore them to map them again.</p>
+            </div>
+            <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; color: #fff;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--sh-border);">
+                        <th style="padding: 10px;">CSV Source Name</th>
+                        <th style="padding: 10px; text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            if (data.ignored.length === 0) {
+                html += `<tr><td colspan="2" style="padding: 20px; text-align:center; color: var(--sh-text-muted);">No ignored rows found.</td></tr>`;
+            } else {
+                data.ignored.forEach(item => {
+                    html += `
+                    <tr style="border-bottom: 1px solid var(--sh-border-light);">
+                        <td style="padding: 12px 10px; font-weight: bold; color: var(--sh-danger);">${item.csv_name}</td>
+                        <td style="padding: 12px 10px; text-align: right;">
+                            <button class="sh-btn sh-btn-success" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.8rem;" onclick="restoreIgnoredRow(${item.id})"><i class="fas fa-trash-restore"></i> Restore</button>
+                        </td>
+                    </tr>`;
+                });
+            }
+            html += `</tbody></table>`;
+            
+            document.getElementById('ignoredLedgerContent').innerHTML = html;
+            document.getElementById('ignoredLedgerModal').style.display = 'block';
+        });
+    }
+
+    function restoreIgnoredRow(id) {
+        if(!confirm("Restore this row? It will appear as 'Unmapped' in your next Daily Sync.")) return;
+        
+        let formData = new FormData();
+        formData.append('action', 'restore_ignored_row');
+        formData.append('translation_id', id);
+        
+        fetch('api/sync_daily_report.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if(data.success) {
+                showToast("Row restored successfully!", "success");
+                openIgnoredLedger(); 
+            } else {
+                showToast("Error: " + data.message, "error");
+            }
         });
     }
 </script>
