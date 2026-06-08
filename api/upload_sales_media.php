@@ -64,11 +64,15 @@ try {
         $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, uploaded_by) VALUES (?, 'Sales', ?, ?, ?, ?, ?)");
         $stmt->execute([$project_id, $media_type, $title, $fileKey, $ext, $_SESSION['user_id']]);
         
-        // --- LOG THE UPLOAD ---
-        $logStmt = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
-        $logStmt->execute([0, $_SESSION['user_id'], 'Media Uploaded', 'None', 'Active', "[Project {$project_id} Media] Uploaded {$media_type}: {$title}"]);
+        // --- LOG THE UPLOAD SAFELY ---
+        // 1. Ensure the database allows a blank property_id for project-level logs
+        try {
+            $pdo->exec("ALTER TABLE sales_property_logs MODIFY COLUMN property_id INT NULL");
+        } catch (Exception $e) { /* Silently ignore if already nullable */ }
         
-        echo json_encode(['success' => true, 'message' => 'Media successfully uploaded to Cloudflare!']);
+        // 2. Insert the log using 'null' instead of '0'
+        $logStmt = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
+        $logStmt->execute([null, $_SESSION['user_id'], 'Media Uploaded', 'None', 'Active', "[Project {$project_id} Media] Uploaded {$media_type}: {$title}"]);
         
         echo json_encode(['success' => true, 'message' => 'Media successfully uploaded to Cloudflare!']);
         exit;
