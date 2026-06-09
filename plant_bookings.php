@@ -208,7 +208,7 @@ $userId = $_SESSION['user_id'];
 
                 <div id="inhouse-fields" style="position: relative;">
                     <label>Search Project (Pre-loads map)</label>
-                    <input type="text" id="project_search" class="input-heavy" placeholder="start typing project name..." autocomplete="off" onkeyup="filterProjects(this.value)">
+                    <input type="text" id="project_search" class="input-heavy" placeholder="start typing project name..." autocomplete="off" onkeyup="filterProjects(this.value)" onkeydown="if(event.key === 'Enter') { event.preventDefault(); return false; }">
                     <input type="hidden" id="project_id">
                     <div id="project_search_results" style="display:none; position:absolute; top:85px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
                 </div>
@@ -347,8 +347,12 @@ $userId = $_SESSION['user_id'];
         const pId = document.getElementById('project_id').value; 
         if (!pId) return;
         
-        fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`)
-        .then(r => r.json())
+        // Added encodeURIComponent to ensure clean data formatting
+        fetch(`api/plant_actions.php?action=get_project_location&project_id=${encodeURIComponent(pId.trim())}`)
+        .then(r => {
+            if (!r.ok) throw new Error("Network issue: " + r.statusText);
+            return r.json();
+        })
         .then(data => {
             if (data.error) { alert("Database Error: " + data.error); return; }
             const hasCoords = data && data.latitude && data.longitude && data.latitude !== "" && data.longitude !== "";
@@ -360,8 +364,9 @@ $userId = $_SESSION['user_id'];
                 document.getElementById('loc_lng').value = data.longitude;
                 if (mapboxMap) { 
                     if (marker) marker.remove(); 
-                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap); 
-                    mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); 
+                    // Forced Number() conversion for strict Mapbox parsing
+                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([Number(data.longitude), Number(data.latitude)]).addTo(mapboxMap); 
+                    mapboxMap.flyTo({center: [Number(data.longitude), Number(data.latitude)], zoom: 14}); 
                 }
             } else {
                 document.getElementById('loc_lat').value = ''; document.getElementById('loc_lng').value = '';
@@ -370,6 +375,8 @@ $userId = $_SESSION['user_id'];
             }
         })
         .catch(err => {
+            // Logs the actual error to your browser console (F12) so you can see exactly what failed
+            console.error("Map Fetch Error:", err); 
             document.getElementById('loc_lat').value = ''; document.getElementById('loc_lng').value = '';
             if (marker) marker.remove();
             alert("Failed to fetch project location. Please select the location manually by tapping on the map.");
@@ -553,7 +560,8 @@ $userId = $_SESSION['user_id'];
             resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No project found.</div>'; 
         } else { 
             resultsDiv.innerHTML = filtered.map(p => {
-                const safeName = (p.name || '').replace(/'/g, "\\'");
+                // Fixed: Escape BOTH single and double quotes so it doesn't break HTML attributes
+                const safeName = (p.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                 const loc = (p.locality && p.locality.trim() !== '') ? p.locality : 'General';
                 return `
                 <div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; background:#fff; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="selectProject('${p.id}', '${safeName}')">
