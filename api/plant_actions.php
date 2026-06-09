@@ -817,15 +817,55 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 }
 
 if ($action == 'get_ledger' && $canViewLedger) {
-    $stmt = $pdo->query("
+    $query = "
         SELECT pb.*, p.name as plant_name, bc.name as billing_company_name, prj.name as project_name, c.name as client_dev_name 
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id 
         LEFT JOIN projects prj ON pb.project_id = prj.id 
         LEFT JOIN clients c ON p.developer_client_id = c.id 
         LEFT JOIN clients bc ON p.billing_company_id = bc.id 
-        ORDER BY pb.booking_date DESC
-    ");
+        WHERE 1=1
+    ";
+    
+    $params = [];
+
+    if (!empty($_GET['start'])) { 
+        $query .= " AND pb.booking_date >= ?"; 
+        $params[] = $_GET['start']; 
+    }
+    if (!empty($_GET['end'])) { 
+        $query .= " AND pb.booking_date <= ?"; 
+        $params[] = $_GET['end']; 
+    }
+    if (!empty($_GET['plant_type'])) { 
+        $query .= " AND p.category = ?"; 
+        $params[] = $_GET['plant_type']; 
+    }
+    if (!empty($_GET['status'])) { 
+        $query .= " AND pb.status = ?"; 
+        $params[] = $_GET['status']; 
+    }
+    if (!empty($_GET['payment_status'])) { 
+        $query .= " AND pb.payment_status = ?"; 
+        $params[] = $_GET['payment_status']; 
+    }
+    if (!empty($_GET['client'])) { 
+        $query .= " AND pb.client_name LIKE ?"; 
+        $params[] = '%' . $_GET['client'] . '%'; 
+    }
+    if (!empty($_GET['project'])) { 
+        $query .= " AND pb.project_id = ?"; 
+        $params[] = $_GET['project']; 
+    }
+    if (!empty($_GET['company'])) { 
+        $query .= " AND p.billing_company_id = ?"; 
+        $params[] = $_GET['company']; 
+    }
+
+    $query .= " ORDER BY pb.booking_date DESC";
+
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
     echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC)); 
     exit;
 }
