@@ -836,4 +836,25 @@ if ($action == 'mark_settled' && $canViewLedger) {
     echo "OK"; 
     exit; 
 }
+
+if ($action == 'get_project_location') {
+    $projectId = $_GET['project_id'] ?? '';
+    
+    if (empty($projectId)) {
+        echo json_encode(['error' => 'No project ID provided']);
+        exit;
+    }
+
+    // Fetch the coordinates and street data for the map
+    $stmt = $pdo->prepare("SELECT latitude, longitude, street, city as address FROM projects WHERE id = ?");
+    $stmt->execute([$projectId]);
+    $project = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($project) {
+        echo json_encode($project);
+    } else {
+        echo json_encode(['error' => 'Project not found in database']);
+    }
+    exit;
+}
 ?>
