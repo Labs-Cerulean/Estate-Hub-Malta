@@ -179,6 +179,21 @@ $userId = $_SESSION['user_id'];
         <?php if ($canViewLedger): ?>
         <div id="view-ledger" class="view">
             <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-book text-indigo-500"></i> ERP Billing Ledger</h3>
+            
+            <div style="background:#eff6ff; padding:15px; border-radius:12px; margin-bottom:15px; border:1px solid #bfdbfe;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                    <div><label style="color:#1e3a8a;">Date From</label><input type="date" id="filter_start" class="input-heavy" style="margin-bottom:0; padding:10px;"></div>
+                    <div><label style="color:#1e3a8a;">Date To</label><input type="date" id="filter_end" class="input-heavy" style="margin-bottom:0; padding:10px;"></div>
+                    <div><label style="color:#1e3a8a;">Plant Type</label><select id="filter_plant_type" class="input-heavy" style="margin-bottom:0; padding:10px;"><option value="">All Types</option></select></div>
+                    <div><label style="color:#1e3a8a;">Job Status</label><select id="filter_status" class="input-heavy" style="margin-bottom:0; padding:10px;"><option value="">All Statuses</option><option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Completed">Completed</option></select></div>
+                    <div><label style="color:#1e3a8a;">Payment Status</label><select id="filter_payment" class="input-heavy" style="margin-bottom:0; padding:10px;"><option value="">All Payments</option><option value="Pending">Pending</option><option value="Invoiced">Invoiced</option><option value="Settled">Settled</option></select></div>
+                    <div><label style="color:#1e3a8a;">Client Name</label><input type="text" id="filter_client" class="input-heavy" style="margin-bottom:0; padding:10px;" placeholder="Search client..."></div>
+                    <div><label style="color:#1e3a8a;">Project</label><select id="filter_project" class="input-heavy" style="margin-bottom:0; padding:10px;"><option value="">All Projects</option></select></div>
+                    <div><label style="color:#1e3a8a;">Billing Company</label><select id="filter_company" class="input-heavy" style="margin-bottom:0; padding:10px;"><option value="">All Companies</option><option value="24">PRA (PRA Construction)</option><option value="26">PRAX (PRAX Concrete)</option></select></div>
+                </div>
+                <button type="button" class="btn-heavy btn-blue" style="margin-top: 15px; margin-bottom:0; padding:10px; font-size:1rem;" onclick="loadLedger()"><i class="fas fa-filter"></i> Apply Filters</button>
+            </div>
+
             <div id="ledger-list"></div>
             <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')" style="margin-top: 30px;"><i class="fas fa-arrow-left"></i> Back</button>
         </div>
@@ -418,6 +433,13 @@ $userId = $_SESSION['user_id'];
             }
 
             window.allProjects = d.projects;
+            // Auto-populate ledger filter dropdowns
+            if(document.getElementById('filter_plant_type')) {
+                document.getElementById('filter_plant_type').innerHTML = '<option value="">All Types</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
+            }
+            if(document.getElementById('filter_project')) {
+                document.getElementById('filter_project').innerHTML = '<option value="">All Projects</option>' + d.projects.map(prj => `<option value="${prj.id}">${prj.name}</option>`).join('');
+            }
             updatePlantDropdown();
         });
     }
@@ -1020,10 +1042,26 @@ $userId = $_SESSION['user_id'];
 
     function loadLedger() {
         if (!canViewLedger) return;
-        fetch('api/plant_actions.php?action=get_ledger')
+
+        // Build the query string from the filters
+        const qs = new URLSearchParams({
+            action: 'get_ledger',
+            start: document.getElementById('filter_start')?.value || '',
+            end: document.getElementById('filter_end')?.value || '',
+            plant_type: document.getElementById('filter_plant_type')?.value || '',
+            status: document.getElementById('filter_status')?.value || '',
+            payment_status: document.getElementById('filter_payment')?.value || '',
+            client: document.getElementById('filter_client')?.value || '',
+            project: document.getElementById('filter_project')?.value || '',
+            company: document.getElementById('filter_company')?.value || ''
+        }).toString();
+
+        document.getElementById('ledger-list').innerHTML = '<p style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> Loading ledger...</p>';
+
+        fetch(`api/plant_actions.php?${qs}`)
         .then(r => r.json())
         .then(jobs => {
-            document.getElementById('ledger-list').innerHTML = jobs.length === 0 ? '<p>No bookings.</p>' : jobs.map(j => {
+            document.getElementById('ledger-list').innerHTML = jobs.length === 0 ? '<p style="text-align:center; font-weight:bold; color:#ef4444;">No bookings found for these filters.</p>' : jobs.map(j => {
                 let badge = '';
                 let sysRef = '';
                 
@@ -1040,10 +1078,7 @@ $userId = $_SESSION['user_id'];
                 }
                 
                 let btnLabel = (isAdmin && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) ? 'View / Edit RFP' : 'View RFP';
-                
-                // FIXED: We strictly output j.client_name exactly as you requested!
                 let displayClient = j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No ERP Client Selected') + ')' : (j.client_name || 'No ERP Client Selected');
-
                 let setupBadge = (j.apply_setup_fee == 1 || parseFloat(j.final_setup_fee) > 0) ? '<span style="background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:8px; vertical-align: middle;"><i class="fas fa-truck-loading"></i> Setup Fee</span>' : '';
 
                 return `
@@ -1063,7 +1098,8 @@ $userId = $_SESSION['user_id'];
                     </div>
                 </div>`;
             }).join('');
-        }); showView('view-ledger');
+        }); 
+        showView('view-ledger');
     }
 </script>
 </body>
