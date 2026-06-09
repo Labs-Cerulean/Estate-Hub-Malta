@@ -206,7 +206,12 @@ $userId = $_SESSION['user_id'];
                 <label>Assigned Driver</label><select id="driver_id" class="input-heavy"></select>
                 <label>Job Type</label><select id="booking_type" class="input-heavy" onchange="toggleJobType()"><option value="in-house">In-House Project</option><option value="external">External / ERP Client</option></select>
 
-                <div id="inhouse-fields"><label>Select Project (Pre-loads map)</label><select id="project_id" class="input-heavy" onchange="updateProjectLocation()"></select></div>
+                <div id="inhouse-fields" style="position: relative;">
+                    <label>Search Project (Pre-loads map)</label>
+                    <input type="text" id="project_search" class="input-heavy" placeholder="start typing project name..." autocomplete="off" onkeyup="filterProjects(this.value)">
+                    <input type="hidden" id="project_id">
+                    <div id="project_search_results" style="display:none; position:absolute; top:85px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
+                </div>
                 
                 <div id="client-fields" style="position: relative;">
                     <label>ERP Client (Select Vehicle First)</label>
@@ -397,20 +402,7 @@ $userId = $_SESSION['user_id'];
                 });
             }
 
-            let projGroups = {};
-            d.projects.forEach(prj => {
-                let loc = (prj.locality && prj.locality.trim() !== '') ? prj.locality : 'General / Other Regions';
-                if (!projGroups[loc]) projGroups[loc] = [];
-                projGroups[loc].push(prj);
-            });
-
-            let projHtml = '<option value="">-- Select Project --</option>';
-            Object.keys(projGroups).sort().forEach(loc => {
-                projHtml += `<optgroup label="📍 ${loc}">`;
-                projGroups[loc].forEach(prj => { projHtml += `<option value="${prj.id}">${prj.name}</option>`; });
-                projHtml += `</optgroup>`;
-            });
-            document.getElementById('project_id').innerHTML = projHtml;
+            window.allProjects = d.projects;
             updatePlantDropdown();
         });
     }
@@ -550,6 +542,35 @@ $userId = $_SESSION['user_id'];
         document.getElementById('client_search_results').style.display = 'none'; 
     }
 
+    function filterProjects(query) {
+        const resultsDiv = document.getElementById('project_search_results'); 
+        if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
+        
+        const q = query.toLowerCase().trim();
+        const filtered = window.allProjects.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 20);
+        
+        if(filtered.length === 0) { 
+            resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No project found.</div>'; 
+        } else { 
+            resultsDiv.innerHTML = filtered.map(p => {
+                const safeName = (p.name || '').replace(/'/g, "\\'");
+                const loc = (p.locality && p.locality.trim() !== '') ? p.locality : 'General';
+                return `
+                <div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; background:#fff; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="selectProject('${p.id}', '${safeName}')">
+                    ${p.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.85rem;">📍 ${loc}</span>
+                </div>`;
+            }).join(''); 
+        }
+        resultsDiv.style.display = 'block';
+    }
+
+    function selectProject(id, name) { 
+        document.getElementById('project_id').value = id; 
+        document.getElementById('project_search').value = name; 
+        document.getElementById('project_search_results').style.display = 'none'; 
+        updateProjectLocation(); // Triggers the map pin update automatically
+    }
+
     function toggleJobType() {
         const type = document.getElementById('booking_type').value;
         document.getElementById('inhouse-fields').style.display = type === 'in-house' ? 'block' : 'none';
@@ -560,6 +581,8 @@ $userId = $_SESSION['user_id'];
         document.getElementById('edit_booking_id').value = ''; 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
         document.getElementById('createBookingForm').reset(); 
+        document.getElementById('project_search').value = '';
+        document.getElementById('project_search_results').style.display = 'none';
         
         document.getElementById('setup-fee-container').style.display = 'none';
         
@@ -581,6 +604,12 @@ $userId = $_SESSION['user_id'];
         document.getElementById('booking_type').value = j.booking_type; toggleJobType();
         
         document.getElementById('project_id').value = j.project_id || '';
+        if (j.project_id && window.allProjects) {
+            const prj = window.allProjects.find(p => p.id == j.project_id);
+            document.getElementById('project_search').value = prj ? prj.name : '';
+        } else {
+            document.getElementById('project_search').value = '';
+        }
         document.getElementById('booking_date').value = j.booking_date;
         document.getElementById('start_time').value = j.start_time;
         document.getElementById('end_time').value = j.end_time;
@@ -632,7 +661,7 @@ $userId = $_SESSION['user_id'];
         if (!document.getElementById('end_time').value) showError('end_time');
 
         const bType = document.getElementById('booking_type').value;
-        if (bType === 'in-house' && !document.getElementById('project_id').value) { showError('project_id'); } 
+        if (bType === 'in-house' && !document.getElementById('project_id').value) { showError('project_search'); }
         
         // STRICT FIX: Always require ERP client for both internal and external jobs to prevent "No Client"
         if (!document.getElementById('client_code').value) { showError('client_name'); }
