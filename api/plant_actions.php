@@ -837,5 +837,11 @@ if ($action == 'mark_settled' && $canViewLedger) {
     exit; 
 }
 
-if ($action == 'get_project_location' && $isManager) { $stmt = $pdo->prepare("SELECT latitude, longitude FROM projects WHERE id = ?"); $stmt->execute([$_GET['project_id']]); echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); exit; }
+if ($action == 'get_project_location' && $isManager) { 
+    // Added 'city as address' to satisfy the Javascript requirement
+    $stmt = $pdo->prepare("SELECT latitude, longitude, city as address FROM projects WHERE id = ?"); 
+    $stmt->execute([$_GET['project_id']]); 
+    echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); 
+    exit; 
+}
 ?>
