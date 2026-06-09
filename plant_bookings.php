@@ -345,15 +345,23 @@ $userId = $_SESSION['user_id'];
 
     function updateProjectLocation() {
         const pId = document.getElementById('project_id').value; 
-        if (!pId) return;
         
-        // Added encodeURIComponent to ensure clean data formatting
-        fetch(`api/plant_actions.php?action=get_project_location&project_id=${encodeURIComponent(pId.trim())}`)
+        // DEBUG 1: Let's see what ID is actually being grabbed
+        console.log("Attempting to fetch map for Project ID:", pId);
+        
+        if (!pId) {
+            console.log("Project ID is empty, stopping fetch.");
+            return;
+        }
+        
+        fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`)
         .then(r => {
-            if (!r.ok) throw new Error("Network issue: " + r.statusText);
+            console.log("Response Status:", r.status); // DEBUG 2: Check if API answers
             return r.json();
         })
         .then(data => {
+            console.log("Data received from API:", data); // DEBUG 3: Check API payload
+
             if (data.error) { alert("Database Error: " + data.error); return; }
             const hasCoords = data && data.latitude && data.longitude && data.latitude !== "" && data.longitude !== "";
             const streetValue = data.street || data.address || data.street_name || "";
@@ -364,9 +372,8 @@ $userId = $_SESSION['user_id'];
                 document.getElementById('loc_lng').value = data.longitude;
                 if (mapboxMap) { 
                     if (marker) marker.remove(); 
-                    // Forced Number() conversion for strict Mapbox parsing
-                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([Number(data.longitude), Number(data.latitude)]).addTo(mapboxMap); 
-                    mapboxMap.flyTo({center: [Number(data.longitude), Number(data.latitude)], zoom: 14}); 
+                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap); 
+                    mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); 
                 }
             } else {
                 document.getElementById('loc_lat').value = ''; document.getElementById('loc_lng').value = '';
@@ -375,8 +382,9 @@ $userId = $_SESSION['user_id'];
             }
         })
         .catch(err => {
-            // Logs the actual error to your browser console (F12) so you can see exactly what failed
-            console.error("Map Fetch Error:", err); 
+            // DEBUG 4: This is the most important part. It will tell us EXACTLY why it failed.
+            console.error("THE EXACT ERROR IS:", err); 
+            
             document.getElementById('loc_lat').value = ''; document.getElementById('loc_lng').value = '';
             if (marker) marker.remove();
             alert("Failed to fetch project location. Please select the location manually by tapping on the map.");
