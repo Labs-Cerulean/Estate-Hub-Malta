@@ -3,6 +3,16 @@ require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
 
+function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
+    try {
+        $stmt = $pdo->prepare("INSERT INTO plant_audit_log (user_id, booking_id, action_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+        $stmt->execute([$userId, $bookingId, $actionType, $details, $ip]);
+    } catch(PDOException $e) {
+        // Silently fail so a logging error never stops a live billing transaction
+    }
+}
+
 // Force Malta Timezone strictly for all operations in this file
 date_default_timezone_set('Europe/Malta');
 
