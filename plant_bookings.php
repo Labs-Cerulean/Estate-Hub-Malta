@@ -1211,19 +1211,6 @@ $userId = $_SESSION['user_id'];
                     actionButtons = `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`;
                 }
 
-                return `<div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                        <div>
-                            <div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name} ${setupBadge}</div>
-                            <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${displayClient}</div>
-                            ${sysRef}
-                        </div>
-                        <div style="text-align:right;">${badge}</div>
-                    </div>
-                    <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
-                        ${actionButtons}
-                    </div>
-                </div>`;
                 let displayClient = j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No ERP Client Selected') + ')' : (j.client_name || 'No ERP Client Selected');
                 let setupBadge = (j.apply_setup_fee == 1 || parseFloat(j.final_setup_fee) > 0) ? '<span style="background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:8px; vertical-align: middle;"><i class="fas fa-truck-loading"></i> Setup Fee</span>' : '';
 
@@ -1238,9 +1225,7 @@ $userId = $_SESSION['user_id'];
                         <div style="text-align:right;">${badge}</div>
                     </div>
                     <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
-                        ${j.status === 'Completed' 
-                            ? `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">${btnLabel}</button>` 
-                            : `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`}
+                        ${actionButtons}
                     </div>
                 </div>`;
             }).join('');
