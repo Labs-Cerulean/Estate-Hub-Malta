@@ -254,6 +254,22 @@ if ($action == 'get_company_clients' && $isManager) {
     exit;
 }
 
+if ($action == 'get_last_project_client') {
+    $projectId = $_GET['project_id'] ?? '';
+    
+    if (empty($projectId)) {
+        echo json_encode([]);
+        exit;
+    }
+    
+    $stmt = $pdo->prepare("SELECT client_code, client_name FROM plant_bookings WHERE project_id = ? AND client_code IS NOT NULL AND client_code != '' ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$projectId]);
+    $client = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    echo json_encode($client ?: []);
+    exit;
+}
+
 if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) {
     $startDate = !empty($_POST['start']) ? date('Y-m-d', strtotime($_POST['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_POST['end']) ? date('Y-m-d', strtotime($_POST['end'])) : date('Y-m-d', strtotime('+1 month'));
