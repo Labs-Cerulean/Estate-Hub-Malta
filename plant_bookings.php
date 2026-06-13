@@ -253,8 +253,8 @@ $userId = $_SESSION['user_id'];
                     <div id="client-fields" style="position: relative;">
                         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px;">
                             <label style="margin-bottom: 0;">4b. ERP Client</label>
-                            <label style="font-size: 0.8rem; color: #64748b; font-weight: bold; cursor: pointer; margin: 0; text-transform: none; display: flex; align-items: center; gap: 5px;">
-                                <input type="checkbox" id="client_tbc" onchange="toggleTBC()" style="width: 14px; height: 14px; margin: 0; cursor: pointer;" disabled> 
+                            <label style="font-size: 0.95rem; color: #334155; font-weight: bold; cursor: pointer; margin: 0; padding: 4px 8px; background: #f1f5f9; border-radius: 8px; text-transform: none; display: flex; align-items: center; gap: 10px; border: 1px solid #cbd5e1;">
+                                <input type="checkbox" id="client_tbc" onchange="toggleTBC()" style="width: 24px; height: 24px; margin: 0; cursor: pointer;" disabled> 
                                 Client details TBC
                             </label>
                         </div>
