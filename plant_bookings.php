@@ -1193,7 +1193,37 @@ $userId = $_SESSION['user_id'];
                     badge = `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
                 }
                 
-                let btnLabel = (isAdmin && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) ? 'View / Edit RFP' : 'View RFP';
+                // Ledger Button Logic (Priority 4)
+                let actionButtons = '';
+                
+                if (j.status === 'Completed') {
+                    if (isAdmin && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) {
+                        // LOCAL ONLY - Show Retry and Edit Client
+                        actionButtons = `
+                            <button onclick="retryErpSync(${j.id})" class="retry-sync-btn" style="background:#10b981; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-sync"></i> Retry ERP Sync</button>
+                            <button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-edit"></i> Edit Client / RFP</button>
+                        `;
+                    } else {
+                        // FULLY SYNCED - Standard View Button
+                        actionButtons = `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View RFP</button>`;
+                    }
+                } else {
+                    actionButtons = `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`;
+                }
+
+                return `<div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+                        <div>
+                            <div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name} ${setupBadge}</div>
+                            <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${displayClient}</div>
+                            ${sysRef}
+                        </div>
+                        <div style="text-align:right;">${badge}</div>
+                    </div>
+                    <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
+                        ${actionButtons}
+                    </div>
+                </div>`;
                 let displayClient = j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No ERP Client Selected') + ')' : (j.client_name || 'No ERP Client Selected');
                 let setupBadge = (j.apply_setup_fee == 1 || parseFloat(j.final_setup_fee) > 0) ? '<span style="background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:8px; vertical-align: middle;"><i class="fas fa-truck-loading"></i> Setup Fee</span>' : '';
 
@@ -1273,6 +1303,42 @@ $userId = $_SESSION['user_id'];
             cInput.focus();
         }
         checkStep5();
+    }
+
+    function retryErpSync(bookingId) {
+        if (!confirm("Attempt to push this invoice to the ERP again?")) return;
+        
+        // Disable ALL retry buttons on the page to prevent ERP spamming
+        const allRetryBtns = document.querySelectorAll('.retry-sync-btn');
+        allRetryBtns.forEach(btn => {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+        });
+
+        const fd = new FormData();
+        fd.append('action', 'retry_erp_sync');
+        fd.append('booking_id', bookingId);
+
+        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        .then(r => r.text())
+        .then(res => {
+            if (res === 'OK') {
+                alert("Successfully Synced to ERP!");
+                loadLedger(); // Reloads the ledger to show the new SysRef
+            } else {
+                alert("Sync Failed: " + res);
+                // Re-enable buttons if it failed so they can try again later
+                allRetryBtns.forEach(btn => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.innerHTML = '<i class="fas fa-sync"></i> Retry ERP Sync';
+                });
+            }
+        }).catch(err => {
+            alert("Network error occurred.");
+            loadLedger(); // Reset UI state
+        });
     }
 </script>
 </body>
