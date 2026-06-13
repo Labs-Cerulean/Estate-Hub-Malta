@@ -651,10 +651,13 @@ $userId = $_SESSION['user_id'];
         fetch(`api/plant_actions.php?action=get_last_project_client&project_id=${id}`)
         .then(r => r.json())
         .then(data => {
+            let clientAutoFilled = false;
+            
             if (data && data.client_code) {
                 const validClient = currentErpClients.find(c => c.code === data.client_code && c.status === 1);
                 if (validClient) {
                     selectClient(validClient.code, validClient.name);
+                    clientAutoFilled = true;
                     
                     // Flash green to indicate auto-fill
                     const cInput = document.getElementById('client_name');
@@ -663,8 +666,21 @@ $userId = $_SESSION['user_id'];
                     setTimeout(() => { cInput.style.backgroundColor = '#fff'; cInput.style.borderColor = '#e2e8f0'; }, 1500);
                 }
             }
+            
+            // IF NO VALID CLIENT WAS FOUND, CLEAR THE FIELD!
+            if (!clientAutoFilled) {
+                document.getElementById('client_code').value = '';
+                document.getElementById('client_name').value = '';
+                // Optional: Flash red/gray briefly to show it cleared
+            }
+            
             checkStep5();
-        }).catch(() => checkStep5());
+        }).catch(() => {
+            // Failsafe clear on error
+            document.getElementById('client_code').value = '';
+            document.getElementById('client_name').value = '';
+            checkStep5();
+        });
     }
 
     function toggleJobType() {
