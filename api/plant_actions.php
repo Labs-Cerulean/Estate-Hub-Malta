@@ -674,6 +674,12 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    // Priority 1: Prevent finalisation if Client is still TBC
+    if ($job['client_code'] === 'TBC' || empty($job['client_code'])) {
+        echo "ERROR: Client details are marked as TBC. You must assign a valid ERP Client before finalising the delivery note.";
+        exit;
+    }
+
     $apiKey = getApiKey($job['billing_company_id']);
     
     // Process modified punch clock hours from Admin input
