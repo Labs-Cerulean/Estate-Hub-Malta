@@ -209,11 +209,31 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
 
     <div class="grid">
         <div class="box">
-            <h4>Billed To (Client Details)</h4>
-            <div class="data-row"><span class="data-label">ERP Account Name</span><span class="data-val"><?= $clientDisplay ?></span></div>
-            <div class="data-row"><span class="data-label">ERP Account Code</span><span class="data-val"><?= $clientCodeDisplay ?></span></div>
-            <div class="data-row"><span class="data-label">Project / Location</span><span class="data-val"><?= $projectDisplay ?></span></div>
-            <div class="data-row"><span class="data-label">Booking Type</span><span class="data-val" style="text-transform:uppercase;"><?= $job['booking_type'] ?></span></div>
+            <h4>Billed To (Client Details)
+                <?php if ($canEdit): ?>
+                    <button class="no-print" onclick="openClientEdit()" style="float:right; font-size:0.75rem; background:#e2e8f0; color:#0f172a; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold;"><i class="fas fa-edit"></i> Edit</button>
+                <?php endif; ?>
+            </h4>
+            
+            <div id="client-display-block">
+                <div class="data-row"><span class="data-label">ERP Account Name</span><span class="data-val" id="disp_client_name"><?= $clientDisplay ?></span></div>
+                <div class="data-row"><span class="data-label">ERP Account Code</span><span class="data-val">
+                    <?php if ($clientCodeDisplay === 'TBC'): ?>
+                        <span style="background:#fef08a; color:#854d0e; padding:2px 6px; border-radius:4px; font-size:0.8rem;">TBC - Must Update</span>
+                    <?php else: ?>
+                        <?= $clientCodeDisplay ?>
+                    <?php endif; ?>
+                </span></div>
+                <div class="data-row"><span class="data-label">Project / Location</span><span class="data-val"><?= $projectDisplay ?></span></div>
+                <div class="data-row"><span class="data-label">Booking Type</span><span class="data-val" style="text-transform:uppercase;"><?= $job['booking_type'] ?></span></div>
+            </div>
+
+            <div id="client-edit-block" class="no-print" style="display:none; position:relative; margin-top:10px; border-top:1px dashed #cbd5e1; padding-top:10px;">
+                <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:block; margin-bottom:5px;">Search ERP Client</label>
+                <input type="text" id="inv_client_search" class="live-calc" style="width:100%; text-align:left; padding:8px; border:1px solid #cbd5e1;" placeholder="Loading clients..." onkeyup="filterInvClients(this.value)" disabled autocomplete="off">
+                <div id="inv_client_results" style="display:none; position:absolute; top:65px; left:0; right:0; background:#fff; border:2px solid #6366f1; z-index:100; max-height:200px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2); border-radius:8px;"></div>
+                <button onclick="cancelClientEdit()" style="margin-top:10px; font-size:0.8rem; padding:6px 12px; background:#64748b; color:#fff; border:none; border-radius:4px; cursor:pointer;">Cancel</button>
+            </div>
         </div>
         <div class="box">
             <h4>Job Report (Execution Details)</h4>
@@ -446,6 +466,85 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
                     btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP';
                 }
             });
+        }
+
+        let invoiceErpClients = [];
+        const invCompId = '<?= $job['billing_company_id'] ?>';
+        const invBookingId = <?= $bookingId ?>;
+
+        function openClientEdit() {
+            document.getElementById('client-display-block').style.display = 'none';
+            document.getElementById('client-edit-block').style.display = 'block';
+            const input = document.getElementById('inv_client_search');
+            
+            if (invoiceErpClients.length === 0) {
+                input.disabled = true;
+                input.placeholder = "Loading ERP clients...";
+                fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
+                .then(r => r.json())
+                .then(res => {
+                    invoiceErpClients = res;
+                    input.disabled = false;
+                    input.placeholder = "Start typing client name...";
+                    input.focus();
+                });
+            } else {
+                input.focus();
+            }
+        }
+
+        function filterInvClients(query) {
+            const resultsDiv = document.getElementById('inv_client_results');
+            if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
+            
+            const q = query.toLowerCase().trim();
+            const filtered = invoiceErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 15);
+            
+            if(filtered.length === 0) {
+                resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>';
+            } else {
+                resultsDiv.innerHTML = filtered.map(c => {
+                    if (c.status === 1) {
+                        return `<div style="padding:12px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="saveNewClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.8rem;">Code: ${c.code}</span></div>`;
+                    } else {
+                        return `<div style="padding:12px; cursor:not-allowed; background:#f1f5f9; opacity: 0.65;"><span style="font-weight:bold; color:#64748b; text-decoration: line-through;">${c.name}</span><br><span style="color:#ef4444; font-weight:bold; font-size:0.8rem;"><i class="fas fa-lock"></i> Blocked</span></div>`;
+                    }
+                }).join('');
+            }
+            resultsDiv.style.display = 'block';
+        }
+
+        function saveNewClient(code, name) {
+            if(!confirm(`Update this RFP to bill to ${name}?`)) return;
+            
+            // Mask the div while saving
+            document.getElementById('inv_client_results').style.display = 'none';
+            document.getElementById('inv_client_search').value = 'Saving...';
+            document.getElementById('inv_client_search').disabled = true;
+            
+            const fd = new FormData();
+            fd.append('action', 'update_job_client');
+            fd.append('booking_id', invBookingId);
+            fd.append('client_code', code);
+            fd.append('client_name', name);
+            
+            fetch('api/plant_actions.php', { method: 'POST', body: fd })
+            .then(r => r.text())
+            .then(res => {
+                if(res === 'OK') {
+                    location.reload(); // Reloads the page to update all variables and lock the client in!
+                } else {
+                    alert(res);
+                    cancelClientEdit();
+                }
+            });
+        }
+
+        function cancelClientEdit() {
+            document.getElementById('client-edit-block').style.display = 'none';
+            document.getElementById('client-display-block').style.display = 'block';
+            document.getElementById('inv_client_results').style.display = 'none';
+            document.getElementById('inv_client_search').value = '';
         }
     </script>
 </body>
