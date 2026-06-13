@@ -914,4 +914,26 @@ if ($action == 'get_project_location' && $isManager) {
     echo json_encode($stmt->fetch(PDO::FETCH_ASSOC)); 
     exit; 
 }
+
+if ($action == 'update_job_client' && $isManager) {
+    $bookingId = $_POST['booking_id'];
+    $clientCode = $_POST['client_code'];
+    $clientName = $_POST['client_name'];
+    
+    // Prevent changing the client if the invoice has already been successfully synced to the ERP
+    $stmt = $pdo->prepare("SELECT invoice_sysref FROM plant_bookings WHERE id = ?");
+    $stmt->execute([$bookingId]);
+    $sysRef = $stmt->fetchColumn();
+    
+    if (!empty($sysRef) && !in_array($sysRef, ['N/A', 'SUCCESS_NO_REF'])) {
+        echo "ERROR: Cannot change client. This RFP is already synced to the ERP.";
+        exit;
+    }
+
+    $update = $pdo->prepare("UPDATE plant_bookings SET client_code = ?, client_name = ? WHERE id = ?");
+    $update->execute([$clientCode, $clientName, $bookingId]);
+    
+    echo "OK";
+    exit;
+}
 ?>
