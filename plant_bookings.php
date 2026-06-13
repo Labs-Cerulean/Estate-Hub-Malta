@@ -1201,7 +1201,7 @@ $userId = $_SESSION['user_id'];
                 let actionButtons = '';
                 
                 if (j.status === 'Completed') {
-                    if (isAdmin && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) {
+                    if (canViewLedger && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) {
                         // LOCAL ONLY - Show Retry and Edit Client
                         actionButtons = `
                             <button onclick="retryErpSync(${j.id})" class="retry-sync-btn" style="background:#10b981; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-sync"></i> Retry ERP Sync</button>
