@@ -1193,6 +1193,10 @@ $userId = $_SESSION['user_id'];
                     badge = `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
                 }
                 
+                // Define variables FIRST before using them
+                let displayClient = j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No ERP Client Selected') + ')' : (j.client_name || 'No ERP Client Selected');
+                let setupBadge = (j.apply_setup_fee == 1 || parseFloat(j.final_setup_fee) > 0) ? '<span style="background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:8px; vertical-align: middle;"><i class="fas fa-truck-loading"></i> Setup Fee</span>' : '';
+
                 // Ledger Button Logic (Priority 4)
                 let actionButtons = '';
                 
@@ -1210,9 +1214,6 @@ $userId = $_SESSION['user_id'];
                 } else {
                     actionButtons = `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`;
                 }
-
-                let displayClient = j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No ERP Client Selected') + ')' : (j.client_name || 'No ERP Client Selected');
-                let setupBadge = (j.apply_setup_fee == 1 || parseFloat(j.final_setup_fee) > 0) ? '<span style="background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:8px; vertical-align: middle;"><i class="fas fa-truck-loading"></i> Setup Fee</span>' : '';
 
                 return `
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
