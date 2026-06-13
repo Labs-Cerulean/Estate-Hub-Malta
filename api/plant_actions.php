@@ -447,7 +447,7 @@ if ($action == 'save_plant' && $canManageFleet) {
         $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, 
         $setupFee, $nomSetup, $_POST['billing_company_id']
     ]);
-    
+    logPlantAction($pdo, $userId, 'PLANT_ADDED', "Added new machinery to fleet: " . $_POST['name']);
     echo "OK"; 
     exit;
 }
@@ -477,7 +477,7 @@ if ($action == 'update_plant' && $canManageFleet) {
         $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, 
         $setupFee, $nomSetup, $_POST['billing_company_id'], $_POST['edit_plant_id']
     ]);
-    
+    logPlantAction($pdo, $userId, 'PLANT_UPDATED', "Updated fleet details for Plant ID: " . $_POST['edit_plant_id']);
     echo "OK"; 
     exit;
 }
@@ -518,7 +518,7 @@ if ($action == 'create_booking' && $isManager) {
         $applySetupFee,
         $userId 
     ]); 
-    
+    logPlantAction($pdo, $userId, 'BOOKING_CREATED', "Created new booking for Plant ID: " . $_POST['plant_id'], $pdo->lastInsertId());
     echo "OK"; 
     exit;
 }
@@ -567,7 +567,7 @@ if ($action == 'update_booking' && $isManager) {
         $applySetupFee,
         $editId 
     ]); 
-    
+    logPlantAction($pdo, $userId, 'BOOKING_UPDATED', "Updated booking details", $editId);
     echo "OK"; 
     exit;
 }
@@ -575,6 +575,7 @@ if ($action == 'update_booking' && $isManager) {
 if ($action == 'cancel_booking' && $isManager) { 
     $stmt = $pdo->prepare("DELETE FROM plant_bookings WHERE id=?");
     $stmt->execute([$_POST['id']]); 
+    logPlantAction($pdo, $userId, 'BOOKING_CANCELLED', "Cancelled booking", $_POST['id']);
     echo "OK"; 
     exit; 
 }
@@ -613,7 +614,7 @@ if ($action == 'claim_job') {
     
     $stmtUpdate = $pdo->prepare("UPDATE plant_bookings SET driver_id = ? WHERE id = ?");
     $stmtUpdate->execute([$userId, $bookingId]);
-    
+    logPlantAction($pdo, $userId, 'JOB_CLAIMED', "Driver self-assigned to job", $bookingId);
     echo "OK"; 
     exit;
 }
@@ -627,7 +628,7 @@ if ($action == 'punch_in') {
     
     $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?) WHERE id=?");
     $stmt->execute([$punchTime, $userId, $_GET['id']]); 
-    
+    logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in and started job", $_GET['id']);
     echo "OK"; 
     exit; 
 }
@@ -656,7 +657,7 @@ if ($action == 'punch_out_complete') {
     $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; 
     
     @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); 
-    
+    logPlantAction($pdo, $userId, 'JOB_COMPLETED', "Driver completed job and submitted client signature", $bookingId);
     echo "OK"; 
     exit;
 }
@@ -845,14 +846,19 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     $erpResult = postJ2ApiData('/sales/transaction', $apiKey, $payload);
     
+    // If it succeeds with the ERP:
     if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { 
         $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; 
         $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); 
+        
+        logPlantAction($pdo, $userId, 'RFP_FINALIZED_SYNCED', "Synced invoice to ERP. SysRef: $sysRef", $bookingId); // LOG HERE
         echo "OK"; 
     } else { 
         $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
+        
+        logPlantAction($pdo, $userId, 'RFP_FINALIZED_LOCAL', "Saved locally but ERP Sync Failed. Needs manual retry.", $bookingId); // LOG HERE
         echo "OK_LOCAL_ONLY"; 
-    } 
+    }
     exit;
 }
 
@@ -912,9 +918,97 @@ if ($action == 'get_ledger' && $canViewLedger) {
 
 if ($action == 'mark_settled' && $canViewLedger) { 
     $stmt = $pdo->prepare("UPDATE plant_bookings SET payment_status='Settled' WHERE id=?");
-    $stmt->execute([$_POST['id']]); 
+    $stmt->execute([$_POST['id']]);
+    logPlantAction($pdo, $userId, 'PAYMENT_SETTLED', "Ledger marked as Settled", $_POST['id']);
     echo "OK"; 
     exit; 
+}
+
+if ($action == 'retry_erp_sync' && $canViewLedger) {
+    $bookingId = $_POST['booking_id'];
+    
+    // 1. Fetch Job and check if it actually needs syncing
+    $stmt = $pdo->prepare("
+        SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, u.first_name as driver_first, u.last_name as driver_last
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id 
+        LEFT JOIN users u ON pb.driver_id = u.id 
+        WHERE pb.id = ?
+    "); 
+    $stmt->execute([$bookingId]); 
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (empty($job['client_code']) || $job['client_code'] === 'TBC') {
+        echo "ERROR: Client details are still TBC. Please edit the client first."; exit;
+    }
+
+    $apiKey = getApiKey($job['billing_company_id']);
+    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
+    $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
+    $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
+
+    // 2. Rebuild the exact lines using the strictly saved final_ data
+    $lines = [];
+    
+    if ($job['final_setup_fee'] > 0) {
+        $setupCode = $setupNom ? trim($setupNom['NCCode']) : (!empty($job['nom_code_setup']) ? $job['nom_code_setup'] : '0000');
+        $lines[] = [ "Type" => "N", "Code" => $setupCode, "Description" => "Setup / Mobilisation Fee", "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_setup_fee'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+    }
+    
+    if ($job['pricing_type'] == 'fixed_then_hourly') {
+        $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
+        $lines[] = [ "Type" => "N", "Code" => $fCode, "Description" => "Fixed Callout Charge", "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+        
+        $extraHours = (float)$job['final_hours'] - (float)$job['min_hours'];
+        if ($extraHours > 0) {
+            $vCode = $varNom ? trim($varNom['NCCode']) : trim($job['nom_code_variable']);
+            $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => "Additional Hourly Rate", "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+        }
+    } elseif ($job['pricing_type'] == 'per_trip') {
+        $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
+        $qty = (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1;
+        $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => "Trip Execution Charge", "UOMLevel" => 1, "Location" => "01", "Qty" => $qty, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+    } else {
+        $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
+        $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => "Plant Operation", "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['final_hours'], "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+    }
+
+    $totalVal = (float)$job['final_subtotal']; 
+    $totalTax = $totalVal * 0.18;
+    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
+    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => 1, "Location" => "01" ];
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => 1, "Location" => "01" ];
+
+    // 3. Push to ERP
+    $payload = [ 
+        "Type" => "IN", 
+        "Transaction" => [ 
+            "InvioceHeader" => [ 
+                "THTranCode" => "IN", "THDate" => $job['booking_date'], "THUserID" => "API", 
+                "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", 
+                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), "THExtRef" => $jobRef, 
+                "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => round($totalTax, 2), 
+                "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => "" 
+            ], 
+            "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" 
+        ] 
+    ];
+
+    $erpResult = postJ2ApiData('/sales/transaction', $apiKey, $payload);
+    
+    if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { 
+        $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; 
+        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); 
+        
+        logPlantAction($pdo, $userId, 'RFP_RETRY_SUCCESS', "Manual retry sync successful. SysRef: $sysRef", $bookingId);
+        echo "OK"; 
+    } else { 
+        logPlantAction($pdo, $userId, 'RFP_RETRY_FAILED', "Manual retry sync failed. ERP Response: " . htmlspecialchars($erpResult['response']), $bookingId);
+        echo "ERP rejected the request. It might be a network error or missing client data in ERP."; 
+    } 
+    exit;
 }
 
 if ($action == 'get_project_location' && $isManager) { 
@@ -942,7 +1036,7 @@ if ($action == 'update_job_client' && $isManager) {
 
     $update = $pdo->prepare("UPDATE plant_bookings SET client_code = ?, client_name = ? WHERE id = ?");
     $update->execute([$clientCode, $clientName, $bookingId]);
-    
+    logPlantAction($pdo, $userId, 'CLIENT_EDITED', "Changed ERP Client to: $clientCode - $clientName", $bookingId);
     echo "OK";
     exit;
 }
