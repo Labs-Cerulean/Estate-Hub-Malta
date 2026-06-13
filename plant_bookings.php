@@ -66,6 +66,9 @@ $userId = $_SESSION['user_id'];
         
         .fc .fc-list-day-cushion { background-color: var(--fc-neutral-bg-color) !important; color: #0f172a !important; opacity: 0.9; font-weight: bold; }
         .fc-list-day-text, .fc-list-day-side-text, .fc-list-event-time, .fc-list-event-title, .fc-list-empty-cushion { color: #0f172a !important; }
+
+        .step-disabled { opacity: 0.4; pointer-events: none; transition: all 0.3s ease; }
+        .step-active { opacity: 1; pointer-events: auto; transition: all 0.3s ease; }
     </style>
 </head>
 <body>
@@ -205,46 +208,75 @@ $userId = $_SESSION['user_id'];
             <form id="createBookingForm" style="background: #fff; padding: 20px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
                 <input type="hidden" id="edit_booking_id" value="">
                 
-                <div style="display:flex; gap:10px;">
-                    <div style="flex:1;"><label>Category</label><select id="plant_category" class="input-heavy" required onchange="updatePlantDropdown()"></select></div>
-                    <div style="flex:2;"><label>Machinery</label><select id="plant_id" class="input-heavy" required onchange="onPlantSelected()"></select></div>
+                <div id="seq-step-1" class="step-active" style="margin-bottom:18px;">
+                    <label>1. Select Category</label>
+                    <select id="plant_category" class="input-heavy" style="margin-bottom:0;" required onchange="updatePlantDropdown()"></select>
                 </div>
 
-                <div id="setup-fee-container" style="display:none; background:#eff6ff; padding:15px; border-radius:12px; margin-bottom:18px; border:1px solid #bfdbfe;">
-                    <label style="display:flex; align-items:center; gap:10px; margin:0; cursor:pointer; font-size:1.1rem; color:#1d4ed8; text-transform:none;">
-                        <input type="checkbox" id="apply_setup_fee" value="1" style="width:20px; height:20px; cursor:pointer;">
-                        <b style="padding-top:2px;">Apply One-Time Setup Fee (<span id="setup_fee_display_amount">€0.00</span>)</b>
-                    </label>
-                    <p style="font-size:0.8rem; color:#3b82f6; margin-top:5px; margin-bottom:0; font-weight:normal;">Check this if this is the first day of deployment and the mobilisation fee should be charged to the client.</p>
+                <div id="seq-step-2" class="step-disabled" style="margin-bottom:18px;">
+                    <label>2. Select Machinery</label>
+                    <select id="plant_id" class="input-heavy" style="margin-bottom:0;" required onchange="onPlantSelected()" disabled></select>
+                    
+                    <div id="setup-fee-container" style="display:none; background:#eff6ff; padding:15px; border-radius:12px; margin-top:10px; border:1px solid #bfdbfe;">
+                        <label style="display:flex; align-items:center; gap:10px; margin:0; cursor:pointer; font-size:1.1rem; color:#1d4ed8; text-transform:none;">
+                            <input type="checkbox" id="apply_setup_fee" value="1" style="width:20px; height:20px; cursor:pointer;" disabled>
+                            <b style="padding-top:2px;">Apply One-Time Setup Fee (<span id="setup_fee_display_amount">€0.00</span>)</b>
+                        </label>
+                        <p style="font-size:0.8rem; color:#3b82f6; margin-top:5px; margin-bottom:0; font-weight:normal;">Check this if this is the first deployment day.</p>
+                    </div>
                 </div>
 
-                <label>Assigned Driver</label><select id="driver_id" class="input-heavy"></select>
-                <label>Job Type</label><select id="booking_type" class="input-heavy" onchange="toggleJobType()"><option value="in-house">In-House Project</option><option value="external">External / ERP Client</option></select>
-
-                <div id="inhouse-fields" style="position: relative;">
-                    <label>Search Project (Pre-loads map)</label>
-                    <input type="text" id="project_search" class="input-heavy" placeholder="start typing project name..." autocomplete="off" onkeyup="filterProjects(this.value)" onkeydown="if(event.key === 'Enter') { event.preventDefault(); return false; }">
-                    <input type="hidden" id="project_id">
-                    <div id="project_search_results" style="display:none; position:absolute; top:85px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
+                <div id="seq-step-3" class="step-disabled" style="margin-bottom:18px;">
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;">
+                            <label>3a. Assigned Driver</label>
+                            <select id="driver_id" class="input-heavy" style="margin-bottom:0;" disabled></select>
+                        </div>
+                        <div style="flex:1;">
+                            <label>3b. Job Type</label>
+                            <select id="booking_type" class="input-heavy" style="margin-bottom:0;" onchange="toggleJobType()" disabled>
+                                <option value="in-house">In-House Project</option>
+                                <option value="external">External / ERP Client</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
-                
-                <div id="client-fields" style="position: relative;">
-                    <label>ERP Client (Select Vehicle First)</label>
-                    <input type="text" id="client_name" class="input-heavy" placeholder="start writing client here" autocomplete="off" onkeyup="filterLocalClients(this.value)" disabled>
-                    <input type="hidden" id="client_code">
-                    <div id="client_search_results" style="display:none; position:absolute; top:85px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
+
+                <div id="seq-step-4" class="step-disabled" style="margin-bottom:18px; padding:15px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px;">
+                    <div id="inhouse-fields" style="position: relative; margin-bottom: 15px;">
+                        <label>4a. Search Project (Pre-loads map)</label>
+                        <input type="text" id="project_search" class="input-heavy" style="margin-bottom:0;" placeholder="start typing project name..." autocomplete="off" onkeyup="filterProjects(this.value)" onkeydown="if(event.key === 'Enter') { event.preventDefault(); return false; }" disabled>
+                        <input type="hidden" id="project_id">
+                        <div id="project_search_results" style="display:none; position:absolute; top:70px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
+                    </div>
+                    
+                    <div id="client-fields" style="position: relative;">
+                        <label>4b. ERP Client</label>
+                        <input type="text" id="client_name" class="input-heavy" style="margin-bottom:0;" placeholder="start writing client here" autocomplete="off" onkeyup="filterLocalClients(this.value)" disabled>
+                        <input type="hidden" id="client_code">
+                        <div id="client_search_results" style="display:none; position:absolute; top:70px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
+                    </div>
                 </div>
 
-                <label>Location (Tap Map to Pin manually)</label>
-                <div id="map" style="width: 100%; height: 250px; border-radius: 12px; margin-bottom: 15px; border: 2px solid #e2e8f0;"></div>
-                <input type="hidden" id="loc_lat"><input type="hidden" id="loc_lng">
-                
-                <label>Comments / Instructions</label><textarea id="booking_comments" class="input-heavy" rows="2"></textarea>
-                <label>Booking Date</label><input type="date" id="booking_date" class="input-heavy" required>
-                <div style="display:flex; gap:10px;"><div style="flex:1;"><label>Start</label><input type="time" id="start_time" class="input-heavy" value="08:00" required></div><div style="flex:1;"><label>End</label><input type="time" id="end_time" class="input-heavy" value="17:00" required></div></div>
+                <div id="seq-step-5" class="step-disabled">
+                    <label>5. Location (Tap Map to Pin manually)</label>
+                    <div id="map" style="width: 100%; height: 250px; border-radius: 12px; margin-bottom: 15px; border: 2px solid #e2e8f0;"></div>
+                    <input type="hidden" id="loc_lat"><input type="hidden" id="loc_lng">
+                    
+                    <label>Comments / Instructions</label>
+                    <textarea id="booking_comments" class="input-heavy" rows="2" disabled></textarea>
+                    
+                    <label>Booking Date</label>
+                    <input type="date" id="booking_date" class="input-heavy" required disabled>
+                    
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;"><label>Start</label><input type="time" id="start_time" class="input-heavy" value="08:00" required disabled></div>
+                        <div style="flex:1;"><label>End</label><input type="time" id="end_time" class="input-heavy" value="17:00" required disabled></div>
+                    </div>
 
-                <button type="button" id="submit_booking_btn" class="btn-heavy btn-blue" onclick="submitBooking()"><i class="fas fa-check"></i> Save Booking</button>
-                <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')">Cancel</button>
+                    <button type="button" id="submit_booking_btn" class="btn-heavy btn-blue" onclick="submitBooking()" disabled><i class="fas fa-check"></i> Save Booking</button>
+                    <button type="button" class="btn-heavy btn-gray" onclick="showView('view-calendar')" disabled>Cancel</button>
+                </div>
             </form>
         </div>
         <?php endif; ?>
@@ -474,7 +506,10 @@ $userId = $_SESSION['user_id'];
         
         if(!cat || !groupedPlants[cat]) { 
             pSelect.innerHTML = '<option value="">-- Select Plant --</option>'; 
+            ['seq-step-2', 'seq-step-3', 'seq-step-4', 'seq-step-5'].forEach(id => setStepState(id, false));
             return; 
+        } else {
+            setStepState('seq-step-2', true);
         }
         
         pSelect.innerHTML = '<option value="">-- Select Machinery --</option>' + groupedPlants[cat].map(p => {
@@ -486,7 +521,6 @@ $userId = $_SESSION['user_id'];
         }).join('');
         
         if (!keepClientData) resetClientSearch();
-        
         document.getElementById('setup-fee-container').style.display = 'none';
         document.getElementById('apply_setup_fee').checked = false;
     }
@@ -498,12 +532,16 @@ $userId = $_SESSION['user_id'];
         if(pSelect.selectedIndex <= 0 || pSelect.value === '') {
             document.getElementById('setup-fee-container').style.display = 'none';
             document.getElementById('apply_setup_fee').checked = false;
+            ['seq-step-3', 'seq-step-4', 'seq-step-5'].forEach(id => setStepState(id, false));
             return;
+        } else {
+            setStepState('seq-step-3', true);
+            setStepState('seq-step-4', true);
         }
         
         const opt = pSelect.options[pSelect.selectedIndex];
         if (opt.dataset.missing === 'true') {
-            alert("Billing details for this vehicle are missing. Please configure them in the Fleet Setup before booking.");
+            alert("Billing details missing. Please configure them in the Fleet Setup before booking.");
             pSelect.value = ''; return;
         }
 
@@ -577,6 +615,7 @@ $userId = $_SESSION['user_id'];
     function selectClient(code, name) { 
         document.getElementById('client_code').value = code; document.getElementById('client_name').value = name; 
         document.getElementById('client_search_results').style.display = 'none'; 
+        checkStep5(); // Re-evaluate step 5
     }
 
     function filterProjects(query) {
@@ -606,19 +645,54 @@ $userId = $_SESSION['user_id'];
         document.getElementById('project_id').value = id; 
         document.getElementById('project_search').value = name; 
         document.getElementById('project_search_results').style.display = 'none'; 
-        updateProjectLocation(); // Triggers the map pin update automatically
+        updateProjectLocation(); 
+        
+        // Auto-fill previous client logic
+        fetch(`api/plant_actions.php?action=get_last_project_client&project_id=${id}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.client_code) {
+                const validClient = currentErpClients.find(c => c.code === data.client_code && c.status === 1);
+                if (validClient) {
+                    selectClient(validClient.code, validClient.name);
+                    
+                    // Flash green to indicate auto-fill
+                    const cInput = document.getElementById('client_name');
+                    cInput.style.backgroundColor = '#ecfdf5';
+                    cInput.style.borderColor = '#10b981';
+                    setTimeout(() => { cInput.style.backgroundColor = '#fff'; cInput.style.borderColor = '#e2e8f0'; }, 1500);
+                }
+            }
+            checkStep5();
+        }).catch(() => checkStep5());
     }
 
     function toggleJobType() {
         const type = document.getElementById('booking_type').value;
-        document.getElementById('inhouse-fields').style.display = type === 'in-house' ? 'block' : 'none';
+        const inhouseDiv = document.getElementById('inhouse-fields');
+        const projInput = document.getElementById('project_search');
+        
+        if (type === 'in-house') {
+            inhouseDiv.style.opacity = '1';
+            inhouseDiv.style.pointerEvents = 'auto';
+            projInput.disabled = false;
+            projInput.placeholder = "start typing project name...";
+        } else {
+            inhouseDiv.style.opacity = '0.4';
+            inhouseDiv.style.pointerEvents = 'none';
+            projInput.disabled = true;
+            projInput.value = ''; 
+            document.getElementById('project_id').value = '';
+            projInput.placeholder = "N/A for External Jobs";
+        }
+        checkStep5();
     }
-
     function openCreateForm() {
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking';
         document.getElementById('edit_booking_id').value = ''; 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
         document.getElementById('createBookingForm').reset(); 
+        ['seq-step-2', 'seq-step-3', 'seq-step-4', 'seq-step-5'].forEach(id => setStepState(id, false));
         document.getElementById('project_search').value = '';
         document.getElementById('project_search_results').style.display = 'none';
         
@@ -629,6 +703,8 @@ $userId = $_SESSION['user_id'];
 
     function initiateBookingEdit() {
         const j = window.currentActiveJob;
+        ['seq-step-2', 'seq-step-3', 'seq-step-4', 'seq-step-5'].forEach(id => setStepState(id, true));
+        
         if (!j) return;
         
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-edit text-blue-500"></i> Edit Booking';
@@ -1100,6 +1176,40 @@ $userId = $_SESSION['user_id'];
             }).join('');
         }); 
         showView('view-ledger');
+    }
+
+    function setStepState(stepId, isActive) {
+        const step = document.getElementById(stepId);
+        if (!step) return;
+        
+        if (isActive) {
+            step.classList.remove('step-disabled');
+            step.classList.add('step-active');
+            // Enable all inputs inside EXCEPT hidden fields
+            step.querySelectorAll('input, select, textarea, button').forEach(el => {
+                if (el.type !== 'hidden') el.disabled = false;
+            });
+            // Fix layout if waking up step 4
+            if (stepId === 'seq-step-4') toggleJobType(); 
+        } else {
+            step.classList.remove('step-active');
+            step.classList.add('step-disabled');
+            // Disable everything
+            step.querySelectorAll('input, select, textarea, button').forEach(el => el.disabled = true);
+        }
+    }
+
+    function checkStep5() {
+        const type = document.getElementById('booking_type').value;
+        const pid = document.getElementById('project_id').value;
+        const cid = document.getElementById('client_code').value;
+        
+        if ((type === 'in-house' && pid && cid) || (type === 'external' && cid)) {
+            setStepState('seq-step-5', true);
+            setTimeout(initMap, 200);
+        } else {
+            setStepState('seq-step-5', false);
+        }
     }
 </script>
 </body>
