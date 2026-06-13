@@ -653,14 +653,20 @@ $userId = $_SESSION['user_id'];
         document.getElementById('project_search_results').style.display = 'none'; 
         updateProjectLocation(); 
         
-        // Auto-fill previous client logic
-        fetch(`api/plant_actions.php?action=get_last_project_client&project_id=${id}`)
+        // 1. Grab the Billing Company of the machinery we selected in Step 2
+        const pSelect = document.getElementById('plant_id');
+        const compId = pSelect.selectedIndex > 0 ? pSelect.options[pSelect.selectedIndex].getAttribute('data-company-id') : '';
+
+        // 2. Pass BOTH project_id and company_id to the backend
+        fetch(`api/plant_actions.php?action=get_last_project_client&project_id=${id}&company_id=${compId}`)
         .then(r => r.json())
         .then(data => {
             let clientAutoFilled = false;
             
             if (data && data.client_code) {
-                const validClient = currentErpClients.find(c => c.code === data.client_code && c.status === 1);
+                // Use loose equality (==) just in case the API returns an integer but the DOM has a string
+                const validClient = currentErpClients.find(c => c.code == data.client_code);
+                
                 if (validClient) {
                     selectClient(validClient.code, validClient.name);
                     clientAutoFilled = true;
@@ -673,11 +679,10 @@ $userId = $_SESSION['user_id'];
                 }
             }
             
-            // IF NO VALID CLIENT WAS FOUND, CLEAR THE FIELD!
+            // 3. IF NO VALID CLIENT WAS FOUND, EXPLICITLY CLEAR THE FIELD
             if (!clientAutoFilled) {
                 document.getElementById('client_code').value = '';
                 document.getElementById('client_name').value = '';
-                // Optional: Flash red/gray briefly to show it cleared
             }
             
             checkStep5();
