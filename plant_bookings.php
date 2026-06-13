@@ -251,7 +251,13 @@ $userId = $_SESSION['user_id'];
                     </div>
                     
                     <div id="client-fields" style="position: relative;">
-                        <label>4b. ERP Client</label>
+                        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px;">
+                            <label style="margin-bottom: 0;">4b. ERP Client</label>
+                            <label style="font-size: 0.8rem; color: #64748b; font-weight: bold; cursor: pointer; margin: 0; text-transform: none; display: flex; align-items: center; gap: 5px;">
+                                <input type="checkbox" id="client_tbc" onchange="toggleTBC()" style="width: 14px; height: 14px; margin: 0; cursor: pointer;" disabled> 
+                                Client details TBC
+                            </label>
+                        </div>
                         <input type="text" id="client_name" class="input-heavy" style="margin-bottom:0;" placeholder="start writing client here" autocomplete="off" onkeyup="filterLocalClients(this.value)" disabled>
                         <input type="hidden" id="client_code">
                         <div id="client_search_results" style="display:none; position:absolute; top:70px; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:250px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);"></div>
@@ -708,6 +714,8 @@ $userId = $_SESSION['user_id'];
         document.getElementById('edit_booking_id').value = ''; 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
         document.getElementById('createBookingForm').reset(); 
+        document.getElementById('client_tbc').checked = false;
+        document.getElementById('client_name').style.backgroundColor = '#fff'; document.getElementById('client_name').style.color = '#1e293b';
         ['seq-step-2', 'seq-step-3', 'seq-step-4', 'seq-step-5'].forEach(id => setStepState(id, false));
         document.getElementById('project_search').value = '';
         document.getElementById('project_search_results').style.display = 'none';
@@ -749,6 +757,17 @@ $userId = $_SESSION['user_id'];
         
         document.getElementById('client_code').value = j.client_code || ''; 
         document.getElementById('client_name').value = j.client_name || ''; 
+        
+        if (j.client_code === 'TBC') {
+            document.getElementById('client_tbc').checked = true;
+            document.getElementById('client_name').disabled = true;
+            document.getElementById('client_name').style.backgroundColor = '#f8fafc';
+            document.getElementById('client_name').style.color = '#94a3b8';
+        } else {
+            document.getElementById('client_tbc').checked = false;
+            document.getElementById('client_name').style.backgroundColor = '#fff';
+            document.getElementById('client_name').style.color = '#1e293b';
+        }
         
         onPlantSelected(true); 
         
@@ -1226,6 +1245,29 @@ $userId = $_SESSION['user_id'];
         } else {
             setStepState('seq-step-5', false);
         }
+    }
+
+    function toggleTBC() {
+        const isTbc = document.getElementById('client_tbc').checked;
+        const cInput = document.getElementById('client_name');
+        const cCode = document.getElementById('client_code');
+        
+        if (isTbc) {
+            cInput.value = 'Client details TBC';
+            cCode.value = 'TBC';
+            cInput.disabled = true;
+            cInput.style.backgroundColor = '#f8fafc';
+            cInput.style.color = '#94a3b8';
+            document.getElementById('client_search_results').style.display = 'none';
+        } else {
+            cInput.value = '';
+            cCode.value = '';
+            cInput.disabled = false;
+            cInput.style.backgroundColor = '#fff';
+            cInput.style.color = '#1e293b';
+            cInput.focus();
+        }
+        checkStep5();
     }
 </script>
 </body>
