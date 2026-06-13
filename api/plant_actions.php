@@ -256,17 +256,25 @@ if ($action == 'get_company_clients' && $isManager) {
 
 if ($action == 'get_last_project_client') {
     $projectId = $_GET['project_id'] ?? '';
+    $companyId = $_GET['company_id'] ?? '';
     
     if (empty($projectId)) {
         echo json_encode([]);
         exit;
     }
     
-    $stmt = $pdo->prepare("SELECT client_code, client_name FROM plant_bookings WHERE project_id = ? AND client_code IS NOT NULL AND client_code != '' ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$projectId]);
-    $client = $stmt->fetch(PDO::FETCH_ASSOC);
+    // We now strictly match the billing company to prevent cross-company ERP code mixups!
+    $query = "SELECT pb.client_code, pb.client_name 
+              FROM plant_bookings pb 
+              JOIN plants p ON pb.plant_id = p.id 
+              WHERE pb.project_id = ? AND p.billing_company_id = ? 
+              AND pb.client_code IS NOT NULL AND pb.client_code != '' 
+              ORDER BY pb.id DESC LIMIT 1";
+              
+    $stmt = $pdo->prepare($query);
+    $stmt->execute([$projectId, $companyId]);
     
-    echo json_encode($client ?: []);
+    echo json_encode($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
     exit;
 }
 
