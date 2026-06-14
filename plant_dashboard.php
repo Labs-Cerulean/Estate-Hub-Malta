@@ -83,11 +83,11 @@ include 'header.php';
     .breakdown-table td { padding: 10px; border: 1px solid rgba(128,128,128,0.1); opacity: 0.9; text-align: center; }
     .breakdown-table td:first-child { text-align: left; font-weight: 700; }
     
-   /* Map Markers */
+  /* Map Markers */
     .custom-leaflet-icon { background: none !important; border: none !important; }
     .map-marker-base { 
-        width: 22px; 
-        height: 22px; 
+        width: 24px; 
+        height: 24px; 
         border-radius: 50%; 
         border: 2px solid #fff; 
         display: flex; 
@@ -97,8 +97,10 @@ include 'header.php';
     }
     .map-marker-base i { 
         color: #ffffff !important; 
-        font-size: 10px !important; 
+        font-size: 11px !important; 
+        font-weight: 900 !important; /* CRITICAL: Prevents Leaflet from making FA icons invisible */
         line-height: 1 !important;
+        display: block !important;
     }
     .marker-active { background: #10b981; animation: pulse 1.5s infinite; }
     .marker-paused { background: #f59e0b; }
@@ -343,7 +345,7 @@ include 'header.php';
 
                     // 3. Build Marker HTML
                     let iconHtml = `<div class="map-marker-base ${markerClass}"><i class="fas ${icon}"></i></div>`;
-                    const cIcon = L.divIcon({ html: iconHtml, className: 'custom-leaflet-icon', iconSize: [22,22], iconAnchor: [11,11] });
+                    const cIcon = L.divIcon({ html: iconHtml, className: 'custom-leaflet-icon', iconSize: [24,24], iconAnchor: [12,12] });
                     
                     // 4. Build Popup Details
                     const clientText = job.client_name || job.project_name || 'Unknown Location';
