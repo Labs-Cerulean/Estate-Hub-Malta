@@ -467,7 +467,7 @@ if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) 
     $kpi['projected_revenue'] = $kpi['planned_hours'] * $avgYield;
     $kpi['total_est_revenue'] = $kpi['revenue_generated'] + $kpi['projected_revenue'];
 
-    // PASS 2: Build KPI Drilldown Arrays
+    // PASS 2: Build KPI Drilldown Arrays (Rounded to Nearest Euro)
     $drilldown = [ 'completed_book' => [], 'completed_hrs' => [], 'rev_gen' => [], 'planned_book' => [], 'planned_hrs' => [], 'rev_pipe' => [], 'rfps' => [], 'erp' => [], 'rev_total' => [] ];
 
     foreach ($jobs as $j) {
@@ -479,25 +479,25 @@ if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) 
 
         if ($j['status'] === 'Completed') {
             $hrs = ((float)$j['final_hours'] > 0 ? (float)$j['final_hours'] : $schHours);
-            $rev = ((float)$j['final_subtotal'] > 0 ? (float)$j['final_subtotal'] : ($hrs * $avgYield));
+            $rev = round((float)$j['final_subtotal'] > 0 ? (float)$j['final_subtotal'] : ($hrs * $avgYield));
             
             $drilldown['completed_book'][] = ['date' => $date, 'desc' => $desc, 'val' => "1 Job"];
             $drilldown['completed_hrs'][] = ['date' => $date, 'desc' => $desc, 'val' => number_format($hrs, 1) . " Hrs"];
-            $drilldown['rev_gen'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 2) . ((float)$j['final_subtotal'] <= 0 ? ' <i>(Est)</i>' : '')];
-            $drilldown['rev_total'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 2)];
+            $drilldown['rev_gen'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . ((float)$j['final_subtotal'] <= 0 ? ' <i>(Est)</i>' : '')];
+            $drilldown['rev_total'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0)];
             
             if (in_array($j['payment_status'], ['Invoiced', 'Settled'])) {
                 $drilldown['rfps'][] = ['date' => $date, 'desc' => $desc, 'val' => "Finalized"];
             }
             if (!empty($j['invoice_sysref']) && !in_array($j['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'])) {
-                $drilldown['erp'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format((float)$j['final_subtotal'], 2)];
+                $drilldown['erp'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format(round((float)$j['final_subtotal']), 0)];
             }
         } elseif (in_array($j['status'], ['Pending', 'In Progress', 'Paused'])) {
-            $rev = $schHours * $avgYield;
+            $rev = round($schHours * $avgYield);
             $drilldown['planned_book'][] = ['date' => $date, 'desc' => $desc, 'val' => "1 Job"];
             $drilldown['planned_hrs'][] = ['date' => $date, 'desc' => $desc, 'val' => number_format($schHours, 1) . " Hrs"];
-            $drilldown['rev_pipe'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 2) . " <i>(Est)</i>"];
-            $drilldown['rev_total'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 2) . " <i>(Est)</i>"];
+            $drilldown['rev_pipe'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . " <i>(Est)</i>"];
+            $drilldown['rev_total'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . " <i>(Est)</i>"];
         }
     }
 
@@ -564,7 +564,12 @@ if ($action == 'fetch_bookings') {
         
         $statusInd = "";
         if ($b['status'] == 'Completed') {
-            $statusInd = "✅ ";
+            // Check if it has a saved RFP subtotal or an invoice status
+            if ((float)$b['final_subtotal'] > 0 || in_array($b['payment_status'], ['Invoiced', 'Settled'])) {
+                $statusInd = "🧾 "; // Has RFP
+            } else {
+                $statusInd = "✅ "; // Completed but missing RFP
+            }
         } elseif ($b['status'] == 'In Progress') {
             $statusInd = "⏳ ";
         } elseif ($b['status'] == 'Paused') {
