@@ -84,11 +84,12 @@ include 'header.php';
     .breakdown-table td:first-child { text-align: left; font-weight: 700; }
     
     /* Map Markers */
-    .map-marker-pulse { width: 16px; height: 16px; background: #10b981; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); animation: pulse 1.5s infinite; }
-    .map-marker-paused { width: 16px; height: 16px; background: #f59e0b; border-radius: 50%; border: 3px solid #fff; }
-    .map-marker-completed { width: 16px; height: 16px; background: #3b82f6; border-radius: 50%; border: 3px solid #fff; }
-    .map-marker-pending { width: 16px; height: 16px; background: #94a3b8; border-radius: 50%; border: 3px solid #fff; }
-    @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+    .map-marker-base { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+    .marker-active { background: #10b981; animation: pulse 1.5s infinite; }
+    .marker-paused { background: #f59e0b; }
+    .marker-completed { background: #3b82f6; }
+    .marker-pending { background: #94a3b8; }
+    @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
 
     /* Drilldown Modal */
     #drillModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
@@ -285,7 +286,7 @@ include 'header.php';
     const map = L.map('fleetMap').setView([35.917973, 14.409943], 11);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
-    function loadMapTelemetry() {
+   function loadMapTelemetry() {
         let url = 'plant_dashboard.php?action=map_data&mode=' + activeMapMode;
         if (activeMapMode === 'period' && calStartCache !== '') {
             url += '&start=' + calStartCache + '&end=' + calEndCache;
@@ -293,27 +294,44 @@ include 'header.php';
 
         fetch(url).then(r => r.json()).then(jobs => {
             map.eachLayer(layer => { if (layer instanceof L.Marker) layer.remove(); });
+            
             jobs.forEach(job => {
                 if (job.location_lat) {
-                    let iconHtml = ''; let badge = '';
+                    // 1. Determine Icon based on Category
+                    let icon = 'fa-cogs'; 
+                    let cat = (job.category || job.plant_name || '').toLowerCase();
+                    
+                    if (cat.includes('booms')) icon = 'fa-truck-pickup';
+                    else if (cat.includes('cranes')) icon = 'fa-truck-loading';
+                    else if (cat.includes('drum cutter')) icon = 'fa-cogs';
+                    else if (cat.includes('excavator') || cat.includes('kobelco') || cat.includes('kato') || cat.includes('jcb')) icon = 'fa-tractor';
+                    else if (cat.includes('other trucks') || cat.includes('truck')) icon = 'fa-truck';
+                    else if (cat.includes('piling')) icon = 'fa-hammer';
+                    else if (cat.includes('pumps') || cat.includes('concrete')) icon = 'fa-water';
+                    else if (cat.includes('rock saw')) icon = 'fa-cog';
+                    else if (cat.includes('scarifier')) icon = 'fa-road';
+
+                    // 2. Determine Color/Badge based on Status
+                    let markerClass = 'marker-pending'; 
+                    let badge = `<span style="background:#94a3b8; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${job.status}</span>`;
                     
                     if (job.status === 'In Progress') {
-                        iconHtml = '<div class="map-marker-pulse"></div>';
+                        markerClass = 'marker-active';
                         badge = `<span style="background:#10b981; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Active</span>`;
                     } else if (job.status === 'Paused') {
-                        iconHtml = '<div class="map-marker-paused"></div>';
+                        markerClass = 'marker-paused';
                         badge = `<span style="background:#f59e0b; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Paused</span>`;
                     } else if (job.status === 'Completed') {
-                        iconHtml = '<div class="map-marker-completed"></div>';
+                        markerClass = 'marker-completed';
                         badge = `<span style="background:#3b82f6; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Completed</span>`;
-                    } else {
-                        iconHtml = '<div class="map-marker-pending"></div>';
-                        badge = `<span style="background:#94a3b8; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${job.status}</span>`;
                     }
 
-                    const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [16,16], iconAnchor: [8,8] });
-                    const clientText = job.client_name || job.project_name || 'Unknown Location';
+                    // 3. Build Marker HTML
+                    let iconHtml = `<div class="map-marker-base ${markerClass}"><i class="fas ${icon}"></i></div>`;
+                    const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [28,28], iconAnchor: [14,14] });
                     
+                    // 4. Build Popup Details
+                    const clientText = job.client_name || job.project_name || 'Unknown Location';
                     const driverName = (job.first_name || job.last_name) ? `${job.first_name || ''} ${job.last_name || ''}`.trim() : 'Unassigned';
                     const timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
                     
