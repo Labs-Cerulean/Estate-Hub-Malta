@@ -88,6 +88,14 @@ include 'header.php';
     .map-toggle-slider { position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3b82f6; border-radius: 30px; transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), background-color 0.3s; z-index: 1; }
     .map-toggle-wrapper[data-mode="live"] .map-toggle-slider { transform: translateX(100%); background: #10b981; }
 
+    /* Map Markers */
+    .custom-leaflet-icon { background: none !important; border: none !important; }
+    .marker-active { background: #10b981; animation: pulse 1.5s infinite; }
+    .marker-paused { background: #f59e0b; }
+    .marker-completed { background: #3b82f6; }
+    .marker-pending { background: #94a3b8; }
+    @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1.1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+
     .breakdown-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     .breakdown-table th { background: rgba(0,0,0,0.1); padding: 10px; font-weight: 800; text-transform: uppercase; border: 1px solid rgba(128,128,128,0.2); opacity: 0.8; }
     .breakdown-table td { padding: 10px; border: 1px solid rgba(128,128,128,0.1); opacity: 0.9; text-align: center; }
@@ -309,47 +317,53 @@ include 'header.php';
             url += '&start=' + calStartCache + '&end=' + calEndCache;
         }
 
+        // 100% Bulletproof Native SVGs (Bypasses FontAwesome entirely)
+        const svgs = {
+            tractor: '<svg viewBox="0 0 576 512" width="14" height="14" fill="#fff"><path d="M0 112c0-26.5 21.5-48 48-48h96c26.5 0 48 21.5 48 48V208h48v32c0 26.5 21.5 48 48 48h72.5c16.7-22.1 43.1-36.8 73.2-38.7c-5.3-25.4-27.7-44.5-54.8-44.5H352V176h42.1c11.4 0 22.4-4.5 30.5-12.5L462.1 126c27-27 63.6-42.1 101.8-42.1c6.7 0 12.1 5.4 12.1 12.1v48.2c0 4.1-2.1 7.9-5.5 10.2c-15.6 10.6-30.1 22.9-43.2 36.8c18.5 2.5 35.7 9.8 50.7 20.8c5.4 4 13.1 2.3 16.7-3.6c5.7-9.3 9.3-20.2 9.3-31.9v-48.2c0-33.1-26.9-60-60-60C505.7 68 469 83.1 442 110L399.5 152.5c-.8 .8-1.9 1.2-3 1.2H352V112c0-26.5-21.5-48-48-48H208V48c0-26.5-21.5-48-48-48H48C21.5 0 0 21.5 0 48v64H0zm0 128v64c0 17.7 14.3 32 32 32h11.4c-7.3 14.2-11.4 30.1-11.4 46.8C32 460.6 96.6 524.8 174.8 524.8s142.8-64.2 142.8-142.8c0-16.7-4.1-32.6-11.4-46.8H344c26.5 0 48-21.5 48-48V240H0zm174.8 198.8c-30.8 0-55.8-25-55.8-55.8s25-55.8 55.8-55.8s55.8 25 55.8 55.8s-25 55.8-55.8 55.8zm233.5-98.8c-44.2 0-80 35.8-80 80s35.8 80 80 80s80-35.8 80-80s-35.8-80-80-80z"/></svg>',
+            truck: '<svg viewBox="0 0 640 512" width="14" height="14" fill="#fff"><path d="M48 0C21.5 0 0 21.5 0 48V368c0 26.5 21.5 48 48 48H64c0 53 43 96 96 96s96-43 96-96H384c0 53 43 96 96 96s96-43 96-96h32c17.7 0 32-14.3 32-32s-14.3-32-32-32V288 256 237.3c0-17-6.7-33.3-18.7-45.3L512 114.7c-12-12-28.3-18.7-45.3-18.7H416V48c0-26.5-21.5-48-48-48H48zM416 160h50.7L544 237.3V256H416V160zM112 416a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm368-32a32 32 0 1 1 0 64 32 32 0 1 1 0-64z"/></svg>',
+            crane: '<svg viewBox="0 0 640 512" width="14" height="14" fill="#fff"><path d="M256 0c-17.7 0-32 14.3-32 32V64H112c-26.5 0-48 21.5-48 48v80c0 26.5 21.5 48 48 48H224v16H112C50.1 256 0 306.1 0 368s50.1 112 112 112H544c35.3 0 64-28.7 64-64v-8.4c0-3.1-.2-6.1-.6-9.1C589.6 373.1 568 352 544 352H416c-35.3 0-64-28.7-64-64V128H288V32c0-17.7-14.3-32-32-32zM112 416c-26.5 0-48-21.5-48-48s21.5-48 48-48s48 21.5 48 48s-21.5 48-48 48z"/></svg>',
+            cog: '<svg viewBox="0 0 512 512" width="14" height="14" fill="#fff"><path d="M495.9 166.6c3.2 8.7 .5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6c-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2c-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8c-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6 .3-24.5-6.8c-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3c-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6c4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2c5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8c8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z"/></svg>',
+            hammer: '<svg viewBox="0 0 512 512" width="14" height="14" fill="#fff"><path d="M451.7 89.2c-15-15-39.3-15-54.3 0L370.8 116 357.6 102.8c-26-26-64.8-31-95.8-13.6L167.3 183.7c-8 4.5-12.9 12.9-12.9 22.1s4.9 17.6 12.9 22.1l43 24.2L28.1 434.3c-12.5 12.5-12.5 32.8 0 45.3l4.3 4.3c12.5 12.5 32.8 12.5 45.3 0L260.1 301.6l24.2 43c4.5 8 12.9 12.9 22.1 12.9s17.6-4.9 22.1-12.9l94.5-167.3c17.4-31 12.4-69.8-13.6-95.8L396 68.4l26.8-26.8c15-15 15-39.3 0-54.3L451.7 89.2z"/></svg>',
+            water: '<svg viewBox="0 0 512 512" width="14" height="14" fill="#fff"><path d="M256 320c-35.3 0-64-28.7-64-64s28.7-64 64-64s64 28.7 64 64s-28.7 64-64 64zm-147.2 64c24.9 0 46.6-14.7 56.9-35.8c11 1.7 22.4 2.6 34.3 2.6s23.3-.9 34.3-2.6c10.3 21 32 35.8 56.9 35.8c30.2 0 55.8-20.4 62.4-48.4c7.6-32.3-17.7-63.6-50.4-63.6H176c-32.7 0-58 31.3-50.4 63.6c6.6 28 32.2 48.4 62.4 48.4z"/></svg>',
+            road: '<svg viewBox="0 0 512 512" width="14" height="14" fill="#fff"><path d="M32 32C14.3 32 0 46.3 0 64S14.3 96 32 96H173.3l52.4 212.6c-4.4 7-6.9 15.3-6.9 24.1c0 24.5 18.5 44.6 42.4 47.6L252.7 493c-2.4 10.3 4 20.6 14.3 23s20.6-4 23-14.3L298.5 384h43.1l8.5 116.7c.8 10.6 10 18.5 20.6 17.7s18.5-10 17.7-20.6L378.8 384h35.8c26.5 0 48-21.5 48-48V64c0-17.7-14.3-32-32-32H32zM320 288H192L160 160H320l0 128zM416 160h48v64H416V160zm0 128h48v64H416V288z"/></svg>'
+        };
+
         fetch(url).then(r => r.json()).then(jobs => {
             map.eachLayer(layer => { if (layer instanceof L.Marker) layer.remove(); });
             jobs.forEach(job => {
                 if (job.location_lat) {
-                    
-                    // UNICODE MAPPING (Bypasses FontAwesome JS/SVG conflicts in Leaflet)
-                    let iconUni = '&#xf085;'; // default cogs
+                    let svgDraw = svgs.cog; 
                     let cat = (job.category || job.plant_name || '').toLowerCase();
                     
-                    if (cat.includes('booms')) iconUni = '&#xf63c;'; // truck-pickup
-                    else if (cat.includes('cranes')) iconUni = '&#xf4de;'; // truck-loading
-                    else if (cat.includes('drum cutter')) iconUni = '&#xf085;'; // cogs
-                    else if (cat.includes('excavator') || cat.includes('kobelco') || cat.includes('kato') || cat.includes('jcb')) iconUni = '&#xf722;'; // tractor
-                    else if (cat.includes('other trucks') || cat.includes('truck')) iconUni = '&#xf0d1;'; // truck
-                    else if (cat.includes('piling')) iconUni = '&#xf6e3;'; // hammer
-                    else if (cat.includes('pumps') || cat.includes('concrete')) iconUni = '&#xf773;'; // water
-                    else if (cat.includes('rock saw')) iconUni = '&#xf013;'; // cog
-                    else if (cat.includes('scarifier')) iconUni = '&#xf018;'; // road
+                    if (cat.includes('booms') || cat.includes('truck') || cat.includes('other trucks')) svgDraw = svgs.truck;
+                    else if (cat.includes('cranes')) svgDraw = svgs.crane;
+                    else if (cat.includes('excavator') || cat.includes('kobelco') || cat.includes('kato') || cat.includes('jcb')) svgDraw = svgs.tractor;
+                    else if (cat.includes('piling')) svgDraw = svgs.hammer;
+                    else if (cat.includes('pumps') || cat.includes('concrete')) svgDraw = svgs.water;
+                    else if (cat.includes('scarifier')) svgDraw = svgs.road;
 
-                    let bgColor = '#94a3b8'; // Pending
+                    let bgColor = '#94a3b8'; 
                     let badge = `<span style="background:#94a3b8; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${job.status}</span>`;
+                    let markerClass = 'marker-pending';
                     
                     if (job.status === 'In Progress') {
-                        bgColor = '#10b981';
+                        bgColor = '#10b981'; markerClass = 'marker-active';
                         badge = `<span style="background:#10b981; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Active</span>`;
                     } else if (job.status === 'Paused') {
-                        bgColor = '#f59e0b';
+                        bgColor = '#f59e0b'; markerClass = 'marker-paused';
                         badge = `<span style="background:#f59e0b; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Paused</span>`;
                     } else if (job.status === 'Completed') {
-                        bgColor = '#3b82f6';
+                        bgColor = '#3b82f6'; markerClass = 'marker-completed';
                         badge = `<span style="background:#3b82f6; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Completed</span>`;
                     }
 
-                    // Strict Inline CSS Marker to overcome Leaflet constraints
                     let iconHtml = `
-                        <div style="background:${bgColor}; width:28px; height:28px; border-radius:50%; border:2px solid #fff; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.4);">
-                            <span style="color:#fff; font-family: 'Font Awesome 6 Free', 'Font Awesome 5 Free', 'FontAwesome'; font-weight: 900; font-size: 13px; line-height: 1; display: block;">${iconUni}</span>
+                        <div class="${markerClass}" style="background:${bgColor}; width:28px; height:28px; border-radius:50%; border:2px solid #fff; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.4);">
+                            ${svgDraw}
                         </div>
                     `;
                     
-                    const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [28,28], iconAnchor: [14,14] });
+                    const cIcon = L.divIcon({ html: iconHtml, className: 'custom-leaflet-icon', iconSize: [28,28], iconAnchor: [14,14] });
                     const clientText = job.client_name || job.project_name || 'Unknown Location';
                     const driverName = (job.first_name || job.last_name) ? `${job.first_name || ''} ${job.last_name || ''}`.trim() : 'Unassigned';
                     const timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
@@ -378,7 +392,7 @@ include 'header.php';
         const calendarEl = document.getElementById('director-calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'listWeek',
-            headerToolbar: false, // Hidden native toolbar
+            headerToolbar: false, 
             height: 600,
             eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
             displayEventEnd: true,
@@ -468,7 +482,6 @@ include 'header.php';
             },
             
             datesSet: function(info) {
-                // Update Global Top Title
                 document.getElementById('global-date-display').innerText = info.view.title;
                 
                 let startDate = new Date(info.start);
