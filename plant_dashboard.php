@@ -83,13 +83,28 @@ include 'header.php';
     .breakdown-table td { padding: 10px; border: 1px solid rgba(128,128,128,0.1); opacity: 0.9; text-align: center; }
     .breakdown-table td:first-child { text-align: left; font-weight: 700; }
     
-    /* Map Markers */
-    .map-marker-base { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+   /* Map Markers */
+    .custom-leaflet-icon { background: none !important; border: none !important; }
+    .map-marker-base { 
+        width: 22px; 
+        height: 22px; 
+        border-radius: 50%; 
+        border: 2px solid #fff; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.4); 
+    }
+    .map-marker-base i { 
+        color: #ffffff !important; 
+        font-size: 10px !important; 
+        line-height: 1 !important;
+    }
     .marker-active { background: #10b981; animation: pulse 1.5s infinite; }
     .marker-paused { background: #f59e0b; }
     .marker-completed { background: #3b82f6; }
     .marker-pending { background: #94a3b8; }
-    @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+    @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1.1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
 
     /* Drilldown Modal */
     #drillModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
