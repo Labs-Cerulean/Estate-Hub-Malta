@@ -350,10 +350,9 @@ include 'header.php';
             displayEventEnd: true,
             events: 'api/plant_actions.php?action=fetch_bookings',
             
-            // STRICT HTML INJECTION TO FIX ALIGNMENT OVERLAPS
+            // STRICT HTML INJECTION TO FIX ALIGNMENT OVERLAPS & TIMES
             eventContent: function(arg) {
                 let title = arg.event.title;
-                let timeStr = arg.timeText || 'All Day';
                 let lowerTitle = title.toLowerCase();
                 let icon = 'fa-cogs'; 
                 
@@ -367,6 +366,21 @@ include 'header.php';
                 else if (lowerTitle.includes('rock saw') || lowerTitle.includes('rocksaw')) icon = 'fa-cog';
                 else if (lowerTitle.includes('scarifier')) icon = 'fa-road';
 
+                // 1. MANUALLY BUILD THE TIME STRING (Bypasses FullCalendar's empty string quirk)
+                let timeStr = 'All Day';
+                if (!arg.event.allDay && arg.event.start) {
+                    let sH = String(arg.event.start.getHours()).padStart(2, '0');
+                    let sM = String(arg.event.start.getMinutes()).padStart(2, '0');
+                    timeStr = `${sH}:${sM}`;
+                    
+                    if (arg.event.end) {
+                        let eH = String(arg.event.end.getHours()).padStart(2, '0');
+                        let eM = String(arg.event.end.getMinutes()).padStart(2, '0');
+                        timeStr += ` - ${eH}:${eM}`;
+                    }
+                }
+
+                // 2. BUILD STATUS BADGE
                 let statusIcon = '';
                 let rawTitle = title;
                 
@@ -390,7 +404,7 @@ include 'header.php';
                     statusIcon = '<span style="background:rgba(148,163,184,0.15); color:#94a3b8; padding:4px 8px; border-radius:4px; font-size:0.75rem; margin-right:15px; border:1px solid rgba(148,163,184,0.2); width:110px; display:inline-block; text-align:center;"><i class="far fa-clock"></i> Pending</span>'; 
                 }
 
-                // We inject the time directly into our layout to stop table overlapping
+                // 3. INJECT HTML
                 return {
                     html: `<div style="display:flex; align-items:center; width:100%;">
                              <div style="width:120px; font-weight:800; color:#94a3b8; text-align:right; margin-right:15px; flex-shrink:0;">${timeStr}</div>
