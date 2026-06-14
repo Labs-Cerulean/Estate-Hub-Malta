@@ -10,34 +10,29 @@ $role = $_SESSION['role'] ?? '';
 $hasDirectorAccess = in_array($role, ['admin', 'director']);
 if (!$hasDirectorAccess) die("Unauthorized Access.");
 
-// MICRO-API: Feed Map Data
+// MICRO-API: Feed Map Data (Upgraded to include Driver and Times)
 if (isset($_GET['action']) && $_GET['action'] == 'map_data') {
     header('Content-Type: application/json');
-    $mode = $_GET['mode'] ?? 'period'; // Default to period
+    $mode = $_GET['mode'] ?? 'period'; 
+    
+    $query = "
+        SELECT pb.id, pb.status, pb.location_lat, pb.location_lng, pb.client_name, pb.booking_date, pb.start_time, pb.end_time,
+               p.name as plant_name, p.category, prj.name as project_name,
+               u.first_name, u.last_name
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id 
+        LEFT JOIN projects prj ON pb.project_id = prj.id 
+        LEFT JOIN users u ON pb.driver_id = u.id
+        WHERE pb.location_lat IS NOT NULL AND pb.location_lat != ''
+    ";
     
     if ($mode === 'period') {
         $start = $_GET['start'] ?? date('Y-m-d');
         $end = $_GET['end'] ?? date('Y-m-d');
-        $stmt = $pdo->prepare("
-            SELECT pb.id, pb.status, pb.location_lat, pb.location_lng, pb.client_name, 
-                   p.name as plant_name, p.category, prj.name as project_name 
-            FROM plant_bookings pb 
-            JOIN plants p ON pb.plant_id = p.id 
-            LEFT JOIN projects prj ON pb.project_id = prj.id 
-            WHERE pb.location_lat IS NOT NULL AND pb.location_lat != ''
-            AND pb.booking_date >= ? AND pb.booking_date <= ?
-        ");
+        $stmt = $pdo->prepare($query . " AND pb.booking_date >= ? AND pb.booking_date <= ?");
         $stmt->execute([$start, $end]);
     } else {
-        $stmt = $pdo->prepare("
-            SELECT pb.id, pb.status, pb.location_lat, pb.location_lng, pb.client_name, 
-                   p.name as plant_name, p.category, prj.name as project_name 
-            FROM plant_bookings pb 
-            JOIN plants p ON pb.plant_id = p.id 
-            LEFT JOIN projects prj ON pb.project_id = prj.id 
-            WHERE pb.status IN ('In Progress', 'Paused') 
-            AND pb.location_lat IS NOT NULL AND pb.location_lat != ''
-        ");
+        $stmt = $pdo->prepare($query . " AND pb.status IN ('In Progress', 'Paused')");
         $stmt->execute();
     }
     
@@ -60,7 +55,6 @@ include 'header.php';
     .kpi-section-title { font-size: 1rem; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 15px; border-bottom: 2px solid rgba(128,128,128,0.2); padding-bottom: 5px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
     
-    /* Clickable KPI Cards */
     .kpi-card { background: rgba(128, 128, 128, 0.05); padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); border-bottom: 4px solid transparent; cursor: pointer; transition: 0.2s; position: relative; }
     .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); background: rgba(128, 128, 128, 0.1); }
     .kpi-card::after { content: '\f0b0'; font-family: 'Font Awesome 5 Free'; font-weight: 900; position: absolute; top: 15px; right: 15px; opacity: 0; transition: 0.2s; color: inherit; }
@@ -81,7 +75,6 @@ include 'header.php';
     .map-toggle-btn { flex: 1; text-align: center; padding: 6px 16px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase; color: #64748b; cursor: pointer; z-index: 2; transition: color 0.3s ease; position: relative; }
     .map-toggle-btn.active { color: #fff; }
     .map-toggle-slider { position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3b82f6; border-radius: 30px; transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), background-color 0.3s; z-index: 1; }
-    /* When Live is selected (right side) */
     .map-toggle-wrapper[data-mode="live"] .map-toggle-slider { transform: translateX(100%); background: #10b981; }
 
     /* Breakdown Table */
@@ -101,8 +94,21 @@ include 'header.php';
     #drillModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
     #drillModal { width: 700px; max-width: 95%; max-height: 85vh; background: #1e293b; color: #f8fafc; border-radius: 12px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
     
+    /* FULLCALENDAR ALIGNMENT FIXES */
     .fc { font-size: 0.95rem; --fc-page-bg-color: transparent; --fc-neutral-bg-color: rgba(255, 255, 255, 0.05); --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.1); --fc-border-color: rgba(128, 128, 128, 0.2); }
     .fc-theme-standard .fc-list { background: transparent !important; }
+    
+    /* Force Time Column Alignment and Hide Ugly Dots */
+    .fc-list-event-dot { display: none !important; }
+    .fc-list-event-time { 
+        width: 140px !important; 
+        font-weight: 800 !important; 
+        color: #94a3b8 !important; 
+        text-align: right !important;
+        padding-right: 15px !important;
+        vertical-align: middle !important;
+    }
+    .fc-list-event-title { padding-left: 0 !important; vertical-align: middle !important; }
 </style>
 
 <div class="cmd-center">
@@ -116,13 +122,11 @@ include 'header.php';
     <div class="panel" style="margin-bottom: 30px;">
         <div class="panel-header">
             <div><i class="fas fa-satellite-dish" style="color:#3b82f6;"></i> Fleet Telemetry</div>
-            
             <div class="map-toggle-wrapper" id="mapToggleWrapper" data-mode="period">
                 <div class="map-toggle-slider"></div>
                 <div class="map-toggle-btn active" id="btnPeriod" onclick="setMapMode('period')">Period</div>
                 <div class="map-toggle-btn" id="btnLive" onclick="setMapMode('live')">Live</div>
             </div>
-            
         </div>
         <div id="fleetMap" style="height: 350px; width: 100%; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 1;"></div>
     </div>
@@ -226,9 +230,8 @@ include 'header.php';
     let currentDrillData = {};
     let calStartCache = '';
     let calEndCache = '';
-    let activeMapMode = 'period'; // Default map mode
+    let activeMapMode = 'period'; 
 
-    // Slider Toggle Logic
     function setMapMode(mode) {
         activeMapMode = mode;
         const wrapper = document.getElementById('mapToggleWrapper');
@@ -241,7 +244,6 @@ include 'header.php';
             document.getElementById('btnPeriod').classList.add('active');
             document.getElementById('btnLive').classList.remove('active');
         }
-        
         loadMapTelemetry();
     }
 
@@ -277,8 +279,7 @@ include 'header.php';
             map.eachLayer(layer => { if (layer instanceof L.Marker) layer.remove(); });
             jobs.forEach(job => {
                 if (job.location_lat) {
-                    let iconHtml = '';
-                    let badge = '';
+                    let iconHtml = ''; let badge = '';
                     
                     if (job.status === 'In Progress') {
                         iconHtml = '<div class="map-marker-pulse"></div>';
@@ -295,10 +296,27 @@ include 'header.php';
                     }
 
                     const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [16,16], iconAnchor: [8,8] });
-                    const clientText = job.client_name || job.project_name || 'Unknown';
+                    const clientText = job.client_name || job.project_name || 'Unknown Location';
                     
-                    L.marker([job.location_lat, job.location_lng], { icon: cIcon }).addTo(map)
-                     .bindPopup(`<div style="color:#000;"><b>${job.plant_name}</b><br>${clientText}<br><div style="margin-top:5px;">${badge}</div></div>`);
+                    // Detailed Information for Popup
+                    const driverName = (job.first_name || job.last_name) ? `${job.first_name || ''} ${job.last_name || ''}`.trim() : 'Unassigned';
+                    const timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
+                    
+                    const popupHtml = `
+                        <div style="color:#0f172a; font-family:'Inter', sans-serif; min-width: 240px;">
+                            <div style="font-weight:900; font-size:1.05rem; margin-bottom:2px;">${job.plant_name}</div>
+                            <div style="font-size:0.8rem; color:#64748b; margin-bottom:10px; font-weight:600;">${clientText}</div>
+                            <div style="font-size:0.85rem; margin-bottom:4px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                                <i class="fas fa-hard-hat" style="width:16px; color:#94a3b8;"></i> ${driverName}
+                            </div>
+                            <div style="font-size:0.85rem; margin-bottom:12px;">
+                                <i class="far fa-clock" style="width:16px; color:#94a3b8;"></i> ${job.booking_date} (${timeStr})
+                            </div>
+                            <div>${badge}</div>
+                        </div>
+                    `;
+                    
+                    L.marker([job.location_lat, job.location_lng], { icon: cIcon }).addTo(map).bindPopup(popupHtml);
                 }
             });
         });
@@ -314,11 +332,64 @@ include 'header.php';
             headerToolbar: { left: 'prev,next today', center: 'title', right: 'listDay,listWeek,listMonth' },
             buttonText: { listDay: 'Day', listWeek: 'Week', listMonth: 'Month' },
             height: 600,
+            
+            // STRICT TIME FORMATTING TO FIX ALIGNMENT
+            eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+            displayEventEnd: true,
+            
             events: 'api/plant_actions.php?action=fetch_bookings',
+            
+            // CUSTOM ICON AND BADGE PARSER
+            eventContent: function(arg) {
+                let title = arg.event.title;
+                let lowerTitle = title.toLowerCase();
+                let icon = 'fa-cogs'; // Default industrial icon
+                
+                // Map the category strings found in the title to strict FontAwesome icons
+                if (lowerTitle.includes('boom')) icon = 'fa-truck-pickup';
+                else if (lowerTitle.includes('crane')) icon = 'fa-truck-loading';
+                else if (lowerTitle.includes('drum cutter') || lowerTitle.includes('drumcutter')) icon = 'fa-cogs';
+                else if (lowerTitle.includes('excavator') || lowerTitle.includes('kobelco') || lowerTitle.includes('kato') || lowerTitle.includes('jcb')) icon = 'fa-tractor';
+                else if (lowerTitle.includes('truck') || lowerTitle.includes('trailer')) icon = 'fa-truck';
+                else if (lowerTitle.includes('piling')) icon = 'fa-hammer';
+                else if (lowerTitle.includes('pump') || lowerTitle.includes('concrete')) icon = 'fa-water';
+                else if (lowerTitle.includes('rock saw') || lowerTitle.includes('rocksaw')) icon = 'fa-cog';
+                else if (lowerTitle.includes('scarifier')) icon = 'fa-road';
+
+                // Extract Emojis and convert them to clean CSS Status Badges
+                let statusIcon = '';
+                let rawTitle = title;
+                if (rawTitle.includes('🧾')) { 
+                    statusIcon = '<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(16,185,129,0.2);"><i class="fas fa-file-invoice"></i> RFP Finalized</span>'; 
+                    rawTitle = rawTitle.replace('🧾 ', ''); 
+                }
+                else if (rawTitle.includes('✅')) { 
+                    statusIcon = '<span style="background:rgba(59,130,246,0.15); color:#3b82f6; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(59,130,246,0.2);"><i class="fas fa-check"></i> Completed</span>'; 
+                    rawTitle = rawTitle.replace('✅ ', ''); 
+                }
+                else if (rawTitle.includes('⏳')) { 
+                    statusIcon = '<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(16,185,129,0.2);"><i class="fas fa-play"></i> Active</span>'; 
+                    rawTitle = rawTitle.replace('⏳ ', ''); 
+                }
+                else if (rawTitle.includes('⏸️')) { 
+                    statusIcon = '<span style="background:rgba(245,158,11,0.15); color:#f59e0b; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(245,158,11,0.2);"><i class="fas fa-pause"></i> Paused</span>'; 
+                    rawTitle = rawTitle.replace('⏸️ ', ''); 
+                }
+                else {
+                    statusIcon = '<span style="background:rgba(148,163,184,0.15); color:#94a3b8; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(148,163,184,0.2);"><i class="far fa-clock"></i> Pending</span>'; 
+                }
+
+                return {
+                    html: `<div style="display:flex; align-items:center;">
+                             <div style="width:30px; text-align:center; color:#38bdf8; font-size:1.1rem; margin-right:10px;"><i class="fas ${icon}"></i></div>
+                             ${statusIcon}
+                             <div style="font-weight:600; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${rawTitle.trim()}</div>
+                           </div>`
+                };
+            },
             
             eventClick: function(info) {
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
-                    // Requires Completed AND a subtotal > 0 OR an ERP payment status to be considered "RFP finalized"
                     if (job.status === 'Completed' && (parseFloat(job.final_subtotal) > 0 || ['Invoiced','Settled'].includes(job.payment_status))) {
                         window.open(`print_plant_invoice.php?booking_id=${job.id}&readonly=1`, 'rfpPopup', 'width=1000,height=900,scrollbars=yes');
                     } else {
@@ -331,10 +402,7 @@ include 'header.php';
                 calStartCache = info.startStr.split('T')[0];
                 calEndCache = info.endStr.split('T')[0];
                 
-                // If the map is in Period mode, refresh it to match the new dates
-                if (activeMapMode === 'period') {
-                    loadMapTelemetry();
-                }
+                if (activeMapMode === 'period') { loadMapTelemetry(); }
 
                 document.getElementById('dynamic-subtitle').innerText = "Viewing Data for " + (info.view.type === 'listDay' ? "this Day" : (info.view.type === 'listMonth' ? "this Month" : "this Week"));
                 const fd = new FormData(); fd.append('action', 'get_dashboard_stats'); fd.append('start', info.startStr); fd.append('end', info.endStr);
@@ -364,7 +432,6 @@ include 'header.php';
                         data.plants.forEach(p => {
                             let cat = p.category || 'General';
                             
-                            // Map accurate FontAwesome 5/6 Icons based on exact provided list
                             if (cat !== currentCat) {
                                 let icon = 'fa-cogs'; 
                                 let lowerCat = cat.toLowerCase();
