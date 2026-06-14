@@ -1135,8 +1135,68 @@ $userId = $_SESSION['user_id'];
     }
 
     function punchJob(id, direction) {
-        if (!confirm("Start Job?")) return;
-        fetch(`api/plant_actions.php?action=punch_${direction}&id=${id}`).then(r => r.text()).then(res => { if (res === 'OK') { loadJob(id); calendar.refetchEvents(); } });
+        if (!confirm("Are you sure you want to " + (direction === 'in' ? "start" : "complete") + " this job?")) return;
+
+        const btn = event.target.closest('button');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        btn.disabled = true;
+
+        // Strictly check if the active user is a driver
+        const isDriver = <?= ($_SESSION['role'] === 'plant_driver') ? 'true' : 'false' ?>;
+
+        // If it's a driver clocking IN, request their exact phone location
+        if (direction === 'in' && isDriver) {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                        // Success: We got the exact coordinates!
+                        sendPunchData(id, direction, position.coords.latitude, position.coords.longitude, btn, originalHtml);
+                    },
+                    function(error) {
+                        console.warn("GPS failed or denied. Falling back to standard punch in.");
+                        // Fallback: Let them punch in even if GPS fails so they aren't blocked from working
+                        sendPunchData(id, direction, null, null, btn, originalHtml);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } // Request high-precision GPS
+                );
+            } else {
+                // Browser doesn't support GPS
+                sendPunchData(id, direction, null, null, btn, originalHtml);
+            }
+        } else {
+            // Managers, Admins, or clocking OUT bypass the GPS request entirely
+            sendPunchData(id, direction, null, null, btn, originalHtml);
+        }
+    }
+
+    function sendPunchData(id, direction, lat, lng, btn, originalHtml) {
+        const fd = new FormData();
+        fd.append('action', direction === 'in' ? 'punch_in' : 'punch_out_complete');
+        fd.append('id', id);
+        
+        // Append GPS data if we have it
+        if (lat && lng) {
+            fd.append('lat', lat);
+            fd.append('lng', lng);
+        }
+
+        fetch('api/plant_actions.php?id=' + id, { method: 'POST', body: fd })
+        .then(r => r.text())
+        .then(res => {
+            if (res === 'OK') {
+                loadJob(id);
+                calendar.refetchEvents();
+            } else {
+                alert("Error: " + res);
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }).catch(err => {
+            alert("Network error.");
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        });
     }
 
     function startPunchOut(id, pricingType) { 
