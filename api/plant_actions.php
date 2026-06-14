@@ -8,13 +8,13 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
     try {
         $stmt = $pdo->prepare("INSERT INTO plant_audit_log (user_id, booking_id, action_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$userId, $bookingId, $actionType, $details, $ip]);
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
     } catch(PDOException $e) {
         // Silently fail so a logging error never stops a live billing transaction
     }
 }
 
 function pushBookingToERP($pdo, $bookingId, $userId) {
-    // 1. Fetch the completely finalized job data
     $stmt = $pdo->prepare("
         SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, p.min_hours, u.first_name as driver_first, u.last_name as driver_last
         FROM plant_bookings pb 
@@ -34,67 +34,80 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
 
-    // 2. Build the lines with strict DAStoringAccuracy rounding!
     $lines = [];
+    $grossSubtotal = 0;
+    $discountPct = isset($job['final_discount_pct']) ? (float)$job['final_discount_pct'] : 0.00;
     
     if ((float)$job['final_setup_fee'] > 0) {
         $setupCode = $setupNom ? trim($setupNom['NCCode']) : (!empty($job['nom_code_setup']) ? $job['nom_code_setup'] : '0000');
         $setupDesc = $setupNom ? substr(trim($setupNom['NCDesc']), 0, 35) : "Setup / Mobilisation Fee";
+        $price = round((float)$job['final_setup_fee'], 4);
+        $qty = round(1, 2);
+        $grossSubtotal += round($qty * $price, 2);
+        
         $lines[] = [ "Type" => "N", "Code" => $setupCode, "Description" => $setupDesc, "UOMLevel" => 1, "Location" => "01", 
-                     "Qty" => round(1, 2), "Price" => round((float)$job['final_setup_fee'], 4), 
-                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+                     "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
     }
     
     if ($job['pricing_type'] == 'fixed_then_hourly') {
         $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $fDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Fixed Callout Charge";
+        $price = round((float)$job['final_rate_fixed'], 4);
+        $qty = round(1, 2);
+        $grossSubtotal += round($qty * $price, 2);
+        
         $lines[] = [ "Type" => "N", "Code" => $fCode, "Description" => $fDesc, "UOMLevel" => 1, "Location" => "01", 
-                     "Qty" => round(1, 2), "Price" => round((float)$job['final_rate_fixed'], 4), 
-                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+                     "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
         
         $extraHours = round((float)$job['final_hours'] - (float)$job['min_hours'], 2);
         if ($extraHours > 0) {
             $vCode = $varNom ? trim($varNom['NCCode']) : trim($job['nom_code_variable']);
             $vDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Additional Hourly Rate";
+            $vPrice = round((float)$job['final_rate_var'], 4);
+            $grossSubtotal += round($extraHours * $vPrice, 2);
+            
             $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", 
-                         "Qty" => $extraHours, "Price" => round((float)$job['final_rate_var'], 4), 
-                         "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+                         "Qty" => $extraHours, "Price" => $vPrice, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
         }
     } elseif ($job['pricing_type'] == 'per_trip') {
         $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
         $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
+        $price = round((float)$job['final_rate_fixed'], 4);
+        $grossSubtotal += round($qty * $price, 2);
+        
         $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", 
-                     "Qty" => $qty, "Price" => round((float)$job['final_rate_fixed'], 4), 
-                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+                     "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
     } else {
         $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
         $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
         $qty = round((float)$job['final_hours'], 2);
+        $price = round((float)$job['final_rate_var'], 4);
+        $grossSubtotal += round($qty * $price, 2);
+        
         $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", 
-                     "Qty" => $qty, "Price" => round((float)$job['final_rate_var'], 4), 
-                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+                     "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
     }
 
-    // Explicitly round Totals and VAT to 2
-    $totalVal = round((float)$job['final_subtotal'], 2); 
-    $totalTax = round($totalVal * 0.18, 2);
+    $totalDiscount = round($grossSubtotal * ($discountPct / 100), 2);
+    $netSubtotal = round($grossSubtotal - $totalDiscount, 2);
+    $totalTax = round($netSubtotal * 0.18, 2);
     
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
+    // Text lines do not get discounts applied to them
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
 
-    // 3. Push to ERP
     $payload = [ 
         "Type" => "IN", 
         "Transaction" => [ 
             "InvioceHeader" => [ 
                 "THTranCode" => "IN", "THDate" => $job['booking_date'], "THUserID" => "API", 
                 "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", 
-                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), "THExtRef" => $jobRef, 
-                "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => $totalTax, 
+                "THTotValueTIF" => (string)round($netSubtotal + $totalTax, 2), "THExtRef" => $jobRef, 
+                "THRevision" => "001", "THTotDiscF" => $totalDiscount, "THTotDiscTIF" => $totalDiscount, "THTotTaxF" => $totalTax, 
                 "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => "" 
             ], 
             "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" 
@@ -783,7 +796,6 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
 
-    // 1. Fetch initial job data to calculate Subtotal locally
     $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, p.setup_fee, p.nom_code_setup FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -794,7 +806,6 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
     $apiKey = getApiKey($job['billing_company_id']);
     
-    // Process punch clock hours from Admin input
     $punchIn = null; $punchOut = null;
     if (!empty($_POST['time_in']) && !empty($_POST['time_out'])) {
         $tInTime = strtotime($_POST['time_in']); $tOutTime = strtotime($_POST['time_out']);
@@ -807,10 +818,10 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
     }
 
-    // Capture explicit rates from the UI
     $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
     $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
     $customSetupFee = isset($_POST['setup_fee']) ? (float)$_POST['setup_fee'] : null;
+    $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
 
     $isInternal = $job['booking_type'] == 'in-house'; 
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
@@ -824,29 +835,22 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
     }
 
-    // Recalculate Subtotal securely on the server (Strict 2-Decimal ERP Rounding)
+    // Backend calculation for local database saving
     $backendSubtotal = round($syncSetupPrice, 2);
-    
     if ($job['pricing_type'] == 'fixed_then_hourly') {
         $backendSubtotal += round($syncPriceFixed, 2);
-        $extraHours = round($finalHours - (float)$job['min_hours'], 2); // Qty is 2 Decimals
-        if ($extraHours > 0) {
-            // Multiply Qty (2) * Unit Price (4), then round the Line Total to 2!
-            $backendSubtotal += round($extraHours * $syncPriceVar, 2); 
-        }
+        $extraHours = round($finalHours - (float)$job['min_hours'], 2);
+        if ($extraHours > 0) $backendSubtotal += round($extraHours * $syncPriceVar, 2);
     } elseif ($job['pricing_type'] == 'per_trip') {
         $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } else {
-        $qty = round($finalHours, 2);
-        $backendSubtotal += round($qty * $syncPriceVar, 2);
+        $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2);
     }
 
-    // 2. SAFELY RECORD THE MATH TO THE DATABASE
-    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, payment_status='Invoiced' WHERE id=?");
-    $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $bookingId]);
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, final_discount_pct=?, payment_status='Invoiced' WHERE id=?");
+    $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $customDiscountPct, $bookingId]);
     
-    // 3. Call our unified ERP pusher!
     $erpResult = pushBookingToERP($pdo, $bookingId, $userId);
     
     if ($erpResult === "OK") {
@@ -858,13 +862,11 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 }
 
 if ($action == 'retry_erp_sync' && $canViewLedger) {
-    // Just call the unified ERP pusher directly!
     $erpResult = pushBookingToERP($pdo, $_POST['booking_id'], $userId);
-    
     if ($erpResult === "OK") {
         echo "OK";
     } else {
-        echo $erpResult; // Echos the specific error string
+        echo $erpResult; 
     }
     exit;
 }
@@ -960,4 +962,25 @@ if ($action == 'update_job_client' && $isManager) {
     echo "OK";
     exit;
 }
+
+if ($action == 'get_client_max_discount') {
+    $clientCode = $_GET['client_code'] ?? '';
+    $companyId = $_GET['company_id'] ?? '';
+    
+    $apiKey = getApiKey($companyId);
+    $clients = getJ2ApiData('/clients', $apiKey);
+    
+    $maxDisc = 0;
+    if (is_array($clients)) {
+        foreach ($clients as $c) {
+            if (trim((string)($c['ClientCode'] ?? '')) === trim($clientCode)) {
+                $maxDisc = isset($c['CliDefDisc']) ? (float)$c['CliDefDisc'] : 0;
+                break;
+            }
+        }
+    }
+    echo json_encode(['max_discount' => $maxDisc]);
+    exit;
+}
+    
 ?>
