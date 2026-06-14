@@ -1076,8 +1076,13 @@ $userId = $_SESSION['user_id'];
             if (canInteract) {
                 if (job.status === 'Pending' && job.driver_id > 0) {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
+                } else if (job.status === 'Paused') {
+                    controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Resume Job</button>`;
                 } else if (job.status === 'In Progress') {
-                    controlsHtml += `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job</button>`;
+                    if (job.category === 'Excavator') {
+                        controlsHtml += `<button class="btn-heavy btn-blue" onclick="pauseJob(${job.id})"><i class="fas fa-pause"></i> Pause Job (End Day)</button>`;
+                    }
+                    controlsHtml += `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job (Final Signature)</button>`;
                 }
             }
             
@@ -1324,6 +1329,14 @@ $userId = $_SESSION['user_id'];
         }).catch(err => {
             alert("Network error occurred.");
             loadLedger(); // Reset UI state
+        });
+    }
+
+    function pauseJob(id) {
+        if (!confirm("Pause this job for the day? It will remain active on the calendar and billing clock will stop.")) return;
+        const fd = new FormData(); fd.append('action', 'pause_job'); fd.append('id', id);
+        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { 
+            if (res === 'OK') { loadJob(id); calendar.refetchEvents(); } 
         });
     }
 </script>
