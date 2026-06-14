@@ -147,7 +147,7 @@ $sysRef = $job['invoice_sysref'] ?? '';
 $isSynced = !empty($sysRef) && !in_array($sysRef, ['N/A', 'SUCCESS_NO_REF']);
 
 // Allow edit if it's the very first time (Pending) OR if an Admin is editing a Local Only RFP
-$canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
+$canEdit = (isset($_GET['readonly']) && $_GET['readonly'] == '1') ? false : (($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced));
 $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_discount_pct'] : 0.00;
 ?>
 
