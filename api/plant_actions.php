@@ -34,44 +34,57 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
 
-    // 2. Build the lines using dynamic descriptions
+    // 2. Build the lines with strict DAStoringAccuracy rounding!
     $lines = [];
     
     if ((float)$job['final_setup_fee'] > 0) {
         $setupCode = $setupNom ? trim($setupNom['NCCode']) : (!empty($job['nom_code_setup']) ? $job['nom_code_setup'] : '0000');
         $setupDesc = $setupNom ? substr(trim($setupNom['NCDesc']), 0, 35) : "Setup / Mobilisation Fee";
-        $lines[] = [ "Type" => "N", "Code" => $setupCode, "Description" => $setupDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_setup_fee'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+        $lines[] = [ "Type" => "N", "Code" => $setupCode, "Description" => $setupDesc, "UOMLevel" => 1, "Location" => "01", 
+                     "Qty" => round(1, 2), "Price" => round((float)$job['final_setup_fee'], 4), 
+                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
     }
     
     if ($job['pricing_type'] == 'fixed_then_hourly') {
         $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $fDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Fixed Callout Charge";
-        $lines[] = [ "Type" => "N", "Code" => $fCode, "Description" => $fDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+        $lines[] = [ "Type" => "N", "Code" => $fCode, "Description" => $fDesc, "UOMLevel" => 1, "Location" => "01", 
+                     "Qty" => round(1, 2), "Price" => round((float)$job['final_rate_fixed'], 4), 
+                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
         
-        $extraHours = (float)$job['final_hours'] - (float)$job['min_hours'];
+        $extraHours = round((float)$job['final_hours'] - (float)$job['min_hours'], 2);
         if ($extraHours > 0) {
             $vCode = $varNom ? trim($varNom['NCCode']) : trim($job['nom_code_variable']);
             $vDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Additional Hourly Rate";
-            $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+            $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", 
+                         "Qty" => $extraHours, "Price" => round((float)$job['final_rate_var'], 4), 
+                         "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
         }
     } elseif ($job['pricing_type'] == 'per_trip') {
         $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
-        $qty = (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1;
-        $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => $qty, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+        $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
+        $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", 
+                     "Qty" => $qty, "Price" => round((float)$job['final_rate_fixed'], 4), 
+                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
     } else {
         $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
         $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
-        $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['final_hours'], "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+        $qty = round((float)$job['final_hours'], 2);
+        $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", 
+                     "Qty" => $qty, "Price" => round((float)$job['final_rate_var'], 4), 
+                     "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
     }
 
-    $totalVal = (float)$job['final_subtotal']; 
-    $totalTax = $totalVal * 0.18;
+    // Explicitly round Totals and VAT to 2
+    $totalVal = round((float)$job['final_subtotal'], 2); 
+    $totalTax = round($totalVal * 0.18, 2);
+    
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
-    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => 1, "Location" => "01" ];
-    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => 1, "Location" => "01" ];
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
 
     // 3. Push to ERP
     $payload = [ 
@@ -81,7 +94,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                 "THTranCode" => "IN", "THDate" => $job['booking_date'], "THUserID" => "API", 
                 "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", 
                 "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), "THExtRef" => $jobRef, 
-                "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => round($totalTax, 2), 
+                "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => $totalTax, 
                 "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => "" 
             ], 
             "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" 
@@ -811,17 +824,22 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
     }
 
-    // Recalculate Subtotal securely on the server
-    $backendSubtotal = $syncSetupPrice;
+    // Recalculate Subtotal securely on the server (Strict 2-Decimal ERP Rounding)
+    $backendSubtotal = round($syncSetupPrice, 2);
+    
     if ($job['pricing_type'] == 'fixed_then_hourly') {
-        $backendSubtotal += $syncPriceFixed;
-        $extraHours = $finalHours - (float)$job['min_hours'];
-        if ($extraHours > 0) $backendSubtotal += ($extraHours * $syncPriceVar);
+        $backendSubtotal += round($syncPriceFixed, 2);
+        $extraHours = round($finalHours - (float)$job['min_hours'], 2); // Qty is 2 Decimals
+        if ($extraHours > 0) {
+            // Multiply Qty (2) * Unit Price (4), then round the Line Total to 2!
+            $backendSubtotal += round($extraHours * $syncPriceVar, 2); 
+        }
     } elseif ($job['pricing_type'] == 'per_trip') {
-        $qty = (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1;
-        $backendSubtotal += ($qty * $syncPriceFixed);
+        $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
+        $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } else {
-        $backendSubtotal += ($finalHours * $syncPriceVar);
+        $qty = round($finalHours, 2);
+        $backendSubtotal += round($qty * $syncPriceVar, 2);
     }
 
     // 2. SAFELY RECORD THE MATH TO THE DATABASE
