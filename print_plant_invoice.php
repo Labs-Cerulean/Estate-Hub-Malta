@@ -101,10 +101,37 @@ if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("PRA-%s-%04d", $jobYear, $bookingId);
 
+// Fetch all logged sessions for this job
+$sessionsStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
+$sessionsStmt->execute([$bookingId]);
+$sessions = $sessionsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$totalSessionHours = 0;
+foreach ($sessions as $s) {
+    $totalSessionHours += (float)$s['hours'];
+}
+
+// Check if there is an actively running session right now
+$activeSessionHours = 0;
+if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])) {
+    $activeIn = new DateTime($job['punch_in_time']);
+    $activeOut = new DateTime(); // Now
+    $activeInterval = $activeIn->diff($activeOut);
+    $activeSessionHours = round($activeInterval->h + ($activeInterval->i / 60), 2);
+}
+
+// Fallback for standard 1-day jobs
 $inTime = !empty($job['punch_in_time']) ? new DateTime($job['punch_in_time']) : new DateTime($job['booking_date'] . ' ' . $job['start_time']);
 $outTime = !empty($job['punch_out_time']) ? new DateTime($job['punch_out_time']) : new DateTime($job['booking_date'] . ' ' . $job['end_time']);
 $interval = $inTime->diff($outTime);
-$hoursWorked = round($interval->h + ($interval->i / 60), 2);
+$legacyHoursWorked = round($interval->h + ($interval->i / 60), 2);
+
+// Determine the true total hours
+if (count($sessions) > 0) {
+    $hoursWorked = $totalSessionHours + $activeSessionHours;
+} else {
+    $hoursWorked = $legacyHoursWorked;
+}
 
 $isTripBased = ($job['pricing_type'] == 'per_trip');
 $qtyValue = $isTripBased ? ($job['qty_trips'] > 0 ? $job['qty_trips'] : 1) : $hoursWorked;
@@ -256,16 +283,36 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <div class="data-row"><span class="data-label">Reg Plate</span><span class="data-val"><?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?></span></div>
             <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= htmlspecialchars($job['first_name'] ?? 'Unassigned') ?> <?= htmlspecialchars($job['last_name'] ?? '') ?></span></div>
             
-            <div class="data-row">
+            <div class="data-row" style="align-items: flex-start;">
                 <span class="data-label">Time Logged</span>
                 <span class="data-val">
-                    <?php if ($canEdit && !$isTripBased): ?>
-                        <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
-                        <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
+                    <?php if (count($sessions) > 0): ?>
+                        <div style="text-align: right; font-size: 0.85rem; color: #475569;">
+                            <?php foreach($sessions as $idx => $s): ?>
+                                <div style="margin-bottom: 3px;">
+                                    <b>Day <?= $idx+1 ?>:</b> <?= date('d M, H:i', strtotime($s['punch_in'])) ?> to <?= date('H:i', strtotime($s['punch_out'])) ?> 
+                                    <span style="color:#000; font-weight:bold;">(<?= $s['hours'] ?> hrs)</span>
+                                </div>
+                            <?php endforeach; ?>
+                            
+                            <?php if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])): ?>
+                                <div style="color:#3b82f6; margin-top: 5px;">
+                                    <b><i class="fas fa-clock fa-spin"></i> Active Now:</b> Since <?= date('d M, H:i', strtotime($job['punch_in_time'])) ?>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <input type="hidden" id="edit_time_in" value="">
+                            <input type="hidden" id="edit_time_out" value="">
+                        </div>
                     <?php else: ?>
-                        <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
-                        <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
-                        <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                        <?php if ($canEdit && !$isTripBased): ?>
+                            <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
+                            <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
+                        <?php else: ?>
+                            <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
+                            <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
+                            <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                        <?php endif; ?>
                     <?php endif; ?>
                 </span>
             </div>

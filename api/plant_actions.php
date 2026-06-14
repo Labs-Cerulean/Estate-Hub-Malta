@@ -9,6 +9,14 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
         $stmt = $pdo->prepare("INSERT INTO plant_audit_log (user_id, booking_id, action_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$userId, $bookingId, $actionType, $details, $ip]);
         $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        booking_id INT NOT NULL,
+        punch_in DATETIME NOT NULL,
+        punch_out DATETIME NOT NULL,
+        hours DECIMAL(10,2) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
     } catch(PDOException $e) {
         // Silently fail so a logging error never stops a live billing transaction
     }
@@ -407,50 +415,36 @@ if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) 
     $startDate = !empty($_POST['start']) ? date('Y-m-d', strtotime($_POST['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_POST['end']) ? date('Y-m-d', strtotime($_POST['end'])) : date('Y-m-d', strtotime('+1 month'));
 
+    // 1. Top Level KPIs
     $statsStmt = $pdo->prepare("
         SELECT 
-            COUNT(id) as total_jobs,
             SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_jobs,
-            SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_jobs,
-            SUM(CASE WHEN payment_status IN ('Invoiced', 'Settled') THEN final_subtotal ELSE 0 END) as invoiced_revenue
+            SUM(CASE WHEN status = 'Completed' THEN final_hours ELSE 0 END) as total_hours,
+            SUM(CASE WHEN status = 'Completed' THEN final_subtotal ELSE 0 END) as revenue_generated,
+            SUM(CASE WHEN status = 'Completed' AND invoice_sysref IS NOT NULL AND invoice_sysref NOT IN ('', 'N/A', 'SUCCESS_NO_REF') THEN final_subtotal ELSE 0 END) as invoiced_revenue
         FROM plant_bookings 
         WHERE booking_date >= ? AND booking_date <= ?
     ");
     $statsStmt->execute([$startDate, $endDate]);
     $kpi = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-    $driverStmt = $pdo->prepare("
+    // 2. Plant Performance Breakdown (Completed Jobs Only)
+    $plantStmt = $pdo->prepare("
         SELECT 
-            u.first_name, u.last_name, 
-            COUNT(pb.id) as job_count,
-            SUM(TIME_TO_SEC(TIMEDIFF(pb.end_time, pb.start_time))/3600) as scheduled_hours,
-            SUM(pb.final_hours) as actual_hours
+            p.category, p.name as plant_name, 
+            COUNT(pb.id) as booking_count,
+            SUM(pb.final_hours) as total_hours,
+            SUM(pb.final_subtotal) as total_revenue
         FROM plant_bookings pb
-        JOIN users u ON pb.driver_id = u.id
-        WHERE pb.booking_date >= ? AND pb.booking_date <= ?
-        GROUP BY u.id
-        ORDER BY scheduled_hours DESC
-    ");
-    $driverStmt->execute([$startDate, $endDate]);
-    $driverStats = $driverStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $uninvoicedStmt = $pdo->prepare("
-        SELECT pb.id, p.name as plant_name, pb.booking_date, pb.client_name, prj.name as project_name 
-        FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id
-        LEFT JOIN projects prj ON pb.project_id = prj.id
-        WHERE pb.status = 'Completed' AND pb.payment_status = 'Pending'
-        AND pb.booking_date >= ? AND pb.booking_date <= ?
-        ORDER BY pb.booking_date ASC LIMIT 15
+        WHERE pb.booking_date >= ? AND pb.booking_date <= ? AND pb.status = 'Completed'
+        GROUP BY p.category, p.id
+        ORDER BY p.category ASC, p.name ASC
     ");
-    $uninvoicedStmt->execute([$startDate, $endDate]);
-    $uninvoicedJobs = $uninvoicedStmt->fetchAll(PDO::FETCH_ASSOC);
+    $plantStmt->execute([$startDate, $endDate]);
+    $plants = $plantStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    foreach ($uninvoicedJobs as &$uj) {
-        $uj['formatted_date'] = date('d M', strtotime($uj['booking_date']));
-    }
-
-    echo json_encode(['kpi' => $kpi, 'drivers' => $driverStats, 'uninvoiced' => $uninvoicedJobs]);
+    echo json_encode(['kpi' => $kpi, 'plants' => $plants]);
     exit;
 }
 
@@ -502,6 +496,8 @@ if ($action == 'fetch_bookings') {
             $statusInd = "✅ ";
         } elseif ($b['status'] == 'In Progress') {
             $statusInd = "⏳ ";
+        } elseif ($b['status'] == 'Paused') {
+            $statusInd = "⏸️ ";
         }
         
         $title = $statusInd . $b['plant_name'];
@@ -518,10 +514,15 @@ if ($action == 'fetch_bookings') {
         $eTime = !empty($b['end_time']) ? $b['end_time'] : '17:00:00';
         $startIso = $b['booking_date'] . 'T' . $sTime;
         
-        if (strtotime($eTime) < strtotime($sTime)) {
-            $endIso = date('Y-m-d', strtotime($b['booking_date'] . ' +1 day')) . 'T' . $eTime;
+        // CALENDAR EXTENSION LOGIC (Priority 6)
+        if (in_array($b['status'], ['In Progress', 'Paused']) && $cat === 'Excavator') {
+            $endIso = date('Y-m-d') . 'T' . $eTime; 
         } else {
-            $endIso = $b['booking_date'] . 'T' . $eTime;
+            if (strtotime($eTime) < strtotime($sTime)) {
+                $endIso = date('Y-m-d', strtotime($b['booking_date'] . ' +1 day')) . 'T' . $eTime;
+            } else {
+                $endIso = $b['booking_date'] . 'T' . $eTime;
+            }
         }
 
         $events[] = [
@@ -738,24 +739,59 @@ if ($action == 'claim_job') {
 // SECURE PUNCH-IN/OUT (FORCING MALTA TIMEZONE)
 // ---------------------------------------------------------
 if ($action == 'punch_in') { 
-    // Secure Server-side Time Generation
     $punchTime = date('Y-m-d H:i:s');
-    
     $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?) WHERE id=?");
     $stmt->execute([$punchTime, $userId, $_GET['id']]); 
-    logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in and started job", $_GET['id']);
+    logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in / resumed job", $_GET['id']);
     echo "OK"; 
     exit; 
 }
 
+if ($action == 'pause_job') {
+    $punchOut = date('Y-m-d H:i:s');
+    $bookingId = $_POST['id'];
+
+    $stmt = $pdo->prepare("SELECT punch_in_time FROM plant_bookings WHERE id = ?");
+    $stmt->execute([$bookingId]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Save the daily session
+    if (!empty($job['punch_in_time'])) {
+        $inTime = new DateTime($job['punch_in_time']);
+        $outTime = new DateTime($punchOut);
+        $interval = $inTime->diff($outTime);
+        $hours = round($interval->h + ($interval->i / 60), 2);
+
+        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours) VALUES (?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchOut, $hours]);
+    }
+
+    $pdo->prepare("UPDATE plant_bookings SET status='Paused', punch_in_time=NULL WHERE id=?")->execute([$bookingId]);
+    logPlantAction($pdo, $userId, 'JOB_PAUSED', "Driver paused the excavator job for the day", $bookingId);
+    echo "OK";
+    exit;
+}
+
 if ($action == 'punch_out_complete') {
-    // Secure Server-side Time Generation
     $punchTime = date('Y-m-d H:i:s');
     $bookingId = $_POST['id'];
     
+    // Log the final session
+    $stmt = $pdo->prepare("SELECT punch_in_time FROM plant_bookings WHERE id = ?");
+    $stmt->execute([$bookingId]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!empty($job['punch_in_time'])) {
+        $inTime = new DateTime($job['punch_in_time']);
+        $outTime = new DateTime($punchTime);
+        $interval = $inTime->diff($outTime);
+        $hours = round($interval->h + ($interval->i / 60), 2);
+
+        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours) VALUES (?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours]);
+    }
+
     $stmt = $pdo->prepare("
         UPDATE plant_bookings 
-        SET status='Completed', punch_out_time=?, qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=? 
+        SET status='Completed', punch_out_time=?, qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=?, punch_in_time=NULL 
         WHERE id=?
     ");
     
@@ -768,10 +804,6 @@ if ($action == 'punch_out_complete') {
         $bookingId
     ]);
     
-    $domain = APP_URL; 
-    $accEmail = $pdo->query("SELECT email FROM users WHERE role='accountant' AND is_active='Yes' LIMIT 1")->fetchColumn() ?: 'accounts@yourdomain.com'; 
-    
-    @mail($accEmail, "Plant Job Completed", "A heavy plant job has been completed. Review RFP: " . $domain . "/print_plant_invoice.php?booking_id=" . $bookingId, "From: system@yourdomain.com"); 
     logPlantAction($pdo, $userId, 'JOB_COMPLETED', "Driver completed job and submitted client signature", $bookingId);
     echo "OK"; 
     exit;
