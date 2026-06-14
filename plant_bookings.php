@@ -1334,9 +1334,26 @@ $userId = $_SESSION['user_id'];
 
     function pauseJob(id) {
         if (!confirm("Pause this job for the day? It will remain active on the calendar and billing clock will stop.")) return;
+        
+        const btn = event.target.closest('button');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pausing...';
+        btn.disabled = true;
+
         const fd = new FormData(); fd.append('action', 'pause_job'); fd.append('id', id);
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { 
-            if (res === 'OK') { loadJob(id); calendar.refetchEvents(); } 
+            if (res === 'OK') { 
+                loadJob(id); 
+                calendar.refetchEvents(); 
+            } else {
+                alert("Error pausing job: " + res);
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }).catch(err => {
+            alert("Network error occurred.");
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
         });
     }
 </script>
