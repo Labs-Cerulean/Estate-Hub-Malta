@@ -415,39 +415,84 @@ if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) 
     $startDate = !empty($_POST['start']) ? date('Y-m-d', strtotime($_POST['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_POST['end']) ? date('Y-m-d', strtotime($_POST['end'])) : date('Y-m-d', strtotime('+1 month'));
 
-    // 1. Top Level KPIs
-    $statsStmt = $pdo->prepare("
-        SELECT 
-            SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_jobs,
-            SUM(CASE WHEN status = 'Completed' THEN final_hours ELSE 0 END) as total_hours,
-            SUM(CASE WHEN status = 'Completed' THEN final_subtotal ELSE 0 END) as revenue_generated,
-            SUM(CASE WHEN status = 'Completed' AND invoice_sysref IS NOT NULL AND invoice_sysref NOT IN ('', 'N/A', 'SUCCESS_NO_REF') THEN final_subtotal ELSE 0 END) as invoiced_revenue
-        FROM plant_bookings 
-        WHERE booking_date >= ? AND booking_date <= ?
-    ");
-    $statsStmt->execute([$startDate, $endDate]);
-    $kpi = $statsStmt->fetch(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare("SELECT pb.*, p.category, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.booking_date >= ? AND pb.booking_date <= ?");
+    $stmt->execute([$startDate, $endDate]);
+    $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 2. Plant Performance Breakdown (Completed Jobs Only)
-    $plantStmt = $pdo->prepare("
-        SELECT 
-            p.category, p.name as plant_name, 
-            COUNT(pb.id) as booking_count,
-            SUM(pb.final_hours) as total_hours,
-            SUM(pb.final_subtotal) as total_revenue
-        FROM plant_bookings pb
-        JOIN plants p ON pb.plant_id = p.id
-        WHERE pb.booking_date >= ? AND pb.booking_date <= ? AND pb.status = 'Completed'
-        GROUP BY p.category, p.id
-        ORDER BY p.category ASC, p.name ASC
-    ");
-    $plantStmt->execute([$startDate, $endDate]);
-    $plants = $plantStmt->fetchAll(PDO::FETCH_ASSOC);
+    $kpi = [ 'completed_bookings' => 0, 'planned_bookings' => 0, 'executed_hours' => 0, 'planned_hours' => 0, 'revenue_generated' => 0, 'rfps_issued' => 0, 'erp_invoiced' => 0, 'projected_revenue' => 0, 'total_est_revenue' => 0 ];
 
-    echo json_encode(['kpi' => $kpi, 'plants' => $plants]);
+    $finalizedRev = 0; $finalizedHrs = 0; $unfinalizedHrsCompleted = 0;
+    $plantsMap = [];
+
+    foreach ($jobs as $j) {
+        $cat = $j['category'] ?: 'General';
+        $pName = $j['plant_name'];
+        if (!isset($plantsMap[$cat])) $plantsMap[$cat] = [];
+        if (!isset($plantsMap[$cat][$pName])) $plantsMap[$cat][$pName] = ['booking_count'=>0, 'total_hours'=>0, 'total_revenue'=>0];
+
+        // Calculate basic duration for planned estimates
+        $sTime = strtotime($j['booking_date'].' '.$j['start_time']);
+        $eTime = strtotime($j['booking_date'].' '.$j['end_time']);
+        $schHours = ($eTime - $sTime) / 3600;
+        if ($schHours < 0) $schHours += 24;
+
+        if ($j['status'] === 'Completed') {
+            $kpi['completed_bookings']++;
+            $hrs = ((float)$j['final_hours'] > 0 ? (float)$j['final_hours'] : $schHours);
+            $kpi['executed_hours'] += $hrs;
+            
+            $plantsMap[$cat][$pName]['booking_count']++;
+            $plantsMap[$cat][$pName]['total_hours'] += $hrs;
+            
+            if ((float)$j['final_subtotal'] > 0) {
+                // RFP is Finalized locally
+                $finalizedRev += (float)$j['final_subtotal'];
+                $finalizedHrs += $hrs;
+                $plantsMap[$cat][$pName]['total_revenue'] += (float)$j['final_subtotal'];
+            } else {
+                // RFP is NOT Finalized. We must estimate its revenue later.
+                $unfinalizedHrsCompleted += $hrs;
+                if (!isset($plantsMap[$cat][$pName]['unfinalized_hrs'])) $plantsMap[$cat][$pName]['unfinalized_hrs'] = 0;
+                $plantsMap[$cat][$pName]['unfinalized_hrs'] += $hrs;
+            }
+            
+            if (in_array($j['payment_status'], ['Invoiced', 'Settled'])) {
+                $kpi['rfps_issued']++;
+            }
+            if (!empty($j['invoice_sysref']) && !in_array($j['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'])) {
+                $kpi['erp_invoiced'] += (float)$j['final_subtotal'];
+            }
+        } elseif (in_array($j['status'], ['Pending', 'In Progress', 'Paused'])) {
+            $kpi['planned_bookings']++;
+            $kpi['planned_hours'] += $schHours;
+        }
+    }
+
+    // Determine real-time average hourly yield (fallback to 65.00 EUR/hr to prevent $0 estimates early in the week)
+    $avgYield = $finalizedHrs > 0 ? ($finalizedRev / $finalizedHrs) : 65.00; 
+
+    $kpi['revenue_generated'] = $finalizedRev + ($unfinalizedHrsCompleted * $avgYield);
+    $kpi['projected_revenue'] = $kpi['planned_hours'] * $avgYield;
+    $kpi['total_est_revenue'] = $kpi['revenue_generated'] + $kpi['projected_revenue'];
+
+    // Apply estimates to individual plant breakdown
+    $flatPlants = [];
+    ksort($plantsMap);
+    foreach ($plantsMap as $cat => $plants) {
+        ksort($plants);
+        foreach ($plants as $name => $data) {
+            if (isset($data['unfinalized_hrs'])) {
+                $data['total_revenue'] += ($data['unfinalized_hrs'] * $avgYield);
+            }
+            if ($data['booking_count'] > 0) {
+                $flatPlants[] = [ 'category' => $cat, 'plant_name' => $name, 'booking_count' => $data['booking_count'], 'total_hours' => $data['total_hours'], 'total_revenue' => $data['total_revenue'] ];
+            }
+        }
+    }
+
+    echo json_encode(['kpi' => $kpi, 'plants' => $flatPlants]);
     exit;
 }
-
 if ($action == 'fetch_bookings') {
     $events = [];
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
