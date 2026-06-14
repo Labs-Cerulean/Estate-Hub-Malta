@@ -10,10 +10,37 @@ $role = $_SESSION['role'] ?? '';
 $hasDirectorAccess = in_array($role, ['admin', 'director']);
 if (!$hasDirectorAccess) die("Unauthorized Access.");
 
+// MICRO-API: Feed Map Data
 if (isset($_GET['action']) && $_GET['action'] == 'map_data') {
     header('Content-Type: application/json');
-    $stmt = $pdo->prepare("SELECT pb.id, pb.status, pb.location_lat, pb.location_lng, pb.client_name, p.name as plant_name, p.category, prj.name as project_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id LEFT JOIN projects prj ON pb.project_id = prj.id WHERE pb.status IN ('In Progress', 'Paused') AND pb.location_lat IS NOT NULL");
-    $stmt->execute();
+    $mode = $_GET['mode'] ?? 'live';
+    
+    if ($mode === 'period') {
+        $start = $_GET['start'] ?? date('Y-m-d');
+        $end = $_GET['end'] ?? date('Y-m-d');
+        $stmt = $pdo->prepare("
+            SELECT pb.id, pb.status, pb.location_lat, pb.location_lng, pb.client_name, 
+                   p.name as plant_name, p.category, prj.name as project_name 
+            FROM plant_bookings pb 
+            JOIN plants p ON pb.plant_id = p.id 
+            LEFT JOIN projects prj ON pb.project_id = prj.id 
+            WHERE pb.location_lat IS NOT NULL AND pb.location_lat != ''
+            AND pb.booking_date >= ? AND pb.booking_date <= ?
+        ");
+        $stmt->execute([$start, $end]);
+    } else {
+        $stmt = $pdo->prepare("
+            SELECT pb.id, pb.status, pb.location_lat, pb.location_lng, pb.client_name, 
+                   p.name as plant_name, p.category, prj.name as project_name 
+            FROM plant_bookings pb 
+            JOIN plants p ON pb.plant_id = p.id 
+            LEFT JOIN projects prj ON pb.project_id = prj.id 
+            WHERE pb.status IN ('In Progress', 'Paused') 
+            AND pb.location_lat IS NOT NULL AND pb.location_lat != ''
+        ");
+        $stmt->execute();
+    }
+    
     echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     exit;
 }
@@ -46,7 +73,7 @@ include 'header.php';
     @media (max-width: 1100px) { .dash-layout { grid-template-columns: 1fr; } }
 
     .panel { background: rgba(128, 128, 128, 0.05); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
-    .panel-header { padding: 15px 20px; border-bottom: 2px solid rgba(128, 128, 128, 0.2); font-size: 1.2rem; font-weight: 800; opacity: 0.9; }
+    .panel-header { padding: 15px 20px; border-bottom: 2px solid rgba(128, 128, 128, 0.2); font-size: 1.2rem; font-weight: 800; opacity: 0.9; display: flex; align-items: center; justify-content: space-between; }
     .panel-body { padding: 20px; flex: 1; }
 
     /* Breakdown Table */
@@ -58,6 +85,8 @@ include 'header.php';
     /* Map Markers */
     .map-marker-pulse { width: 16px; height: 16px; background: #10b981; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); animation: pulse 1.5s infinite; }
     .map-marker-paused { width: 16px; height: 16px; background: #f59e0b; border-radius: 50%; border: 3px solid #fff; }
+    .map-marker-completed { width: 16px; height: 16px; background: #3b82f6; border-radius: 50%; border: 3px solid #fff; }
+    .map-marker-pending { width: 16px; height: 16px; background: #94a3b8; border-radius: 50%; border: 3px solid #fff; }
     @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
 
     /* Drilldown Modal */
@@ -76,11 +105,21 @@ include 'header.php';
         </div>
     </div>
 
+    <!-- MAP (Full Horizontal Width) -->
     <div class="panel" style="margin-bottom: 30px;">
-        <div class="panel-header"><i class="fas fa-satellite-dish" style="color:#3b82f6;"></i> Live Fleet Telemetry</div>
+        <div class="panel-header">
+            <div><i class="fas fa-satellite-dish" style="color:#3b82f6;"></i> Fleet Telemetry</div>
+            <div>
+                <select id="mapModeToggle" onchange="loadMapTelemetry()" style="padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(128,128,128,0.3); background: rgba(128,128,128,0.1); color: inherit; font-size: 0.85rem; font-weight: bold; cursor: pointer; outline: none;">
+                    <option value="live">Live (Active Jobs Only)</option>
+                    <option value="period">Period (All Jobs in Selected View)</option>
+                </select>
+            </div>
+        </div>
         <div id="fleetMap" style="height: 350px; width: 100%; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 1;"></div>
     </div>
 
+    <!-- OPERATIONAL KPIs -->
     <div class="kpi-section-title">Operational Output (Quantity & Hours)</div>
     <div class="kpi-grid">
         <div class="kpi-card" style="border-bottom-color:#10b981;" onclick="openDrilldown('completed_book', 'Completed Bookings')">
@@ -101,6 +140,7 @@ include 'header.php';
         </div>
     </div>
 
+    <!-- FINANCIAL KPIs -->
     <div class="kpi-section-title">Financial Output (Revenue & RFPs)</div>
     <div class="kpi-grid">
         <div class="kpi-card" style="border-bottom-color:#10b981; color:#10b981;" onclick="openDrilldown('rev_gen', 'Revenue Generated')">
@@ -125,14 +165,15 @@ include 'header.php';
         </div>
     </div>
 
+    <!-- MAIN GRID (Agenda & Breakdown) -->
     <div class="dash-layout">
         <div class="panel">
-            <div class="panel-header"><i class="fas fa-calendar-alt" style="color:#8b5cf6;"></i> Master Agenda (Click to view RFP)</div>
+            <div class="panel-header"><div><i class="fas fa-calendar-alt" style="color:#8b5cf6;"></i> Master Agenda (Click to view RFP)</div></div>
             <div class="panel-body"><div id="director-calendar"></div></div>
         </div>
 
         <div class="panel">
-            <div class="panel-header"><i class="fas fa-chart-bar" style="color:#10b981;"></i> Plant Bookings Breakdown</div>
+            <div class="panel-header"><div><i class="fas fa-chart-bar" style="color:#10b981;"></i> Plant Bookings Breakdown</div></div>
             <div class="panel-body" style="overflow-y: auto; padding: 0;">
                 <table class="breakdown-table">
                     <thead>
@@ -152,6 +193,7 @@ include 'header.php';
     </div>
 </div>
 
+<!-- Drilldown Modal -->
 <div id="drillModalOverlay">
     <div id="drillModal">
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:15px; margin-bottom:15px;">
@@ -178,6 +220,8 @@ include 'header.php';
 
 <script>
     let currentDrillData = {};
+    let calStartCache = '';
+    let calEndCache = '';
 
     function openDrilldown(key, title) {
         document.getElementById('drillTitle').innerText = title;
@@ -198,26 +242,50 @@ include 'header.php';
         document.getElementById('drillModalOverlay').style.display = 'flex';
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        const map = L.map('fleetMap').setView([35.917973, 14.409943], 11);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+    const map = L.map('fleetMap').setView([35.917973, 14.409943], 11);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
-        function loadMapTelemetry() {
-            fetch('plant_dashboard.php?action=map_data').then(r => r.json()).then(jobs => {
-                map.eachLayer(layer => { if (layer instanceof L.Marker) layer.remove(); });
-                jobs.forEach(job => {
-                    if (job.location_lat) {
-                        const isWorking = job.status === 'In Progress';
-                        const iconHtml = isWorking ? '<div class="map-marker-pulse"></div>' : '<div class="map-marker-paused"></div>';
-                        const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [16,16], iconAnchor: [8,8] });
-                        const clientText = job.client_name || job.project_name || 'Unknown';
-                        L.marker([job.location_lat, job.location_lng], { icon: cIcon }).addTo(map)
-                         .bindPopup(`<div style="color:#000;"><b>${job.plant_name}</b><br>${clientText}</div>`);
-                    }
-                });
-            });
+    function loadMapTelemetry() {
+        const mode = document.getElementById('mapModeToggle').value;
+        let url = 'plant_dashboard.php?action=map_data&mode=' + mode;
+        if (mode === 'period' && calStartCache !== '') {
+            url += '&start=' + calStartCache + '&end=' + calEndCache;
         }
-        loadMapTelemetry(); setInterval(loadMapTelemetry, 60000);
+
+        fetch(url).then(r => r.json()).then(jobs => {
+            map.eachLayer(layer => { if (layer instanceof L.Marker) layer.remove(); });
+            jobs.forEach(job => {
+                if (job.location_lat) {
+                    let iconHtml = '';
+                    let badge = '';
+                    
+                    if (job.status === 'In Progress') {
+                        iconHtml = '<div class="map-marker-pulse"></div>';
+                        badge = `<span style="background:#10b981; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Active</span>`;
+                    } else if (job.status === 'Paused') {
+                        iconHtml = '<div class="map-marker-paused"></div>';
+                        badge = `<span style="background:#f59e0b; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Paused</span>`;
+                    } else if (job.status === 'Completed') {
+                        iconHtml = '<div class="map-marker-completed"></div>';
+                        badge = `<span style="background:#3b82f6; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Completed</span>`;
+                    } else {
+                        iconHtml = '<div class="map-marker-pending"></div>';
+                        badge = `<span style="background:#94a3b8; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${job.status}</span>`;
+                    }
+
+                    const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [16,16], iconAnchor: [8,8] });
+                    const clientText = job.client_name || job.project_name || 'Unknown';
+                    
+                    L.marker([job.location_lat, job.location_lng], { icon: cIcon }).addTo(map)
+                     .bindPopup(`<div style="color:#000;"><b>${job.plant_name}</b><br>${clientText}<br><div style="margin-top:5px;">${badge}</div></div>`);
+                }
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadMapTelemetry(); 
+        setInterval(loadMapTelemetry, 60000);
 
         const calendarEl = document.getElementById('director-calendar');
         const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -227,7 +295,6 @@ include 'header.php';
             height: 600,
             events: 'api/plant_actions.php?action=fetch_bookings',
             
-            // SMART AGENDA CLICK (Now explicitly uses &readonly=1)
             eventClick: function(info) {
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
                     if (job.status === 'Completed' && parseFloat(job.final_subtotal) > 0) {
@@ -239,11 +306,18 @@ include 'header.php';
             },
             
             datesSet: function(info) {
+                calStartCache = info.startStr.split('T')[0];
+                calEndCache = info.endStr.split('T')[0];
+                
+                // If the map is in Period mode, refresh it to match the new dates
+                if (document.getElementById('mapModeToggle').value === 'period') {
+                    loadMapTelemetry();
+                }
+
                 document.getElementById('dynamic-subtitle').innerText = "Viewing Data for " + (info.view.type === 'listDay' ? "this Day" : (info.view.type === 'listMonth' ? "this Month" : "this Week"));
                 const fd = new FormData(); fd.append('action', 'get_dashboard_stats'); fd.append('start', info.startStr); fd.append('end', info.endStr);
                 
                 fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-                    // Update KPIs - Stripped to nearest Euro
                     document.getElementById('kpi-completed-book').innerText = data.kpi.completed_bookings;
                     document.getElementById('kpi-completed-hrs').innerText = parseFloat(data.kpi.executed_hours).toFixed(1);
                     document.getElementById('kpi-rev-gen').innerText = '€' + parseFloat(data.kpi.revenue_generated).toLocaleString(undefined,{maximumFractionDigits:0});
