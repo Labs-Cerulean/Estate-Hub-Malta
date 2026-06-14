@@ -17,18 +17,22 @@ $companies = [
 ];
 
 $endpoints = [
-    '/clients' => 'Clients (List all ERP Clients & Discounts)',
+    '/clients' => 'Clients (List all ERP Clients)',
+    '/clients_with_discounts' => '🔍 HUNT: Find Clients with Discount > 0',
     '/nominalcateg' => 'Nominal Categories (List all Nominal Codes & Standard Rates)'
 ];
 
 $responseBody = null;
 $httpCode = null;
 $selectedCompany = $_POST['company'] ?? 'PRA';
-$selectedEndpoint = $_POST['endpoint'] ?? '/clients';
+$selectedEndpoint = $_POST['endpoint'] ?? '/clients_with_discounts';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $apiKey = $companies[$selectedCompany];
-    $url = $apiUrlBase . $selectedEndpoint;
+    
+    // If they selected the hunt tool, we still query /clients but filter it locally
+    $actualEndpoint = ($selectedEndpoint === '/clients_with_discounts') ? '/clients' : $selectedEndpoint;
+    $url = $apiUrlBase . $actualEndpoint;
 
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
@@ -47,11 +51,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $decoded = json_decode($rawResponse, true);
     
     if (is_array($decoded)) {
-        // Slice the array to show only the first 5 records to prevent browser hanging
-        $responseBody = array_slice($decoded, 0, 5);
-        $totalRecords = count($decoded);
+        if ($selectedEndpoint === '/clients_with_discounts') {
+            // Filter the array to ONLY show clients with a discount > 0
+            $filtered = array_filter($decoded, function($c) {
+                return (isset($c['CliDefDisc']) && (float)$c['CliDefDisc'] > 0);
+            });
+            // Re-index array and show up to 20 results
+            $responseBody = array_slice(array_values($filtered), 0, 20);
+            $totalRecords = count($filtered);
+        } else {
+            // Standard behavior: show first 5
+            $responseBody = array_slice($decoded, 0, 5);
+            $totalRecords = count($decoded);
+        }
     } else {
-        $responseBody = $rawResponse; // Output raw string if not JSON
+        $responseBody = $rawResponse;
         $totalRecords = 0;
     }
 }
@@ -102,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label>ERP Endpoint</label>
                 <select name="endpoint">
                     <?php foreach ($endpoints as $path => $desc): ?>
-                        <option value="<?= $path ?>" <?= $selectedEndpoint === $path ? 'selected' : '' ?>><?= $path ?> - <?= $desc ?></option>
+                        <option value="<?= $path ?>" <?= $selectedEndpoint === $path ? 'selected' : '' ?>><?= $desc ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -118,16 +132,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                     <?php if (isset($totalRecords)): ?>
                         <div style="color: #94a3b8; font-size: 0.9rem; font-weight: bold;">
-                            Total Records in ERP: <span style="color: #fff;"><?= $totalRecords ?></span>
+                            <?= $selectedEndpoint === '/clients_with_discounts' ? 'Clients with Discounts Found:' : 'Total Records in ERP:' ?> 
+                            <span style="color: #fff;"><?= $totalRecords ?></span>
                         </div>
                     <?php endif; ?>
                 </div>
 
-                <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 0;">Showing preview of the first 5 records:</p>
-                <pre><?= htmlspecialchars(json_encode($responseBody, JSON_PRETTY_PRINT)) ?></pre>
+                <?php if ($selectedEndpoint === '/clients_with_discounts' && $totalRecords === 0): ?>
+                    <p style="color: #fca5a5; font-weight: bold;">No clients found with a default discount > 0 for this company.</p>
+                <?php else: ?>
+                    <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 0;">
+                        <?= $selectedEndpoint === '/clients_with_discounts' ? 'Showing up to 20 clients with active discounts:' : 'Showing preview of the first 5 records:' ?>
+                    </p>
+                    <pre><?= htmlspecialchars(json_encode($responseBody, JSON_PRETTY_PRINT)) ?></pre>
+                <?php endif; ?>
             <?php else: ?>
                 <div class="status neutral">Waiting for request...</div>
-                <p style="color: #94a3b8; font-size: 0.9rem; margin: 0;">Select an endpoint and click "Send Test Request" to view live ERP data.</p>
+                <p style="color: #94a3b8; font-size: 0.9rem; margin: 0;">Select "HUNT: Find Clients with Discount > 0" to scan the ERP.</p>
             <?php endif; ?>
         </div>
     </div>
