@@ -343,7 +343,7 @@ include 'header.php';
 
                     // 3. Build Marker HTML
                     let iconHtml = `<div class="map-marker-base ${markerClass}"><i class="fas ${icon}"></i></div>`;
-                    const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [28,28], iconAnchor: [14,14] });
+                    const cIcon = L.divIcon({ html: iconHtml, className: 'custom-leaflet-icon', iconSize: [22,22], iconAnchor: [11,11] });
                     
                     // 4. Build Popup Details
                     const clientText = job.client_name || job.project_name || 'Unknown Location';
