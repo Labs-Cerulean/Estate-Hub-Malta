@@ -221,6 +221,27 @@ include 'header.php';
     </div>
 </div>
 
+<div id="jobModalOverlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+    <div id="jobModal" style="width: 500px; max-width: 95%; background: #1e293b; color: #f8fafc; border-radius: 12px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:15px; margin-bottom:15px;">
+            <h3 id="jobModalTitle" style="margin:0; font-size:1.4rem;">Job Details</h3>
+            <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="background:none; border:none; color:#94a3b8; font-size:1.5rem; cursor:pointer;"><i class="fas fa-times"></i></button>
+        </div>
+        
+        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #f59e0b; padding: 12px 15px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+            <i class="fas fa-exclamation-triangle" style="font-size: 1.2rem;"></i> 
+            <div>This job has not been billed or finalized yet. Here is the scheduled information:</div>
+        </div>
+        
+        <div id="jobModalBody" style="font-size: 0.95rem; line-height: 1.6; color: #cbd5e1;">
+            </div>
+        
+        <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: 20px; text-align: right;">
+            <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="padding: 10px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Close Window</button>
+        </div>
+    </div>
+</div>
+
 <script>
     let currentDrillData = {};
     let calStartCache = '';
@@ -316,6 +337,8 @@ include 'header.php';
         });
     }
 
+    
+
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('director-calendar');
         const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -380,10 +403,26 @@ include 'header.php';
             
             eventClick: function(info) {
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
+                    // If it has an RFP/Invoice, pop the PDF
                     if (job.status === 'Completed' && (parseFloat(job.final_subtotal) > 0 || ['Invoiced','Settled'].includes(job.payment_status))) {
                         window.open(`print_plant_invoice.php?booking_id=${job.id}&readonly=1`, 'rfpPopup', 'width=1000,height=900,scrollbars=yes');
                     } else {
-                        alert("Access Denied: RFP has not yet been approved or finalized for this job.");
+                        // Otherwise, pop the informational unbilled modal!
+                        document.getElementById('jobModalTitle').innerHTML = `<i class="fas fa-hard-hat" style="color:#38bdf8; margin-right:8px;"></i> ${job.plant_name || 'Plant Equipment'}`;
+                        
+                        let driverStr = job.driver_id ? `Assigned` : '<span style="color:#ef4444; font-weight:bold;">Unassigned</span>';
+                        let timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
+                        let statusColor = job.status === 'Completed' ? '#10b981' : (job.status === 'In Progress' ? '#3b82f6' : (job.status === 'Paused' ? '#f59e0b' : '#94a3b8'));
+
+                        document.getElementById('jobModalBody').innerHTML = `
+                            <div style="margin-bottom:10px;"><b style="color:#fff;">Date:</b> ${job.booking_date} (${timeStr})</div>
+                            <div style="margin-bottom:10px;"><b style="color:#fff;">Status:</b> <span style="color:${statusColor}; font-weight:bold;">${job.status}</span></div>
+                            <div style="margin-bottom:10px;"><b style="color:#fff;">Driver:</b> ${driverStr}</div>
+                            <div style="margin-bottom:10px;"><b style="color:#fff;">Location:</b> ${job.location_text || 'TBC'}</div>
+                            ${job.comments ? `<div style="margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.05); border-left: 3px solid #3b82f6; border-radius: 4px; color:#cbd5e1;"><b>Notes:</b><br>${job.comments}</div>` : ''}
+                        `;
+                        
+                        document.getElementById('jobModalOverlay').style.display = 'flex';
                     }
                 });
             },
@@ -464,6 +503,8 @@ include 'header.php';
         loadMapTelemetry(); 
         setInterval(loadMapTelemetry, 60000);
     });
+
+    
 </script>
 
 <?php include 'footer.php'; ?>
