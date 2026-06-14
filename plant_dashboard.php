@@ -40,7 +40,7 @@ include 'header.php';
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-    /* Theme-Agnostic Structure (Reverted to native Estate Hub styling) */
+    /* Theme-Agnostic Structure (Native Estate Hub styling) */
     .cmd-center { max-width: 1600px; margin: 0 auto; padding: 30px 20px; width: 100%; box-sizing: border-box; }
     
     .header-bar { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
@@ -50,10 +50,11 @@ include 'header.php';
     .action-btn:hover { background: #2563eb; }
 
     /* KPI Cards using native translucent theme */
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
-    .kpi-card { background: rgba(128, 128, 128, 0.05); padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); border-bottom: 4px solid transparent; }
-    .kpi-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 30px; }
+    .kpi-card { background: rgba(128, 128, 128, 0.05); padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); border-bottom: 4px solid transparent; display: flex; flex-direction: column; justify-content: space-between; }
+    .kpi-title { font-size: 0.8rem; text-transform: uppercase; font-weight: 700; opacity: 0.7; letter-spacing: 0.5px; margin-bottom: 5px; }
     .kpi-value { font-size: 2.2rem; font-weight: 900; opacity: 0.9; line-height: 1.2; }
+    .kpi-icon { float: right; font-size: 1.5rem; opacity: 0.2; }
 
     /* Dashboard Layout */
     .dash-layout { display: grid; grid-template-columns: 2fr 1.5fr; gap: 25px; }
@@ -89,31 +90,52 @@ include 'header.php';
     </div>
 
     <div class="kpi-grid">
-        <div class="kpi-card" style="border-bottom-color: #3b82f6;">
-            <div class="kpi-title">Completed Bookings</div>
-            <div class="kpi-value" id="kpi-completed">0</div>
-        </div>
-        <div class="kpi-card" style="border-bottom-color: #f59e0b;">
-            <div class="kpi-title">Total Hours Executed</div>
-            <div class="kpi-value" id="kpi-hours">0.0</div>
+        <div class="kpi-card" style="border-bottom-color: #10b981;">
+            <div class="kpi-title"><i class="fas fa-check-circle kpi-icon"></i>Completed Bookings</div>
+            <div class="kpi-value" id="kpi-completed-book">0</div>
         </div>
         <div class="kpi-card" style="border-bottom-color: #10b981;">
-            <div class="kpi-title">Revenue Generated</div>
-            <div class="kpi-value" id="kpi-revenue" style="color: #10b981;">€0.00</div>
+            <div class="kpi-title"><i class="fas fa-stopwatch kpi-icon"></i>Executed Hours</div>
+            <div class="kpi-value" id="kpi-completed-hrs">0.0</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color: #10b981; background: rgba(16, 185, 129, 0.05);">
+            <div class="kpi-title"><i class="fas fa-euro-sign kpi-icon"></i>Generated Revenue</div>
+            <div class="kpi-value" id="kpi-rev-gen" style="color: #10b981;">€0.00</div>
+        </div>
+
+        <div class="kpi-card" style="border-bottom-color: #f59e0b;">
+            <div class="kpi-title"><i class="far fa-calendar-alt kpi-icon"></i>Planned Bookings</div>
+            <div class="kpi-value" id="kpi-planned-book">0</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color: #f59e0b;">
+            <div class="kpi-title"><i class="far fa-clock kpi-icon"></i>Planned Hours</div>
+            <div class="kpi-value" id="kpi-planned-hrs">0.0</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color: #f59e0b; background: rgba(245, 158, 11, 0.05);">
+            <div class="kpi-title"><i class="fas fa-chart-line kpi-icon"></i>Pipeline Revenue</div>
+            <div class="kpi-value" id="kpi-rev-pipe" style="color: #f59e0b;">€0.00</div>
+        </div>
+
+        <div class="kpi-card" style="border-bottom-color: #8b5cf6;">
+            <div class="kpi-title"><i class="fas fa-file-invoice kpi-icon"></i>Issued RFPs</div>
+            <div class="kpi-value" id="kpi-rfps">0</div>
         </div>
         <div class="kpi-card" style="border-bottom-color: #8b5cf6;">
-            <div class="kpi-title">ERP Invoiced (Live SysRef)</div>
-            <div class="kpi-value" id="kpi-invoiced" style="color: #8b5cf6;">€0.00</div>
+            <div class="kpi-title"><i class="fas fa-cloud-upload-alt kpi-icon"></i>ERP Synced Revenue</div>
+            <div class="kpi-value" id="kpi-erp" style="color: #8b5cf6;">€0.00</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color: #3b82f6; background: rgba(59, 130, 246, 0.05);">
+            <div class="kpi-title"><i class="fas fa-wallet kpi-icon"></i>Total Est. Revenue</div>
+            <div class="kpi-value" id="kpi-rev-total" style="color: #3b82f6;">€0.00</div>
         </div>
     </div>
 
     <div class="dash-layout">
         
         <div style="display: flex; flex-direction: column; gap: 25px;">
-            
             <div class="panel">
                 <div class="panel-header">
-                    <div><i class="fas fa-calendar-alt" style="color: #8b5cf6; margin-right: 8px;"></i> Master Agenda</div>
+                    <div><i class="fas fa-calendar-alt" style="color: #8b5cf6; margin-right: 8px;"></i> Master Agenda (Click to view RFP)</div>
                 </div>
                 <div class="panel-body">
                     <div id="director-calendar"></div>
@@ -126,13 +148,12 @@ include 'header.php';
                 </div>
                 <div id="fleetMap" style="height: 350px; width: 100%; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 1;"></div>
             </div>
-            
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 25px;">
             <div class="panel" style="flex: 1;">
                 <div class="panel-header">
-                    <div><i class="fas fa-chart-bar" style="color: #10b981; margin-right: 8px;"></i> Plant Performance Breakdown</div>
+                    <div><i class="fas fa-chart-bar" style="color: #10b981; margin-right: 8px;"></i> Plant Bookings Breakdown</div>
                 </div>
                 <div class="panel-body" style="overflow-y: auto;">
                     <div id="plant-breakdown-container">
@@ -206,8 +227,12 @@ include 'header.php';
             height: 600,
             events: 'api/plant_actions.php?action=fetch_bookings',
             
+            // Pop out Delivery Note instantly
+            eventClick: function(info) {
+                window.open('print_plant_invoice.php?booking_id=' + info.event.id, 'rfpPopup', 'width=1000,height=900,scrollbars=yes,resizable=yes');
+            },
+            
             datesSet: function(info) {
-                // Determine text based on view type
                 let viewText = "this Week";
                 if (info.view.type === 'listDay') viewText = "this Day";
                 else if (info.view.type === 'listMonth') viewText = "this Month";
@@ -223,11 +248,18 @@ include 'header.php';
                 fetch('api/plant_actions.php', { method: 'POST', body: fd })
                 .then(r => r.json())
                 .then(data => {
-                    // Update Top KPIs
-                    document.getElementById('kpi-completed').innerText = data.kpi.completed_jobs || 0;
-                    document.getElementById('kpi-hours').innerText = parseFloat(data.kpi.total_hours || 0).toFixed(1);
-                    document.getElementById('kpi-revenue').innerText = '€' + parseFloat(data.kpi.revenue_generated || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
-                    document.getElementById('kpi-invoiced').innerText = '€' + parseFloat(data.kpi.invoiced_revenue || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
+                    // Inject the 9 KPIs
+                    document.getElementById('kpi-completed-book').innerText = data.kpi.completed_bookings || 0;
+                    document.getElementById('kpi-completed-hrs').innerText = parseFloat(data.kpi.executed_hours || 0).toFixed(1);
+                    document.getElementById('kpi-rev-gen').innerText = '€' + parseFloat(data.kpi.revenue_generated || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
+                    
+                    document.getElementById('kpi-planned-book').innerText = data.kpi.planned_bookings || 0;
+                    document.getElementById('kpi-planned-hrs').innerText = parseFloat(data.kpi.planned_hours || 0).toFixed(1);
+                    document.getElementById('kpi-rev-pipe').innerText = '€' + parseFloat(data.kpi.projected_revenue || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
+                    
+                    document.getElementById('kpi-rfps').innerText = data.kpi.rfps_issued || 0;
+                    document.getElementById('kpi-erp').innerText = '€' + parseFloat(data.kpi.erp_invoiced || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
+                    document.getElementById('kpi-rev-total').innerText = '€' + parseFloat(data.kpi.total_est_revenue || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
                     
                     // Update Plant Performance Breakdown
                     const plantCont = document.getElementById('plant-breakdown-container');
@@ -240,9 +272,9 @@ include 'header.php';
                         data.plants.forEach(p => {
                             let cat = p.category || 'General';
                             
-                            // Create a new category header when the category changes
+                            // Group by Category
                             if (cat !== currentCat) {
-                                if (currentCat !== '') pHtml += '</div>'; // Close previous block
+                                if (currentCat !== '') pHtml += '</div>'; 
                                 pHtml += `
                                 <div style="margin-bottom: 25px;">
                                     <h4 style="margin-top:0; margin-bottom:12px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:6px; text-transform:uppercase; font-size:0.85rem; font-weight:800; opacity:0.7; letter-spacing:1px;">
@@ -251,18 +283,18 @@ include 'header.php';
                                 currentCat = cat;
                             }
                             
-                            // Plant Row
+                            // Plant Data Row
                             pHtml += `
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:0.95rem; background:rgba(128,128,128,0.05); padding:10px 15px; border-radius:8px;">
                                     <div style="font-weight:700; opacity:0.9;">${p.plant_name}</div>
                                     <div style="font-size:0.85rem; opacity:0.8;">
-                                        Bookings: <b style="color:#3b82f6;">${p.booking_count}</b> &nbsp;|&nbsp; 
-                                        Hours: <b style="color:#f59e0b;">${parseFloat(p.total_hours).toFixed(1)}</b> &nbsp;|&nbsp; 
+                                        Jobs: <b style="color:#3b82f6;">${p.booking_count}</b> &nbsp;|&nbsp; 
+                                        Hrs: <b style="color:#f59e0b;">${parseFloat(p.total_hours).toFixed(1)}</b> &nbsp;|&nbsp; 
                                         Rev: <b style="color:#10b981;">€${parseFloat(p.total_revenue).toLocaleString(undefined, {minimumFractionDigits: 2})}</b>
                                     </div>
                                 </div>`;
                         });
-                        if (currentCat !== '') pHtml += '</div>'; // Close final block
+                        if (currentCat !== '') pHtml += '</div>';
                         
                         plantCont.innerHTML = pHtml;
                     }
