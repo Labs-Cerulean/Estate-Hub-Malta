@@ -110,13 +110,7 @@ include 'header.php';
     <div class="dash-layout">
         
         <div style="display: flex; flex-direction: column; gap: 25px;">
-            <div class="panel">
-                <div class="panel-header">
-                    <div><i class="fas fa-satellite-dish" style="color: #3b82f6; margin-right: 8px;"></i> Live Fleet Telemetry</div>
-                </div>
-                <div id="fleetMap" style="height: 350px; width: 100%; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 1;"></div>
-            </div>
-
+            
             <div class="panel">
                 <div class="panel-header">
                     <div><i class="fas fa-calendar-alt" style="color: #8b5cf6; margin-right: 8px;"></i> Master Agenda</div>
@@ -125,6 +119,14 @@ include 'header.php';
                     <div id="director-calendar"></div>
                 </div>
             </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div><i class="fas fa-satellite-dish" style="color: #3b82f6; margin-right: 8px;"></i> Live Fleet Telemetry</div>
+                </div>
+                <div id="fleetMap" style="height: 350px; width: 100%; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 1;"></div>
+            </div>
+            
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 25px;">
