@@ -62,7 +62,7 @@ include 'header.php';
 
     /* Drilldown Modal */
     #drillModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-    #drillModal { width: 700px; max-width: 95%; max-height: 80vh; background: #1e293b; color: #f8fafc; border-radius: 12px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    #drillModal { width: 700px; max-width: 95%; max-height: 85vh; background: #1e293b; color: #f8fafc; border-radius: 12px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
     
     .fc { font-size: 0.95rem; --fc-page-bg-color: transparent; --fc-neutral-bg-color: rgba(255, 255, 255, 0.05); --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.1); --fc-border-color: rgba(128, 128, 128, 0.2); }
     .fc-theme-standard .fc-list { background: transparent !important; }
@@ -76,13 +76,11 @@ include 'header.php';
         </div>
     </div>
 
-    <!-- MAP (Full Horizontal Width) -->
     <div class="panel" style="margin-bottom: 30px;">
         <div class="panel-header"><i class="fas fa-satellite-dish" style="color:#3b82f6;"></i> Live Fleet Telemetry</div>
         <div id="fleetMap" style="height: 350px; width: 100%; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 1;"></div>
     </div>
 
-    <!-- OPERATIONAL KPIs -->
     <div class="kpi-section-title">Operational Output (Quantity & Hours)</div>
     <div class="kpi-grid">
         <div class="kpi-card" style="border-bottom-color:#10b981;" onclick="openDrilldown('completed_book', 'Completed Bookings')">
@@ -103,20 +101,19 @@ include 'header.php';
         </div>
     </div>
 
-    <!-- FINANCIAL KPIs -->
     <div class="kpi-section-title">Financial Output (Revenue & RFPs)</div>
     <div class="kpi-grid">
         <div class="kpi-card" style="border-bottom-color:#10b981; color:#10b981;" onclick="openDrilldown('rev_gen', 'Revenue Generated')">
             <div class="kpi-title">Generated Revenue</div>
-            <div class="kpi-value" id="kpi-rev-gen">€0.00</div>
+            <div class="kpi-value" id="kpi-rev-gen">€0</div>
         </div>
         <div class="kpi-card" style="border-bottom-color:#f59e0b; color:#f59e0b;" onclick="openDrilldown('rev_pipe', 'Pipeline Revenue')">
             <div class="kpi-title">Pipeline Revenue</div>
-            <div class="kpi-value" id="kpi-rev-pipe">€0.00</div>
+            <div class="kpi-value" id="kpi-rev-pipe">€0</div>
         </div>
         <div class="kpi-card" style="border-bottom-color:#3b82f6; color:#3b82f6;" onclick="openDrilldown('rev_total', 'Total Estimated Revenue')">
             <div class="kpi-title">Total Est. Revenue</div>
-            <div class="kpi-value" id="kpi-rev-total">€0.00</div>
+            <div class="kpi-value" id="kpi-rev-total">€0</div>
         </div>
         <div class="kpi-card" style="border-bottom-color:#8b5cf6;" onclick="openDrilldown('rfps', 'Issued RFPs')">
             <div class="kpi-title">Issued RFPs</div>
@@ -124,11 +121,10 @@ include 'header.php';
         </div>
         <div class="kpi-card" style="border-bottom-color:#ec4899; color:#ec4899;" onclick="openDrilldown('erp', 'ERP Synced Revenue')">
             <div class="kpi-title">ERP Synced Revenue</div>
-            <div class="kpi-value" id="kpi-erp">€0.00</div>
+            <div class="kpi-value" id="kpi-erp">€0</div>
         </div>
     </div>
 
-    <!-- MAIN GRID (Agenda & Breakdown) -->
     <div class="dash-layout">
         <div class="panel">
             <div class="panel-header"><i class="fas fa-calendar-alt" style="color:#8b5cf6;"></i> Master Agenda (Click to view RFP)</div>
@@ -156,14 +152,13 @@ include 'header.php';
     </div>
 </div>
 
-<!-- Drilldown Modal -->
 <div id="drillModalOverlay">
     <div id="drillModal">
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:15px; margin-bottom:15px;">
             <h3 id="drillTitle" style="margin:0; font-size:1.4rem;">Metric Breakdown</h3>
             <button onclick="document.getElementById('drillModalOverlay').style.display='none'" style="background:none; border:none; color:#94a3b8; font-size:1.5rem; cursor:pointer;"><i class="fas fa-times"></i></button>
         </div>
-        <div style="overflow-y:auto; flex:1; max-height:500px;">
+        <div style="overflow-y:auto; flex:1; margin-bottom: 20px;">
             <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
                 <thead style="position:sticky; top:0; background:#1e293b;">
                     <tr>
@@ -174,6 +169,9 @@ include 'header.php';
                 </thead>
                 <tbody id="drillBody"></tbody>
             </table>
+        </div>
+        <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; text-align: right;">
+            <button onclick="document.getElementById('drillModalOverlay').style.display='none'" style="padding: 10px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Close Window</button>
         </div>
     </div>
 </div>
@@ -229,11 +227,11 @@ include 'header.php';
             height: 600,
             events: 'api/plant_actions.php?action=fetch_bookings',
             
-            // SMART AGENDA CLICK
+            // SMART AGENDA CLICK (Now explicitly uses &readonly=1)
             eventClick: function(info) {
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
                     if (job.status === 'Completed' && parseFloat(job.final_subtotal) > 0) {
-                        window.open(`print_plant_invoice.php?booking_id=${job.id}`, 'rfpPopup', 'width=1000,height=900,scrollbars=yes');
+                        window.open(`print_plant_invoice.php?booking_id=${job.id}&readonly=1`, 'rfpPopup', 'width=1000,height=900,scrollbars=yes');
                     } else {
                         alert("Access Denied: RFP has not yet been approved or finalized for this job.");
                     }
@@ -245,17 +243,18 @@ include 'header.php';
                 const fd = new FormData(); fd.append('action', 'get_dashboard_stats'); fd.append('start', info.startStr); fd.append('end', info.endStr);
                 
                 fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+                    // Update KPIs - Stripped to nearest Euro
                     document.getElementById('kpi-completed-book').innerText = data.kpi.completed_bookings;
                     document.getElementById('kpi-completed-hrs').innerText = parseFloat(data.kpi.executed_hours).toFixed(1);
-                    document.getElementById('kpi-rev-gen').innerText = '€' + parseFloat(data.kpi.revenue_generated).toLocaleString(undefined,{minimumFractionDigits:2});
+                    document.getElementById('kpi-rev-gen').innerText = '€' + parseFloat(data.kpi.revenue_generated).toLocaleString(undefined,{maximumFractionDigits:0});
                     
                     document.getElementById('kpi-planned-book').innerText = data.kpi.planned_bookings;
                     document.getElementById('kpi-planned-hrs').innerText = parseFloat(data.kpi.planned_hours).toFixed(1);
-                    document.getElementById('kpi-rev-pipe').innerText = '€' + parseFloat(data.kpi.projected_revenue).toLocaleString(undefined,{minimumFractionDigits:2});
+                    document.getElementById('kpi-rev-pipe').innerText = '€' + parseFloat(data.kpi.projected_revenue).toLocaleString(undefined,{maximumFractionDigits:0});
                     
                     document.getElementById('kpi-rfps').innerText = data.kpi.rfps_issued;
-                    document.getElementById('kpi-erp').innerText = '€' + parseFloat(data.kpi.erp_invoiced).toLocaleString(undefined,{minimumFractionDigits:2});
-                    document.getElementById('kpi-rev-total').innerText = '€' + parseFloat(data.kpi.total_est_revenue).toLocaleString(undefined,{minimumFractionDigits:2});
+                    document.getElementById('kpi-erp').innerText = '€' + parseFloat(data.kpi.erp_invoiced).toLocaleString(undefined,{maximumFractionDigits:0});
+                    document.getElementById('kpi-rev-total').innerText = '€' + parseFloat(data.kpi.total_est_revenue).toLocaleString(undefined,{maximumFractionDigits:0});
                     
                     currentDrillData = data.drilldown || {};
 
@@ -274,9 +273,9 @@ include 'header.php';
                             
                             html += `<tr>
                                 <td>${p.plant_name}</td>
-                                <td style="color:#10b981;"><b>${p.c_qty}</b> / ${p.c_hrs.toFixed(1)} / €${p.c_rev.toLocaleString(undefined,{minimumFractionDigits:0})}</td>
-                                <td style="color:#f59e0b;"><b>${p.p_qty}</b> / ${p.p_hrs.toFixed(1)} / €${p.p_rev.toLocaleString(undefined,{minimumFractionDigits:0})}</td>
-                                <td style="color:#3b82f6;"><b>${t_qty}</b> / ${t_hrs.toFixed(1)} / €${t_rev.toLocaleString(undefined,{minimumFractionDigits:0})}</td>
+                                <td style="color:#10b981;"><b>${p.c_qty}</b> / ${p.c_hrs.toFixed(1)} / €${p.c_rev.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                                <td style="color:#f59e0b;"><b>${p.p_qty}</b> / ${p.p_hrs.toFixed(1)} / €${p.p_rev.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                                <td style="color:#3b82f6;"><b>${t_qty}</b> / ${t_hrs.toFixed(1)} / €${t_rev.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
                             </tr>`;
                         });
                         tbody.innerHTML = html;
