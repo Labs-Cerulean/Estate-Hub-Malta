@@ -12,6 +12,7 @@ try {
 
 $role = $_SESSION['role'] ?? '';
 $isAdmin = ($role === 'admin');
+$canDiscount = in_array($role, ['admin', 'system_manager', 'accountant']);
 
 $hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager', 'plant_driver']);
 if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
@@ -120,6 +121,7 @@ $isSynced = !empty($sysRef) && !in_array($sysRef, ['N/A', 'SUCCESS_NO_REF']);
 
 // Allow edit if it's the very first time (Pending) OR if an Admin is editing a Local Only RFP
 $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
+$savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_discount_pct'] : 0.00;
 ?>
 
 <!DOCTYPE html>
@@ -169,9 +171,22 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
                 <div style="background:#e0e7ff; color:#4f46e5; padding:5px 10px; border-radius:6px; font-weight:bold;"><i class="fas fa-plug"></i> ERP Live Sync</div>
             </div>
             
-            <div style="background: #fff; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; gap: 15px;">
-                <label style="font-weight:bold;">Final <?= $qtyLabel ?> to Bill:</label>
-                <input type="number" id="calc_master_qty" class="live-calc" value="<?= $job['final_hours'] ?? $qtyValue ?>" step="0.25" oninput="renderTable()">
+            <div style="background: #fff; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="font-weight:bold; margin:0;">Final <?= $qtyLabel ?>:</label>
+                    <input type="number" id="calc_master_qty" class="live-calc" value="<?= $job['final_hours'] ?? $qtyValue ?>" step="0.25" oninput="renderTable()">
+                </div>
+                
+                <?php if ($canDiscount): ?>
+                <div style="border-left: 2px solid #e2e8f0; padding-left: 15px; display: flex; align-items: center; gap: 10px;">
+                    <label style="font-weight:bold; color:#ef4444; margin:0;"><i class="fas fa-tag"></i> Discount %:</label>
+                    <input type="number" id="edit_discount_pct" class="live-calc" value="<?= $savedDiscountPct ?>" step="0.1" min="0" style="border-color:#fca5a5; color:#ef4444;" onchange="validateAndRenderDiscount()">
+                    <span id="max_disc_label" style="font-size:0.8rem; color:#94a3b8;">(Max: Loading ERP...)</span>
+                </div>
+                <?php else: ?>
+                    <input type="hidden" id="edit_discount_pct" value="<?= $savedDiscountPct ?>">
+                <?php endif; ?>
+
                 <button id="printBtn" onclick="saveAndPrint()" style="padding:10px 20px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; border-radius: 8px; margin-left: auto;"><i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP</button>
             </div>
         <?php else: ?>
@@ -293,14 +308,19 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         </div>
         
         <div class="totals-box">
-            <div class="totals-row"><span class="data-label">Subtotal</span><span class="data-val" id="tot_subtotal">€ 0.00</span></div>
+            <div class="totals-row"><span class="data-label">Gross Subtotal</span><span class="data-val" id="tot_gross">€ 0.00</span></div>
+            <div class="totals-row" id="discount_row" style="color: #ef4444; display: none;">
+                <span class="data-label">Discount (<span id="disp_disc_pct">0</span>%)</span>
+                <span class="data-val">- € <span id="tot_discount">0.00</span></span>
+            </div>
+            <div class="totals-row" style="border-top: 1px dashed #cbd5e1; padding-top: 5px; margin-top: 5px;"><span class="data-label">Net Subtotal</span><span class="data-val" id="tot_net">€ 0.00</span></div>
             <div class="totals-row"><span class="data-label">VAT (18%)</span><span class="data-val" id="tot_vat">€ 0.00</span></div>
             <div class="totals-row totals-final"><span class="data-label" style="color:#000;">Total Due</span><span class="data-val">€ <span id="tot_final">0.00</span></span></div>
         </div>
     </div>
 
     <script>
-        const pricingType = '<?= $job['pricing_type'] ?>';
+       const pricingType = '<?= $job['pricing_type'] ?>';
         const minHours = <?= (float)$job['min_hours'] ?>;
         const isInternal = <?= $isInternal ? 'true' : 'false' ?>;
         const jobRef = '<?= $jobRef ?>';
@@ -309,16 +329,49 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         const rawNomVar = '<?= htmlspecialchars($job['nom_code_variable'] ?? '') ?>';
         const rawNomSetup = '<?= htmlspecialchars($job['nom_code_setup'] ?? '0000') ?>';
         const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
+        const canDiscount = <?= $canDiscount ? 'true' : 'false' ?>;
         
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
-        
         const hasSetupFee = <?= (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) ? 'true' : 'false' ?>;
 
         let rateFixed = <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>;
         let rateVar = <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>;
         let rateSetup = <?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>;
         
-        let currentSubtotal = 0;
+        let currentDiscountPct = <?= $savedDiscountPct ?>;
+        let maxAllowedDiscount = 0;
+        let grossSubtotal = 0;
+
+        // Fetch Live Max Discount from ERP on load
+        if (canEdit && canDiscount) {
+            const clientCode = '<?= addslashes($job['client_code'] ?? '') ?>';
+            const companyId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
+            if (clientCode && clientCode !== 'TBC') {
+                fetch(`api/plant_actions.php?action=get_client_max_discount&client_code=${clientCode}&company_id=${companyId}`)
+                .then(r => r.json())
+                .then(data => {
+                    maxAllowedDiscount = parseFloat(data.max_discount) || 0;
+                    document.getElementById('max_disc_label').innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
+                    validateAndRenderDiscount(); // Re-validate if a previously saved discount now exceeds the live limit
+                });
+            }
+        }
+
+        function validateAndRenderDiscount() {
+            if (!canDiscount) return;
+            const inputEl = document.getElementById('edit_discount_pct');
+            let val = parseFloat(inputEl.value) || 0;
+            
+            if (val > maxAllowedDiscount) {
+                alert(`The ERP system restricts discounts for this client to a maximum of ${maxAllowedDiscount}%.`);
+                val = maxAllowedDiscount;
+                inputEl.value = val;
+            }
+            if (val < 0) { val = 0; inputEl.value = 0; }
+            
+            currentDiscountPct = val;
+            renderTable();
+        }
 
         function recalcHours() {
             const tIn = document.getElementById('edit_time_in').value;
@@ -337,47 +390,49 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
 
         function renderTable() {
             const qtyInput = document.getElementById('calc_master_qty');
-            let totalQty = qtyInput ? (parseFloat(qtyInput.value) || 0) : savedHours;
+            let totalQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : savedHours).toFixed(2);
             
             const tbody = document.getElementById('lines-body');
             let html = '';
-            currentSubtotal = 0;
+            grossSubtotal = 0;
 
-            const fRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateFixed.toFixed(2)}" onchange="rateFixed = parseFloat(this.value) || 0; renderTable();">` : rateFixed.toFixed(2);
-            const vRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateVar.toFixed(2)}" onchange="rateVar = parseFloat(this.value) || 0; renderTable();">` : rateVar.toFixed(2);
+            const fRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateFixed.toFixed(4)}" onchange="rateFixed = parseFloat(this.value) || 0; renderTable();">` : rateFixed.toFixed(4);
+            const vRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateVar.toFixed(4)}" onchange="rateVar = parseFloat(this.value) || 0; renderTable();">` : rateVar.toFixed(4);
             
             if (hasSetupFee) {
-                const sRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateSetup.toFixed(2)}" onchange="rateSetup = parseFloat(this.value) || 0; renderTable();">` : rateSetup.toFixed(2);
-                currentSubtotal += rateSetup;
+                const sRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateSetup.toFixed(4)}" onchange="rateSetup = parseFloat(this.value) || 0; renderTable();">` : rateSetup.toFixed(4);
+                let sTotal = +(1 * rateSetup).toFixed(2);
+                grossSubtotal += sTotal;
                 
                 html += `<tr>
                     <td><b>${rawNomSetup}</b></td>
                     <td>Setup / Mobilisation Fee<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
                     <td class="text-right">1.00</td>
                     <td class="text-right">${sRateInput}</td>
-                    <td class="text-right"><b>${rateSetup.toFixed(2)}</b></td>
+                    <td class="text-right"><b>${sTotal.toFixed(2)}</b></td>
                 </tr>`;
             }
 
             if (pricingType === 'fixed_then_hourly') {
                 const fCode = rawNomFixed || 'MISSING';
                 const fDesc = 'Fixed Callout Charge';
-                currentSubtotal += rateFixed;
+                let fTotal = +(1 * rateFixed).toFixed(2);
+                grossSubtotal += fTotal;
                 
                 html += `<tr>
                     <td><b>${fCode}</b></td>
                     <td>${fDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
                     <td class="text-right">1.00</td>
                     <td class="text-right">${fRateInput}</td>
-                    <td class="text-right"><b>${rateFixed.toFixed(2)}</b></td>
+                    <td class="text-right"><b>${fTotal.toFixed(2)}</b></td>
                 </tr>`;
 
                 const extraHours = Math.max(0, totalQty - minHours);
                 if (extraHours > 0) {
                     const vCode = rawNomVar || 'MISSING';
                     const vDesc = 'Additional Hourly Rate';
-                    const vTotal = extraHours * rateVar;
-                    currentSubtotal += vTotal;
+                    let vTotal = +(extraHours * rateVar).toFixed(2);
+                    grossSubtotal += vTotal;
                     
                     html += `<tr>
                         <td><b>${vCode}</b></td>
@@ -391,13 +446,13 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             else if (pricingType === 'per_trip') {
                 const tCode = rawNomFixed || 'MISSING';
                 const tDesc = 'Trip Execution Charge';
-                const tTotal = totalQty * rateFixed;
-                currentSubtotal += tTotal;
+                let tTotal = +(totalQty * rateFixed).toFixed(2);
+                grossSubtotal += tTotal;
 
                 html += `<tr>
                     <td><b>${tCode}</b></td>
                     <td>${tDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">${totalQty.toFixed(2)} Trips</td>
+                    <td class="text-right">${totalQty} Trips</td>
                     <td class="text-right">${fRateInput}</td>
                     <td class="text-right"><b>${tTotal.toFixed(2)}</b></td>
                 </tr>`;
@@ -405,13 +460,13 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             else {
                 const hCode = rawNomVar || 'MISSING';
                 const hDesc = 'Standard Hourly Operation';
-                const hTotal = totalQty * rateVar;
-                currentSubtotal += hTotal;
+                let hTotal = +(totalQty * rateVar).toFixed(2);
+                grossSubtotal += hTotal;
 
                 html += `<tr>
                     <td><b>${hCode}</b></td>
                     <td>${hDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">${totalQty.toFixed(2)} Hrs</td>
+                    <td class="text-right">${totalQty} Hrs</td>
                     <td class="text-right">${vRateInput}</td>
                     <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
                 </tr>`;
@@ -419,12 +474,25 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
 
             tbody.innerHTML = html;
 
-            const vat = currentSubtotal * 0.18;
-            const total = currentSubtotal + vat;
+            // Strict ERP Math & Totals Rendering
+            let totalDiscount = +(grossSubtotal * (currentDiscountPct / 100)).toFixed(2);
+            let netSubtotal = +(grossSubtotal - totalDiscount).toFixed(2);
+            let vat = +(netSubtotal * 0.18).toFixed(2);
+            let finalTotal = +(netSubtotal + vat).toFixed(2);
 
-            document.getElementById('tot_subtotal').innerText = '€ ' + currentSubtotal.toFixed(2);
+            document.getElementById('tot_gross').innerText = '€ ' + grossSubtotal.toFixed(2);
+            document.getElementById('tot_net').innerText = '€ ' + netSubtotal.toFixed(2);
             document.getElementById('tot_vat').innerText = '€ ' + vat.toFixed(2);
-            document.getElementById('tot_final').innerText = total.toFixed(2);
+            document.getElementById('tot_final').innerText = finalTotal.toFixed(2);
+
+            const discRow = document.getElementById('discount_row');
+            if (totalDiscount > 0) {
+                discRow.style.display = 'flex';
+                document.getElementById('disp_disc_pct').innerText = currentDiscountPct;
+                document.getElementById('tot_discount').innerText = totalDiscount.toFixed(2);
+            } else {
+                discRow.style.display = 'none';
+            }
         }
 
         renderTable();
@@ -440,10 +508,9 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             fd.append('action', 'finalize_and_invoice');
             fd.append('booking_id', <?= $bookingId ?>);
             fd.append('hours', finalQty); 
-            fd.append('subtotal', currentSubtotal); 
-            
             fd.append('rate_fixed', rateFixed);
             fd.append('rate_var', rateVar);
+            fd.append('discount_pct', currentDiscountPct);
             
             if (hasSetupFee) {
                 fd.append('setup_fee', rateSetup);
@@ -468,6 +535,7 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             });
         }
 
+        // --- Client Edit Logic Remains Identical Below ---
         let invoiceErpClients = [];
         const invCompId = '<?= $job['billing_company_id'] ?>';
         const invBookingId = <?= $bookingId ?>;
@@ -517,7 +585,6 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
         function saveNewClient(code, name) {
             if(!confirm(`Update this RFP to bill to ${name}?`)) return;
             
-            // Mask the div while saving
             document.getElementById('inv_client_results').style.display = 'none';
             document.getElementById('inv_client_search').value = 'Saving...';
             document.getElementById('inv_client_search').disabled = true;
@@ -531,12 +598,7 @@ $canEdit = ($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced);
             fetch('api/plant_actions.php', { method: 'POST', body: fd })
             .then(r => r.text())
             .then(res => {
-                if(res === 'OK') {
-                    location.reload(); // Reloads the page to update all variables and lock the client in!
-                } else {
-                    alert(res);
-                    cancelClientEdit();
-                }
+                if(res === 'OK') { location.reload(); } else { alert(res); cancelClientEdit(); }
             });
         }
 
