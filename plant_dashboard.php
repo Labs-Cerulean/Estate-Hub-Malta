@@ -10,7 +10,7 @@ $role = $_SESSION['role'] ?? '';
 $hasDirectorAccess = in_array($role, ['admin', 'director']);
 if (!$hasDirectorAccess) die("Unauthorized Access.");
 
-// MICRO-API: Feed Map Data (Upgraded to include Driver and Times)
+// MICRO-API: Feed Map Data
 if (isset($_GET['action']) && $_GET['action'] == 'map_data') {
     header('Content-Type: application/json');
     $mode = $_GET['mode'] ?? 'period'; 
@@ -94,21 +94,16 @@ include 'header.php';
     #drillModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
     #drillModal { width: 700px; max-width: 95%; max-height: 85vh; background: #1e293b; color: #f8fafc; border-radius: 12px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
     
-    /* FULLCALENDAR ALIGNMENT FIXES */
-    .fc { font-size: 0.95rem; --fc-page-bg-color: transparent; --fc-neutral-bg-color: rgba(255, 255, 255, 0.05); --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.1); --fc-border-color: rgba(128, 128, 128, 0.2); }
+    /* FULLCALENDAR - STRICT CUSTOM FIXES */
+    .fc { font-size: 0.95rem; --fc-page-bg-color: transparent; --fc-neutral-bg-color: rgba(255, 255, 255, 0.05); --fc-list-event-hover-bg-color: transparent; --fc-border-color: rgba(128, 128, 128, 0.2); }
     .fc-theme-standard .fc-list { background: transparent !important; }
     
-    /* Force Time Column Alignment and Hide Ugly Dots */
-    .fc-list-event-dot { display: none !important; }
-    .fc-list-event-time { 
-        width: 140px !important; 
-        font-weight: 800 !important; 
-        color: #94a3b8 !important; 
-        text-align: right !important;
-        padding-right: 15px !important;
-        vertical-align: middle !important;
-    }
-    .fc-list-event-title { padding-left: 0 !important; vertical-align: middle !important; }
+    /* Completely hide native time and dot cells to prevent overlap */
+    .fc-list-event-time, .fc-list-event-graphic { display: none !important; }
+    
+    /* Expand the title cell to full width and add hover effect to the cell itself */
+    .fc-list-event-title { padding: 12px 15px !important; vertical-align: middle !important; width: 100% !important; transition: background 0.2s; }
+    .fc-list-event:hover .fc-list-event-title { background-color: rgba(255, 255, 255, 0.05) !important; cursor: pointer; }
 </style>
 
 <div class="cmd-center">
@@ -298,7 +293,6 @@ include 'header.php';
                     const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [16,16], iconAnchor: [8,8] });
                     const clientText = job.client_name || job.project_name || 'Unknown Location';
                     
-                    // Detailed Information for Popup
                     const driverName = (job.first_name || job.last_name) ? `${job.first_name || ''} ${job.last_name || ''}`.trim() : 'Unassigned';
                     const timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
                     
@@ -323,29 +317,23 @@ include 'header.php';
     }
 
     document.addEventListener('DOMContentLoaded', function() {
-        loadMapTelemetry(); 
-        setInterval(loadMapTelemetry, 60000);
-
         const calendarEl = document.getElementById('director-calendar');
         const calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'listWeek',
             headerToolbar: { left: 'prev,next today', center: 'title', right: 'listDay,listWeek,listMonth' },
             buttonText: { listDay: 'Day', listWeek: 'Week', listMonth: 'Month' },
             height: 600,
-            
-            // STRICT TIME FORMATTING TO FIX ALIGNMENT
             eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
             displayEventEnd: true,
-            
             events: 'api/plant_actions.php?action=fetch_bookings',
             
-            // CUSTOM ICON AND BADGE PARSER
+            // STRICT HTML INJECTION TO FIX ALIGNMENT OVERLAPS
             eventContent: function(arg) {
                 let title = arg.event.title;
+                let timeStr = arg.timeText || 'All Day';
                 let lowerTitle = title.toLowerCase();
-                let icon = 'fa-cogs'; // Default industrial icon
+                let icon = 'fa-cogs'; 
                 
-                // Map the category strings found in the title to strict FontAwesome icons
                 if (lowerTitle.includes('boom')) icon = 'fa-truck-pickup';
                 else if (lowerTitle.includes('crane')) icon = 'fa-truck-loading';
                 else if (lowerTitle.includes('drum cutter') || lowerTitle.includes('drumcutter')) icon = 'fa-cogs';
@@ -356,33 +344,35 @@ include 'header.php';
                 else if (lowerTitle.includes('rock saw') || lowerTitle.includes('rocksaw')) icon = 'fa-cog';
                 else if (lowerTitle.includes('scarifier')) icon = 'fa-road';
 
-                // Extract Emojis and convert them to clean CSS Status Badges
                 let statusIcon = '';
                 let rawTitle = title;
+                
                 if (rawTitle.includes('🧾')) { 
-                    statusIcon = '<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(16,185,129,0.2);"><i class="fas fa-file-invoice"></i> RFP Finalized</span>'; 
+                    statusIcon = '<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:4px 8px; border-radius:4px; font-size:0.75rem; margin-right:15px; border:1px solid rgba(16,185,129,0.2); width:110px; display:inline-block; text-align:center;"><i class="fas fa-file-invoice"></i> RFP Finalized</span>'; 
                     rawTitle = rawTitle.replace('🧾 ', ''); 
                 }
                 else if (rawTitle.includes('✅')) { 
-                    statusIcon = '<span style="background:rgba(59,130,246,0.15); color:#3b82f6; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(59,130,246,0.2);"><i class="fas fa-check"></i> Completed</span>'; 
+                    statusIcon = '<span style="background:rgba(59,130,246,0.15); color:#3b82f6; padding:4px 8px; border-radius:4px; font-size:0.75rem; margin-right:15px; border:1px solid rgba(59,130,246,0.2); width:110px; display:inline-block; text-align:center;"><i class="fas fa-check"></i> Completed</span>'; 
                     rawTitle = rawTitle.replace('✅ ', ''); 
                 }
                 else if (rawTitle.includes('⏳')) { 
-                    statusIcon = '<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(16,185,129,0.2);"><i class="fas fa-play"></i> Active</span>'; 
+                    statusIcon = '<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:4px 8px; border-radius:4px; font-size:0.75rem; margin-right:15px; border:1px solid rgba(16,185,129,0.2); width:110px; display:inline-block; text-align:center;"><i class="fas fa-play"></i> Active</span>'; 
                     rawTitle = rawTitle.replace('⏳ ', ''); 
                 }
                 else if (rawTitle.includes('⏸️')) { 
-                    statusIcon = '<span style="background:rgba(245,158,11,0.15); color:#f59e0b; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(245,158,11,0.2);"><i class="fas fa-pause"></i> Paused</span>'; 
+                    statusIcon = '<span style="background:rgba(245,158,11,0.15); color:#f59e0b; padding:4px 8px; border-radius:4px; font-size:0.75rem; margin-right:15px; border:1px solid rgba(245,158,11,0.2); width:110px; display:inline-block; text-align:center;"><i class="fas fa-pause"></i> Paused</span>'; 
                     rawTitle = rawTitle.replace('⏸️ ', ''); 
                 }
                 else {
-                    statusIcon = '<span style="background:rgba(148,163,184,0.15); color:#94a3b8; padding:3px 8px; border-radius:4px; font-size:0.75rem; margin-right:10px; border:1px solid rgba(148,163,184,0.2);"><i class="far fa-clock"></i> Pending</span>'; 
+                    statusIcon = '<span style="background:rgba(148,163,184,0.15); color:#94a3b8; padding:4px 8px; border-radius:4px; font-size:0.75rem; margin-right:15px; border:1px solid rgba(148,163,184,0.2); width:110px; display:inline-block; text-align:center;"><i class="far fa-clock"></i> Pending</span>'; 
                 }
 
+                // We inject the time directly into our layout to stop table overlapping
                 return {
-                    html: `<div style="display:flex; align-items:center;">
-                             <div style="width:30px; text-align:center; color:#38bdf8; font-size:1.1rem; margin-right:10px;"><i class="fas ${icon}"></i></div>
-                             ${statusIcon}
+                    html: `<div style="display:flex; align-items:center; width:100%;">
+                             <div style="width:120px; font-weight:800; color:#94a3b8; text-align:right; margin-right:15px; flex-shrink:0;">${timeStr}</div>
+                             <div style="width:30px; text-align:center; color:#38bdf8; font-size:1.1rem; margin-right:5px; flex-shrink:0;"><i class="fas ${icon}"></i></div>
+                             <div style="flex-shrink:0;">${statusIcon}</div>
                              <div style="font-weight:600; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${rawTitle.trim()}</div>
                            </div>`
                 };
@@ -399,13 +389,18 @@ include 'header.php';
             },
             
             datesSet: function(info) {
-                calStartCache = info.startStr.split('T')[0];
-                calEndCache = info.endStr.split('T')[0];
+                // Timezone safe calculator to stop the Map from leaking into "tomorrow"
+                let startDate = new Date(info.start);
+                let endDate = new Date(info.end);
+                endDate.setDate(endDate.getDate() - 1); // Subtract 1 day due to FC's exclusive end dates
+                
+                calStartCache = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+                calEndCache = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
                 
                 if (activeMapMode === 'period') { loadMapTelemetry(); }
 
                 document.getElementById('dynamic-subtitle').innerText = "Viewing Data for " + (info.view.type === 'listDay' ? "this Day" : (info.view.type === 'listMonth' ? "this Month" : "this Week"));
-                const fd = new FormData(); fd.append('action', 'get_dashboard_stats'); fd.append('start', info.startStr); fd.append('end', info.endStr);
+                const fd = new FormData(); fd.append('action', 'get_dashboard_stats'); fd.append('start', calStartCache); fd.append('end', calEndCache);
                 
                 fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
                     document.getElementById('kpi-completed-book').innerText = data.kpi.completed_bookings;
@@ -465,6 +460,9 @@ include 'header.php';
             }
         });
         calendar.render();
+        
+        loadMapTelemetry(); 
+        setInterval(loadMapTelemetry, 60000);
     });
 </script>
 
