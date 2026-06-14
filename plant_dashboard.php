@@ -48,10 +48,21 @@ include 'header.php';
 
 <style>
     .cmd-center { max-width: 1600px; margin: 0 auto; padding: 30px 20px; width: 100%; box-sizing: border-box; }
-    .header-bar { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
-    .page-title { font-size: 2.2rem; font-weight: 900; margin: 0 0 5px 0; opacity: 0.9; }
-    .page-subtitle { font-size: 1.1rem; margin: 0; opacity: 0.7; font-weight: 500; }
     
+    /* GLOBAL DATE CONTROLS AT TOP */
+    .global-date-bar { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 15px 20px; border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; gap: 15px; }
+    .date-nav-btns, .view-toggles { display: flex; }
+    .date-nav-btns button, .view-toggles button { background: rgba(255,255,255,0.05); border: none; color: #cbd5e1; padding: 10px 18px; font-weight: 700; cursor: pointer; transition: 0.2s; font-size: 0.9rem; }
+    .date-nav-btns button:hover, .view-toggles button:hover { background: rgba(255,255,255,0.15); color: #fff; }
+    .date-nav-btns button:first-child { border-radius: 8px 0 0 8px; border-right: 1px solid rgba(0,0,0,0.2); }
+    .date-nav-btns button:nth-child(2) { border-radius: 0 8px 8px 0; }
+    .date-nav-btns button:last-child { border-radius: 8px; margin-left: 10px; background: rgba(255,255,255,0.1); }
+    .view-toggles button { border-right: 1px solid rgba(0,0,0,0.2); }
+    .view-toggles button:first-child { border-radius: 8px 0 0 8px; }
+    .view-toggles button:last-child { border-radius: 0 8px 8px 0; border-right: none; }
+    .view-toggles button.active { background: #3b82f6; color: #fff; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+    .global-date-title { color: #fff; font-size: 1.6rem; font-weight: 900; margin: 0; text-align: center; flex: 1; }
+
     .kpi-section-title { font-size: 1rem; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 15px; border-bottom: 2px solid rgba(128,128,128,0.2); padding-bottom: 5px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
     
@@ -71,65 +82,44 @@ include 'header.php';
     .panel-body { padding: 20px; flex: 1; }
 
     /* Map Slider Toggle */
-    .map-toggle-wrapper { display: flex; background: rgba(0,0,0,0.1); border-radius: 30px; position: relative; padding: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); }
-    .map-toggle-btn { flex: 1; text-align: center; padding: 6px 16px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase; color: #64748b; cursor: pointer; z-index: 2; transition: color 0.3s ease; position: relative; }
+    .map-toggle-wrapper { display: flex; background: rgba(0,0,0,0.3); border-radius: 30px; position: relative; padding: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+    .map-toggle-btn { flex: 1; text-align: center; padding: 6px 16px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase; color: #94a3b8; cursor: pointer; z-index: 2; transition: color 0.3s ease; position: relative; }
     .map-toggle-btn.active { color: #fff; }
     .map-toggle-slider { position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3b82f6; border-radius: 30px; transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), background-color 0.3s; z-index: 1; }
     .map-toggle-wrapper[data-mode="live"] .map-toggle-slider { transform: translateX(100%); background: #10b981; }
 
-    /* Breakdown Table */
     .breakdown-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     .breakdown-table th { background: rgba(0,0,0,0.1); padding: 10px; font-weight: 800; text-transform: uppercase; border: 1px solid rgba(128,128,128,0.2); opacity: 0.8; }
     .breakdown-table td { padding: 10px; border: 1px solid rgba(128,128,128,0.1); opacity: 0.9; text-align: center; }
     .breakdown-table td:first-child { text-align: left; font-weight: 700; }
     
-  /* Map Markers */
-    .custom-leaflet-icon { background: none !important; border: none !important; }
-    .map-marker-base { 
-        width: 26px; 
-        height: 26px; 
-        border-radius: 50%; 
-        border: 2px solid #fff; 
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.4); 
-    }
-    .map-marker-base i, .map-marker-base svg { 
-        color: #ffffff !important; 
-        font-size: 12px !important;
-        width: 12px !important;
-        height: 12px !important;
-        font-weight: 900 !important; 
-        font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", "FontAwesome" !important;
-    }
-    .marker-active { background: #10b981; animation: pulse 1.5s infinite; }
-    .marker-paused { background: #f59e0b; }
-    .marker-completed { background: #3b82f6; }
-    .marker-pending { background: #94a3b8; }
-    @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1.1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
-
     /* Drilldown Modal */
     #drillModalOverlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
     #drillModal { width: 700px; max-width: 95%; max-height: 85vh; background: #1e293b; color: #f8fafc; border-radius: 12px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
     
-    /* FULLCALENDAR - STRICT CUSTOM FIXES */
+    /* FULLCALENDAR FIXES */
     .fc { font-size: 0.95rem; --fc-page-bg-color: transparent; --fc-neutral-bg-color: rgba(255, 255, 255, 0.05); --fc-list-event-hover-bg-color: transparent; --fc-border-color: rgba(128, 128, 128, 0.2); }
     .fc-theme-standard .fc-list { background: transparent !important; }
-    
-    /* Completely hide native time and dot cells to prevent overlap */
     .fc-list-event-time, .fc-list-event-graphic { display: none !important; }
-    
-    /* Expand the title cell to full width and add hover effect to the cell itself */
     .fc-list-event-title { padding: 12px 15px !important; vertical-align: middle !important; width: 100% !important; transition: background 0.2s; }
     .fc-list-event:hover .fc-list-event-title { background-color: rgba(255, 255, 255, 0.05) !important; cursor: pointer; }
 </style>
 
 <div class="cmd-center">
-    <div class="header-bar">
-        <div>
-            <h1 class="page-title">Fleet Command Center</h1>
-            <p class="page-subtitle" id="dynamic-subtitle">Analyzing Operations Data...</p>
+    
+    <div class="global-date-bar">
+        <div class="date-nav-btns">
+            <button onclick="calAction('prev')"><i class="fas fa-chevron-left"></i></button>
+            <button onclick="calAction('next')"><i class="fas fa-chevron-right"></i></button>
+            <button onclick="calAction('today')">Today</button>
+        </div>
+        
+        <h2 class="global-date-title" id="global-date-display">Loading Data...</h2>
+        
+        <div class="view-toggles">
+            <button onclick="calAction('listDay')" id="btn-listDay">Day</button>
+            <button onclick="calAction('listWeek')" id="btn-listWeek" class="active">Week</button>
+            <button onclick="calAction('listMonth')" id="btn-listMonth">Month</button>
         </div>
     </div>
 
@@ -246,15 +236,11 @@ include 'header.php';
             <h3 id="jobModalTitle" style="margin:0; font-size:1.4rem;">Job Details</h3>
             <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="background:none; border:none; color:#94a3b8; font-size:1.5rem; cursor:pointer;"><i class="fas fa-times"></i></button>
         </div>
-        
         <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #f59e0b; padding: 12px 15px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
             <i class="fas fa-exclamation-triangle" style="font-size: 1.2rem;"></i> 
-            <div>This job has not been billed or finalized yet. Here is the scheduled information:</div>
+            <div>This job has not been billed or finalized yet.</div>
         </div>
-        
-        <div id="jobModalBody" style="font-size: 0.95rem; line-height: 1.6; color: #cbd5e1;">
-            </div>
-        
+        <div id="jobModalBody" style="font-size: 0.95rem; line-height: 1.6; color: #cbd5e1;"></div>
         <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: 20px; text-align: right;">
             <button onclick="document.getElementById('jobModalOverlay').style.display='none'" style="padding: 10px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Close Window</button>
         </div>
@@ -262,10 +248,23 @@ include 'header.php';
 </div>
 
 <script>
+    let calendar;
     let currentDrillData = {};
     let calStartCache = '';
     let calEndCache = '';
     let activeMapMode = 'period'; 
+
+    // Global Date Controls API
+    function calAction(action) {
+        if (!calendar) return;
+        if (['prev', 'next', 'today'].includes(action)) {
+            calendar[action]();
+        } else {
+            calendar.changeView(action);
+            document.querySelectorAll('.view-toggles button').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-' + action).classList.add('active');
+        }
+    }
 
     function setMapMode(mode) {
         activeMapMode = mode;
@@ -304,7 +303,7 @@ include 'header.php';
     const map = L.map('fleetMap').setView([35.917973, 14.409943], 11);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
-   function loadMapTelemetry() {
+    function loadMapTelemetry() {
         let url = 'plant_dashboard.php?action=map_data&mode=' + activeMapMode;
         if (activeMapMode === 'period' && calStartCache !== '') {
             url += '&start=' + calStartCache + '&end=' + calEndCache;
@@ -314,37 +313,43 @@ include 'header.php';
             map.eachLayer(layer => { if (layer instanceof L.Marker) layer.remove(); });
             jobs.forEach(job => {
                 if (job.location_lat) {
-                    let icon = 'fa-cogs'; 
+                    
+                    // UNICODE MAPPING (Bypasses FontAwesome JS/SVG conflicts in Leaflet)
+                    let iconUni = '&#xf085;'; // default cogs
                     let cat = (job.category || job.plant_name || '').toLowerCase();
                     
-                    if (cat.includes('booms')) icon = 'fa-truck-pickup';
-                    else if (cat.includes('cranes')) icon = 'fa-truck-loading';
-                    else if (cat.includes('drum cutter')) icon = 'fa-cogs';
-                    else if (cat.includes('excavator') || cat.includes('kobelco') || cat.includes('kato') || cat.includes('jcb')) icon = 'fa-tractor';
-                    else if (cat.includes('other trucks') || cat.includes('truck')) icon = 'fa-truck';
-                    else if (cat.includes('piling')) icon = 'fa-hammer';
-                    else if (cat.includes('pumps') || cat.includes('concrete')) icon = 'fa-water';
-                    else if (cat.includes('rock saw')) icon = 'fa-cog';
-                    else if (cat.includes('scarifier')) icon = 'fa-road';
+                    if (cat.includes('booms')) iconUni = '&#xf63c;'; // truck-pickup
+                    else if (cat.includes('cranes')) iconUni = '&#xf4de;'; // truck-loading
+                    else if (cat.includes('drum cutter')) iconUni = '&#xf085;'; // cogs
+                    else if (cat.includes('excavator') || cat.includes('kobelco') || cat.includes('kato') || cat.includes('jcb')) iconUni = '&#xf722;'; // tractor
+                    else if (cat.includes('other trucks') || cat.includes('truck')) iconUni = '&#xf0d1;'; // truck
+                    else if (cat.includes('piling')) iconUni = '&#xf6e3;'; // hammer
+                    else if (cat.includes('pumps') || cat.includes('concrete')) iconUni = '&#xf773;'; // water
+                    else if (cat.includes('rock saw')) iconUni = '&#xf013;'; // cog
+                    else if (cat.includes('scarifier')) iconUni = '&#xf018;'; // road
 
-                    let markerClass = 'marker-pending'; 
+                    let bgColor = '#94a3b8'; // Pending
                     let badge = `<span style="background:#94a3b8; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${job.status}</span>`;
                     
                     if (job.status === 'In Progress') {
-                        markerClass = 'marker-active';
+                        bgColor = '#10b981';
                         badge = `<span style="background:#10b981; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Active</span>`;
                     } else if (job.status === 'Paused') {
-                        markerClass = 'marker-paused';
+                        bgColor = '#f59e0b';
                         badge = `<span style="background:#f59e0b; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Paused</span>`;
                     } else if (job.status === 'Completed') {
-                        markerClass = 'marker-completed';
+                        bgColor = '#3b82f6';
                         badge = `<span style="background:#3b82f6; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Completed</span>`;
                     }
 
-                    // Added fa-solid to ensure FontAwesome 6 compatibility
-                    let iconHtml = `<div class="map-marker-base ${markerClass}"><i class="fa-solid fas ${icon}"></i></div>`;
-                    const cIcon = L.divIcon({ html: iconHtml, className: 'custom-leaflet-icon', iconSize: [26,26], iconAnchor: [13,13] });
+                    // Strict Inline CSS Marker to overcome Leaflet constraints
+                    let iconHtml = `
+                        <div style="background:${bgColor}; width:28px; height:28px; border-radius:50%; border:2px solid #fff; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.4);">
+                            <span style="color:#fff; font-family: 'Font Awesome 6 Free', 'Font Awesome 5 Free', 'FontAwesome'; font-weight: 900; font-size: 13px; line-height: 1; display: block;">${iconUni}</span>
+                        </div>
+                    `;
                     
+                    const cIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [28,28], iconAnchor: [14,14] });
                     const clientText = job.client_name || job.project_name || 'Unknown Location';
                     const driverName = (job.first_name || job.last_name) ? `${job.first_name || ''} ${job.last_name || ''}`.trim() : 'Unassigned';
                     const timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
@@ -366,30 +371,19 @@ include 'header.php';
                     L.marker([job.location_lat, job.location_lng], { icon: cIcon }).addTo(map).bindPopup(popupHtml);
                 }
             });
-
-            // CRITICAL FIX: Force FontAwesome to render the dynamically injected <i> tags!
-            setTimeout(() => {
-                if (window.FontAwesome) {
-                    window.FontAwesome.dom.i2svg();
-                }
-            }, 100);
         });
     }
 
-    
-
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('director-calendar');
-        const calendar = new FullCalendar.Calendar(calendarEl, {
+        calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'listWeek',
-            headerToolbar: { left: 'prev,next today', center: 'title', right: 'listDay,listWeek,listMonth' },
-            buttonText: { listDay: 'Day', listWeek: 'Week', listMonth: 'Month' },
+            headerToolbar: false, // Hidden native toolbar
             height: 600,
             eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
             displayEventEnd: true,
             events: 'api/plant_actions.php?action=fetch_bookings',
             
-            // STRICT HTML INJECTION TO FIX ALIGNMENT OVERLAPS & TIMES
             eventContent: function(arg) {
                 let title = arg.event.title;
                 let lowerTitle = title.toLowerCase();
@@ -405,7 +399,6 @@ include 'header.php';
                 else if (lowerTitle.includes('rock saw') || lowerTitle.includes('rocksaw')) icon = 'fa-cog';
                 else if (lowerTitle.includes('scarifier')) icon = 'fa-road';
 
-                // 1. MANUALLY BUILD THE TIME STRING (Bypasses FullCalendar's empty string quirk)
                 let timeStr = 'All Day';
                 if (!arg.event.allDay && arg.event.start) {
                     let sH = String(arg.event.start.getHours()).padStart(2, '0');
@@ -419,7 +412,6 @@ include 'header.php';
                     }
                 }
 
-                // 2. BUILD STATUS BADGE
                 let statusIcon = '';
                 let rawTitle = title;
                 
@@ -443,7 +435,6 @@ include 'header.php';
                     statusIcon = '<span style="background:rgba(148,163,184,0.15); color:#94a3b8; padding:4px 8px; border-radius:4px; font-size:0.75rem; margin-right:15px; border:1px solid rgba(148,163,184,0.2); width:110px; display:inline-block; text-align:center;"><i class="far fa-clock"></i> Pending</span>'; 
                 }
 
-                // 3. INJECT HTML
                 return {
                     html: `<div style="display:flex; align-items:center; width:100%;">
                              <div style="width:120px; font-weight:800; color:#94a3b8; text-align:right; margin-right:15px; flex-shrink:0;">${timeStr}</div>
@@ -456,13 +447,10 @@ include 'header.php';
             
             eventClick: function(info) {
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
-                    // If it has an RFP/Invoice, pop the PDF
                     if (job.status === 'Completed' && (parseFloat(job.final_subtotal) > 0 || ['Invoiced','Settled'].includes(job.payment_status))) {
                         window.open(`print_plant_invoice.php?booking_id=${job.id}&readonly=1`, 'rfpPopup', 'width=1000,height=900,scrollbars=yes');
                     } else {
-                        // Otherwise, pop the informational unbilled modal!
                         document.getElementById('jobModalTitle').innerHTML = `<i class="fas fa-hard-hat" style="color:#38bdf8; margin-right:8px;"></i> ${job.plant_name || 'Plant Equipment'}`;
-                        
                         let driverStr = job.driver_id ? `Assigned` : '<span style="color:#ef4444; font-weight:bold;">Unassigned</span>';
                         let timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
                         let statusColor = job.status === 'Completed' ? '#10b981' : (job.status === 'In Progress' ? '#3b82f6' : (job.status === 'Paused' ? '#f59e0b' : '#94a3b8'));
@@ -474,35 +462,32 @@ include 'header.php';
                             <div style="margin-bottom:10px;"><b style="color:#fff;">Location:</b> ${job.location_text || 'TBC'}</div>
                             ${job.comments ? `<div style="margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.05); border-left: 3px solid #3b82f6; border-radius: 4px; color:#cbd5e1;"><b>Notes:</b><br>${job.comments}</div>` : ''}
                         `;
-                        
                         document.getElementById('jobModalOverlay').style.display = 'flex';
                     }
                 });
             },
             
             datesSet: function(info) {
-                // Timezone safe calculator to stop the Map from leaking into "tomorrow"
+                // Update Global Top Title
+                document.getElementById('global-date-display').innerText = info.view.title;
+                
                 let startDate = new Date(info.start);
                 let endDate = new Date(info.end);
-                endDate.setDate(endDate.getDate() - 1); // Subtract 1 day due to FC's exclusive end dates
+                endDate.setDate(endDate.getDate() - 1); 
                 
                 calStartCache = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
                 calEndCache = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
                 
                 if (activeMapMode === 'period') { loadMapTelemetry(); }
 
-                document.getElementById('dynamic-subtitle').innerText = "Viewing Data for " + (info.view.type === 'listDay' ? "this Day" : (info.view.type === 'listMonth' ? "this Month" : "this Week"));
                 const fd = new FormData(); fd.append('action', 'get_dashboard_stats'); fd.append('start', calStartCache); fd.append('end', calEndCache);
-                
                 fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
                     document.getElementById('kpi-completed-book').innerText = data.kpi.completed_bookings;
                     document.getElementById('kpi-completed-hrs').innerText = parseFloat(data.kpi.executed_hours).toFixed(1);
                     document.getElementById('kpi-rev-gen').innerText = '€' + parseFloat(data.kpi.revenue_generated).toLocaleString(undefined,{maximumFractionDigits:0});
-                    
                     document.getElementById('kpi-planned-book').innerText = data.kpi.planned_bookings;
                     document.getElementById('kpi-planned-hrs').innerText = parseFloat(data.kpi.planned_hours).toFixed(1);
                     document.getElementById('kpi-rev-pipe').innerText = '€' + parseFloat(data.kpi.projected_revenue).toLocaleString(undefined,{maximumFractionDigits:0});
-                    
                     document.getElementById('kpi-rfps').innerText = data.kpi.rfps_issued;
                     document.getElementById('kpi-erp').innerText = '€' + parseFloat(data.kpi.erp_invoiced).toLocaleString(undefined,{maximumFractionDigits:0});
                     document.getElementById('kpi-rev-total').innerText = '€' + parseFloat(data.kpi.total_est_revenue).toLocaleString(undefined,{maximumFractionDigits:0});
@@ -513,20 +498,15 @@ include 'header.php';
                     if (data.plants.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px;">No jobs found for this period.</td></tr>';
                     } else {
-                        let html = '';
-                        let currentCat = '';
-                        
+                        let html = ''; let currentCat = '';
                         data.plants.forEach(p => {
                             let cat = p.category || 'General';
-                            
                             if (cat !== currentCat) {
-                                let icon = 'fa-cogs'; 
-                                let lowerCat = cat.toLowerCase();
-                                
+                                let icon = 'fa-cogs'; let lowerCat = cat.toLowerCase();
                                 if (lowerCat.includes('booms')) icon = 'fa-truck-pickup';
                                 else if (lowerCat.includes('cranes')) icon = 'fa-truck-loading';
                                 else if (lowerCat.includes('drum cutter')) icon = 'fa-cogs';
-                                else if (lowerCat.includes('excavator')) icon = 'fa-tractor';
+                                else if (lowerCat.includes('excavator') || lowerCat.includes('kobelco') || lowerCat.includes('kato') || lowerCat.includes('jcb')) icon = 'fa-tractor';
                                 else if (lowerCat.includes('other trucks')) icon = 'fa-truck';
                                 else if (lowerCat.includes('piling')) icon = 'fa-hammer';
                                 else if (lowerCat.includes('pumps')) icon = 'fa-water';
@@ -538,7 +518,6 @@ include 'header.php';
                             }
                             
                             let t_qty = p.c_qty + p.p_qty; let t_hrs = p.c_hrs + p.p_hrs; let t_rev = p.c_rev + p.p_rev;
-                            
                             html += `<tr>
                                 <td>${p.plant_name}</td>
                                 <td style="color:#10b981;"><b>${p.c_qty}</b> / ${p.c_hrs.toFixed(1)} / €${p.c_rev.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
@@ -556,8 +535,6 @@ include 'header.php';
         loadMapTelemetry(); 
         setInterval(loadMapTelemetry, 60000);
     });
-
-    
 </script>
 
 <?php include 'footer.php'; ?>
