@@ -816,9 +816,23 @@ if ($action == 'claim_job') {
 // ---------------------------------------------------------
 if ($action == 'punch_in') { 
     $punchTime = date('Y-m-d H:i:s');
-    $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?) WHERE id=?");
-    $stmt->execute([$punchTime, $userId, $_GET['id']]); 
-    logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in / resumed job", $_GET['id']);
+    $bookingId = $_GET['id'] ?? $_POST['id'];
+    
+    $lat = $_POST['lat'] ?? null;
+    $lng = $_POST['lng'] ?? null;
+
+    // If the driver's phone successfully sent GPS coordinates, update the map location!
+    if ($lat && $lng) {
+        $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?), location_lat=?, location_lng=? WHERE id=?");
+        $stmt->execute([$punchTime, $userId, $lat, $lng, $bookingId]); 
+        logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in and logged live GPS coordinates.", $bookingId);
+    } else {
+        // Fallback for managers or if the driver's phone lost GPS signal
+        $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?) WHERE id=?");
+        $stmt->execute([$punchTime, $userId, $bookingId]); 
+        logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in / resumed job (No GPS provided)", $bookingId);
+    }
+    
     echo "OK"; 
     exit; 
 }
