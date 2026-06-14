@@ -13,6 +13,95 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
     }
 }
 
+function pushBookingToERP($pdo, $bookingId, $userId) {
+    // 1. Fetch the completely finalized job data
+    $stmt = $pdo->prepare("
+        SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, p.min_hours, u.first_name as driver_first, u.last_name as driver_last
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id 
+        LEFT JOIN users u ON pb.driver_id = u.id 
+        WHERE pb.id = ?
+    "); 
+    $stmt->execute([$bookingId]); 
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (empty($job['client_code']) || $job['client_code'] === 'TBC') {
+        return "ERROR: Client details are still TBC.";
+    }
+
+    $apiKey = getApiKey($job['billing_company_id']);
+    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
+    $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
+    $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
+
+    // 2. Build the lines using dynamic descriptions
+    $lines = [];
+    
+    if ((float)$job['final_setup_fee'] > 0) {
+        $setupCode = $setupNom ? trim($setupNom['NCCode']) : (!empty($job['nom_code_setup']) ? $job['nom_code_setup'] : '0000');
+        $setupDesc = $setupNom ? substr(trim($setupNom['NCDesc']), 0, 35) : "Setup / Mobilisation Fee";
+        $lines[] = [ "Type" => "N", "Code" => $setupCode, "Description" => $setupDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_setup_fee'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+    }
+    
+    if ($job['pricing_type'] == 'fixed_then_hourly') {
+        $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
+        $fDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Fixed Callout Charge";
+        $lines[] = [ "Type" => "N", "Code" => $fCode, "Description" => $fDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+        
+        $extraHours = (float)$job['final_hours'] - (float)$job['min_hours'];
+        if ($extraHours > 0) {
+            $vCode = $varNom ? trim($varNom['NCCode']) : trim($job['nom_code_variable']);
+            $vDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Additional Hourly Rate";
+            $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+        }
+    } elseif ($job['pricing_type'] == 'per_trip') {
+        $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
+        $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
+        $qty = (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1;
+        $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => $qty, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
+    } else {
+        $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
+        $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
+        $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['final_hours'], "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
+    }
+
+    $totalVal = (float)$job['final_subtotal']; 
+    $totalTax = $totalVal * 0.18;
+    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
+    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => 1, "Location" => "01" ];
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => 1, "Location" => "01" ];
+
+    // 3. Push to ERP
+    $payload = [ 
+        "Type" => "IN", 
+        "Transaction" => [ 
+            "InvioceHeader" => [ 
+                "THTranCode" => "IN", "THDate" => $job['booking_date'], "THUserID" => "API", 
+                "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", 
+                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), "THExtRef" => $jobRef, 
+                "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => round($totalTax, 2), 
+                "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => "" 
+            ], 
+            "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" 
+        ] 
+    ];
+
+    $erpResult = postJ2ApiData('/sales/transaction', $apiKey, $payload);
+    
+    if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { 
+        $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; 
+        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); 
+        logPlantAction($pdo, $userId, 'RFP_SYNCED_SUCCESS', "Synced invoice to ERP. SysRef: $sysRef", $bookingId);
+        return "OK"; 
+    } else { 
+        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
+        logPlantAction($pdo, $userId, 'RFP_SYNC_FAILED', "ERP Sync Failed. Response: " . htmlspecialchars($erpResult['response']), $bookingId);
+        return "ERROR: " . htmlspecialchars($erpResult['response']); 
+    } 
+}
+
 // Force Malta Timezone strictly for all operations in this file
 date_default_timezone_set('Europe/Malta');
 
@@ -681,42 +770,26 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
 
-    $stmt = $pdo->prepare("
-        SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, 
-               p.setup_fee, p.nom_code_setup,
-               p.name as plant_name, u.first_name as driver_first, u.last_name as driver_last 
-        FROM plant_bookings pb 
-        JOIN plants p ON pb.plant_id = p.id 
-        LEFT JOIN users u ON pb.driver_id = u.id 
-        WHERE pb.id = ?
-    "); 
+    // 1. Fetch initial job data to calculate Subtotal locally
+    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, p.setup_fee, p.nom_code_setup FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Priority 1: Prevent finalisation if Client is still TBC
     if ($job['client_code'] === 'TBC' || empty($job['client_code'])) {
-        echo "ERROR: Client details are marked as TBC. You must assign a valid ERP Client before finalising the delivery note.";
-        exit;
+        echo "ERROR: Client details are marked as TBC. You must assign a valid ERP Client before finalising the delivery note."; exit;
     }
 
     $apiKey = getApiKey($job['billing_company_id']);
     
-    // Process modified punch clock hours from Admin input
-    $punchIn = null;
-    $punchOut = null;
+    // Process punch clock hours from Admin input
+    $punchIn = null; $punchOut = null;
     if (!empty($_POST['time_in']) && !empty($_POST['time_out'])) {
-        $tInTime = strtotime($_POST['time_in']);
-        $tOutTime = strtotime($_POST['time_out']);
+        $tInTime = strtotime($_POST['time_in']); $tOutTime = strtotime($_POST['time_out']);
         $outDate = $job['booking_date'];
-        
-        if ($tOutTime < $tInTime) {
-            $outDate = date('Y-m-d', strtotime($job['booking_date'] . ' +1 day'));
-        }
-        
+        if ($tOutTime < $tInTime) { $outDate = date('Y-m-d', strtotime($job['booking_date'] . ' +1 day')); }
         $punchIn = $job['booking_date'] . ' ' . $_POST['time_in'] . ':00';
         $punchOut = $outDate . ' ' . $_POST['time_out'] . ':00';
     }
-
     if ($punchIn && $punchOut) {
         $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
     }
@@ -729,135 +802,51 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $isInternal = $job['booking_type'] == 'in-house'; 
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
-    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
     
-    // Fallback logic to resolve the absolute rates
     $syncPriceFixed = $customRateFixed !== null ? $customRateFixed : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
     $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
     
     $syncSetupPrice = 0;
-    $hasSetupFeeApplied = isset($job['apply_setup_fee']) ? $job['apply_setup_fee'] : 0;
-    
-    if ($hasSetupFeeApplied == 1 || $customSetupFee > 0) {
+    if ((isset($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || $customSetupFee > 0) {
         $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
     }
 
-    // ABSOLUTE MATH ENGINE: Recalculate Subtotal securely on the server
-    $lines = [];
-    $backendSubtotal = 0;
-
-    if ($syncSetupPrice > 0) {
-        $setupCode = $setupNom ? trim($setupNom['NCCode']) : (!empty($job['nom_code_setup']) ? $job['nom_code_setup'] : '0000');
-        $setupDesc = $setupNom ? substr(trim($setupNom['NCDesc']), 0, 35) : "Setup / Mobilisation Fee";
-        
-        $lines[] = [
-            "Type" => "N", "Code" => $setupCode, "Description" => $setupDesc, "UOMLevel" => 1, "Location" => "01", 
-            "Qty" => 1, "Price" => $syncSetupPrice, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
-        ];
-        $backendSubtotal += $syncSetupPrice;
-    }
-    
-    if ($job['pricing_type'] == 'fixed_then_hourly' && !empty($job['nom_code_fixed'])) {
-        $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
-        $fDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Fixed Callout Charge";
-        
-        $lines[] = [
-            "Type" => "N", "Code" => $fCode, "Description" => $fDesc, "UOMLevel" => 1, "Location" => "01", 
-            "Qty" => 1, "Price" => $syncPriceFixed, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
-        ]; 
+    // Recalculate Subtotal securely on the server
+    $backendSubtotal = $syncSetupPrice;
+    if ($job['pricing_type'] == 'fixed_then_hourly') {
         $backendSubtotal += $syncPriceFixed;
-        
         $extraHours = $finalHours - (float)$job['min_hours'];
-        if ($extraHours > 0 && !empty($job['nom_code_variable'])) {
-            $vCode = $varNom ? trim($varNom['NCCode']) : trim($job['nom_code_variable']);
-            $vDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Additional Hourly Rate";
-            
-            $lines[] = [
-                "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", 
-                "Qty" => $extraHours, "Price" => $syncPriceVar, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
-            ]; 
-            $backendSubtotal += ($extraHours * $syncPriceVar);
-        }
-    } elseif ($job['pricing_type'] == 'per_trip' && !empty($job['nom_code_fixed'])) {
-        $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
-        $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
+        if ($extraHours > 0) $backendSubtotal += ($extraHours * $syncPriceVar);
+    } elseif ($job['pricing_type'] == 'per_trip') {
         $qty = (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1;
-        
-        $lines[] = [
-            "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", 
-            "Qty" => $qty, "Price" => $syncPriceFixed, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
-        ]; 
         $backendSubtotal += ($qty * $syncPriceFixed);
     } else {
-        $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
-        $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
-        
-        $lines[] = [
-            "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", 
-            "Qty" => $finalHours, "Price" => $syncPriceVar, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0
-        ];
         $backendSubtotal += ($finalHours * $syncPriceVar);
     }
 
-    // SAFELY RECORD THE MATH TO THE DATABASE
+    // 2. SAFELY RECORD THE MATH TO THE DATABASE
     $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, payment_status='Invoiced' WHERE id=?");
     $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $bookingId]);
     
-    if (empty($lines) || empty($job['client_code'])) { 
-        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
-        echo "OK_LOCAL_ONLY"; 
-        exit; 
-    }
-
-    $totalVal = $backendSubtotal; 
-    $totalTax = $totalVal * 0.18;
-    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
-    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    // 3. Call our unified ERP pusher!
+    $erpResult = pushBookingToERP($pdo, $bookingId, $userId);
     
-    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => 1, "Location" => "01" ];
-    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => 1, "Location" => "01" ];
-
-    $payload = [ 
-        "Type" => "IN", 
-        "Transaction" => [ 
-            "InvioceHeader" => [ 
-                "THTranCode" => "IN", 
-                "THDate" => $job['booking_date'], 
-                "THUserID" => "API", 
-                "THCSCode" => $job['client_code'], 
-                "THName" => $job['client_name'], 
-                "THTaxNumber" => "", 
-                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), 
-                "THExtRef" => $jobRef, 
-                "THRevision" => "001", 
-                "THTotDiscF" => 0.0, 
-                "THTotDiscTIF" => 0.0, 
-                "THTotTaxF" => round($totalTax, 2), 
-                "THCurrency" => "EUR", 
-                "THExchRate" => 1, 
-                "THPayment" => "", 
-                "THPayRef" => "" 
-            ], 
-            "InvioceItemLine" => [ "Lines" => $lines ], 
-            "Ledger" => "S", 
-            "OfflineDocRefs" => "" 
-        ] 
-    ];
-
-    $erpResult = postJ2ApiData('/sales/transaction', $apiKey, $payload);
-    
-    // If it succeeds with the ERP:
-    if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { 
-        $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; 
-        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); 
-        
-        logPlantAction($pdo, $userId, 'RFP_FINALIZED_SYNCED', "Synced invoice to ERP. SysRef: $sysRef", $bookingId); // LOG HERE
+    if ($erpResult === "OK") {
         echo "OK"; 
-    } else { 
-        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref='N/A' WHERE id=?")->execute([$bookingId]);
-        
-        logPlantAction($pdo, $userId, 'RFP_FINALIZED_LOCAL', "Saved locally but ERP Sync Failed. Needs manual retry.", $bookingId); // LOG HERE
+    } else {
         echo "OK_LOCAL_ONLY"; 
+    }
+    exit;
+}
+
+if ($action == 'retry_erp_sync' && $canViewLedger) {
+    // Just call the unified ERP pusher directly!
+    $erpResult = pushBookingToERP($pdo, $_POST['booking_id'], $userId);
+    
+    if ($erpResult === "OK") {
+        echo "OK";
+    } else {
+        echo $erpResult; // Echos the specific error string
     }
     exit;
 }
@@ -922,93 +911,6 @@ if ($action == 'mark_settled' && $canViewLedger) {
     logPlantAction($pdo, $userId, 'PAYMENT_SETTLED', "Ledger marked as Settled", $_POST['id']);
     echo "OK"; 
     exit; 
-}
-
-if ($action == 'retry_erp_sync' && $canViewLedger) {
-    $bookingId = $_POST['booking_id'];
-    
-    // 1. Fetch Job and check if it actually needs syncing
-    $stmt = $pdo->prepare("
-        SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, u.first_name as driver_first, u.last_name as driver_last
-        FROM plant_bookings pb 
-        JOIN plants p ON pb.plant_id = p.id 
-        LEFT JOIN users u ON pb.driver_id = u.id 
-        WHERE pb.id = ?
-    "); 
-    $stmt->execute([$bookingId]); 
-    $job = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (empty($job['client_code']) || $job['client_code'] === 'TBC') {
-        echo "ERROR: Client details are still TBC. Please edit the client first."; exit;
-    }
-
-    $apiKey = getApiKey($job['billing_company_id']);
-    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
-    $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
-    $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
-
-    // 2. Rebuild the exact lines using the strictly saved final_ data
-    $lines = [];
-    
-    if ($job['final_setup_fee'] > 0) {
-        $setupCode = $setupNom ? trim($setupNom['NCCode']) : (!empty($job['nom_code_setup']) ? $job['nom_code_setup'] : '0000');
-        $lines[] = [ "Type" => "N", "Code" => $setupCode, "Description" => "Setup / Mobilisation Fee", "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_setup_fee'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
-    }
-    
-    if ($job['pricing_type'] == 'fixed_then_hourly') {
-        $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
-        $lines[] = [ "Type" => "N", "Code" => $fCode, "Description" => "Fixed Callout Charge", "UOMLevel" => 1, "Location" => "01", "Qty" => 1, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
-        
-        $extraHours = (float)$job['final_hours'] - (float)$job['min_hours'];
-        if ($extraHours > 0) {
-            $vCode = $varNom ? trim($varNom['NCCode']) : trim($job['nom_code_variable']);
-            $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => "Additional Hourly Rate", "UOMLevel" => 1, "Location" => "01", "Qty" => $extraHours, "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
-        }
-    } elseif ($job['pricing_type'] == 'per_trip') {
-        $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
-        $qty = (float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1;
-        $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => "Trip Execution Charge", "UOMLevel" => 1, "Location" => "01", "Qty" => $qty, "Price" => (float)$job['final_rate_fixed'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ]; 
-    } else {
-        $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
-        $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => "Plant Operation", "UOMLevel" => 1, "Location" => "01", "Qty" => (float)$job['final_hours'], "Price" => (float)$job['final_rate_var'], "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => 0.0, "DR" => 0, "CR" => 0 ];
-    }
-
-    $totalVal = (float)$job['final_subtotal']; 
-    $totalTax = $totalVal * 0.18;
-    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
-    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
-    
-    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => 1, "Location" => "01" ];
-    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => 1, "Location" => "01" ];
-
-    // 3. Push to ERP
-    $payload = [ 
-        "Type" => "IN", 
-        "Transaction" => [ 
-            "InvioceHeader" => [ 
-                "THTranCode" => "IN", "THDate" => $job['booking_date'], "THUserID" => "API", 
-                "THCSCode" => $job['client_code'], "THName" => $job['client_name'], "THTaxNumber" => "", 
-                "THTotValueTIF" => (string)round($totalVal + $totalTax, 2), "THExtRef" => $jobRef, 
-                "THRevision" => "001", "THTotDiscF" => 0.0, "THTotDiscTIF" => 0.0, "THTotTaxF" => round($totalTax, 2), 
-                "THCurrency" => "EUR", "THExchRate" => 1, "THPayment" => "", "THPayRef" => "" 
-            ], 
-            "InvioceItemLine" => [ "Lines" => $lines ], "Ledger" => "S", "OfflineDocRefs" => "" 
-        ] 
-    ];
-
-    $erpResult = postJ2ApiData('/sales/transaction', $apiKey, $payload);
-    
-    if ($erpResult['code'] >= 200 && $erpResult['code'] < 300) { 
-        $sysRef = json_decode($erpResult['response'], true)['SysRef'] ?? 'SUCCESS_NO_REF'; 
-        $pdo->prepare("UPDATE plant_bookings SET invoice_sysref = ? WHERE id = ?")->execute([$sysRef, $bookingId]); 
-        
-        logPlantAction($pdo, $userId, 'RFP_RETRY_SUCCESS', "Manual retry sync successful. SysRef: $sysRef", $bookingId);
-        echo "OK"; 
-    } else { 
-        logPlantAction($pdo, $userId, 'RFP_RETRY_FAILED', "Manual retry sync failed. ERP Response: " . htmlspecialchars($erpResult['response']), $bookingId);
-        echo "ERP rejected the request. It might be a network error or missing client data in ERP."; 
-    } 
-    exit;
 }
 
 if ($action == 'get_project_location' && $isManager) { 
