@@ -13,7 +13,7 @@ if (!$hasDirectorAccess) die("Unauthorized Access.");
 // MICRO-API: Feed Map Data
 if (isset($_GET['action']) && $_GET['action'] == 'map_data') {
     header('Content-Type: application/json');
-    $mode = $_GET['mode'] ?? 'live';
+    $mode = $_GET['mode'] ?? 'period'; // Default to period
     
     if ($mode === 'period') {
         $start = $_GET['start'] ?? date('Y-m-d');
@@ -76,6 +76,14 @@ include 'header.php';
     .panel-header { padding: 15px 20px; border-bottom: 2px solid rgba(128, 128, 128, 0.2); font-size: 1.2rem; font-weight: 800; opacity: 0.9; display: flex; align-items: center; justify-content: space-between; }
     .panel-body { padding: 20px; flex: 1; }
 
+    /* Map Slider Toggle */
+    .map-toggle-wrapper { display: flex; background: rgba(0,0,0,0.1); border-radius: 30px; position: relative; padding: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); }
+    .map-toggle-btn { flex: 1; text-align: center; padding: 6px 16px; font-size: 0.8rem; font-weight: 800; text-transform: uppercase; color: #64748b; cursor: pointer; z-index: 2; transition: color 0.3s ease; position: relative; }
+    .map-toggle-btn.active { color: #fff; }
+    .map-toggle-slider { position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3b82f6; border-radius: 30px; transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), background-color 0.3s; z-index: 1; }
+    /* When Live is selected (right side) */
+    .map-toggle-wrapper[data-mode="live"] .map-toggle-slider { transform: translateX(100%); background: #10b981; }
+
     /* Breakdown Table */
     .breakdown-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     .breakdown-table th { background: rgba(0,0,0,0.1); padding: 10px; font-weight: 800; text-transform: uppercase; border: 1px solid rgba(128,128,128,0.2); opacity: 0.8; }
@@ -105,21 +113,20 @@ include 'header.php';
         </div>
     </div>
 
-    <!-- MAP (Full Horizontal Width) -->
     <div class="panel" style="margin-bottom: 30px;">
         <div class="panel-header">
             <div><i class="fas fa-satellite-dish" style="color:#3b82f6;"></i> Fleet Telemetry</div>
-            <div>
-                <select id="mapModeToggle" onchange="loadMapTelemetry()" style="padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(128,128,128,0.3); background: rgba(128,128,128,0.1); color: inherit; font-size: 0.85rem; font-weight: bold; cursor: pointer; outline: none;">
-                    <option value="live">Live (Active Jobs Only)</option>
-                    <option value="period">Period (All Jobs in Selected View)</option>
-                </select>
+            
+            <div class="map-toggle-wrapper" id="mapToggleWrapper" data-mode="period">
+                <div class="map-toggle-slider"></div>
+                <div class="map-toggle-btn active" id="btnPeriod" onclick="setMapMode('period')">Period</div>
+                <div class="map-toggle-btn" id="btnLive" onclick="setMapMode('live')">Live</div>
             </div>
+            
         </div>
         <div id="fleetMap" style="height: 350px; width: 100%; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 1;"></div>
     </div>
 
-    <!-- OPERATIONAL KPIs -->
     <div class="kpi-section-title">Operational Output (Quantity & Hours)</div>
     <div class="kpi-grid">
         <div class="kpi-card" style="border-bottom-color:#10b981;" onclick="openDrilldown('completed_book', 'Completed Bookings')">
@@ -140,7 +147,6 @@ include 'header.php';
         </div>
     </div>
 
-    <!-- FINANCIAL KPIs -->
     <div class="kpi-section-title">Financial Output (Revenue & RFPs)</div>
     <div class="kpi-grid">
         <div class="kpi-card" style="border-bottom-color:#10b981; color:#10b981;" onclick="openDrilldown('rev_gen', 'Revenue Generated')">
@@ -165,7 +171,6 @@ include 'header.php';
         </div>
     </div>
 
-    <!-- MAIN GRID (Agenda & Breakdown) -->
     <div class="dash-layout">
         <div class="panel">
             <div class="panel-header"><div><i class="fas fa-calendar-alt" style="color:#8b5cf6;"></i> Master Agenda (Click to view RFP)</div></div>
@@ -193,7 +198,6 @@ include 'header.php';
     </div>
 </div>
 
-<!-- Drilldown Modal -->
 <div id="drillModalOverlay">
     <div id="drillModal">
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:15px; margin-bottom:15px;">
@@ -222,6 +226,24 @@ include 'header.php';
     let currentDrillData = {};
     let calStartCache = '';
     let calEndCache = '';
+    let activeMapMode = 'period'; // Default map mode
+
+    // Slider Toggle Logic
+    function setMapMode(mode) {
+        activeMapMode = mode;
+        const wrapper = document.getElementById('mapToggleWrapper');
+        wrapper.setAttribute('data-mode', mode);
+        
+        if (mode === 'live') {
+            document.getElementById('btnLive').classList.add('active');
+            document.getElementById('btnPeriod').classList.remove('active');
+        } else {
+            document.getElementById('btnPeriod').classList.add('active');
+            document.getElementById('btnLive').classList.remove('active');
+        }
+        
+        loadMapTelemetry();
+    }
 
     function openDrilldown(key, title) {
         document.getElementById('drillTitle').innerText = title;
@@ -246,9 +268,8 @@ include 'header.php';
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
     function loadMapTelemetry() {
-        const mode = document.getElementById('mapModeToggle').value;
-        let url = 'plant_dashboard.php?action=map_data&mode=' + mode;
-        if (mode === 'period' && calStartCache !== '') {
+        let url = 'plant_dashboard.php?action=map_data&mode=' + activeMapMode;
+        if (activeMapMode === 'period' && calStartCache !== '') {
             url += '&start=' + calStartCache + '&end=' + calEndCache;
         }
 
@@ -297,7 +318,8 @@ include 'header.php';
             
             eventClick: function(info) {
                 fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
-                    if (job.status === 'Completed' && parseFloat(job.final_subtotal) > 0) {
+                    // Requires Completed AND a subtotal > 0 OR an ERP payment status to be considered "RFP finalized"
+                    if (job.status === 'Completed' && (parseFloat(job.final_subtotal) > 0 || ['Invoiced','Settled'].includes(job.payment_status))) {
                         window.open(`print_plant_invoice.php?booking_id=${job.id}&readonly=1`, 'rfpPopup', 'width=1000,height=900,scrollbars=yes');
                     } else {
                         alert("Access Denied: RFP has not yet been approved or finalized for this job.");
@@ -310,7 +332,7 @@ include 'header.php';
                 calEndCache = info.endStr.split('T')[0];
                 
                 // If the map is in Period mode, refresh it to match the new dates
-                if (document.getElementById('mapModeToggle').value === 'period') {
+                if (activeMapMode === 'period') {
                     loadMapTelemetry();
                 }
 
@@ -338,11 +360,29 @@ include 'header.php';
                     } else {
                         let html = '';
                         let currentCat = '';
+                        
                         data.plants.forEach(p => {
-                            if (p.category !== currentCat) {
-                                html += `<tr><td colspan="4" style="background:rgba(0,0,0,0.2); font-weight:900; text-transform:uppercase; font-size:0.8rem; letter-spacing:1px; color:#94a3b8;">${p.category || 'General'}</td></tr>`;
-                                currentCat = p.category;
+                            let cat = p.category || 'General';
+                            
+                            // Map accurate FontAwesome 5/6 Icons based on exact provided list
+                            if (cat !== currentCat) {
+                                let icon = 'fa-cogs'; 
+                                let lowerCat = cat.toLowerCase();
+                                
+                                if (lowerCat.includes('booms')) icon = 'fa-truck-pickup';
+                                else if (lowerCat.includes('cranes')) icon = 'fa-truck-loading';
+                                else if (lowerCat.includes('drum cutter')) icon = 'fa-cogs';
+                                else if (lowerCat.includes('excavator')) icon = 'fa-tractor';
+                                else if (lowerCat.includes('other trucks')) icon = 'fa-truck';
+                                else if (lowerCat.includes('piling')) icon = 'fa-hammer';
+                                else if (lowerCat.includes('pumps')) icon = 'fa-water';
+                                else if (lowerCat.includes('rock saw')) icon = 'fa-cog';
+                                else if (lowerCat.includes('scarifier')) icon = 'fa-road';
+
+                                html += `<tr><td colspan="4" style="background:rgba(0,0,0,0.2); font-weight:900; text-transform:uppercase; font-size:0.85rem; letter-spacing:1px; color:#94a3b8;"><i class="fas ${icon}" style="margin-right: 8px; color: #38bdf8;"></i>${cat}</td></tr>`;
+                                currentCat = cat;
                             }
+                            
                             let t_qty = p.c_qty + p.p_qty; let t_hrs = p.c_hrs + p.p_hrs; let t_rev = p.c_rev + p.p_rev;
                             
                             html += `<tr>
