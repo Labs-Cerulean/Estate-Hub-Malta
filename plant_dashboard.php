@@ -86,8 +86,8 @@ include 'header.php';
   /* Map Markers */
     .custom-leaflet-icon { background: none !important; border: none !important; }
     .map-marker-base { 
-        width: 24px; 
-        height: 24px; 
+        width: 26px; 
+        height: 26px; 
         border-radius: 50%; 
         border: 2px solid #fff; 
         display: flex; 
@@ -95,12 +95,13 @@ include 'header.php';
         justify-content: center; 
         box-shadow: 0 2px 4px rgba(0,0,0,0.4); 
     }
-    .map-marker-base i { 
+    .map-marker-base i, .map-marker-base svg { 
         color: #ffffff !important; 
-        font-size: 11px !important; 
-        font-weight: 900 !important; /* CRITICAL: Prevents Leaflet from making FA icons invisible */
-        line-height: 1 !important;
-        display: block !important;
+        font-size: 12px !important;
+        width: 12px !important;
+        height: 12px !important;
+        font-weight: 900 !important; 
+        font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", "FontAwesome" !important;
     }
     .marker-active { background: #10b981; animation: pulse 1.5s infinite; }
     .marker-paused { background: #f59e0b; }
@@ -311,10 +312,8 @@ include 'header.php';
 
         fetch(url).then(r => r.json()).then(jobs => {
             map.eachLayer(layer => { if (layer instanceof L.Marker) layer.remove(); });
-            
             jobs.forEach(job => {
                 if (job.location_lat) {
-                    // 1. Determine Icon based on Category
                     let icon = 'fa-cogs'; 
                     let cat = (job.category || job.plant_name || '').toLowerCase();
                     
@@ -328,7 +327,6 @@ include 'header.php';
                     else if (cat.includes('rock saw')) icon = 'fa-cog';
                     else if (cat.includes('scarifier')) icon = 'fa-road';
 
-                    // 2. Determine Color/Badge based on Status
                     let markerClass = 'marker-pending'; 
                     let badge = `<span style="background:#94a3b8; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${job.status}</span>`;
                     
@@ -343,11 +341,10 @@ include 'header.php';
                         badge = `<span style="background:#3b82f6; color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem;">Completed</span>`;
                     }
 
-                    // 3. Build Marker HTML
-                    let iconHtml = `<div class="map-marker-base ${markerClass}"><i class="fas ${icon}"></i></div>`;
-                    const cIcon = L.divIcon({ html: iconHtml, className: 'custom-leaflet-icon', iconSize: [24,24], iconAnchor: [12,12] });
+                    // Added fa-solid to ensure FontAwesome 6 compatibility
+                    let iconHtml = `<div class="map-marker-base ${markerClass}"><i class="fa-solid fas ${icon}"></i></div>`;
+                    const cIcon = L.divIcon({ html: iconHtml, className: 'custom-leaflet-icon', iconSize: [26,26], iconAnchor: [13,13] });
                     
-                    // 4. Build Popup Details
                     const clientText = job.client_name || job.project_name || 'Unknown Location';
                     const driverName = (job.first_name || job.last_name) ? `${job.first_name || ''} ${job.last_name || ''}`.trim() : 'Unassigned';
                     const timeStr = (job.start_time && job.end_time) ? `${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)}` : 'TBC';
@@ -369,6 +366,13 @@ include 'header.php';
                     L.marker([job.location_lat, job.location_lng], { icon: cIcon }).addTo(map).bindPopup(popupHtml);
                 }
             });
+
+            // CRITICAL FIX: Force FontAwesome to render the dynamically injected <i> tags!
+            setTimeout(() => {
+                if (window.FontAwesome) {
+                    window.FontAwesome.dom.i2svg();
+                }
+            }, 100);
         });
     }
 
