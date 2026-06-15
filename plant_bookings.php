@@ -1266,18 +1266,24 @@ $userId = $_SESSION['user_id'];
                 let actionButtons = '';
                 
                 if (j.status === 'Completed') {
-                    if (canViewLedger && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) {
-                        // LOCAL ONLY - Show Retry and Edit Client
-                        actionButtons = `
-                            <button onclick="retryErpSync(${j.id})" class="retry-sync-btn" style="background:#10b981; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-sync"></i> Retry ERP Sync</button>
-                            <button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-edit"></i> Edit Client / RFP</button>
-                        `;
+                    // Check if it has actually been finalised by an admin first!
+                    if (j.payment_status === 'Invoiced' || j.payment_status === 'Settled') {
+                        if (canViewLedger && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) {
+                            // FINALIZED BUT NOT SYNCED - Show Retry
+                            actionButtons = `
+                                <button onclick="retryErpSync(${j.id})" class="retry-sync-btn" style="background:#10b981; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-sync"></i> Retry ERP Sync</button>
+                                <button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-edit"></i> Edit Client / RFP</button>
+                            `;
+                        } else {
+                            // FULLY SYNCED - Standard View Button
+                            actionButtons = `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View RFP</button>`;
+                        }
                     } else {
-                        // FULLY SYNCED - Standard View Button
-                        actionButtons = `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View RFP</button>`;
+                        // NOT FINALIZED YET - Only show the Finalize button
+                        actionButtons = `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#3b82f6; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-file-invoice-dollar"></i> Finalize RFP & Sync</button>`;
                     }
                 } else {
-                    actionButtons = `<span style="color:#94a3b8; font-size:0.85rem;">Pending Completion</span>`;
+                    actionButtons = `<span style="color:#94a3b8; font-size:0.85rem; padding: 8px 0; display: inline-block;">Pending Completion</span>`;
                 }
 
                 return `
