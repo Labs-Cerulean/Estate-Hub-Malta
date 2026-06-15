@@ -7,7 +7,15 @@ require_once 'session-check.php';
 require_once 'user-functions.php';
 
 $role = $_SESSION['role'] ?? '';
-$hasDirectorAccess = in_array($role, ['admin', 'director']);
+
+// Admins and Directors get auto-access. System Managers MUST have the specific permission.
+$hasDirectorAccess = false;
+if (in_array($role, ['admin', 'director'])) {
+    $hasDirectorAccess = true;
+} elseif ($role === 'system_manager' && hasPermission('manage_plant_fleet')) {
+    $hasDirectorAccess = true;
+}
+
 if (!$hasDirectorAccess) die("Unauthorized Access.");
 
 // MICRO-API: Feed Map Data
