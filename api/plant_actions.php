@@ -411,7 +411,14 @@ if ($action == 'get_last_project_client') {
     exit;
 }
 
-if ($action == 'get_dashboard_stats' && in_array($role, ['admin', 'director'])) {
+$canViewDashboard = false;
+if (in_array($role, ['admin', 'director'])) {
+    $canViewDashboard = true;
+} elseif ($role === 'system_manager' && hasPermission('manage_plant_fleet')) {
+    $canViewDashboard = true;
+}
+
+if ($action == 'get_dashboard_stats' && $canViewDashboard) {
     $startDate = !empty($_POST['start']) ? date('Y-m-d', strtotime($_POST['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_POST['end']) ? date('Y-m-d', strtotime($_POST['end'])) : date('Y-m-d', strtotime('+1 month'));
 
