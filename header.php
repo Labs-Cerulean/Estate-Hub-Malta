@@ -146,7 +146,7 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                                     <a href="users-management.php" class="<?= $currentPage === 'users-management' ? 'active' : '' ?>">System Users</a>
                                 <?php endif; ?>
                                 
-                               <?php if (in_array($role, ['admin', 'director']) || ($role === 'system_manager' && hasPermission('manage_plant_fleet'))): ?>
+                               <?php if (in_array($userRole, ['admin', 'director']) || ($userRole === 'system_manager' && hasPermission('manage_plant_fleet'))): ?>
                                     <a href="plant_dashboard.php" class="<?= $currentPage === 'plant_dashboard' ? 'active' : '' ?>" style="color: #FF9800; font-weight: 800; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 5px; padding-top: 10px;">
                                         <i class="fas fa-chart-line"></i> Fleet Dashboard
                                     </a>
