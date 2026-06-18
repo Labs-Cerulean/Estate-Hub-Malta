@@ -1305,7 +1305,7 @@ $userId = $_SESSION['user_id'];
                 <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:15px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div style="flex:1; padding-right:15px;">
-                            <div style="font-weight:900; font-size:1.1rem; color:#0f172a; margin-bottom:4px;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name} ${setupBadge}</div>
+                            <div style="font-weight:900; font-size:1.1rem; color:#0f172a; margin-bottom:4px;">${j.billing_company_name && j.billing_company_name.includes('PRAX') ? 'PRAX' : 'PRA'}-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name} ${setupBadge}</div>
                             <div style="color:#64748b; font-size:0.9rem;"><b>${j.booking_date}</b> | ${displayClient}</div>
                             ${salientDetails}
                             ${sysRef}
