@@ -61,8 +61,8 @@ foreach ($jobs as $job) {
 }
 
 // 6. Define the Billing Department Emails
-$praEmails = ['billing@pra.com']; // Add actual emails here
-$praxEmails = ['billing@prax.com']; // Add actual emails here
+$praEmails = ['nicholasv@pramalta.com']; // Add actual emails here
+$praxEmails = ['nicholasv@pramalta.com']; // Add actual emails here
 
 // 7. PDF Generation Helper Function
 // NOTE: To make this generate real PDFs from your HTML, run: composer require dompdf/dompdf
