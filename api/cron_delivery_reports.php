@@ -58,6 +58,8 @@ $praEmails = ['nicholasv@pramalta.com'];
 $praxEmails = ['nicholasv@pramalta.com']; 
 
 function generateJobPdfFile($job) {
+    global $pdo;
+    
     $tempDir = __DIR__ . '/../temp_pdfs/';
     if (!is_dir($tempDir)) {
         mkdir($tempDir, 0777, true);
