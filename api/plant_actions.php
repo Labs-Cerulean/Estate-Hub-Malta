@@ -422,16 +422,17 @@ if ($action == 'get_dashboard_stats' && $canViewDashboard) {
     $startDate = !empty($_POST['start']) ? date('Y-m-d', strtotime($_POST['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_POST['end']) ? date('Y-m-d', strtotime($_POST['end'])) : date('Y-m-d', strtotime('+1 month'));
 
-    $stmt = $pdo->prepare("SELECT pb.*, p.category, p.name as plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.booking_date >= ? AND pb.booking_date <= ? ORDER BY pb.booking_date ASC");
+    $stmt = $pdo->prepare("SELECT pb.*, p.category, p.name as plant_name, p.billing_company_id FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.booking_date >= ? AND pb.booking_date <= ? ORDER BY pb.booking_date ASC");
     $stmt->execute([$startDate, $endDate]);
     $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $kpi = [ 'completed_bookings' => 0, 'planned_bookings' => 0, 'executed_hours' => 0, 'planned_hours' => 0, 'revenue_generated' => 0, 'rfps_issued' => 0, 'erp_invoiced' => 0, 'projected_revenue' => 0, 'total_est_revenue' => 0 ];
+    $kpi = [ 'completed_bookings' => 0, 'planned_bookings' => 0, 'executed_hours' => 0, 'planned_hours' => 0 ];
 
-    $finalizedRev = 0; $finalizedHrs = 0; $unfinalizedHrsCompleted = 0;
+    $kpi_pra = ['rev_gen' => 0, 'rev_pipe' => 0, 'rev_total' => 0, 'rfps' => 0, 'erp' => 0, 'fin_rev' => 0, 'fin_hrs' => 0, 'unfin_hrs' => 0, 'plan_hrs' => 0];
+    $kpi_prax = ['rev_gen' => 0, 'rev_pipe' => 0, 'rev_total' => 0, 'rfps' => 0, 'erp' => 0, 'fin_rev' => 0, 'fin_hrs' => 0, 'unfin_hrs' => 0, 'plan_hrs' => 0];
+
     $plantsMap = [];
 
-    // PASS 1: Calculate Yields and Base Stats
     foreach ($jobs as $j) {
         $cat = $j['category'] ?: 'General';
         $pName = $j['plant_name'];
@@ -442,6 +443,9 @@ if ($action == 'get_dashboard_stats' && $canViewDashboard) {
         $eTime = strtotime($j['booking_date'].' '.$j['end_time']);
         $schHours = ($eTime - $sTime) / 3600; if ($schHours < 0) $schHours += 24;
 
+        $comp = $j['billing_company_id'];
+        $compKey = ($comp == '24') ? 'pra' : (($comp == '26') ? 'prax' : null);
+
         if ($j['status'] === 'Completed') {
             $kpi['completed_bookings']++;
             $hrs = ((float)$j['final_hours'] > 0 ? (float)$j['final_hours'] : $schHours);
@@ -450,79 +454,100 @@ if ($action == 'get_dashboard_stats' && $canViewDashboard) {
             $plantsMap[$cat][$pName]['comp_jobs']++;
             $plantsMap[$cat][$pName]['comp_hrs'] += $hrs;
             
-            if ((float)$j['final_subtotal'] > 0) {
-                $finalizedRev += (float)$j['final_subtotal'];
-                $finalizedHrs += $hrs;
-                $plantsMap[$cat][$pName]['comp_rev'] += (float)$j['final_subtotal'];
-            } else {
-                $unfinalizedHrsCompleted += $hrs;
-                if(!isset($plantsMap[$cat][$pName]['unfin_hrs'])) $plantsMap[$cat][$pName]['unfin_hrs'] = 0;
-                $plantsMap[$cat][$pName]['unfin_hrs'] += $hrs;
+            if ($compKey) {
+                if ((float)$j['final_subtotal'] > 0) {
+                    ${"kpi_".$compKey}['fin_rev'] += (float)$j['final_subtotal'];
+                    ${"kpi_".$compKey}['fin_hrs'] += $hrs;
+                    $plantsMap[$cat][$pName]['comp_rev'] += (float)$j['final_subtotal'];
+                } else {
+                    ${"kpi_".$compKey}['unfin_hrs'] += $hrs;
+                    if(!isset($plantsMap[$cat][$pName]['unfin_hrs'])) $plantsMap[$cat][$pName]['unfin_hrs'] = 0;
+                    $plantsMap[$cat][$pName]['unfin_hrs'] += $hrs;
+                }
+                if (in_array($j['payment_status'], ['Invoiced', 'Settled'])) { ${"kpi_".$compKey}['rfps']++; }
+                if (!empty($j['invoice_sysref']) && !in_array($j['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'])) { ${"kpi_".$compKey}['erp'] += (float)$j['final_subtotal']; }
             }
-            if (in_array($j['payment_status'], ['Invoiced', 'Settled'])) { $kpi['rfps_issued']++; }
-            if (!empty($j['invoice_sysref']) && !in_array($j['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'])) { $kpi['erp_invoiced'] += (float)$j['final_subtotal']; }
         } elseif (in_array($j['status'], ['Pending', 'In Progress', 'Paused'])) {
             $kpi['planned_bookings']++;
             $kpi['planned_hours'] += $schHours;
             $plantsMap[$cat][$pName]['plan_jobs']++;
             $plantsMap[$cat][$pName]['plan_hrs'] += $schHours;
+            if ($compKey) {
+                ${"kpi_".$compKey}['plan_hrs'] += $schHours;
+            }
         }
     }
 
-    $avgYield = $finalizedHrs > 0 ? ($finalizedRev / $finalizedHrs) : 65.00; 
-    $kpi['revenue_generated'] = $finalizedRev + ($unfinalizedHrsCompleted * $avgYield);
-    $kpi['projected_revenue'] = $kpi['planned_hours'] * $avgYield;
-    $kpi['total_est_revenue'] = $kpi['revenue_generated'] + $kpi['projected_revenue'];
+    $avgYieldPra = $kpi_pra['fin_hrs'] > 0 ? ($kpi_pra['fin_rev'] / $kpi_pra['fin_hrs']) : 65.00; 
+    $kpi_pra['rev_gen'] = $kpi_pra['fin_rev'] + ($kpi_pra['unfin_hrs'] * $avgYieldPra);
+    $kpi_pra['rev_pipe'] = $kpi_pra['plan_hrs'] * $avgYieldPra;
+    $kpi_pra['rev_total'] = $kpi_pra['rev_gen'] + $kpi_pra['rev_pipe'];
 
-    // PASS 2: Build KPI Drilldown Arrays (Rounded to Nearest Euro)
-    $drilldown = [ 'completed_book' => [], 'completed_hrs' => [], 'rev_gen' => [], 'planned_book' => [], 'planned_hrs' => [], 'rev_pipe' => [], 'rfps' => [], 'erp' => [], 'rev_total' => [] ];
+    $avgYieldPrax = $kpi_prax['fin_hrs'] > 0 ? ($kpi_prax['fin_rev'] / $kpi_prax['fin_hrs']) : 65.00; 
+    $kpi_prax['rev_gen'] = $kpi_prax['fin_rev'] + ($kpi_prax['unfin_hrs'] * $avgYieldPrax);
+    $kpi_prax['rev_pipe'] = $kpi_prax['plan_hrs'] * $avgYieldPrax;
+    $kpi_prax['rev_total'] = $kpi_prax['rev_gen'] + $kpi_prax['rev_pipe'];
+
+    $avgYieldGlobal = ($kpi_pra['fin_hrs'] + $kpi_prax['fin_hrs']) > 0 ? (($kpi_pra['fin_rev'] + $kpi_prax['fin_rev']) / ($kpi_pra['fin_hrs'] + $kpi_prax['fin_hrs'])) : 65.00;
+
+    $drilldown = [ 'completed_book' => [], 'completed_hrs' => [], 'rev_gen_pra' => [], 'rev_gen_prax' => [], 'planned_book' => [], 'planned_hrs' => [], 'rev_pipe_pra' => [], 'rev_pipe_prax' => [], 'rfps_pra' => [], 'rfps_prax' => [], 'erp_pra' => [], 'erp_prax' => [], 'rev_total_pra' => [], 'rev_total_prax' => [] ];
 
     foreach ($jobs as $j) {
         $client = !empty($j['client_name']) ? $j['client_name'] : 'TBC / Unknown';
-        $desc = "<b>" . $j['plant_name'] . "</b><br><span style='color:#64748b; font-size:0.8rem;'>" . $client . "</span>";
+        $comp = $j['billing_company_id'];
+        $compKey = ($comp == '24') ? 'pra' : (($comp == '26') ? 'prax' : 'other');
+        $tag = ($compKey === 'pra') ? '<span style="color:#3b82f6;">[PRA]</span> ' : (($compKey === 'prax') ? '<span style="color:#f59e0b;">[PRAX]</span> ' : '');
+        $desc = "<b>" . $tag . $j['plant_name'] . "</b><br><span style='color:#64748b; font-size:0.8rem;'>" . $client . "</span>";
         $date = date('d M', strtotime($j['booking_date']));
         $sTime = strtotime($j['booking_date'].' '.$j['start_time']); $eTime = strtotime($j['booking_date'].' '.$j['end_time']);
         $schHours = ($eTime - $sTime) / 3600; if ($schHours < 0) $schHours += 24;
 
         if ($j['status'] === 'Completed') {
             $hrs = ((float)$j['final_hours'] > 0 ? (float)$j['final_hours'] : $schHours);
-            $rev = round((float)$j['final_subtotal'] > 0 ? (float)$j['final_subtotal'] : ($hrs * $avgYield));
+            $yieldToUse = ($compKey === 'pra') ? $avgYieldPra : (($compKey === 'prax') ? $avgYieldPrax : $avgYieldGlobal);
+            $rev = round((float)$j['final_subtotal'] > 0 ? (float)$j['final_subtotal'] : ($hrs * $yieldToUse));
             
             $drilldown['completed_book'][] = ['date' => $date, 'desc' => $desc, 'val' => "1 Job"];
             $drilldown['completed_hrs'][] = ['date' => $date, 'desc' => $desc, 'val' => number_format($hrs, 1) . " Hrs"];
-            $drilldown['rev_gen'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . ((float)$j['final_subtotal'] <= 0 ? ' <i>(Est)</i>' : '')];
-            $drilldown['rev_total'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0)];
             
-            if (in_array($j['payment_status'], ['Invoiced', 'Settled'])) {
-                $drilldown['rfps'][] = ['date' => $date, 'desc' => $desc, 'val' => "Finalized"];
-            }
-            if (!empty($j['invoice_sysref']) && !in_array($j['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'])) {
-                $drilldown['erp'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format(round((float)$j['final_subtotal']), 0)];
+            if ($compKey !== 'other') {
+                $drilldown['rev_gen_'.$compKey][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . ((float)$j['final_subtotal'] <= 0 ? ' <i>(Est)</i>' : '')];
+                $drilldown['rev_total_'.$compKey][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0)];
+                
+                if (in_array($j['payment_status'], ['Invoiced', 'Settled'])) {
+                    $drilldown['rfps_'.$compKey][] = ['date' => $date, 'desc' => $desc, 'val' => "Finalized"];
+                }
+                if (!empty($j['invoice_sysref']) && !in_array($j['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'])) {
+                    $drilldown['erp_'.$compKey][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format(round((float)$j['final_subtotal']), 0)];
+                }
             }
         } elseif (in_array($j['status'], ['Pending', 'In Progress', 'Paused'])) {
-            $rev = round($schHours * $avgYield);
+            $yieldToUse = ($compKey === 'pra') ? $avgYieldPra : (($compKey === 'prax') ? $avgYieldPrax : $avgYieldGlobal);
+            $rev = round($schHours * $yieldToUse);
             $drilldown['planned_book'][] = ['date' => $date, 'desc' => $desc, 'val' => "1 Job"];
             $drilldown['planned_hrs'][] = ['date' => $date, 'desc' => $desc, 'val' => number_format($schHours, 1) . " Hrs"];
-            $drilldown['rev_pipe'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . " <i>(Est)</i>"];
-            $drilldown['rev_total'][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . " <i>(Est)</i>"];
+            
+            if ($compKey !== 'other') {
+                $drilldown['rev_pipe_'.$compKey][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . " <i>(Est)</i>"];
+                $drilldown['rev_total_'.$compKey][] = ['date' => $date, 'desc' => $desc, 'val' => "€" . number_format($rev, 0) . " <i>(Est)</i>"];
+            }
         }
     }
 
-    // Prepare Plants breakdown array
     $flatPlants = [];
     ksort($plantsMap);
     foreach ($plantsMap as $cat => $plants) {
         ksort($plants);
         foreach ($plants as $name => $d) {
-            $c_rev = $d['comp_rev'] + (($d['unfin_hrs'] ?? 0) * $avgYield);
-            $p_rev = $d['plan_hrs'] * $avgYield;
+            $c_rev = $d['comp_rev'] + (($d['unfin_hrs'] ?? 0) * $avgYieldGlobal);
+            $p_rev = $d['plan_hrs'] * $avgYieldGlobal;
             if ($d['comp_jobs'] > 0 || $d['plan_jobs'] > 0) {
                 $flatPlants[] = [ 'category' => $cat, 'plant_name' => $name, 'c_qty' => $d['comp_jobs'], 'c_hrs' => $d['comp_hrs'], 'c_rev' => $c_rev, 'p_qty' => $d['plan_jobs'], 'p_hrs' => $d['plan_hrs'], 'p_rev' => $p_rev ];
             }
         }
     }
 
-    echo json_encode(['kpi' => $kpi, 'plants' => $flatPlants, 'drilldown' => $drilldown]);
+    echo json_encode(['kpi' => $kpi, 'kpi_pra' => $kpi_pra, 'kpi_prax' => $kpi_prax, 'plants' => $flatPlants, 'drilldown' => $drilldown]);
     exit;
 }
 
