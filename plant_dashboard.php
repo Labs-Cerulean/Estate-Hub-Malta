@@ -171,27 +171,51 @@ include 'header.php';
         </div>
     </div>
 
-    <div class="kpi-section-title">Financial Output (Revenue & RFPs)</div>
+    <div class="kpi-section-title"><span style="color:#3b82f6;"><i class="fas fa-building"></i> PRA Construction</span> - Financial Output</div>
     <div class="kpi-grid">
-        <div class="kpi-card" style="border-bottom-color:#10b981; color:#10b981;" onclick="openDrilldown('rev_gen', 'Revenue Generated')">
+        <div class="kpi-card" style="border-bottom-color:#10b981; color:#10b981;" onclick="openDrilldown('rev_gen_pra', 'PRA Generated Revenue')">
             <div class="kpi-title">Generated Revenue</div>
-            <div class="kpi-value" id="kpi-rev-gen">€0</div>
+            <div class="kpi-value" id="kpi-pra-rev-gen">€0</div>
         </div>
-        <div class="kpi-card" style="border-bottom-color:#f59e0b; color:#f59e0b;" onclick="openDrilldown('rev_pipe', 'Pipeline Revenue')">
+        <div class="kpi-card" style="border-bottom-color:#f59e0b; color:#f59e0b;" onclick="openDrilldown('rev_pipe_pra', 'PRA Pipeline Revenue')">
             <div class="kpi-title">Pipeline Revenue</div>
-            <div class="kpi-value" id="kpi-rev-pipe">€0</div>
+            <div class="kpi-value" id="kpi-pra-rev-pipe">€0</div>
         </div>
-        <div class="kpi-card" style="border-bottom-color:#3b82f6; color:#3b82f6;" onclick="openDrilldown('rev_total', 'Total Estimated Revenue')">
+        <div class="kpi-card" style="border-bottom-color:#3b82f6; color:#3b82f6;" onclick="openDrilldown('rev_total_pra', 'PRA Total Estimated Revenue')">
             <div class="kpi-title">Total Est. Revenue</div>
-            <div class="kpi-value" id="kpi-rev-total">€0</div>
+            <div class="kpi-value" id="kpi-pra-rev-total">€0</div>
         </div>
-        <div class="kpi-card" style="border-bottom-color:#8b5cf6;" onclick="openDrilldown('rfps', 'Issued RFPs')">
+        <div class="kpi-card" style="border-bottom-color:#8b5cf6;" onclick="openDrilldown('rfps_pra', 'PRA Issued RFPs')">
             <div class="kpi-title">Issued RFPs</div>
-            <div class="kpi-value" id="kpi-rfps">0</div>
+            <div class="kpi-value" id="kpi-pra-rfps">0</div>
         </div>
-        <div class="kpi-card" style="border-bottom-color:#ec4899; color:#ec4899;" onclick="openDrilldown('erp', 'ERP Synced Revenue')">
+        <div class="kpi-card" style="border-bottom-color:#ec4899; color:#ec4899;" onclick="openDrilldown('erp_pra', 'PRA ERP Synced Revenue')">
             <div class="kpi-title">ERP Synced Revenue</div>
-            <div class="kpi-value" id="kpi-erp">€0</div>
+            <div class="kpi-value" id="kpi-pra-erp">€0</div>
+        </div>
+    </div>
+
+    <div class="kpi-section-title"><span style="color:#f59e0b;"><i class="fas fa-truck-mixer"></i> PRAX Concrete</span> - Financial Output</div>
+    <div class="kpi-grid">
+        <div class="kpi-card" style="border-bottom-color:#10b981; color:#10b981;" onclick="openDrilldown('rev_gen_prax', 'PRAX Generated Revenue')">
+            <div class="kpi-title">Generated Revenue</div>
+            <div class="kpi-value" id="kpi-prax-rev-gen">€0</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color:#f59e0b; color:#f59e0b;" onclick="openDrilldown('rev_pipe_prax', 'PRAX Pipeline Revenue')">
+            <div class="kpi-title">Pipeline Revenue</div>
+            <div class="kpi-value" id="kpi-prax-rev-pipe">€0</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color:#3b82f6; color:#3b82f6;" onclick="openDrilldown('rev_total_prax', 'PRAX Total Estimated Revenue')">
+            <div class="kpi-title">Total Est. Revenue</div>
+            <div class="kpi-value" id="kpi-prax-rev-total">€0</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color:#8b5cf6;" onclick="openDrilldown('rfps_prax', 'PRAX Issued RFPs')">
+            <div class="kpi-title">Issued RFPs</div>
+            <div class="kpi-value" id="kpi-prax-rfps">0</div>
+        </div>
+        <div class="kpi-card" style="border-bottom-color:#ec4899; color:#ec4899;" onclick="openDrilldown('erp_prax', 'PRAX ERP Synced Revenue')">
+            <div class="kpi-title">ERP Synced Revenue</div>
+            <div class="kpi-value" id="kpi-prax-erp">€0</div>
         </div>
     </div>
 
@@ -421,8 +445,11 @@ include 'header.php';
                 else if (lowerTitle.includes('rock saw') || lowerTitle.includes('rocksaw')) icon = 'fa-cog';
                 else if (lowerTitle.includes('scarifier')) icon = 'fa-road';
 
+                // Grab Real-Time Completions (Priority Update)
                 let timeStr = 'All Day';
-                if (!arg.event.allDay && arg.event.start) {
+                if (arg.event.extendedProps && arg.event.extendedProps.actualTime) {
+                    timeStr = arg.event.extendedProps.actualTime;
+                } else if (!arg.event.allDay && arg.event.start) {
                     let sH = String(arg.event.start.getHours()).padStart(2, '0');
                     let sM = String(arg.event.start.getMinutes()).padStart(2, '0');
                     timeStr = `${sH}:${sM}`;
@@ -432,6 +459,12 @@ include 'header.php';
                         let eM = String(arg.event.end.getMinutes()).padStart(2, '0');
                         timeStr += ` - ${eH}:${eM}`;
                     }
+                }
+
+                // Append Real Job Values right onto the Agenda Card
+                let valStr = '';
+                if (arg.event.extendedProps && parseFloat(arg.event.extendedProps.finalValue) > 0) {
+                    valStr = `<div style="margin-left:auto; padding-left:15px; font-weight:900; color:#10b981; font-size:1.05rem;">€${parseFloat(arg.event.extendedProps.finalValue).toLocaleString(undefined,{minimumFractionDigits:0, maximumFractionDigits:0})}</div>`;
                 }
 
                 let statusIcon = '';
@@ -463,6 +496,7 @@ include 'header.php';
                              <div style="width:30px; text-align:center; color:#38bdf8; font-size:1.1rem; margin-right:5px; flex-shrink:0;"><i class="fas ${icon}"></i></div>
                              <div style="flex-shrink:0;">${statusIcon}</div>
                              <div style="font-weight:600; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${rawTitle.trim()}</div>
+                             ${valStr}
                            </div>`
                 };
             },
@@ -505,13 +539,22 @@ include 'header.php';
                 fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
                     document.getElementById('kpi-completed-book').innerText = data.kpi.completed_bookings;
                     document.getElementById('kpi-completed-hrs').innerText = parseFloat(data.kpi.executed_hours).toFixed(1);
-                    document.getElementById('kpi-rev-gen').innerText = '€' + parseFloat(data.kpi.revenue_generated).toLocaleString(undefined,{maximumFractionDigits:0});
                     document.getElementById('kpi-planned-book').innerText = data.kpi.planned_bookings;
                     document.getElementById('kpi-planned-hrs').innerText = parseFloat(data.kpi.planned_hours).toFixed(1);
-                    document.getElementById('kpi-rev-pipe').innerText = '€' + parseFloat(data.kpi.projected_revenue).toLocaleString(undefined,{maximumFractionDigits:0});
-                    document.getElementById('kpi-rfps').innerText = data.kpi.rfps_issued;
-                    document.getElementById('kpi-erp').innerText = '€' + parseFloat(data.kpi.erp_invoiced).toLocaleString(undefined,{maximumFractionDigits:0});
-                    document.getElementById('kpi-rev-total').innerText = '€' + parseFloat(data.kpi.total_est_revenue).toLocaleString(undefined,{maximumFractionDigits:0});
+                    
+                    // PRA KPIs
+                    document.getElementById('kpi-pra-rev-gen').innerText = '€' + parseFloat(data.kpi_pra.rev_gen).toLocaleString(undefined,{maximumFractionDigits:0});
+                    document.getElementById('kpi-pra-rev-pipe').innerText = '€' + parseFloat(data.kpi_pra.rev_pipe).toLocaleString(undefined,{maximumFractionDigits:0});
+                    document.getElementById('kpi-pra-rfps').innerText = data.kpi_pra.rfps;
+                    document.getElementById('kpi-pra-erp').innerText = '€' + parseFloat(data.kpi_pra.erp).toLocaleString(undefined,{maximumFractionDigits:0});
+                    document.getElementById('kpi-pra-rev-total').innerText = '€' + parseFloat(data.kpi_pra.rev_total).toLocaleString(undefined,{maximumFractionDigits:0});
+                    
+                    // PRAX KPIs
+                    document.getElementById('kpi-prax-rev-gen').innerText = '€' + parseFloat(data.kpi_prax.rev_gen).toLocaleString(undefined,{maximumFractionDigits:0});
+                    document.getElementById('kpi-prax-rev-pipe').innerText = '€' + parseFloat(data.kpi_prax.rev_pipe).toLocaleString(undefined,{maximumFractionDigits:0});
+                    document.getElementById('kpi-prax-rfps').innerText = data.kpi_prax.rfps;
+                    document.getElementById('kpi-prax-erp').innerText = '€' + parseFloat(data.kpi_prax.erp).toLocaleString(undefined,{maximumFractionDigits:0});
+                    document.getElementById('kpi-prax-rev-total').innerText = '€' + parseFloat(data.kpi_prax.rev_total).toLocaleString(undefined,{maximumFractionDigits:0});
                     
                     currentDrillData = data.drilldown || {};
 
