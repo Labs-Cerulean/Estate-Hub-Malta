@@ -24,12 +24,17 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
 
 function pushBookingToERP($pdo, $bookingId, $userId) {
     $stmt = $pdo->prepare("
-        SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, p.min_hours, u.first_name as driver_first, u.last_name as driver_last
+        SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, p.min_hours, 
+               u.first_name as driver_first, u.last_name as driver_last,
+               prj.name as project_name
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id 
         LEFT JOIN users u ON pb.driver_id = u.id 
+        LEFT JOIN projects prj ON pb.project_id = prj.id
         WHERE pb.id = ?
     "); 
+    $stmt->execute([$bookingId]); 
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -104,8 +109,16 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
+    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
+    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    
+    // NEW LOGIC: Determine the location text
+    $locationText = ($job['booking_type'] == 'in-house') 
+        ? "Project: " . ($job['project_name'] ?? 'N/A') 
+        : "External: " . ($job['client_name'] ?? 'N/A');
+
     // Text lines do not get discounts applied to them
-    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr($locationText, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
 
     $payload = [ 
