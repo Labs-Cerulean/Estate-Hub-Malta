@@ -42,7 +42,8 @@ $stmt = $pdo->prepare("
     LEFT JOIN projects prj ON pb.project_id = prj.id
     LEFT JOIN users u ON pb.driver_id = u.id 
     WHERE pb.booking_date >= ? AND pb.booking_date <= ? 
-    AND pb.status = 'Completed'
+    AND pb.status = 'Completed' 
+    AND pb.payment_status IN ('Invoiced', 'Settled')
 ");
 $stmt->execute([$startDate, $endDate]);
 $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
