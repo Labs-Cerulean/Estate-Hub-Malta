@@ -3,6 +3,7 @@
     "description": "Estate Hub Management System",
     "require": {
         "aws/aws-sdk-php": "^3.0",
-        "phpmailer/phpmailer": "^6.9"
+        "phpmailer/phpmailer": "^6.9",
+        "dompdf/dompdf": "^3.0"
     }
 }
