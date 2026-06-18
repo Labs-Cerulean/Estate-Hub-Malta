@@ -4,7 +4,7 @@
  * Automated & Manual Daily Delivery Notes Mailer for PRA and PRAX
  */
 
-// 1. Include dependencies (Adjust paths if your structure is different)
+// 1. Include dependencies
 require_once '../init.php'; 
 require_once '../email_helper.php';
 require_once '../vendor/autoload.php'; 
@@ -12,7 +12,6 @@ require_once '../vendor/autoload.php';
 // 2. Security: Validate access using Environment Variable
 $cronToken = getenv('CRON_SECRET_TOKEN');
 
-// Check if it's an admin clicking the manual button
 $isManualRequest = false;
 if (isset($_SESSION['user_id']) && function_exists('getCurrentRole')) {
     $role = getCurrentRole();
@@ -21,14 +20,16 @@ if (isset($_SESSION['user_id']) && function_exists('getCurrentRole')) {
     }
 }
 
-// Check if it's the automated server cron job (e.g. cron-job.org calling with ?token=...)
-// We use hash_equals() to prevent timing attacks
 $isCronRequest = isset($_GET['token']) && !empty($cronToken) && hash_equals($cronToken, $_GET['token']);
 
 if (!$isManualRequest && !$isCronRequest) {
     http_response_code(403);
     die(json_encode(['status' => 'error', 'message' => 'Unauthorized Access.']));
 }
+
+// ---> CRITICAL FIX: RELEASE SESSION LOCK <---
+// This prevents the server from freezing when it tries to fetch the PDFs!
+session_write_close(); 
 
 // 3. Determine Date Range
 $startDate = $_POST['start_date'] ?? $_GET['start_date'] ?? date('Y-m-d');
@@ -45,7 +46,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$startDate, $endDate]);
 $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 5. Separate by Company (24 = PRA, 26 = PRAX)
+// 5. Separate by Company
 $praJobs = [];
 $praxJobs = [];
 
@@ -58,53 +59,46 @@ foreach ($jobs as $job) {
 }
 
 // 6. Define the Billing Department Emails
-$praEmails = ['nicholasv@pramalta.com']; // Replace with real PRA billing email eventually
-$praxEmails = ['nicholasv@pramalta.com']; // Replace with real PRAX billing email eventually
+$praEmails = ['nicholasv@pramalta.com']; 
+$praxEmails = ['nicholasv@pramalta.com']; 
 
-// 7. PDF Generation Helper Function (Fetches from print_plant_invoice.php)
+// 7. PDF Generation Helper Function
 function generateJobPdfFile($job) {
     $tempDir = __DIR__ . '/../temp_pdfs/';
     if (!is_dir($tempDir)) {
         mkdir($tempDir, 0777, true);
     }
     
-    // Generate the clean Job Ref Name
     $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
     $year = date('Y', strtotime($job['booking_date']));
     $paddedId = str_pad($job['id'], 4, '0', STR_PAD_LEFT);
     $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
     $filePath = $tempDir . "{$jobRef}.pdf";
 
-    // 2. Build the exact URL 
-    // ADDED &readonly=1 to prevent HTML inputs/buttons from rendering into the PDF!
     $domain = $_SERVER['HTTP_HOST'] ?? 'your-app.up.railway.app'; 
     $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
     $targetUrl = "{$protocol}://{$domain}/print_plant_invoice.php?booking_id=" . $job['id'] . "&readonly=1";
 
-    // Fetch the secure token from Railway's environment vault
     $cronToken = getenv('CRON_SECRET_TOKEN');
 
-    // 3. Fetch the content using a secure, hidden HTTP Header
     $opts = [
         'http' => [
             'method' => 'GET',
             'header' => "X-Cron-Token: " . $cronToken . "\r\n",
-            'ignore_errors' => true
+            'ignore_errors' => true,
+            'timeout' => 30 // Prevents infinite hanging if a page fails
         ]
     ];
     $context = stream_context_create($opts);
     $content = @file_get_contents($targetUrl, false, $context);
 
     if (!$content) {
-        return false; // Failed to fetch
+        return false; 
     }
 
-    // 4. Save the PDF
     if (strpos(trim($content), '%PDF-') === 0) {
         file_put_contents($filePath, $content);
-    } 
-    else {
-        // ADDED Options to allow Cloudflare R2 logos to load inside the PDF
+    } else {
         $options = new \Dompdf\Options();
         $options->set('isRemoteEnabled', true);
         $dompdf = new \Dompdf\Dompdf($options);
@@ -129,12 +123,10 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     
     $subject = "Plant Bookings Hub: $companyName Delivery Notes ($dateLabel)";
     
-    // --- EMAIL BRANDING ---
     $htmlBody = "<h2>Plant Bookings Hub</h2>";
     $htmlBody .= "<h3>$companyName - Daily Delivery Notes</h3>";
     $htmlBody .= "<p>Please find attached the delivery notes for completed plant bookings for <strong>$dateLabel</strong>.</p>";
     
-    // --- EMAIL TABLE WITH MORE INFO ---
     $htmlBody .= "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width:100%; max-width: 800px; font-family: Arial, sans-serif; font-size: 13px;'>
                     <tr style='background:#0f172a; color:white; text-align: left;'>
                         <th>Job Ref</th>
@@ -147,19 +139,23 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
 
     $attachments = [];
 
-    // Loop jobs, add to HTML table, and generate PDFs
     foreach($jobsList as $job) {
-        // Generate the exact Job Ref to match the PDF
         $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
         $year = date('Y', strtotime($job['booking_date']));
         $paddedId = str_pad($job['id'], 4, '0', STR_PAD_LEFT);
         $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
 
-        // Prepare table variables
         $plantInfo = htmlspecialchars($job['plant_name']) . "<br><span style='font-size:11px; color:#64748b;'>" . htmlspecialchars($job['registration_plate'] ?? '') . "</span>";
         $driver = htmlspecialchars($job['driver_name'] ?? 'N/A');
-        $shift = ($job['time_start'] ?? '--:--') . " to " . ($job['time_end'] ?? '--:--');
-        $totalDue = number_format(($job['subtotal'] ?? 700) * 1.18, 2); 
+        
+        // Use actual database time columns
+        $tIn = !empty($job['punch_in_time']) ? date('H:i', strtotime($job['punch_in_time'])) : (!empty($job['start_time']) ? date('H:i', strtotime($job['start_time'])) : '--:--');
+        $tOut = !empty($job['punch_out_time']) ? date('H:i', strtotime($job['punch_out_time'])) : (!empty($job['end_time']) ? date('H:i', strtotime($job['end_time'])) : '--:--');
+        $shift = "{$tIn} to {$tOut}";
+
+        // Use actual database totals (final_subtotal is Ex. VAT)
+        $subtotal = (float)($job['final_subtotal'] ?? 0);
+        $totalDue = $subtotal > 0 ? '€ ' . number_format($subtotal * 1.18, 2) : 'TBC'; 
 
         $htmlBody .= "<tr>
                         <td><strong>{$jobRef}</strong></td>
@@ -167,10 +163,9 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
                         <td>{$driver}</td>
                         <td>{$shift}</td>
                         <td>" . $job['booking_date'] . "</td>
-                        <td><strong>€ {$totalDue}</strong></td>
+                        <td><strong>{$totalDue}</strong></td>
                       </tr>";
         
-        // Generate the PDF and add the file path to our attachments array
         $pdfPath = generateJobPdfFile($job);
         if ($pdfPath) {
             $attachments[] = $pdfPath;
@@ -179,10 +174,8 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     
     $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p>";
 
-    // Send via our email_helper.php
     $emailSuccess = sendSystemEmail($recipients, $subject, $htmlBody, $attachments);
 
-    // CLEANUP: Delete the temporary PDFs from the server
     foreach($attachments as $file) {
         if (file_exists($file)) unlink($file);
     }
@@ -198,7 +191,6 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
 $results = [];
 $results['pra'] = processAndSendCompanyEmails('PRA Construction', $praJobs, $praEmails, $startDate, $endDate);
 
-// Tell the server to pause for 3 seconds so Google SMTP doesn't block the connection
 sleep(3); 
 
 $results['prax'] = processAndSendCompanyEmails('PRAX Concrete', $praxJobs, $praxEmails, $startDate, $endDate);
