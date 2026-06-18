@@ -1,12 +1,27 @@
 <?php
 require_once 'init.php';
-require_once 'session-check.php';
+
+// --- ENTERPRISE CRON BYPASS LOGIC ---
+// 1. Fetch the hidden header (PHP automatically formats 'X-Cron-Token' to 'HTTP_X_CRON_TOKEN')
+$providedToken = $_SERVER['HTTP_X_CRON_TOKEN'] ?? '';
+// 2. Fetch the true password from the Railway environment vault
+$expectedToken = getenv('CRON_SECRET_TOKEN');
+
+// 3. Verify they match perfectly using a timing-safe comparison
+$isCron = (!empty($expectedToken) && hash_equals($expectedToken, $providedToken));
+
+if (!$isCron) {
+    // If the header is missing or wrong, enforce normal human login
+    require_once 'session-check.php';
+}
+// ------------------------------------
+
 require_once 'user-functions.php';
 require_once 'S3FileManager.php';
 
 // Auto-deploy database updates for new columns to save custom rates locally
 try { 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL"); 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
     $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
 } catch(PDOException $e) {}
 
@@ -15,7 +30,9 @@ $isAdmin = ($role === 'admin');
 $canDiscount = in_array($role, ['admin', 'system_manager', 'accountant']);
 
 $hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager', 'plant_driver']);
-if (!$hasPlantAccess && !hasPermission('view_plant_bookings')) {
+
+// Allow access if it's the cron script, OR if the human has valid permissions
+if (!$isCron && !$hasPlantAccess && !hasPermission('view_plant_bookings')) {
     die("Unauthorized Access to Invoice.");
 }
 
