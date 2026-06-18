@@ -21,7 +21,7 @@ function sendSystemEmail($toEmail, $subject, $htmlBody, $attachments = []) {
         
         // IMPORTANT: Authenticate with your REAL account
         $mail->Username   = 'nicholas@labscerulean.com'; 
-        $mail->Password   = 'xvjl rerw bvvr szoz'; // Generated from Nicholas's account
+        $mail->Password   = 'xvjlrerwbvvrszoz'; // Generated from Nicholas's account
         
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = 587;
