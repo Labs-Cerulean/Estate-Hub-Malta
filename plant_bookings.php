@@ -1241,7 +1241,7 @@ $userId = $_SESSION['user_id'];
 
         fetch(`api/plant_actions.php?${qs}`)
         .then(r => r.json())
-        .then(jobs => {
+.then(jobs => {
             document.getElementById('ledger-list').innerHTML = jobs.length === 0 ? '<p style="text-align:center; font-weight:bold; color:#ef4444;">No bookings found for these filters.</p>' : jobs.map(j => {
                 let badge = '';
                 let sysRef = '';
@@ -1249,37 +1249,52 @@ $userId = $_SESSION['user_id'];
                 if (j.payment_status === 'Invoiced' || j.payment_status === 'Settled') {
                     if (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF') {
                         badge = `<span style="background:#fef08a; color:#854d0e; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">RFP Finalised - Local Only</span>`;
-                        sysRef = `<div style="color:#ef4444; font-weight:bold; font-size:0.85rem; margin-top:5px;"><i class="fas fa-exclamation-circle"></i> Manual Invoice Required</div>`;
+                        sysRef = `<div style="color:#ef4444; font-weight:bold; font-size:0.85rem; margin-top:8px;"><i class="fas fa-exclamation-circle"></i> Manual Invoice Required</div>`;
                     } else {
                         badge = `<span style="background:#ecfdf5; color:#047857; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">Synced & Finalised</span>`;
-                        sysRef = `<div style="color:#10b981; font-weight:bold; font-size:0.85rem; margin-top:5px;"><i class="fas fa-check-circle"></i> ERP Ref: ${j.invoice_sysref}</div>`;
+                        sysRef = `<div style="color:#10b981; font-weight:bold; font-size:0.85rem; margin-top:8px;"><i class="fas fa-check-circle"></i> ERP Ref: ${j.invoice_sysref}</div>`;
                     }
                 } else {
                     badge = `<span style="background:#e2e8f0; color:#475569; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold;">${j.payment_status}</span>`;
                 }
                 
-                // Define variables FIRST before using them
                 let displayClient = j.booking_type === 'in-house' ? j.project_name + ' (' + (j.client_name || 'No ERP Client Selected') + ')' : (j.client_name || 'No ERP Client Selected');
                 let setupBadge = (j.apply_setup_fee == 1 || parseFloat(j.final_setup_fee) > 0) ? '<span style="background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:8px; vertical-align: middle;"><i class="fas fa-truck-loading"></i> Setup Fee</span>' : '';
 
-                // Ledger Button Logic (Priority 4)
-                let actionButtons = '';
+                // NEW: Value Display
+                let valDisplay = '';
+                if (parseFloat(j.final_subtotal) > 0) {
+                    valDisplay = `<div style="font-weight:900; color:#10b981; font-size:1.3rem; margin-top:8px;">€${parseFloat(j.final_subtotal).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</div>`;
+                } else if (j.status === 'Completed') {
+                    valDisplay = `<div style="font-weight:900; color:#f59e0b; font-size:1rem; margin-top:8px;">Pending Pricing</div>`;
+                }
+
+                // NEW: Salient Details Bar
+                let timeStr = (j.start_time && j.end_time) ? `${j.start_time.substring(0,5)} - ${j.end_time.substring(0,5)}` : 'TBC';
+                let actualTimeStr = (j.punch_in_time && j.punch_out_time) ? ` <span style="color:#8b5cf6;">(Actual: ${j.punch_in_time.substring(11,16)} - ${j.punch_out_time.substring(11,16)})</span>` : '';
+                let hrsStr = parseFloat(j.final_hours) > 0 ? `<span style="color:#3b82f6; font-weight:800;">${parseFloat(j.final_hours).toFixed(1)} Hrs</span>` : '';
                 
+                let salientDetails = `
+                    <div style="display:flex; flex-wrap:wrap; gap:15px; margin-top:10px; padding-top:10px; border-top:1px dashed #cbd5e1; font-size:0.85rem; color:#475569;">
+                        <div><i class="far fa-clock"></i> ${timeStr}${actualTimeStr}</div>
+                        ${hrsStr ? `<div><i class="fas fa-stopwatch"></i> ${hrsStr}</div>` : ''}
+                        <div><i class="fas fa-building"></i> ${j.billing_company_name || 'Unknown Co.'}</div>
+                    </div>
+                `;
+
+                // Ledger Button Logic
+                let actionButtons = '';
                 if (j.status === 'Completed') {
-                    // Check if it has actually been finalised by an admin first!
                     if (j.payment_status === 'Invoiced' || j.payment_status === 'Settled') {
                         if (canViewLedger && (!j.invoice_sysref || j.invoice_sysref === 'N/A' || j.invoice_sysref === 'SUCCESS_NO_REF')) {
-                            // FINALIZED BUT NOT SYNCED - Show Retry
                             actionButtons = `
                                 <button onclick="retryErpSync(${j.id})" class="retry-sync-btn" style="background:#10b981; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-sync"></i> Retry ERP Sync</button>
                                 <button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-edit"></i> Edit Client / RFP</button>
                             `;
                         } else {
-                            // FULLY SYNCED - Standard View Button
                             actionButtons = `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#f1f5f9; color:#3b82f6; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;">View RFP</button>`;
                         }
                     } else {
-                        // NOT FINALIZED YET - Only show the Finalize button
                         actionButtons = `<button onclick="window.open('print_plant_invoice.php?booking_id=${j.id}', '_blank')" style="background:#3b82f6; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:bold; cursor:pointer; flex:1;"><i class="fas fa-file-invoice-dollar"></i> Finalize RFP & Sync</button>`;
                     }
                 } else {
@@ -1287,21 +1302,25 @@ $userId = $_SESSION['user_id'];
                 }
 
                 return `
-                <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:12px;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                        <div>
-                            <div style="font-weight:900; font-size:1.1rem;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name} ${setupBadge}</div>
-                            <div style="color:#64748b; font-size:0.85rem;">${j.booking_date} | ${displayClient}</div>
+                <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:15px; margin-bottom:15px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div style="flex:1; padding-right:15px;">
+                            <div style="font-weight:900; font-size:1.1rem; color:#0f172a; margin-bottom:4px;">PRA-${j.booking_date.substring(0,4)}-${String(j.id).padStart(4,'0')} - ${j.plant_name} ${setupBadge}</div>
+                            <div style="color:#64748b; font-size:0.9rem;"><b>${j.booking_date}</b> | ${displayClient}</div>
+                            ${salientDetails}
                             ${sysRef}
                         </div>
-                        <div style="text-align:right;">${badge}</div>
+                        <div style="text-align:right; min-width:130px;">
+                            ${badge}
+                            ${valDisplay}
+                        </div>
                     </div>
-                    <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; gap:10px;">
+                    <div style="border-top:1px solid #f1f5f9; padding-top:12px; margin-top:12px; display:flex; gap:10px;">
                         ${actionButtons}
                     </div>
                 </div>`;
             }).join('');
-        }); 
+        });
         showView('view-ledger');
     }
 
