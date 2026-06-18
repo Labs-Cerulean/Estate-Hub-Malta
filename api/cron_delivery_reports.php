@@ -67,35 +67,156 @@ $praxEmails = ['nicholasv@pramalta.com']; // Add actual emails here
 // 7. PDF Generation Helper Function
 // NOTE: To make this generate real PDFs from your HTML, run: composer require dompdf/dompdf
 function generateJobPdfFile($job) {
-    // Create a temporary directory for PDFs if it doesn't exist
     $tempDir = __DIR__ . '/../temp_pdfs/';
     if (!is_dir($tempDir)) {
         mkdir($tempDir, 0777, true);
     }
     
-    $filePath = $tempDir . "Delivery_Note_Job_" . $job['id'] . ".pdf";
+    // 1. Generate the clean Job Ref Name (e.g., PRA-2026-0027)
+    $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
+    $year = date('Y', strtotime($job['booking_date']));
+    $paddedId = str_pad($job['id'], 4, '0', STR_PAD_LEFT);
+    $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
 
-    /* --- DOMPDF IMPLEMENTATION (Uncomment once you install dompdf) ---*/
-    $html = "<h1>Delivery Note: Job #" . $job['id'] . "</h1>";
-    $html .= "<p>Plant: " . $job['plant_name'] . "</p>";
-    $html .= "<p>Date: " . $job['booking_date'] . "</p>";
-    // ... add the rest of your invoice HTML variables here ...
-    
-    $dompdf = new \Dompdf\Dompdf();
-    $dompdf->loadHtml($html);
-    $dompdf->setPaper('A4', 'portrait');
-    $dompdf->render();
-    file_put_contents($filePath, $dompdf->output());
-   /*  ------------------------------------------------------------------ */
+    $filePath = $tempDir . "{$jobRef}.pdf";
 
-    // Fallback: If DomPDF isn't installed yet, we create a temporary text file just to test attachments
-    if (!class_exists('\Dompdf\Dompdf')) {
-        file_put_contents($filePath . '.txt', "Delivery Note Details for Job ID: " . $job['id']);
-        return $filePath . '.txt';
+    // Prepare Signature Image (If your DB saves a base64 signature, it renders here)
+    $signatureHtml = "";
+    if (!empty($job['client_signature'])) {
+        // Assuming 'client_signature' column holds something like "data:image/png;base64,iVBORw0K..."
+        $signatureHtml = "<img src='" . $job['client_signature'] . "' style='max-height: 50px; max-width: 200px;'>";
     }
 
-    return $filePath;
-}
+    // 2. Build the Professional HTML Layout for DomPDF
+    $html = "
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; font-size: 13px; line-height: 1.4; }
+            .header-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            .title { font-size: 20px; font-weight: bold; color: #1e293b; text-transform: uppercase; }
+            .ref-box { text-align: right; font-size: 14px; }
+            .section-title { background: #f1f5f9; font-weight: bold; padding: 6px 10px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; color: #475569; }
+            .info-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+            .info-table td { padding: 4px 0; vertical-align: top; }
+            .info-label { width: 30%; font-weight: bold; color: #64748b; }
+            .info-value { width: 70%; color: #0f172a; }
+            .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; }
+            .data-table th { background: #0f172a; color: white; text-align: left; padding: 8px; font-size: 11px; text-transform: uppercase; }
+            .data-table td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; }
+            .totals-table { width: 100%; border-collapse: collapse; }
+            .totals-table td { padding: 4px 8px; text-align: right; }
+            .totals-label { font-weight: bold; color: #64748b; }
+            .sig-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            .sig-table td { padding: 8px 0; font-size: 13px; }
+            .footer { margin-top: 40px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 15px; }
+        </style>
+    </head>
+    <body>
+
+        <table class='header-table'>
+            <tr>
+                <td class='title'>{$prefix}<br><span style='font-size:12px; color:#64748b; font-weight:normal;'>DELIVERY NOTE / RFP</span></td>
+                <td class='ref-box'>
+                    <strong>Date:</strong> " . date('d M Y', strtotime($job['booking_date'])) . "<br>
+                    <strong>Job Ref:</strong> <span style='color:#3b82f6; font-weight:bold;'>{$jobRef}</span>
+                </td>
+            </tr>
+        </table>
+
+        <div class='section-title'>Billed To (Client Details)</div>
+        <table class='info-table'>
+            <tr>
+                <td class='info-label'>ERP Account Name</td>
+                <td class='info-value'><strong>" . ($job['client_name'] ?? 'PRA CONSTRUCTION-ARIA SANNAT') . "</strong></td>
+            </tr>
+            <tr>
+                <td class='info-label'>ERP Account Code</td>
+                <td class='info-value'>" . ($job['client_code'] ?? '0539') . "</td>
+            </tr>
+            <tr>
+                <td class='info-label'>Project/Location</td>
+                <td class='info-value'>" . htmlspecialchars($job['location'] ?? 'Arya') . "</td>
+            </tr>
+            <tr>
+                <td class='info-label'>Booking Type</td>
+                <td class='info-value'>" . htmlspecialchars($job['booking_type'] ?? 'IN-HOUSE') . "</td>
+            </tr>
+        </table>
+
+        <div class='section-title'>Job Report (Execution Details)</div>
+        <table class='info-table'>
+            <tr>
+                <td class='info-label'>Machinery</td>
+                <td class='info-value'>" . htmlspecialchars($job['plant_name']) . "</td>
+            </tr>
+            <tr>
+                <td class='info-label'>Reg Plate</td>
+                <td class='info-value'>" . htmlspecialchars($job['reg_plate'] ?? 'PLT_019') . "</td>
+            </tr>
+            <tr>
+                <td class='info-label'>Driver</td>
+                <td class='info-value'>" . htmlspecialchars($job['driver_name'] ?? 'Yusuf Koska') . "</td>
+            </tr>
+            <tr>
+                <td class='info-label'>Time Logged</td>
+                <td class='info-value'>" . ($job['time_start'] ?? '07:00') . " to " . ($job['time_end'] ?? '10:00') . "</td>
+            </tr>
+        </table>
+
+        <table class='data-table'>
+            <thead>
+                <tr>
+                    <th style='width: 15%;'>ERP Code</th>
+                    <th style='width: 50%;'>Description</th>
+                    <th style='width: 10%; text-align: center;'>Qty/Hrs</th>
+                    <th style='width: 10%; text-align: right;'>Rate (€)</th>
+                    <th style='width: 15%; text-align: right;'>Amount (€)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>" . ($job['erp_code'] ?? '0020') . "</td>
+                    <td>Fixed Callout Charge<br><span style='font-size:11px; color:#64748b;'>(Job Ref: {$jobRef})</span></td>
+                    <td style='text-align: center;'>" . number_format($job['qty'] ?? 1, 2) . "</td>
+                    <td style='text-align: right;'>" . number_format($job['rate'] ?? 700, 4) . "</td>
+                    <td style='text-align: right;'>" . number_format($job['subtotal'] ?? 700, 2) . "</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class='section-title'>Client Representative Verification</div>
+        <table style='width: 100%;'>
+            <tr>
+                <td style='width: 50%; vertical-align: top; padding-right: 20px;'>
+                    <table class='sig-table'>
+                        <tr>
+                            <td style='width: 40px;'><strong>Name:</strong></td>
+                            <td style='border-bottom: 1px solid #94a3b8; color: #0f172a; padding-left: 5px;'>" . htmlspecialchars($job['client_rep_name'] ?? 'Maka') . "</td>
+                        </tr>
+                        <tr>
+                            <td><strong>ID:</strong></td>
+                            <td style='border-bottom: 1px solid #94a3b8; color: #0f172a; padding-left: 5px;'>" . htmlspecialchars($job['client_rep_id'] ?? '') . "</td>
+                        </tr>
+                        <tr>
+                            <td style='vertical-align: bottom; height: 50px;'><strong>Sign:</strong></td>
+                            <td style='border-bottom: 1px solid #94a3b8; vertical-align: bottom; padding-left: 5px; height: 50px;'>
+                                {$signatureHtml}
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+
+                <td style='width: 50%; vertical-align: top;'>
+                    <table class='totals-table'>
+                        <tr>
+                            <td class='totals-label'>Gross Subtotal</td>
+                            <td>€ " . number_format($job['subtotal'] ?? 700, 2) . "</td>
+                        </tr>
+                        <tr>
+                            <td class='totals-label'>Net Subtotal</td>
+                            <td>€ " . number_format($job['subtotal'] ?? 700, 2) . "</td>
+                        </tr>
 
 // 8. Processing & Sending Function
 function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $start, $end) {
