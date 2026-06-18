@@ -1,11 +1,6 @@
 <?php
-// If using Composer, include the autoload file:
+// Include the Composer autoloader
 require_once __DIR__ . '/vendor/autoload.php';
-
-// If NOT using Composer, uncomment these and point to where you dropped the PHPMailer files:
-// require 'path/to/PHPMailer/src/Exception.php';
-// require 'path/to/PHPMailer/src/PHPMailer.php';
-// require 'path/to/PHPMailer/src/SMTP.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -21,7 +16,9 @@ function sendSystemEmail($toEmail, $subject, $htmlBody, $attachments = []) {
         
         // IMPORTANT: Authenticate with your REAL account
         $mail->Username   = 'nicholasv@labscerulean.com'; 
-        $mail->Password   = 'xvjlrerwbvvrszoz'; // Generated from Nicholas's account
+        
+        // Fetch the secure App Password from Railway's environment vault
+        $mail->Password   = getenv('SMTP_APP_PASSWORD'); 
         
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = 587;
@@ -54,8 +51,8 @@ function sendSystemEmail($toEmail, $subject, $htmlBody, $attachments = []) {
 
         $mail->send();
         return true;
-        } catch (Exception $e) {
-        // Return the exact error instead of false
+    } catch (Exception $e) {
+        // Return the exact error string so our cron script can log it if it fails
         return "Mailer Error: {$mail->ErrorInfo}";
     }
 }
