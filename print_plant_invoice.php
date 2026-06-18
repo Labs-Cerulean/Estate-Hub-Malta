@@ -72,28 +72,30 @@ $apiKeys = [
 ];
 $apiKey = $apiKeys[$job['billing_company_id']] ?? $apiKeys['default'];
 
-function getJ2ApiData($endpoint, $apiKey) {
-    $url = "https://j2api.agiusgroup.com/api/public" . $endpoint;
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "Content-Type: application/json",
-        "Accept: application/json",
-        "x-api-key: " . $apiKey,
-        "Authorization: Bearer " . $apiKey
-    ]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
-    
-    $response = curl_exec($ch); 
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
-    curl_close($ch);
-    
-    if ($httpCode >= 200 && $httpCode < 300) {
-        $decoded = json_decode($response, true);
-        return is_array($decoded) ? $decoded : [];
+if (!function_exists('getJ2ApiData')) {
+    function getJ2ApiData($endpoint, $apiKey) {
+        $url = "https://j2api.agiusgroup.com/api/public" . $endpoint;
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "Content-Type: application/json",
+            "Accept: application/json",
+            "x-api-key: " . $apiKey,
+            "Authorization: Bearer " . $apiKey
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
+        
+        $response = curl_exec($ch); 
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); 
+        curl_close($ch);
+        
+        if ($httpCode >= 200 && $httpCode < 300) {
+            $decoded = json_decode($response, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+        return [];
     }
-    return [];
 }
 
 $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
