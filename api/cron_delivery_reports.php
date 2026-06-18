@@ -75,15 +75,16 @@ function generateJobPdfFile($job) {
     $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
     $filePath = $tempDir . "{$jobRef}.pdf";
 
-    // Build the exact URL (Removed the token from the URL for security)
+    // 2. Build the exact URL 
+    // ADDED &readonly=1 to prevent HTML inputs/buttons from rendering into the PDF!
     $domain = $_SERVER['HTTP_HOST'] ?? 'your-app.up.railway.app'; 
     $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
-    $targetUrl = "{$protocol}://{$domain}/print_plant_invoice.php?booking_id=" . $job['id'];
+    $targetUrl = "{$protocol}://{$domain}/print_plant_invoice.php?booking_id=" . $job['id'] . "&readonly=1";
 
     // Fetch the secure token from Railway's environment vault
     $cronToken = getenv('CRON_SECRET_TOKEN');
 
-    // Fetch the content using a secure, hidden HTTP Header
+    // 3. Fetch the content using a secure, hidden HTTP Header
     $opts = [
         'http' => [
             'method' => 'GET',
@@ -98,14 +99,16 @@ function generateJobPdfFile($job) {
         return false; // Failed to fetch
     }
 
-    // Save the PDF
-    // Check if the page already outputs a raw PDF file
+    // 4. Save the PDF
     if (strpos(trim($content), '%PDF-') === 0) {
         file_put_contents($filePath, $content);
     } 
-    // Otherwise, if it outputs HTML, use DomPDF to render it perfectly
     else {
-        $dompdf = new \Dompdf\Dompdf();
+        // ADDED Options to allow Cloudflare R2 logos to load inside the PDF
+        $options = new \Dompdf\Options();
+        $options->set('isRemoteEnabled', true);
+        $dompdf = new \Dompdf\Dompdf($options);
+        
         $dompdf->loadHtml($content);
         $dompdf->setPaper('A4', 'portrait');
         $dompdf->render();
