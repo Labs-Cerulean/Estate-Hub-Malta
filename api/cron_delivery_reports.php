@@ -7,6 +7,7 @@
 require_once '../init.php'; 
 require_once '../email_helper.php';
 require_once '../vendor/autoload.php'; 
+require_once '../S3FileManager.php'; // ADDED: Required to fetch Cloudflare Logos
 
 $cronToken = getenv('CRON_SECRET_TOKEN');
 
@@ -72,7 +73,22 @@ function generateJobPdfFile($job) {
     $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
     $filePath = $tempDir . "{$jobRef}.pdf";
 
-    // --- REBUILDING THE JAVASCRIPT MATH IN NATIVE PHP ---
+    // --- FETCH SECURE LOGO VIA CLOUDFLARE S3 ---
+    $logoHtml = "";
+    if (!empty($job['developer_logo'])) {
+        $s3 = new S3FileManager();
+        $logoPath = $job['developer_logo'];
+        if (strpos($logoPath, 'http') === false) {
+            $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
+        }
+        if ($logoPath) {
+            $logoHtml = "<img src='{$logoPath}' style='max-width: 200px; max-height: 80px; object-fit: contain;'>";
+        }
+    } else {
+        $devName = htmlspecialchars($job['developer_name'] ?? 'Company');
+        $logoHtml = "<h2 style='margin:0; color:#0f172a; font-size:24px; text-transform:uppercase;'>{$devName}</h2>";
+    }
+
     $pricingType = $job['pricing_type'];
     $minHours = (float)$job['min_hours'];
     
@@ -214,11 +230,11 @@ function generateJobPdfFile($job) {
             <table>
                 <tr>
                     <td style='width: 50%;'>
-                        <div class='title'>{$prefix}</div>
-                        <div style='font-size:12px; color:#64748b; margin-top:2px;'>DELIVERY NOTE / RFP</div>
+                        {$logoHtml}
                     </td>
                     <td style='width: 50%; text-align: right;'>
-                        <div style='color: #475569; margin-bottom: 4px;'>Date: <b>" . date('d M Y', strtotime($job['booking_date'])) . "</b></div>
+                        <div class='title'>DELIVERY NOTE / RFP</div>
+                        <div style='color: #475569; margin-top: 5px; margin-bottom: 4px;'>Date: <b>" . date('d M Y', strtotime($job['booking_date'])) . "</b></div>
                         <div style='color: #475569;'>Job Ref: <b style='color: #000;'>{$jobRef}</b></div>
                     </td>
                 </tr>
