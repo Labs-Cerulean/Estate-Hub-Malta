@@ -117,8 +117,10 @@ if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
     $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
 }
 
+// DYNAMIC PRA/PRAX PREFIX
+$prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
 $jobYear = date('Y', strtotime($job['booking_date']));
-$jobRef = sprintf("PRA-%s-%04d", $jobYear, $bookingId);
+$jobRef = sprintf("%s-%s-%04d", $prefix, $jobYear, $bookingId);
 
 // Fetch all logged sessions for this job
 $sessionsStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
