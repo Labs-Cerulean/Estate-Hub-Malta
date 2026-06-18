@@ -4,12 +4,10 @@
  * Automated & Manual Daily Delivery Notes Mailer for PRA and PRAX
  */
 
-// 1. Include dependencies
 require_once '../init.php'; 
 require_once '../email_helper.php';
 require_once '../vendor/autoload.php'; 
 
-// 2. Security: Validate access using Environment Variable
 $cronToken = getenv('CRON_SECRET_TOKEN');
 
 $isManualRequest = false;
@@ -27,26 +25,24 @@ if (!$isManualRequest && !$isCronRequest) {
     die(json_encode(['status' => 'error', 'message' => 'Unauthorized Access.']));
 }
 
-// ---> CRITICAL FIX: RELEASE SESSION LOCK <---
-// This prevents the server from freezing when it tries to fetch the PDFs!
 session_write_close(); 
 
-// 3. Determine Date Range
 $startDate = $_POST['start_date'] ?? $_GET['start_date'] ?? date('Y-m-d');
 $endDate = $_POST['end_date'] ?? $_GET['end_date'] ?? date('Y-m-d');
 
-// 4. Fetch Completed Jobs in Date Range
+// --- FIX 1: JOIN THE USERS TABLE TO GET THE DRIVER NAME ---
 $stmt = $pdo->prepare("
-    SELECT pb.*, p.name as plant_name, p.registration_plate, p.billing_company_id 
+    SELECT pb.*, p.name as plant_name, p.registration_plate, p.billing_company_id,
+           u.first_name, u.last_name
     FROM plant_bookings pb 
     JOIN plants p ON pb.plant_id = p.id 
+    LEFT JOIN users u ON pb.driver_id = u.id 
     WHERE pb.booking_date >= ? AND pb.booking_date <= ? 
     AND pb.status = 'Completed'
 ");
 $stmt->execute([$startDate, $endDate]);
 $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 5. Separate by Company
 $praJobs = [];
 $praxJobs = [];
 
@@ -58,11 +54,9 @@ foreach ($jobs as $job) {
     }
 }
 
-// 6. Define the Billing Department Emails
 $praEmails = ['nicholasv@pramalta.com']; 
 $praxEmails = ['nicholasv@pramalta.com']; 
 
-// 7. PDF Generation Helper Function
 function generateJobPdfFile($job) {
     $tempDir = __DIR__ . '/../temp_pdfs/';
     if (!is_dir($tempDir)) {
@@ -75,44 +69,44 @@ function generateJobPdfFile($job) {
     $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
     $filePath = $tempDir . "{$jobRef}.pdf";
 
-    $domain = $_SERVER['HTTP_HOST'] ?? 'your-app.up.railway.app'; 
-    $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
-    $targetUrl = "{$protocol}://{$domain}/print_plant_invoice.php?booking_id=" . $job['id'] . "&readonly=1";
+    // --- FIX 2: BYPASS HTTP DEADLOCK USING PHP OUTPUT BUFFERING ---
+    $_GET['booking_id'] = $job['id'];
+    $_GET['readonly'] = '1';
+    $_SERVER['HTTP_X_CRON_TOKEN'] = getenv('CRON_SECRET_TOKEN');
 
-    $cronToken = getenv('CRON_SECRET_TOKEN');
+    // Move to the root directory temporarily so the requires in print_plant_invoice work
+    $currentDir = getcwd();
+    chdir(__DIR__ . '/../');
 
-    $opts = [
-        'http' => [
-            'method' => 'GET',
-            'header' => "X-Cron-Token: " . $cronToken . "\r\n",
-            'ignore_errors' => true,
-            'timeout' => 30 // Prevents infinite hanging if a page fails
-        ]
-    ];
-    $context = stream_context_create($opts);
-    $content = @file_get_contents($targetUrl, false, $context);
+    // Execute the file in memory and capture the HTML output instantly
+    ob_start();
+    include 'print_plant_invoice.php';
+    $content = ob_get_clean();
+    
+    // Return to the api directory
+    chdir($currentDir);
 
     if (!$content) {
         return false; 
     }
 
-    if (strpos(trim($content), '%PDF-') === 0) {
-        file_put_contents($filePath, $content);
-    } else {
-        $options = new \Dompdf\Options();
-        $options->set('isRemoteEnabled', true);
-        $dompdf = new \Dompdf\Dompdf($options);
-        
-        $dompdf->loadHtml($content);
-        $dompdf->setPaper('A4', 'portrait');
-        $dompdf->render();
-        file_put_contents($filePath, $dompdf->output());
-    }
+    // --- FIX 3: STRIP EXTERNAL FONTS ---
+    // DomPDF hangs/crashes when trying to parse FontAwesome. We strip it out for the PDF.
+    $content = preg_replace('/<link[^>]+href=["\'][^"\']*(fonts\.googleapis\.com|cdnjs\.cloudflare\.com)[^"\']*["\'][^>]*>/i', '', $content);
+
+    $options = new \Dompdf\Options();
+    $options->set('isRemoteEnabled', true);
+    $dompdf = new \Dompdf\Dompdf($options);
+    
+    $dompdf->loadHtml($content);
+    $dompdf->setPaper('A4', 'portrait');
+    $dompdf->render();
+    
+    file_put_contents($filePath, $dompdf->output());
 
     return $filePath;
 }
 
-// 8. Processing & Sending Function
 function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $start, $end) {
     if (empty($jobsList)) {
         return "0 jobs found.";
@@ -146,14 +140,15 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
         $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
 
         $plantInfo = htmlspecialchars($job['plant_name']) . "<br><span style='font-size:11px; color:#64748b;'>" . htmlspecialchars($job['registration_plate'] ?? '') . "</span>";
-        $driver = htmlspecialchars($job['driver_name'] ?? 'N/A');
         
-        // Use actual database time columns
+        // Output the Driver's Name correctly
+        $driverName = trim(($job['first_name'] ?? '') . ' ' . ($job['last_name'] ?? ''));
+        $driver = !empty($driverName) ? htmlspecialchars($driverName) : 'N/A';
+        
         $tIn = !empty($job['punch_in_time']) ? date('H:i', strtotime($job['punch_in_time'])) : (!empty($job['start_time']) ? date('H:i', strtotime($job['start_time'])) : '--:--');
         $tOut = !empty($job['punch_out_time']) ? date('H:i', strtotime($job['punch_out_time'])) : (!empty($job['end_time']) ? date('H:i', strtotime($job['end_time'])) : '--:--');
         $shift = "{$tIn} to {$tOut}";
 
-        // Use actual database totals (final_subtotal is Ex. VAT)
         $subtotal = (float)($job['final_subtotal'] ?? 0);
         $totalDue = $subtotal > 0 ? '€ ' . number_format($subtotal * 1.18, 2) : 'TBC'; 
 
@@ -187,7 +182,6 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     }
 }
 
-// 9. Execute for both companies
 $results = [];
 $results['pra'] = processAndSendCompanyEmails('PRA Construction', $praJobs, $praEmails, $startDate, $endDate);
 
@@ -195,7 +189,6 @@ sleep(3);
 
 $results['prax'] = processAndSendCompanyEmails('PRAX Concrete', $praxJobs, $praxEmails, $startDate, $endDate);
 
-// 10. Return Response
 header('Content-Type: application/json');
 echo json_encode([
     'status' => 'success', 
