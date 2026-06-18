@@ -622,7 +622,7 @@ if ($action == 'fetch_bookings') {
         $eTime = !empty($b['end_time']) ? $b['end_time'] : '17:00:00';
         $startIso = $b['booking_date'] . 'T' . $sTime;
         
-        // CALENDAR EXTENSION LOGIC (Priority 6)
+        // Retained your exact logic here:
         if (in_array($b['status'], ['In Progress', 'Paused']) && $cat === 'Excavator') {
             $endIso = date('Y-m-d') . 'T' . $eTime; 
         } else {
@@ -633,13 +633,29 @@ if ($action == 'fetch_bookings') {
             }
         }
 
+        // NEW: Grab the actual execution times and final value to pass to the UI
+        $actualTimeStr = '';
+        if ($b['status'] == 'Completed') {
+            if (!empty($b['punch_in_time']) && !empty($b['punch_out_time'])) {
+                $actualTimeStr = date('H:i', strtotime($b['punch_in_time'])) . ' - ' . date('H:i', strtotime($b['punch_out_time']));
+            } else {
+                $actualTimeStr = date('H:i', strtotime($b['start_time'])) . ' - ' . date('H:i', strtotime($b['end_time']));
+            }
+        }
+        
+        $subtotal = (float)$b['final_subtotal'];
+
         $events[] = [
             'id' => $b['id'], 
             'title' => $title, 
             'start' => $startIso, 
             'end' => $endIso, 
             'backgroundColor' => $color, 
-            'borderColor' => $color
+            'borderColor' => $color,
+            'extendedProps' => [
+                'actualTime' => $actualTimeStr,
+                'finalValue' => $subtotal
+            ]
         ];
     }
     echo json_encode($events); 
