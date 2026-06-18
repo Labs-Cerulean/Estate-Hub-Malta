@@ -136,20 +136,19 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     
     $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p>";
 
-    // Send via our email_helper.php
+// Send via our email_helper.php
     $emailSuccess = sendSystemEmail($recipients, $subject, $htmlBody, $attachments);
 
-    // CLEANUP: Delete the temporary PDFs from the server so we don't waste storage
+    // CLEANUP: Delete the temporary PDFs
     foreach($attachments as $file) {
-        if (file_exists($file)) {
-            unlink($file);
-        }
+        if (file_exists($file)) unlink($file);
     }
 
-    if ($emailSuccess) {
+    // Check if it's strictly true, otherwise it contains our error string
+    if ($emailSuccess === true) {
         return count($jobsList) . " delivery notes sent successfully.";
     } else {
-        return "Error sending email.";
+        return "Failed: " . $emailSuccess; // This will now print Google's exact complaint!
     }
 }
 
