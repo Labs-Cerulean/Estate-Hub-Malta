@@ -43,8 +43,9 @@ function sendSystemEmail($toEmail, $subject, $htmlBody, $attachments = []) {
             }
         }
 
-        // Content
+       // Content
         $mail->isHTML(true);
+        $mail->CharSet = 'UTF-8'; // ADD THIS LINE TO FIX THE EURO SYMBOL
         $mail->Subject = $subject;
         $mail->Body    = $htmlBody;
         $mail->AltBody = strip_tags($htmlBody);
