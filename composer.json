@@ -2,7 +2,7 @@
     "name": "estate-hub/malta",
     "description": "Estate Hub Management System",
     "require": {
-        "aws/aws-sdk-php": "^3.0"
+        "aws/aws-sdk-php": "^3.0",
         "phpmailer/phpmailer": "^6.9"
     }
 }
