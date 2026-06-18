@@ -64,8 +64,6 @@ foreach ($jobs as $job) {
 $praEmails = ['nicholasv@pramalta.com']; // Add actual emails here
 $praxEmails = ['nicholasv@pramalta.com']; // Add actual emails here
 
-// 7. PDF Generation Helper Function
-// NOTE: To make this generate real PDFs from your HTML, run: composer require dompdf/dompdf
 function generateJobPdfFile($job) {
     $tempDir = __DIR__ . '/../temp_pdfs/';
     if (!is_dir($tempDir)) {
@@ -217,6 +215,37 @@ function generateJobPdfFile($job) {
                             <td class='totals-label'>Net Subtotal</td>
                             <td>€ " . number_format($job['subtotal'] ?? 700, 2) . "</td>
                         </tr>
+                        <tr>
+                            <td class='totals-label'>VAT (18%)</td>
+                            <td>€ " . number_format(($job['subtotal'] ?? 700) * 0.18, 2) . "</td>
+                        </tr>
+                        <tr style='font-size: 15px; font-weight: bold; color: #0f172a;'>
+                            <td style='border-top: 2px solid #0f172a; padding-top: 6px;'>Total Due</td>
+                            <td style='border-top: 2px solid #0f172a; padding-top: 6px;'>€ " . number_format(($job['subtotal'] ?? 700) * 1.18, 2) . "</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+
+        <div class='footer'>
+            <strong>Payment Instructions:</strong> Payable to " . ($prefix === 'PRAX' ? 'PRAX Concrete Ltd.' : 'PRA Construction Ltd.') . "<br>
+            <strong>Bank:</strong> BOV &nbsp;|&nbsp; <strong>IBAN:</strong> MT44VALL22013000000050004052994
+        </div>
+
+    </body>
+    </html>";
+
+    // 3. Render via DomPDF
+    $dompdf = new \Dompdf\Dompdf();
+    $dompdf->loadHtml($html);
+    $dompdf->setPaper('A4', 'portrait');
+    $dompdf->render();
+    
+    file_put_contents($filePath, $dompdf->output());
+
+    return $filePath;
+}
 
 // 8. Processing & Sending Function
 function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $start, $end) {
