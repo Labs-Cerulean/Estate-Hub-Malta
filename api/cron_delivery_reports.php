@@ -75,7 +75,7 @@ function generateJobPdfFile($job) {
     
     $filePath = $tempDir . "Delivery_Note_Job_" . $job['id'] . ".pdf";
 
-    /* --- DOMPDF IMPLEMENTATION (Uncomment once you install dompdf) ---
+    /* --- DOMPDF IMPLEMENTATION (Uncomment once you install dompdf) ---*/
     $html = "<h1>Delivery Note: Job #" . $job['id'] . "</h1>";
     $html .= "<p>Plant: " . $job['plant_name'] . "</p>";
     $html .= "<p>Date: " . $job['booking_date'] . "</p>";
@@ -86,7 +86,7 @@ function generateJobPdfFile($job) {
     $dompdf->setPaper('A4', 'portrait');
     $dompdf->render();
     file_put_contents($filePath, $dompdf->output());
-    ------------------------------------------------------------------ */
+   /*  ------------------------------------------------------------------ */
 
     // Fallback: If DomPDF isn't installed yet, we create a temporary text file just to test attachments
     if (!class_exists('\Dompdf\Dompdf')) {
