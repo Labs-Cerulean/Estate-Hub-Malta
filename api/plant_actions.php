@@ -112,6 +112,10 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
     $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
     
+    // --- FIX 2: DYNAMIC PRA/PRAX PREFIX ---
+    $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
+    $jobRef = sprintf("%s-%s-%04d", $prefix, date('Y', strtotime($job['booking_date'])), $bookingId);
+    
     // NEW LOGIC: Determine the location text
     $locationText = ($job['booking_type'] == 'in-house') 
         ? "Project: " . ($job['project_name'] ?? 'N/A') 
