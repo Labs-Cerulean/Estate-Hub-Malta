@@ -54,9 +54,8 @@ function sendSystemEmail($toEmail, $subject, $htmlBody, $attachments = []) {
 
         $mail->send();
         return true;
-    } catch (Exception $e) {
-        // Log the error in production instead of just returning it
-        error_log("Message could not be sent. Mailer Error: {$mail->ErrorInfo}");
-        return false;
+        } catch (Exception $e) {
+        // Return the exact error instead of false
+        return "Mailer Error: {$mail->ErrorInfo}";
     }
 }
