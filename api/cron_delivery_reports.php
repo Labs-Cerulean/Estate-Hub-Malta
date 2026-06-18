@@ -227,25 +227,47 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     $isSingleDay = ($start === $end);
     $dateLabel = $isSingleDay ? $start : "$start to $end";
     
-    $subject = "$companyName Delivery Notes - $dateLabel";
+    $subject = "Plant Bookings Hub: $companyName Delivery Notes ($dateLabel)";
     
-    $htmlBody = "<h2>$companyName - Daily Plant Delivery Notes</h2>";
+    // --- UPDATED EMAIL BRANDING ---
+    $htmlBody = "<h2>Plant Bookings Hub</h2>";
+    $htmlBody .= "<h3>$companyName - Daily Delivery Notes</h3>";
     $htmlBody .= "<p>Please find attached the delivery notes for completed plant bookings for <strong>$dateLabel</strong>.</p>";
-    $htmlBody .= "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width:100%; max-width: 600px;'>
-                    <tr style='background:#f1f5f9;'>
-                        <th>Job ID</th>
-                        <th>Plant/Machine</th>
+    
+    // --- UPDATED EMAIL TABLE WITH MORE INFO ---
+    $htmlBody .= "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width:100%; max-width: 800px; font-family: Arial, sans-serif; font-size: 13px;'>
+                    <tr style='background:#0f172a; color:white; text-align: left;'>
+                        <th>Job Ref</th>
+                        <th>Plant & Reg</th>
+                        <th>Driver</th>
+                        <th>Shift Time</th>
                         <th>Date</th>
+                        <th>Total (€)</th>
                     </tr>";
 
     $attachments = [];
 
     // Loop jobs, add to HTML table, and generate PDFs
     foreach($jobsList as $job) {
+        // Generate the exact Job Ref to match the PDF
+        $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
+        $year = date('Y', strtotime($job['booking_date']));
+        $paddedId = str_pad($job['id'], 4, '0', STR_PAD_LEFT);
+        $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
+
+        // Prepare table variables
+        $plantInfo = htmlspecialchars($job['plant_name']) . "<br><span style='font-size:11px; color:#64748b;'>" . htmlspecialchars($job['reg_plate'] ?? '') . "</span>";
+        $driver = htmlspecialchars($job['driver_name'] ?? 'N/A');
+        $shift = ($job['time_start'] ?? '--:--') . " to " . ($job['time_end'] ?? '--:--');
+        $totalDue = number_format(($job['subtotal'] ?? 700) * 1.18, 2); // Assuming 18% VAT applied
+
         $htmlBody .= "<tr>
-                        <td>#" . $job['id'] . "</td>
-                        <td>" . htmlspecialchars($job['plant_name']) . "</td>
+                        <td><strong>{$jobRef}</strong></td>
+                        <td>{$plantInfo}</td>
+                        <td>{$driver}</td>
+                        <td>{$shift}</td>
                         <td>" . $job['booking_date'] . "</td>
+                        <td><strong>€ {$totalDue}</strong></td>
                       </tr>";
         
         // Generate the PDF and add the file path to our attachments array
@@ -257,25 +279,28 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     
     $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p>";
 
-// Send via our email_helper.php
+    // Send via our email_helper.php
     $emailSuccess = sendSystemEmail($recipients, $subject, $htmlBody, $attachments);
 
-    // CLEANUP: Delete the temporary PDFs
+    // CLEANUP: Delete the temporary PDFs from the server
     foreach($attachments as $file) {
         if (file_exists($file)) unlink($file);
     }
 
-    // Check if it's strictly true, otherwise it contains our error string
     if ($emailSuccess === true) {
         return count($jobsList) . " delivery notes sent successfully.";
     } else {
-        return "Failed: " . $emailSuccess; // This will now print Google's exact complaint!
+        return "Failed: " . $emailSuccess;
     }
 }
 
 // 9. Execute for both companies
 $results = [];
 $results['pra'] = processAndSendCompanyEmails('PRA Construction', $praJobs, $praEmails, $startDate, $endDate);
+
+// Tell the server to pause for 3 seconds so Google SMTP doesn't block the connection
+sleep(3); 
+
 $results['prax'] = processAndSendCompanyEmails('PRAX Concrete', $praxJobs, $praxEmails, $startDate, $endDate);
 
 // 10. Return Response
