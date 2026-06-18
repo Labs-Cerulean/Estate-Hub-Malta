@@ -20,7 +20,7 @@ function sendSystemEmail($toEmail, $subject, $htmlBody, $attachments = []) {
         $mail->SMTPAuth   = true;
         
         // IMPORTANT: Authenticate with your REAL account
-        $mail->Username   = 'nicholas@labscerulean.com'; 
+        $mail->Username   = 'nicholasv@labscerulean.com'; 
         $mail->Password   = 'xvjlrerwbvvrszoz'; // Generated from Nicholas's account
         
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
