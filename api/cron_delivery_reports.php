@@ -59,8 +59,9 @@ foreach ($jobs as $job) {
     }
 }
 
-$praEmails = ['nicholasv@pramalta.com']; 
-$praxEmails = ['nicholasv@pramalta.com']; 
+$praEmails = ['nicholasv@pramalta.com', 'accounts@pramalta.com', 'marka@agiusgroup.com', 'clydes@pramalta.com', 'jasons@pramalta.com']; 
+
+$praxEmails = ['nicholasv@pramalta.com', 'thomasg@pandamalta.com', 'marka@agiusgroup.com', 'AlessiaA@AgiusGroup.Com', 'GabriellaA@AgiusGroup.Com', 'clydes@pramalta.com'];
 
 function generateJobPdfFile($job) {
     $tempDir = __DIR__ . '/../temp_pdfs/';
