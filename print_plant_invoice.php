@@ -161,7 +161,18 @@ $qtyLabel = $isTripBased ? "Trips Executed" : "Total Hours Executed";
 // FIX: We strictly pull the saved client data from the DB for BOTH internal and external jobs.
 $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
 $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
-$projectDisplay = !empty($job['project_name']) ? htmlspecialchars($job['project_name']) : 'N/A';
+// --- REVERSE GEOCODING FOR PDF ---
+if ($job['booking_type'] == 'in-house') {
+    $projectDisplay = !empty($job['project_name']) ? htmlspecialchars($job['project_name']) : 'N/A';
+} else {
+    if (!empty($job['location_lat']) && !empty($job['location_lng']) && function_exists('getAddressFromCoordinates')) {
+        $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
+        // Fallback to raw coordinates if the map server can't find the road
+        $projectDisplay = $address ? htmlspecialchars($address) : 'Lat: ' . round($job['location_lat'], 4) . ', Lng: ' . round($job['location_lng'], 4);
+    } else {
+        $projectDisplay = 'External Location';
+    }
+}
 
 // Determine Edit Lock State
 $sysRef = $job['invoice_sysref'] ?? '';
