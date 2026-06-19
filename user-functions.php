@@ -345,3 +345,33 @@ function getEAppsUrl($pa) {
     if (preg_match('/(PA|PC|DN)(\d+)(\d{2})/', $rawPa, $m)) { return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
     return "#";
 }
+
+/**
+ * Converts GPS Coordinates to a physical street address using free OpenStreetMap API
+ */
+function getAddressFromCoordinates($lat, $lng) {
+    if (empty($lat) || empty($lng)) return null;
+    
+    $url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={$lat}&lon={$lng}&zoom=16";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    // Nominatim strictly requires a User-Agent header to use their free service
+    curl_setopt($ch, CURLOPT_USERAGENT, 'EstateHubMalta/1.0 (nicholas@labscerulean.com)'); 
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3); // 3-second timeout so it never hangs the server
+    $response = curl_exec($ch);
+    curl_close($ch);
+    
+    if ($response) {
+        $data = json_decode($response, true);
+        if (!empty($data['address'])) {
+            $street = $data['address']['road'] ?? '';
+            $town = $data['address']['village'] ?? $data['address']['town'] ?? $data['address']['city'] ?? $data['address']['municipality'] ?? '';
+            
+            $addressPieces = array_filter([$street, $town]);
+            if (!empty($addressPieces)) {
+                return implode(', ', $addressPieces);
+            }
+        }
+    }
+    return null; // Fallback if the map server is offline
+}
