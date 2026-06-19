@@ -116,13 +116,23 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
     $jobRef = sprintf("%s-%s-%04d", $prefix, date('Y', strtotime($job['booking_date'])), $bookingId);
     
-    // NEW LOGIC: Determine the location text
+    // --- FIX 1: DYNAMIC LOCATION TEXT WITH REVERSE GEOCODING ---
     $locationText = ($job['booking_type'] == 'in-house') 
         ? "Project: " . ($job['project_name'] ?? 'N/A') 
-        : "External: " . ($job['client_name'] ?? 'N/A');
+        : "Client: " . ($job['client_name'] ?? 'N/A');
 
     // Text lines do not get discounts applied to them
+    $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr($locationText, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
+    
+    // NEW: Add the physical street address as a dedicated line for External Jobs!
+    if ($job['booking_type'] !== 'in-house' && !empty($job['location_lat']) && !empty($job['location_lng'])) {
+        $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
+        if ($address) {
+            $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Loc: " . $address, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
+        }
+    }
+
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
 
     $payload = [ 
