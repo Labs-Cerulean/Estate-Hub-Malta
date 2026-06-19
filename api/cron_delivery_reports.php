@@ -176,7 +176,18 @@ function generateJobPdfFile($job) {
 
     $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
     $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
-    $projectDisplay = !empty($job['project_name']) ? htmlspecialchars($job['project_name']) : 'N/A';
+    // --- REVERSE GEOCODING FOR PDF ---
+    if ($job['booking_type'] == 'in-house') {
+        $projectDisplay = !empty($job['project_name']) ? htmlspecialchars($job['project_name']) : 'N/A';
+    } else {
+        if (!empty($job['location_lat']) && !empty($job['location_lng']) && function_exists('getAddressFromCoordinates')) {
+            $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
+            // Fallback to raw coordinates if the map server can't find the road
+            $projectDisplay = $address ? htmlspecialchars($address) : 'Lat: ' . round($job['location_lat'], 4) . ', Lng: ' . round($job['location_lng'], 4);
+        } else {
+            $projectDisplay = 'External Location';
+        }
+    }
     
     $tIn = !empty($job['punch_in_time']) ? date('H:i', strtotime($job['punch_in_time'])) : (!empty($job['start_time']) ? date('H:i', strtotime($job['start_time'])) : '--:--');
     $tOut = !empty($job['punch_out_time']) ? date('H:i', strtotime($job['punch_out_time'])) : (!empty($job['end_time']) ? date('H:i', strtotime($job['end_time'])) : '--:--');
