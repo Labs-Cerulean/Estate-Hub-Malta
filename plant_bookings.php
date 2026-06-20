@@ -172,17 +172,11 @@ $userId = $_SESSION['user_id'];
                             <option value="Daily">Daily (e.g. Booms)</option>
                         </select>
                     </div>
-                    <div style="flex:1;"><label>Requires Driver? *</label>
-                        <select id="new_req_driver" class="input-heavy" style="margin-bottom:0;" required>
-                            <option value="1">Yes - Driver Required</option>
-                            <option value="0">No - Auto / Static</option>
-                        </select>
-                    </div>
-                    <div style="flex:1;"><label>Lifecycle Type *</label>
-                        <select id="new_lifecycle" class="input-heavy" style="margin-bottom:0;" required>
-                            <option value="Standard">Standard (Single Shift)</option>
-                            <option value="Multi-Day">Multi-Day (Pause/Resume)</option>
-                            <option value="Auto-Scheduled">Auto-Scheduled</option>
+                    <div style="flex:2;"><label>Operational Mode *</label>
+                        <select id="new_lifecycle_mode" class="input-heavy" style="margin-bottom:0;" required>
+                            <option value="Standard">Standard Shift (Driver Required)</option>
+                            <option value="Multi-Day">Multi-Day Continuous (Driver Required)</option>
+                            <option value="Auto-Scheduled">Auto-Scheduled / Static (No Driver)</option>
                         </select>
                     </div>
                 </div>
@@ -1071,9 +1065,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         
         document.getElementById('new_plant_setup_fee').value = parseFloat(p.setup_fee || 0).toFixed(2);
 
-        document.getElementById('new_billing_unit').value = p.billing_unit || 'Hourly';
-        document.getElementById('new_req_driver').value = p.requires_driver !== null ? p.requires_driver : 1;
-        document.getElementById('new_lifecycle').value = p.lifecycle_type || 'Standard';
+        document.getElementById('new_lifecycle_mode').value = p.lifecycle_type || 'Standard';
         
         document.getElementById('new_has_configs').checked = (p.has_configurations == 1);
         toggleConfigBuilder();
@@ -1104,9 +1096,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         document.getElementById('fleet-form-title').innerText = "Register Machinery";
         document.getElementById('edit_plant_id').value = '';
 
-        document.getElementById('new_billing_unit').value = 'Hourly';
-        document.getElementById('new_req_driver').value = '1';
-        document.getElementById('new_lifecycle').value = 'Standard';
+        document.getElementById('new_lifecycle_mode').value = 'Standard';
         document.getElementById('new_has_configs').checked = false;
         toggleConfigBuilder();
         document.getElementById('config_list').innerHTML = '';
@@ -1141,9 +1131,12 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('setup_fee', document.getElementById('new_plant_setup_fee').value); 
         fd.append('nom_code_setup', document.getElementById('new_nom_setup').value); 
 
-        fd.append('requires_driver', document.getElementById('new_req_driver').value); 
-        fd.append('lifecycle_type', document.getElementById('new_lifecycle').value); 
-        fd.append('billing_unit', document.getElementById('new_billing_unit').value); 
+        const opMode = document.getElementById('new_lifecycle_mode').value;
+        const reqDriver = (opMode === 'Auto-Scheduled') ? 0 : 1;
+        
+        fd.append('requires_driver', reqDriver); 
+        fd.append('lifecycle_type', opMode); 
+        fd.append('billing_unit', document.getElementById('new_billing_unit').value);
         
         const hasConfigs = document.getElementById('new_has_configs').checked ? 1 : 0;
         fd.append('has_configurations', hasConfigs); 
