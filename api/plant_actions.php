@@ -25,6 +25,7 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
 function pushBookingToERP($pdo, $bookingId, $userId) {
     $stmt = $pdo->prepare("
         SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, p.min_hours, 
+               p.has_configurations, p.configurations, p.requires_driver,
                u.first_name as driver_first, u.last_name as driver_last,
                prj.name as project_name
         FROM plant_bookings pb 
@@ -33,8 +34,6 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         LEFT JOIN projects prj ON pb.project_id = prj.id
         WHERE pb.id = ?
     "); 
-    $stmt->execute([$bookingId]); 
-    $job = $stmt->fetch(PDO::FETCH_ASSOC);
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -91,43 +90,96 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         
         $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
-                     
     } elseif ($job['pricing_type'] == 'daily') {
         $dCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $dDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Daily Flat Rate";
-        $qty = round((float)$job['final_hours'] > 0 ? (float)$job['final_hours'] : 1, 2); // Final hours acts as Days here
+        $qty = round((float)$job['final_hours'] > 0 ? (float)$job['final_hours'] : 1, 2);
         $price = round((float)$job['final_rate_fixed'], 4);
         $grossSubtotal += round($qty * $price, 2);
         
         $lines[] = [ "Type" => "N", "Code" => $dCode, "Description" => $dDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
-
     } else {
-        $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
-        $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
-        $qty = round((float)$job['final_hours'], 2);
-        $price = round((float)$job['final_rate_var'], 4);
-        $grossSubtotal += round($qty * $price, 2);
+        // --- INTELLIGENT MULTI-MODE SYNC LOGIC ---
+        $cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
         
-        $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", 
-                     "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+        $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
+        $sessStmt->execute([$bookingId]);
+        $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (is_array($cfgs) && count($sessions) > 0) {
+            // Group hours by mode
+            $modeBreakdown = [];
+            foreach ($sessions as $s) {
+                $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
+                if (!isset($modeBreakdown[$mName])) $modeBreakdown[$mName] = 0;
+                $modeBreakdown[$mName] += (float)$s['hours'];
+            }
+
+            $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
+            $isInternal = ($job['booking_type'] == 'in-house');
+
+            foreach ($modeBreakdown as $mName => $mHours) {
+                $matchedCfg = null;
+                foreach ($cfgs as $c) { if ($c['name'] === $mName) { $matchedCfg = $c; break; } }
+                
+                if ($matchedCfg) {
+                    $mCode = trim($matchedCfg['nom_code']);
+                    $erpRate = 0;
+                    if (!empty($allNominals)) {
+                        foreach($allNominals as $n) {
+                            if (trim($n['NCCode']) === $mCode) {
+                                $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2'];
+                                break;
+                            }
+                        }
+                    }
+                    $mPrice = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
+                    
+                    $qty = round($mHours, 2);
+                    $price = round($mPrice, 4);
+                    $grossSubtotal += round($qty * $price, 2);
+                    
+                    $lines[] = [ "Type" => "N", "Code" => $mCode, "Description" => substr($mName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
+                                 "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+                } else {
+                    // Fallback
+                    $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
+                    $qty = round($mHours, 2);
+                    $price = round((float)$job['final_rate_var'], 4);
+                    $grossSubtotal += round($qty * $price, 2);
+                    
+                    $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => substr($mName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
+                                 "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+                }
+            }
+        } else {
+            // Standard Hourly Fallback
+            $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
+            $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
+            $qty = round((float)$job['final_hours'], 2);
+            $price = round((float)$job['final_rate_var'], 4);
+            $grossSubtotal += round($qty * $price, 2);
+            
+            $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", 
+                         "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+        }
     }
 
     $totalDiscount = round($grossSubtotal * ($discountPct / 100), 2);
     $netSubtotal = round($grossSubtotal - $totalDiscount, 2);
     $totalTax = round($netSubtotal * 0.18, 2);
     
-    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
-    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
-    
-    $jobRef = sprintf("PRA-%s-%04d", date('Y', strtotime($job['booking_date'])), $bookingId);
-    $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
-    
-    // --- FIX 2: DYNAMIC PRA/PRAX PREFIX ---
     $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
     $jobRef = sprintf("%s-%s-%04d", $prefix, date('Y', strtotime($job['booking_date'])), $bookingId);
     
-    // --- FIX 1: DYNAMIC LOCATION TEXT WITH REVERSE GEOCODING ---
+    // Dynamic Driver String
+    if ((int)($job['requires_driver'] ?? 1) === 0) {
+        $driverName = "Not Required (Static Asset)";
+    } else {
+        $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    }
+
     $locationText = ($job['booking_type'] == 'in-house') 
         ? "Project: " . ($job['project_name'] ?? 'N/A') 
         : "Client: " . ($job['client_name'] ?? 'N/A');
@@ -136,7 +188,6 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr($locationText, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
     
-    // NEW: Add the physical street address as a dedicated line for External Jobs!
     if ($job['booking_type'] !== 'in-house' && !empty($job['location_lat']) && !empty($job['location_lng'])) {
         $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
         if ($address) {
