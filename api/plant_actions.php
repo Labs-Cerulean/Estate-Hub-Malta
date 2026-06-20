@@ -95,12 +95,13 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     } elseif ($job['pricing_type'] == 'daily') {
         $dCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $dDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Daily Flat Rate";
-        $qty = round((float)$job['final_hours'] > 0 ? (float)$job['final_hours'] : 1, 2); // final_hours acts as Days here
+        $qty = round((float)$job['final_hours'] > 0 ? (float)$job['final_hours'] : 1, 2); // Final hours acts as Days here
         $price = round((float)$job['final_rate_fixed'], 4);
         $grossSubtotal += round($qty * $price, 2);
         
         $lines[] = [ "Type" => "N", "Code" => $dCode, "Description" => $dDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
+
     } else {
         $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
         $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
@@ -894,7 +895,7 @@ if ($action == 'cancel_booking' && $isManager) {
 if ($action == 'get_job') {
     $stmt = $pdo->prepare("
         SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee, 
-               p.lifecycle_type, p.has_configurations, p.configurations,
+               p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
                prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id 
