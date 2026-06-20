@@ -134,8 +134,9 @@ $userId = $_SESSION['user_id'];
                     <div style="flex:2;"><label>Pricing Model *</label>
                         <select id="new_plant_pricing" class="input-heavy" onchange="togglePricingModel()" required>
                             <option value="hourly">Standard Hourly</option>
-                            <option value="fixed_then_hourly">Fixed Minimum + Hourly</option>
+                            <option value="fixed_then_hourly">Fixed Minimum + Hourly (Base + Overtime)</option>
                             <option value="per_trip">Per Trip Rate</option>
+                            <option value="daily">Daily Flat Rate</option>
                         </select>
                     </div>
                     <div style="flex:1; display:none;" id="min_hrs_box"><label>Min Hours</label><input type="number" id="new_plant_min_hrs" class="input-heavy" value="1" min="1"></div>
@@ -165,14 +166,7 @@ $userId = $_SESSION['user_id'];
                 </div>
 
                 <div style="display:flex; gap:10px; margin-bottom: 15px;">
-                    <div style="flex:1;"><label>Billing Unit *</label>
-                        <select id="new_billing_unit" class="input-heavy" style="margin-bottom:0;" required>
-                            <option value="Hourly">Hourly</option>
-                            <option value="Trip">Per Trip</option>
-                            <option value="Daily">Daily (e.g. Booms)</option>
-                        </select>
-                    </div>
-                    <div style="flex:2;"><label>Operational Mode *</label>
+                    <div style="flex:1;"><label>Operational Mode (Lifecycle & Dispatch) *</label>
                         <select id="new_lifecycle_mode" class="input-heavy" style="margin-bottom:0;" required>
                             <option value="Standard">Standard Shift (Driver Required)</option>
                             <option value="Multi-Day">Multi-Day Continuous (Driver Required)</option>
@@ -999,8 +993,10 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             minBox.style.display = 'block'; minInput.min = 1; minInput.value = Math.max(1, minInput.value);
             varNomBox.style.display = 'block'; varNomInput.required = true; lblFixed.innerText = "Fixed Nominal Code *";
         } else {
+            // This handles 'hourly', 'per_trip', and 'daily'
             minBox.style.display = 'none'; minInput.value = 0;
-            varNomBox.style.display = 'none'; varNomInput.required = false; varNomInput.value = ''; lblFixed.innerText = "Nominal Code *";
+            varNomBox.style.display = 'none'; varNomInput.required = false; varNomInput.value = ''; 
+            lblFixed.innerText = "Nominal Code *";
         }
         updateRatesDisplay();
     }
@@ -1136,7 +1132,6 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         
         fd.append('requires_driver', reqDriver); 
         fd.append('lifecycle_type', opMode); 
-        fd.append('billing_unit', document.getElementById('new_billing_unit').value);
         
         const hasConfigs = document.getElementById('new_has_configs').checked ? 1 : 0;
         fd.append('has_configurations', hasConfigs); 
