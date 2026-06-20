@@ -551,6 +551,18 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         list.insertAdjacentHTML('beforeend', html);
     }
 
+    function updateConfigPrice(sel) {
+        const priceInput = sel.closest('.config-row').querySelector('.cfg-price');
+        if(sel.selectedIndex > 0) {
+            const opt = sel.options[sel.selectedIndex];
+            // Pull the External Commercial Rate from the ERP and set it
+            const erpPrice = parseFloat(opt.dataset.ext) || 0;
+            priceInput.value = erpPrice.toFixed(2);
+        } else {
+            priceInput.value = '0.00';
+        }
+    }
+
     function buildConfigJson() {
         if(!document.getElementById('new_has_configs').checked) return null;
         const rows = document.querySelectorAll('.config-row');
