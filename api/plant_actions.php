@@ -584,7 +584,7 @@ if ($action == 'fetch_bookings') {
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
     
     // GLOBAL VISIBILITY: All users pull the full schedule without driver restrictions
-   $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+    $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
               FROM plant_bookings pb 
               JOIN plants p ON pb.plant_id = p.id 
               LEFT JOIN projects prj ON pb.project_id = prj.id
@@ -606,28 +606,19 @@ if ($action == 'fetch_bookings') {
         $details = [];
         if (!empty($b['project_name'])) {
             $details[] = $b['project_name'];
-            if (!empty($b['locality'])) {
-                $details[] = $b['locality'];
-            }
-            if (!empty($b['client_name'])) {
-                $details[] = $b['client_name'];
-            }
+            if (!empty($b['locality'])) { $details[] = $b['locality']; }
+            if (!empty($b['client_name'])) { $details[] = $b['client_name']; }
         } else {
-            if (!empty($b['client_name'])) {
-                $details[] = $b['client_name'];
-            }
-            if (!empty($b['comments'])) {
-                $details[] = '"' . substr($b['comments'], 0, 40) . '..."';
-            }
+            if (!empty($b['client_name'])) { $details[] = $b['client_name']; }
+            if (!empty($b['comments'])) { $details[] = '"' . substr($b['comments'], 0, 40) . '..."'; }
         }
         
         $statusInd = "";
         if ($b['status'] == 'Completed') {
-            // Check if it has a saved RFP subtotal or an invoice status
             if ((float)$b['final_subtotal'] > 0 || in_array($b['payment_status'], ['Invoiced', 'Settled'])) {
-                $statusInd = "🧾 "; // Has RFP
+                $statusInd = "🧾 ";
             } else {
-                $statusInd = "✅ "; // Completed but missing RFP
+                $statusInd = "✅ ";
             }
         } elseif ($b['status'] == 'In Progress') {
             $statusInd = "⏳ ";
@@ -646,35 +637,21 @@ if ($action == 'fetch_bookings') {
         $jobStart = $b['booking_date'];
         $jobEnd = !empty($b['end_date']) ? $b['end_date'] : $b['booking_date'];
 
-        // Loop through each day of the booking to create clean daily calendar blocks!
-        $currentDate = new DateTime($jobStart);
-        $lastDate = new DateTime($jobEnd);
-        $lastDate->modify('+1 day'); // Include the final day in the loop
-        
-        $period = new DatePeriod($currentDate, new DateInterval('P1D'), $lastDate);
-        
-        foreach ($period as $dt) {
-            $dateStr = $dt->format('Y-m-d');
-            $startIso = $dateStr . 'T' . $sTime;
-            
-            // Apply the Setup Fee badge ONLY to the very first day of the booking
-            $dailyTitle = $baseTitle;
-            if ($dateStr === $jobStart && isset($b['apply_setup_fee']) && $b['apply_setup_fee'] == 1) {
-                $dailyTitle = str_replace($b['plant_name'], $b['plant_name'] . " [SETUP FEE]", $baseTitle);
+        // SAFE DATE PARSING
+        $unixStart = strtotime($jobStart);
+        $unixEnd = strtotime($jobEnd);
+        if (!$unixStart || !$unixEnd || $unixEnd < $unixStart) {
+            $jobEnd = $jobStart;
         }
 
-        $sTime = !empty($b['start_time']) ? $b['start_time'] : '08:00:00';
-        $eTime = !empty($b['end_time']) ? $b['end_time'] : '17:00:00';
-        
-        $jobStart = $b['booking_date'];
-        $jobEnd = !empty($b['end_date']) ? $b['end_date'] : $b['booking_date'];
-
-        // Loop through each day of the booking to create clean daily calendar blocks!
-        $currentDate = new DateTime($jobStart);
-        $lastDate = new DateTime($jobEnd);
-        $lastDate->modify('+1 day'); // Include the final day in the loop
-        
-        $period = new DatePeriod($currentDate, new DateInterval('P1D'), $lastDate);
+        try {
+            $currentDate = new DateTime($jobStart);
+            $lastDate = new DateTime($jobEnd);
+            $lastDate->modify('+1 day'); // Include the final day in the loop
+            $period = new DatePeriod($currentDate, new DateInterval('P1D'), $lastDate);
+        } catch (Exception $e) {
+            continue; 
+        }
         
         foreach ($period as $dt) {
             $dateStr = $dt->format('Y-m-d');
@@ -686,7 +663,12 @@ if ($action == 'fetch_bookings') {
                 $endIso = $dateStr . 'T' . $eTime;
             }
 
-            // Actual time parsing for completed jobs
+            // Apply the Setup Fee badge ONLY to the very first day of the booking
+            $dailyTitle = $baseTitle;
+            if ($dateStr === $jobStart && isset($b['apply_setup_fee']) && $b['apply_setup_fee'] == 1) {
+                $dailyTitle = str_replace($b['plant_name'], $b['plant_name'] . " [SETUP FEE]", $baseTitle);
+            }
+
             $actualTimeStr = '';
             if ($b['status'] == 'Completed') {
                 if (!empty($b['punch_in_time']) && !empty($b['punch_out_time'])) {
@@ -696,8 +678,6 @@ if ($action == 'fetch_bookings') {
                 }
             }
             
-            $subtotal = (float)$b['final_subtotal'];
-
             $events[] = [
                 'id' => $b['id'], 
                 'title' => $dailyTitle,
@@ -707,7 +687,7 @@ if ($action == 'fetch_bookings') {
                 'borderColor' => $color,
                 'extendedProps' => [
                     'actualTime' => $actualTimeStr,
-                    'finalValue' => $subtotal
+                    'finalValue' => (float)$b['final_subtotal']
                 ]
             ];
         }
