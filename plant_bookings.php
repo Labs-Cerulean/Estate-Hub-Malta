@@ -1237,7 +1237,8 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
                 } else if (job.status === 'Paused') {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Resume Job</button>`;
                 } else if (job.status === 'In Progress') {
-                    if (job.category === 'Excavator') {
+                    // Show Pause button for ANY Multi-Day machine (keeping Excavator check for backward compatibility)
+                    if (job.lifecycle_type === 'Multi-Day' || job.category === 'Excavator') {
                         controlsHtml += `<button class="btn-heavy btn-blue" onclick="pauseJob(${job.id})"><i class="fas fa-pause"></i> Pause Job (End Day)</button>`;
                     }
                     controlsHtml += `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job (Final Signature)</button>`;
