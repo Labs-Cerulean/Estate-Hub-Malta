@@ -635,14 +635,32 @@ if ($action == 'fetch_bookings') {
             $statusInd = "⏸️ ";
         }
         
-        $title = $statusInd . $b['plant_name'];
-        
-        if (isset($b['apply_setup_fee']) && $b['apply_setup_fee'] == 1) {
-            $title .= " [SETUP FEE]";
-        }
-        
+        $baseTitle = $statusInd . $b['plant_name'];
         if (!empty($details)) {
-            $title .= "\n" . implode(" | ", $details);
+            $baseTitle .= "\n" . implode(" | ", $details);
+        }
+
+        $sTime = !empty($b['start_time']) ? $b['start_time'] : '08:00:00';
+        $eTime = !empty($b['end_time']) ? $b['end_time'] : '17:00:00';
+        
+        $jobStart = $b['booking_date'];
+        $jobEnd = !empty($b['end_date']) ? $b['end_date'] : $b['booking_date'];
+
+        // Loop through each day of the booking to create clean daily calendar blocks!
+        $currentDate = new DateTime($jobStart);
+        $lastDate = new DateTime($jobEnd);
+        $lastDate->modify('+1 day'); // Include the final day in the loop
+        
+        $period = new DatePeriod($currentDate, new DateInterval('P1D'), $lastDate);
+        
+        foreach ($period as $dt) {
+            $dateStr = $dt->format('Y-m-d');
+            $startIso = $dateStr . 'T' . $sTime;
+            
+            // Apply the Setup Fee badge ONLY to the very first day of the booking
+            $dailyTitle = $baseTitle;
+            if ($dateStr === $jobStart && isset($b['apply_setup_fee']) && $b['apply_setup_fee'] == 1) {
+                $dailyTitle = str_replace($b['plant_name'], $b['plant_name'] . " [SETUP FEE]", $baseTitle);
         }
 
         $sTime = !empty($b['start_time']) ? $b['start_time'] : '08:00:00';
@@ -682,7 +700,7 @@ if ($action == 'fetch_bookings') {
 
             $events[] = [
                 'id' => $b['id'], 
-                'title' => $title, 
+                'title' => $dailyTitle,
                 'start' => $startIso, 
                 'end' => $endIso, 
                 'backgroundColor' => $color, 
