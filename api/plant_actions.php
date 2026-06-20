@@ -91,6 +91,16 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         
         $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
+                     
+    } elseif ($job['pricing_type'] == 'daily') {
+        $dCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
+        $dDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Daily Flat Rate";
+        $qty = round((float)$job['final_hours'] > 0 ? (float)$job['final_hours'] : 1, 2); // final_hours acts as Days here
+        $price = round((float)$job['final_rate_fixed'], 4);
+        $grossSubtotal += round($qty * $price, 2);
+        
+        $lines[] = [ "Type" => "N", "Code" => $dCode, "Description" => $dDesc, "UOMLevel" => 1, "Location" => "01", 
+                     "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
     } else {
         $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
         $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
@@ -1075,6 +1085,9 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         if ($extraHours > 0) $backendSubtotal += round($extraHours * $syncPriceVar, 2);
     } elseif ($job['pricing_type'] == 'per_trip') {
         $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
+        $backendSubtotal += round($qty * $syncPriceFixed, 2);
+    } elseif ($job['pricing_type'] == 'daily') {
+        $qty = round((float)$finalHours > 0 ? (float)$finalHours : 1, 2); // finalHours acts as Days here
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } else {
         $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2);
