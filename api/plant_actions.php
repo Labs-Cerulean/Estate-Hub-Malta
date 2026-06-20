@@ -357,8 +357,8 @@ if ($action == 'form_data') {
         $bcId = $p['billing_company_id'] ?? 'default';
         $catCache = $nominalCache[$bcId] ?? [];
         
-        $isValidPricing = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip', 'hourly']);
-        $isFixedReq = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip']);
+        $isValidPricing = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip', 'hourly', 'daily']);
+        $isFixedReq = in_array($p['pricing_type'], ['fixed_then_hourly', 'per_trip', 'daily']);
         $isVarReq = in_array($p['pricing_type'], ['fixed_then_hourly', 'hourly']);
         
         $fCode = trim((string)$p['nom_code_fixed']);
