@@ -340,7 +340,7 @@ if ($action == 'form_data') {
         $nominalCache[$compId] = $indexed;
     }
 
-    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
+    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, requires_driver, lifecycle_type, has_configurations, configurations, billing_unit FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
     $plants = []; 
     
     foreach($plantsRaw as $p) { 
@@ -708,12 +708,22 @@ if ($action == 'save_plant' && $canManageFleet) {
     $setupFee = empty($_POST['setup_fee']) ? 0.00 : (float)$_POST['setup_fee'];
     $nomSetup = empty($_POST['nom_code_setup']) ? null : $_POST['nom_code_setup'];
 
-    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, billing_company_id) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?, ?, ?)");
+    // --- NEW CAPABILITY FIELDS ---
+    $reqDriver = isset($_POST['requires_driver']) ? (int)$_POST['requires_driver'] : 1;
+    $lifecycle = !empty($_POST['lifecycle_type']) ? $_POST['lifecycle_type'] : 'Standard';
+    $hasConfigs = isset($_POST['has_configurations']) ? (int)$_POST['has_configurations'] : 0;
+    $configsJson = !empty($_POST['configurations']) ? $_POST['configurations'] : null;
+    $billingUnit = !empty($_POST['billing_unit']) ? $_POST['billing_unit'] : 'Hourly';
+
+    $stmt = $pdo->prepare("INSERT INTO plants (category, name, registration_plate, developer_client_id, inhouse_rate, external_rate, pricing_type, min_hours, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, billing_company_id, requires_driver, lifecycle_type, has_configurations, configurations, billing_unit) VALUES (?, ?, ?, ?, 0.00, 0.00, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
         $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, 
-        $setupFee, $nomSetup, $_POST['billing_company_id']
+        $setupFee, $nomSetup, $_POST['billing_company_id'],
+        $reqDriver, $lifecycle, $hasConfigs, $configsJson, $billingUnit
     ]);
+    
     logPlantAction($pdo, $userId, 'PLANT_ADDED', "Added new machinery to fleet: " . $_POST['name']);
     echo "OK"; 
     exit;
@@ -738,12 +748,23 @@ if ($action == 'update_plant' && $canManageFleet) {
     $setupFee = empty($_POST['setup_fee']) ? 0.00 : (float)$_POST['setup_fee'];
     $nomSetup = empty($_POST['nom_code_setup']) ? null : $_POST['nom_code_setup'];
 
-    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, setup_fee=?, nom_code_setup=?, billing_company_id=? WHERE id=?");
+    // --- NEW CAPABILITY FIELDS ---
+    $reqDriver = isset($_POST['requires_driver']) ? (int)$_POST['requires_driver'] : 1;
+    $lifecycle = !empty($_POST['lifecycle_type']) ? $_POST['lifecycle_type'] : 'Standard';
+    $hasConfigs = isset($_POST['has_configurations']) ? (int)$_POST['has_configurations'] : 0;
+    $configsJson = !empty($_POST['configurations']) ? $_POST['configurations'] : null;
+    $billingUnit = !empty($_POST['billing_unit']) ? $_POST['billing_unit'] : 'Hourly';
+
+    $stmt = $pdo->prepare("UPDATE plants SET category=?, name=?, registration_plate=?, developer_client_id=?, inhouse_rate=0.00, external_rate=0.00, pricing_type=?, min_hours=?, nom_code_fixed=?, nom_code_variable=?, setup_fee=?, nom_code_setup=?, billing_company_id=?, requires_driver=?, lifecycle_type=?, has_configurations=?, configurations=?, billing_unit=? WHERE id=?");
+    
     $stmt->execute([
         $_POST['category'], $_POST['name'], empty($_POST['reg']) ? null : $_POST['reg'], 
         $_POST['billing_company_id'], $pricingType, $minHours, $nomFixed, $nomVar, 
-        $setupFee, $nomSetup, $_POST['billing_company_id'], $_POST['edit_plant_id']
+        $setupFee, $nomSetup, $_POST['billing_company_id'],
+        $reqDriver, $lifecycle, $hasConfigs, $configsJson, $billingUnit, 
+        $_POST['edit_plant_id']
     ]);
+    
     logPlantAction($pdo, $userId, 'PLANT_UPDATED', "Updated fleet details for Plant ID: " . $_POST['edit_plant_id']);
     echo "OK"; 
     exit;
