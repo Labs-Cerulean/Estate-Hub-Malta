@@ -941,19 +941,17 @@ if ($action == 'punch_in') {
     
     $lat = $_POST['lat'] ?? null;
     $lng = $_POST['lng'] ?? null;
+    $activeMode = !empty($_POST['active_mode']) ? $_POST['active_mode'] : null;
 
-    // If the driver's phone successfully sent GPS coordinates, update the map location!
     if ($lat && $lng) {
-        $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?), location_lat=?, location_lng=? WHERE id=?");
-        $stmt->execute([$punchTime, $userId, $lat, $lng, $bookingId]); 
-        logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in and logged live GPS coordinates.", $bookingId);
+        $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?), location_lat=?, location_lng=?, active_mode=? WHERE id=?");
+        $stmt->execute([$punchTime, $userId, $lat, $lng, $activeMode, $bookingId]); 
+        logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in. Mode: " . ($activeMode ?: 'Standard') . " (GPS Logged)", $bookingId);
     } else {
-        // Fallback for managers or if the driver's phone lost GPS signal
-        $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?) WHERE id=?");
-        $stmt->execute([$punchTime, $userId, $bookingId]); 
-        logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in / resumed job (No GPS provided)", $bookingId);
+        $stmt = $pdo->prepare("UPDATE plant_bookings SET status='In Progress', punch_in_time=?, driver_id=COALESCE(driver_id, ?), active_mode=? WHERE id=?");
+        $stmt->execute([$punchTime, $userId, $activeMode, $bookingId]); 
+        logPlantAction($pdo, $userId, 'JOB_STARTED', "Driver punched in. Mode: " . ($activeMode ?: 'Standard'), $bookingId);
     }
-    
     echo "OK"; 
     exit; 
 }
@@ -973,7 +971,7 @@ if ($action == 'pause_job') {
         $interval = $inTime->diff($outTime);
         $hours = round($interval->h + ($interval->i / 60), 2);
 
-        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours) VALUES (?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchOut, $hours]);
+        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name) VALUES (?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTimeOrOut, $hours, $job['active_mode']]);
     }
 
     $pdo->prepare("UPDATE plant_bookings SET status='Paused', punch_in_time=NULL WHERE id=?")->execute([$bookingId]);
@@ -997,7 +995,7 @@ if ($action == 'punch_out_complete') {
         $interval = $inTime->diff($outTime);
         $hours = round($interval->h + ($interval->i / 60), 2);
 
-        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours) VALUES (?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours]);
+        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name) VALUES (?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTimeOrOut, $hours, $job['active_mode']]);
     }
 
     $stmt = $pdo->prepare("
