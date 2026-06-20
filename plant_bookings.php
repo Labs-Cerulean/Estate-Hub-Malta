@@ -348,6 +348,20 @@ $userId = $_SESSION['user_id'];
     </div>
 </div>
 
+<div id="driver-config-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.8); z-index:9999; align-items:center; justify-content:center; padding:20px;">
+    <div style="background:#fff; width:100%; max-width:400px; border-radius:16px; padding:25px; box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+        <h3 style="margin-top:0; color:#0f172a; font-weight:900; font-size:1.4rem;"><i class="fas fa-sliders-h text-blue-500"></i> Select Operating Mode</h3>
+        <p style="color:#475569; font-size:0.9rem; margin-bottom:20px;">Please confirm the machine configuration you are using for this session.</p>
+        
+        <div id="config-options-container" style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;"></div>
+        
+        <div style="display:flex; gap:10px;">
+            <button class="btn-heavy btn-gray" style="flex:1; margin:0;" onclick="document.getElementById('driver-config-modal').style.display='none'">Cancel</button>
+            <button class="btn-heavy btn-green" style="flex:2; margin:0;" onclick="confirmConfigAndStart()">Confirm & Start</button>
+        </div>
+    </div>
+</div>
+
 <script>
     let calendar, mapboxMap, marker, signaturePad, groupedPlants = {};
     window.fleetData = []; 
@@ -1309,51 +1323,85 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
     }
 
+    let pendingPunchData = null; // Store data while waiting for modal
+
     function punchJob(id, direction) {
         if (!confirm("Are you sure you want to " + (direction === 'in' ? "start" : "complete") + " this job?")) return;
 
         const btn = event.target.closest('button');
         const originalHtml = btn.innerHTML;
+        const job = window.currentActiveJob;
+
+        // If clocking in on a multi-config machine, pop the modal FIRST!
+        if (direction === 'in' && job.has_configurations == 1 && job.configurations) {
+            try {
+                const cfgs = JSON.parse(job.configurations);
+                const container = document.getElementById('config-options-container');
+                container.innerHTML = '';
+                
+                // Build nice big buttons for the driver to tap
+                cfgs.forEach((c, idx) => {
+                    if (c.type === 'mode') {
+                        container.innerHTML += `
+                        <label style="border:2px solid #e2e8f0; border-radius:12px; padding:15px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:1.1rem; color:#0f172a; background:#f8fafc; transition:0.2s;" onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='#e2e8f0'">
+                            <input type="radio" name="driver_selected_mode" value="${c.name}" style="width:20px; height:20px;" ${idx===0 ? 'checked' : ''}>
+                            <b>${c.name}</b>
+                        </label>`;
+                    }
+                });
+
+                // Save state and show modal
+                pendingPunchData = { id, direction, btn, originalHtml };
+                document.getElementById('driver-config-modal').style.display = 'flex';
+                return; // STOP execution here until they click confirm
+            } catch(e) { console.warn("Failed to parse configs", e); }
+        }
+
+        // If no configs needed, proceed directly to GPS check
+        executePunchLogic(id, direction, btn, originalHtml, null);
+    }
+
+    // New function triggered by the Modal "Confirm" button
+    function confirmConfigAndStart() {
+        document.getElementById('driver-config-modal').style.display = 'none';
+        const selectedMode = document.querySelector('input[name="driver_selected_mode"]:checked').value;
+        const p = pendingPunchData;
+        executePunchLogic(p.id, p.direction, p.btn, p.originalHtml, selectedMode);
+    }
+
+    // This holds your existing GPS / Non-GPS logic
+    function executePunchLogic(id, direction, btn, originalHtml, activeMode) {
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
         btn.disabled = true;
 
-        // Strictly check if the active user is a driver
         const isDriver = <?= ($_SESSION['role'] === 'plant_driver') ? 'true' : 'false' ?>;
 
-        // If it's a driver clocking IN, request their exact phone location
         if (direction === 'in' && isDriver) {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    function(position) {
-                        // Success: We got the exact coordinates!
-                        sendPunchData(id, direction, position.coords.latitude, position.coords.longitude, btn, originalHtml);
-                    },
-                    function(error) {
-                        console.warn("GPS failed or denied. Falling back to standard punch in.");
-                        // Fallback: Let them punch in even if GPS fails so they aren't blocked from working
-                        sendPunchData(id, direction, null, null, btn, originalHtml);
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } // Request high-precision GPS
+                    function(position) { sendPunchData(id, direction, position.coords.latitude, position.coords.longitude, btn, originalHtml, activeMode); },
+                    function(error) { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode); },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
             } else {
-                // Browser doesn't support GPS
-                sendPunchData(id, direction, null, null, btn, originalHtml);
+                sendPunchData(id, direction, null, null, btn, originalHtml, activeMode);
             }
         } else {
-            // Managers, Admins, or clocking OUT bypass the GPS request entirely
-            sendPunchData(id, direction, null, null, btn, originalHtml);
+            sendPunchData(id, direction, null, null, btn, originalHtml, activeMode);
         }
     }
 
-    function sendPunchData(id, direction, lat, lng, btn, originalHtml) {
+    function sendPunchData(id, direction, lat, lng, btn, originalHtml, activeMode = null) {
         const fd = new FormData();
         fd.append('action', direction === 'in' ? 'punch_in' : 'punch_out_complete');
         fd.append('id', id);
         
-        // Append GPS data if we have it
         if (lat && lng) {
             fd.append('lat', lat);
             fd.append('lng', lng);
+        }
+        if (activeMode) {
+            fd.append('active_mode', activeMode);
         }
 
         fetch('api/plant_actions.php?id=' + id, { method: 'POST', body: fd })
