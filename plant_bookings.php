@@ -163,6 +163,40 @@ $userId = $_SESSION['user_id'];
                         </div>
                     </div>
                 </div>
+
+                <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div style="flex:1;"><label>Billing Unit *</label>
+                        <select id="new_billing_unit" class="input-heavy" style="margin-bottom:0;" required>
+                            <option value="Hourly">Hourly</option>
+                            <option value="Trip">Per Trip</option>
+                            <option value="Daily">Daily (e.g. Booms)</option>
+                        </select>
+                    </div>
+                    <div style="flex:1;"><label>Requires Driver? *</label>
+                        <select id="new_req_driver" class="input-heavy" style="margin-bottom:0;" required>
+                            <option value="1">Yes - Driver Required</option>
+                            <option value="0">No - Auto / Static</option>
+                        </select>
+                    </div>
+                    <div style="flex:1;"><label>Lifecycle Type *</label>
+                        <select id="new_lifecycle" class="input-heavy" style="margin-bottom:0;" required>
+                            <option value="Standard">Standard (Single Shift)</option>
+                            <option value="Multi-Day">Multi-Day (Pause/Resume)</option>
+                            <option value="Auto-Scheduled">Auto-Scheduled</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:15px;">
+                    <label style="display:flex; align-items:center; gap:10px; margin:0; cursor:pointer; font-size:1.05rem; color:#0f172a; text-transform:none;">
+                        <input type="checkbox" id="new_has_configs" style="width:20px; height:20px;" onchange="toggleConfigBuilder()">
+                        <b>Enable Advanced Configurations (Modes / Add-ons)</b>
+                    </label>
+                    <div id="config_builder_container" style="display:none; margin-top:15px; border-top:1px dashed #cbd5e1; padding-top:15px;">
+                        <div id="config_list"></div>
+                        <button type="button" class="btn-heavy btn-gray" style="padding:8px 15px; font-size:0.9rem; margin-bottom:0; width:auto;" onclick="addConfigRow()"><i class="fas fa-plus"></i> Add Config Rule</button>
+                    </div>
+                </div>
                 
                 <label>ERP Pre-Loaded Live Rates</label>
                 <div id="rate_display_box" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:15px; font-size: 0.95rem; color:#475569;">
@@ -483,6 +517,50 @@ $userId = $_SESSION['user_id'];
     }
 
     let currentErpClients = [];
+
+    window.erpNominals = [];
+
+    function toggleConfigBuilder() {
+        document.getElementById('config_builder_container').style.display = document.getElementById('new_has_configs').checked ? 'block' : 'none';
+    }
+
+    function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
+        const list = document.getElementById('config_list');
+        const rowId = 'cfg_' + Date.now() + Math.floor(Math.random() * 1000);
+        
+        let nomOpts = '<option value="">-- ERP Code --</option>';
+        if(window.erpNominals && window.erpNominals.length > 0) {
+            nomOpts += window.erpNominals.map(n => `<option value="${n.NCCode.trim()}" ${data.nom_code === n.NCCode.trim() ? 'selected' : ''}>${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
+        }
+
+        const html = `
+        <div id="${rowId}" class="config-row" style="display:flex; gap:10px; margin-bottom:10px; align-items:center; background:#fff; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
+            <select class="cfg-type input-heavy" style="margin:0; padding:8px; flex:1.5; font-size:0.9rem;">
+                <option value="mode" ${data.type === 'mode' ? 'selected' : ''}>Mode (Rate/Hr)</option>
+                <option value="addon" ${data.type === 'addon' ? 'selected' : ''}>Add-on (Unit Price)</option>
+            </select>
+            <input type="text" class="cfg-name input-heavy" style="margin:0; padding:8px; flex:2; font-size:0.9rem;" placeholder="Name (e.g. 3m Saw)" value="${data.name}">
+            <input type="number" class="cfg-price input-heavy" style="margin:0; padding:8px; flex:1; font-size:0.9rem;" placeholder="€ Price" step="0.01" value="${data.price}">
+            <select class="cfg-nom input-heavy" style="margin:0; padding:8px; flex:1.5; font-size:0.9rem;">${nomOpts}</select>
+            <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#ef4444; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer;"><i class="fas fa-trash"></i></button>
+        </div>`;
+        list.insertAdjacentHTML('beforeend', html);
+    }
+
+    function buildConfigJson() {
+        if(!document.getElementById('new_has_configs').checked) return null;
+        const rows = document.querySelectorAll('.config-row');
+        let configs = [];
+        rows.forEach(r => {
+            configs.push({
+                type: r.querySelector('.cfg-type').value,
+                name: r.querySelector('.cfg-name').value,
+                price: parseFloat(r.querySelector('.cfg-price').value) || 0,
+                nom_code: r.querySelector('.cfg-nom').value
+            });
+        });
+        return JSON.stringify(configs);
+    }
 
     function toggleFleetSetupFee() {
         const cat = document.getElementById('new_plant_cat').value;
@@ -871,7 +949,7 @@ $userId = $_SESSION['user_id'];
             document.getElementById('new_nom_fixed').innerHTML = '<option value="">-- Select Company First --</option>';
             document.getElementById('new_nom_var').innerHTML = '<option value="">-- Select Company First --</option>';
             document.getElementById('new_nom_setup').innerHTML = '<option value="">-- Select Company First --</option>';
-            erpNominals = []; return;
+            window.erpNominals = []; return;
         }
         
         document.getElementById('new_nom_fixed').innerHTML = '<option value="">Loading ERP...</option>';
@@ -881,11 +959,20 @@ $userId = $_SESSION['user_id'];
         fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
         .then(r => r.json())
         .then(res => {
-            erpNominals = res;
+            window.erpNominals = res;
             const opts = '<option value="">-- Select Nominal Code --</option>' + res.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
+            
             document.getElementById('new_nom_fixed').innerHTML = opts;
             document.getElementById('new_nom_var').innerHTML = opts;
             document.getElementById('new_nom_setup').innerHTML = opts;
+            
+            // Auto-update any configuration builder dropdowns
+            document.querySelectorAll('.cfg-nom').forEach(sel => {
+                const currentVal = sel.value;
+                sel.innerHTML = opts;
+                sel.value = currentVal;
+            });
+            
             updateRatesDisplay();
         });
     }
@@ -968,6 +1055,20 @@ $userId = $_SESSION['user_id'];
         
         document.getElementById('new_plant_setup_fee').value = parseFloat(p.setup_fee || 0).toFixed(2);
 
+        document.getElementById('new_billing_unit').value = p.billing_unit || 'Hourly';
+        document.getElementById('new_req_driver').value = p.requires_driver !== null ? p.requires_driver : 1;
+        document.getElementById('new_lifecycle').value = p.lifecycle_type || 'Standard';
+        
+        document.getElementById('new_has_configs').checked = (p.has_configurations == 1);
+        toggleConfigBuilder();
+        document.getElementById('config_list').innerHTML = '';
+        if(p.has_configurations == 1 && p.configurations) {
+            try {
+                const cfgs = JSON.parse(p.configurations);
+                cfgs.forEach(c => addConfigRow(c));
+            } catch(e){}
+        }
+
         loadFleetNominals(p.billing_company_id);
         setTimeout(() => { 
             document.getElementById('new_nom_fixed').value = p.nom_code_fixed || ''; 
@@ -986,6 +1087,13 @@ $userId = $_SESSION['user_id'];
         document.getElementById('fleetForm').reset();
         document.getElementById('fleet-form-title').innerText = "Register Machinery";
         document.getElementById('edit_plant_id').value = '';
+
+        document.getElementById('new_billing_unit').value = 'Hourly';
+        document.getElementById('new_req_driver').value = '1';
+        document.getElementById('new_lifecycle').value = 'Standard';
+        document.getElementById('new_has_configs').checked = false;
+        toggleConfigBuilder();
+        document.getElementById('config_list').innerHTML = '';
         
         toggleFleetSetupFee(); 
         togglePricingModel(); 
@@ -1016,6 +1124,16 @@ $userId = $_SESSION['user_id'];
         fd.append('nom_code_variable', document.getElementById('new_nom_var').value); 
         fd.append('setup_fee', document.getElementById('new_plant_setup_fee').value); 
         fd.append('nom_code_setup', document.getElementById('new_nom_setup').value); 
+
+        fd.append('requires_driver', document.getElementById('new_req_driver').value); 
+        fd.append('lifecycle_type', document.getElementById('new_lifecycle').value); 
+        fd.append('billing_unit', document.getElementById('new_billing_unit').value); 
+        
+        const hasConfigs = document.getElementById('new_has_configs').checked ? 1 : 0;
+        fd.append('has_configurations', hasConfigs); 
+        if (hasConfigs) { 
+            fd.append('configurations', buildConfigJson()); 
+        }
 
         fetch('api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
