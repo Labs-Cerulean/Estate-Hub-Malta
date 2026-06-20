@@ -524,15 +524,17 @@ $userId = $_SESSION['user_id'];
         document.getElementById('config_builder_container').style.display = document.getElementById('new_has_configs').checked ? 'block' : 'none';
     }
 
-    function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
+function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const list = document.getElementById('config_list');
         const rowId = 'cfg_' + Date.now() + Math.floor(Math.random() * 1000);
         
         let nomOpts = '<option value="">-- ERP Code --</option>';
         if(window.erpNominals && window.erpNominals.length > 0) {
-            nomOpts += window.erpNominals.map(n => `<option value="${n.NCCode.trim()}" ${data.nom_code === n.NCCode.trim() ? 'selected' : ''}>${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
+            // Added data-ext and data-in so the dropdown contains the live ERP prices
+            nomOpts += window.erpNominals.map(n => `<option value="${n.NCCode.trim()}" data-ext="${n.NCDefSP2}" data-in="${n.NCDefSP1}" ${data.nom_code === n.NCCode.trim() ? 'selected' : ''}>${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
         }
 
+        // The price field is now readonly and visually greyed out, while the nom dropdown triggers the update
         const html = `
         <div id="${rowId}" class="config-row" style="display:flex; gap:10px; margin-bottom:10px; align-items:center; background:#fff; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
             <select class="cfg-type input-heavy" style="margin:0; padding:8px; flex:1.5; font-size:0.9rem;">
@@ -540,8 +542,10 @@ $userId = $_SESSION['user_id'];
                 <option value="addon" ${data.type === 'addon' ? 'selected' : ''}>Add-on (Unit Price)</option>
             </select>
             <input type="text" class="cfg-name input-heavy" style="margin:0; padding:8px; flex:2; font-size:0.9rem;" placeholder="Name (e.g. 3m Saw)" value="${data.name}">
-            <input type="number" class="cfg-price input-heavy" style="margin:0; padding:8px; flex:1; font-size:0.9rem;" placeholder="€ Price" step="0.01" value="${data.price}">
-            <select class="cfg-nom input-heavy" style="margin:0; padding:8px; flex:1.5; font-size:0.9rem;">${nomOpts}</select>
+            
+            <input type="number" class="cfg-price input-heavy" style="margin:0; padding:8px; flex:1; font-size:0.9rem; background:#f1f5f9; color:#94a3b8; cursor:not-allowed;" placeholder="ERP Price" step="0.01" value="${data.price}" readonly>
+            
+            <select class="cfg-nom input-heavy" style="margin:0; padding:8px; flex:1.5; font-size:0.9rem;" onchange="updateConfigPrice(this)">${nomOpts}</select>
             <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#ef4444; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer;"><i class="fas fa-trash"></i></button>
         </div>`;
         list.insertAdjacentHTML('beforeend', html);
