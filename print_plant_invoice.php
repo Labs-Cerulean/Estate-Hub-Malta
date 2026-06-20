@@ -41,7 +41,7 @@ $bookingId = (int)($_GET['booking_id'] ?? 0);
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
            p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
-           p.setup_fee, p.nom_code_setup,
+           p.setup_fee, p.nom_code_setup, p.requires_driver, p.lifecycle_type,
            bc.name as developer_name, bc.logo_path as developer_logo, 
            bc.bank_name, bc.iban, bc.swift_bic, 
            prj.name as project_name,
@@ -154,10 +154,10 @@ if (count($sessions) > 0) {
     $hoursWorked = $legacyHoursWorked;
 }
 
-// Calculate default days based on calendar dates (inclusive)
+// Calculate default days based on calendar dates (inclusive) for Daily pricing
 $jobStart = new DateTime($job['booking_date']);
 $jobEnd = !empty($job['end_date']) ? new DateTime($job['end_date']) : clone $jobStart;
-$diffDays = $jobStart->diff($jobEnd)->days + 1; 
+$diffDays = $jobStart->diff($jobEnd)->days + 1;
 
 $isTripBased = ($job['pricing_type'] == 'per_trip');
 $isDailyBased = ($job['pricing_type'] == 'daily');
@@ -167,7 +167,7 @@ if ($isTripBased) {
     $qtyLabel = "Trips Executed";
 } elseif ($isDailyBased) {
     $qtyValue = (isset($job['final_hours']) && $job['final_hours'] > 0) ? $job['final_hours'] : $diffDays;
-    $qtyLabel = "Days Executed";
+    $qtyLabel = "Total Days Billed";
 } else {
     $qtyValue = $hoursWorked;
     $qtyLabel = "Total Hours Executed";
@@ -187,6 +187,15 @@ if ($job['booking_type'] == 'in-house') {
     } else {
         $projectDisplay = 'External Location';
     }
+}
+
+// DRIVER LOGIC
+$reqDriver = (int)($job['requires_driver'] ?? 1);
+if ($reqDriver === 0) {
+    $driverName = "<span style='color:#64748b; font-style:italic;'><i class='fas fa-robot'></i> Not Required (Static)</span>";
+} else {
+    $driverRaw = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    $driverName = htmlspecialchars($driverRaw);
 }
 
 // Determine Edit Lock State
@@ -248,7 +257,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <div style="background: #fff; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <label style="font-weight:bold; margin:0;">Final <?= $qtyLabel ?>:</label>
-                    <input type="number" id="calc_master_qty" class="live-calc" value="<?= $job['final_hours'] ?? $qtyValue ?>" step="0.25" oninput="renderTable()">
+                    <input type="number" id="calc_master_qty" class="live-calc" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()">
                 </div>
                 
                 <?php if ($canDiscount): ?>
@@ -328,37 +337,45 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <h4>Job Report (Execution Details)</h4>
             <div class="data-row"><span class="data-label">Machinery</span><span class="data-val"><?= htmlspecialchars($job['plant_name']) ?> (<?= htmlspecialchars($job['category']) ?>)</span></div>
             <div class="data-row"><span class="data-label">Reg Plate</span><span class="data-val"><?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?></span></div>
-            <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= htmlspecialchars($job['first_name'] ?? 'Unassigned') ?> <?= htmlspecialchars($job['last_name'] ?? '') ?></span></div>
+            <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= $driverName ?></span></div>
             
             <div class="data-row" style="align-items: flex-start;">
                 <span class="data-label">Time Logged</span>
                 <span class="data-val">
-                    <?php if (count($sessions) > 0): ?>
-                        <div style="text-align: right; font-size: 0.85rem; color: #475569;">
-                            <?php foreach($sessions as $idx => $s): ?>
-                                <div style="margin-bottom: 3px;">
-                                    <b>Day <?= $idx+1 ?>:</b> <?= date('d M, H:i', strtotime($s['punch_in'])) ?> to <?= date('H:i', strtotime($s['punch_out'])) ?> 
-                                    <span style="color:#000; font-weight:bold;">(<?= $s['hours'] ?> hrs)</span>
-                                </div>
-                            <?php endforeach; ?>
-                            
-                            <?php if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])): ?>
-                                <div style="color:#3b82f6; margin-top: 5px;">
-                                    <b><i class="fas fa-clock fa-spin"></i> Active Now:</b> Since <?= date('d M, H:i', strtotime($job['punch_in_time'])) ?>
-                                </div>
-                            <?php endif; ?>
-                            
-                            <input type="hidden" id="edit_time_in" value="">
-                            <input type="hidden" id="edit_time_out" value="">
+                    <?php if ($isDailyBased || $job['lifecycle_type'] === 'Auto-Scheduled'): ?>
+                        <div style="font-weight: bold; color: #0f172a;">
+                            <?= date('d M Y', strtotime($job['booking_date'])) ?> to <?= !empty($job['end_date']) ? date('d M Y', strtotime($job['end_date'])) : date('d M Y', strtotime($job['booking_date'])) ?>
                         </div>
+                        <input type="hidden" id="edit_time_in" value="">
+                        <input type="hidden" id="edit_time_out" value="">
                     <?php else: ?>
-                        <?php if ($canEdit && !$isTripBased): ?>
-                            <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
-                            <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
+                        <?php if (count($sessions) > 0): ?>
+                            <div style="text-align: right; font-size: 0.85rem; color: #475569;">
+                                <?php foreach($sessions as $idx => $s): ?>
+                                    <div style="margin-bottom: 3px;">
+                                        <b>Day <?= $idx+1 ?>:</b> <?= date('d M, H:i', strtotime($s['punch_in'])) ?> to <?= date('H:i', strtotime($s['punch_out'])) ?> 
+                                        <span style="color:#000; font-weight:bold;">(<?= $s['hours'] ?> hrs)</span>
+                                    </div>
+                                <?php endforeach; ?>
+                                
+                                <?php if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])): ?>
+                                    <div style="color:#3b82f6; margin-top: 5px;">
+                                        <b><i class="fas fa-clock fa-spin"></i> Active Now:</b> Since <?= date('d M, H:i', strtotime($job['punch_in_time'])) ?>
+                                    </div>
+                                <?php endif; ?>
+                                
+                                <input type="hidden" id="edit_time_in" value="">
+                                <input type="hidden" id="edit_time_out" value="">
+                            </div>
                         <?php else: ?>
-                            <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
-                            <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
-                            <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                            <?php if ($canEdit && !$isTripBased): ?>
+                                <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
+                                <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
+                            <?php else: ?>
+                                <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
+                                <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
+                                <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                            <?php endif; ?>
                         <?php endif; ?>
                     <?php endif; ?>
                 </span>
@@ -484,7 +501,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
 
         function renderTable() {
             const qtyInput = document.getElementById('calc_master_qty');
-            let totalQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : savedHours).toFixed(2);
+            let totalQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : <?= $qtyValue ?>).toFixed(2);
             
             const tbody = document.getElementById('lines-body');
             let html = '';
@@ -537,7 +554,6 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                     </tr>`;
                 }
             } 
-            } 
             else if (pricingType === 'per_trip') {
                 const tCode = rawNomFixed || 'MISSING';
                 const tDesc = 'Trip Execution Charge';
@@ -564,20 +580,6 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                     <td class="text-right">${totalQty} Days</td>
                     <td class="text-right">${fRateInput}</td>
                     <td class="text-right"><b>${dTotal.toFixed(2)}</b></td>
-                </tr>`;
-            }
-            else {
-                const hCode = rawNomVar || 'MISSING';
-                const hDesc = 'Standard Hourly Operation';
-                let hTotal = +(totalQty * rateVar).toFixed(2);
-                grossSubtotal += hTotal;
-
-                html += `<tr>
-                    <td><b>${hCode}</b></td>
-                    <td>${hDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">${totalQty} Hrs</td>
-                    <td class="text-right">${vRateInput}</td>
-                    <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
                 </tr>`;
             }
             else {
