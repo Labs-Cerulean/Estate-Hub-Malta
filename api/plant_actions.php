@@ -701,7 +701,7 @@ if ($action == 'save_plant' && $canManageFleet) {
             $nomVar = $nomFixed; 
         } 
         $nomFixed = null; 
-    } elseif ($pricingType === 'per_trip') { 
+    } elseif ($pricingType === 'per_trip' || $pricingType === 'daily') { 
         $nomVar = null; 
     }
 
@@ -741,7 +741,7 @@ if ($action == 'update_plant' && $canManageFleet) {
             $nomVar = $nomFixed; 
         } 
         $nomFixed = null; 
-    } elseif ($pricingType === 'per_trip') { 
+    } elseif ($pricingType === 'per_trip' || $pricingType === 'daily') { 
         $nomVar = null; 
     }
 
