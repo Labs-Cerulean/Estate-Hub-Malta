@@ -584,14 +584,14 @@ if ($action == 'fetch_bookings') {
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
     
     // GLOBAL VISIBILITY: All users pull the full schedule without driver restrictions
-    $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+   $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
               FROM plant_bookings pb 
               JOIN plants p ON pb.plant_id = p.id 
               LEFT JOIN projects prj ON pb.project_id = prj.id
-              WHERE pb.booking_date >= ? AND pb.booking_date <= ?";
+              WHERE pb.booking_date <= ? AND COALESCE(pb.end_date, pb.booking_date) >= ?";
               
     $stmt = $pdo->prepare($query);
-    $stmt->execute([$startDate, $endDate]);
+    $stmt->execute([$endDate, $startDate]);
     
     $catColors = [
         'Cranes' => '#eab308', 'Pumps' => '#3b82f6', 'Booms' => '#f97316', 
@@ -647,43 +647,52 @@ if ($action == 'fetch_bookings') {
 
         $sTime = !empty($b['start_time']) ? $b['start_time'] : '08:00:00';
         $eTime = !empty($b['end_time']) ? $b['end_time'] : '17:00:00';
-        $startIso = $b['booking_date'] . 'T' . $sTime;
         
-        // Retained your exact logic here:
-        if (in_array($b['status'], ['In Progress', 'Paused']) && $cat === 'Excavator') {
-            $endIso = date('Y-m-d') . 'T' . $eTime; 
-        } else {
+        $jobStart = $b['booking_date'];
+        $jobEnd = !empty($b['end_date']) ? $b['end_date'] : $b['booking_date'];
+
+        // Loop through each day of the booking to create clean daily calendar blocks!
+        $currentDate = new DateTime($jobStart);
+        $lastDate = new DateTime($jobEnd);
+        $lastDate->modify('+1 day'); // Include the final day in the loop
+        
+        $period = new DatePeriod($currentDate, new DateInterval('P1D'), $lastDate);
+        
+        foreach ($period as $dt) {
+            $dateStr = $dt->format('Y-m-d');
+            $startIso = $dateStr . 'T' . $sTime;
+            
             if (strtotime($eTime) < strtotime($sTime)) {
-                $endIso = date('Y-m-d', strtotime($b['booking_date'] . ' +1 day')) . 'T' . $eTime;
+                $endIso = date('Y-m-d', strtotime($dateStr . ' +1 day')) . 'T' . $eTime;
             } else {
-                $endIso = $b['booking_date'] . 'T' . $eTime;
+                $endIso = $dateStr . 'T' . $eTime;
             }
-        }
 
-        // NEW: Grab the actual execution times and final value to pass to the UI
-        $actualTimeStr = '';
-        if ($b['status'] == 'Completed') {
-            if (!empty($b['punch_in_time']) && !empty($b['punch_out_time'])) {
-                $actualTimeStr = date('H:i', strtotime($b['punch_in_time'])) . ' - ' . date('H:i', strtotime($b['punch_out_time']));
-            } else {
-                $actualTimeStr = date('H:i', strtotime($b['start_time'])) . ' - ' . date('H:i', strtotime($b['end_time']));
+            // Actual time parsing for completed jobs
+            $actualTimeStr = '';
+            if ($b['status'] == 'Completed') {
+                if (!empty($b['punch_in_time']) && !empty($b['punch_out_time'])) {
+                    $actualTimeStr = date('H:i', strtotime($b['punch_in_time'])) . ' - ' . date('H:i', strtotime($b['punch_out_time']));
+                } else {
+                    $actualTimeStr = date('H:i', strtotime($sTime)) . ' - ' . date('H:i', strtotime($eTime));
+                }
             }
-        }
-        
-        $subtotal = (float)$b['final_subtotal'];
+            
+            $subtotal = (float)$b['final_subtotal'];
 
-        $events[] = [
-            'id' => $b['id'], 
-            'title' => $title, 
-            'start' => $startIso, 
-            'end' => $endIso, 
-            'backgroundColor' => $color, 
-            'borderColor' => $color,
-            'extendedProps' => [
-                'actualTime' => $actualTimeStr,
-                'finalValue' => $subtotal
-            ]
-        ];
+            $events[] = [
+                'id' => $b['id'], 
+                'title' => $title, 
+                'start' => $startIso, 
+                'end' => $endIso, 
+                'backgroundColor' => $color, 
+                'borderColor' => $color,
+                'extendedProps' => [
+                    'actualTime' => $actualTimeStr,
+                    'finalValue' => $subtotal
+                ]
+            ];
+        }
     }
     echo json_encode($events); 
     exit;
@@ -785,9 +794,11 @@ if ($action == 'create_booking' && $isManager) {
         exit;
     }
 
+    $endDateStr = !empty($_POST['end_date']) ? $_POST['end_date'] : $_POST['booking_date'];
+
     $stmt = $pdo->prepare("
-        INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, start_time, end_time, comments, apply_setup_fee, created_by) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO plant_bookings (plant_id, driver_id, booking_type, project_id, client_name, client_code, location_lat, location_lng, booking_date, end_date, start_time, end_time, comments, apply_setup_fee, created_by) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     
     $stmt->execute([ 
@@ -800,12 +811,13 @@ if ($action == 'create_booking' && $isManager) {
         empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], 
         empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], 
         $_POST['booking_date'], 
+        $endDateStr,
         $_POST['start_time'], 
         $_POST['end_time'], 
         $_POST['comments'], 
         $applySetupFee,
         $userId 
-    ]); 
+    ]);
     logPlantAction($pdo, $userId, 'BOOKING_CREATED', "Created new booking for Plant ID: " . $_POST['plant_id'], $pdo->lastInsertId());
     echo "OK"; 
     exit;
@@ -833,9 +845,11 @@ if ($action == 'update_booking' && $isManager) {
         exit;
     }
 
+    $endDateStr = !empty($_POST['end_date']) ? $_POST['end_date'] : $_POST['booking_date'];
+
     $stmt = $pdo->prepare("
         UPDATE plant_bookings 
-        SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, start_time=?, end_time=?, comments=?, apply_setup_fee=? 
+        SET plant_id=?, driver_id=?, booking_type=?, project_id=?, client_name=?, client_code=?, location_lat=?, location_lng=?, booking_date=?, end_date=?, start_time=?, end_time=?, comments=?, apply_setup_fee=? 
         WHERE id=?
     ");
     
@@ -849,12 +863,13 @@ if ($action == 'update_booking' && $isManager) {
         empty($_POST['loc_lat']) ? null : $_POST['loc_lat'], 
         empty($_POST['loc_lng']) ? null : $_POST['loc_lng'], 
         $_POST['booking_date'], 
+        $endDateStr,
         $_POST['start_time'], 
         $_POST['end_time'], 
         $_POST['comments'], 
         $applySetupFee,
         $editId 
-    ]); 
+    ]);
     logPlantAction($pdo, $userId, 'BOOKING_UPDATED', "Updated booking details", $editId);
     echo "OK"; 
     exit;
