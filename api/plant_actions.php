@@ -884,6 +884,7 @@ if ($action == 'cancel_booking' && $isManager) {
 if ($action == 'get_job') {
     $stmt = $pdo->prepare("
         SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee, 
+               p.lifecycle_type, p.has_configurations, p.configurations,
                prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id 
