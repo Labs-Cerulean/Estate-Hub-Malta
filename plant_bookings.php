@@ -870,6 +870,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             document.getElementById('project_search').value = '';
         }
         document.getElementById('booking_date').value = j.booking_date;
+        document.getElementById('end_date').value = j.end_date || j.booking_date;
         document.getElementById('start_time').value = j.start_time;
         document.getElementById('end_time').value = j.end_time;
         document.getElementById('booking_comments').value = j.comments || '';
@@ -964,6 +965,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('loc_lng', document.getElementById('loc_lng').value);
         fd.append('comments', document.getElementById('booking_comments').value); 
         fd.append('booking_date', document.getElementById('booking_date').value);
+        fd.append('end_date', document.getElementById('end_date').value || document.getElementById('booking_date').value);
         fd.append('start_time', document.getElementById('start_time').value); 
         fd.append('end_time', document.getElementById('end_time').value);
         fd.append('apply_setup_fee', applySetup);
@@ -1212,7 +1214,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             document.getElementById('job-details').innerHTML = `
                 ${erpStatusHtml}
                 <div style="margin-bottom:12px; font-size: 1.2rem;"><b>Driver:</b> ${driverHtml}</div>
-                <div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
+                <div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
                 <div style="margin-bottom:12px;"><b>Type:</b> ${job.booking_type.toUpperCase()}</div>
                 <div style="margin-bottom:12px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span> ${setupBadgeHtml}</div>
                 ${commHtml}
