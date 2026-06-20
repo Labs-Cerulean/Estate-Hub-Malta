@@ -294,12 +294,20 @@ $userId = $_SESSION['user_id'];
                     <label>Comments / Instructions</label>
                     <textarea id="booking_comments" class="input-heavy" rows="2" disabled></textarea>
                     
-                    <label>Booking Date</label>
-                    <input type="date" id="booking_date" class="input-heavy" required disabled>
+                    <div style="display:flex; gap:10px; margin-bottom:15px;">
+                        <div style="flex:1;">
+                            <label id="lbl_booking_date">Booking Date</label>
+                            <input type="date" id="booking_date" class="input-heavy" style="margin-bottom:0;" required disabled>
+                        </div>
+                        <div style="flex:1; display:none;" id="box_end_date">
+                            <label>End Date</label>
+                            <input type="date" id="end_date" class="input-heavy" style="margin-bottom:0;" disabled>
+                        </div>
+                    </div>
                     
                     <div style="display:flex; gap:10px;">
-                        <div style="flex:1;"><label>Start</label><input type="time" id="start_time" class="input-heavy" value="08:00" required disabled></div>
-                        <div style="flex:1;"><label>End</label><input type="time" id="end_time" class="input-heavy" value="17:00" required disabled></div>
+                        <div style="flex:1;"><label>Start Time</label><input type="time" id="start_time" class="input-heavy" value="08:00" required disabled></div>
+                        <div style="flex:1;"><label>End Time</label><input type="time" id="end_time" class="input-heavy" value="17:00" required disabled></div>
                     </div>
 
                     <button type="button" id="submit_booking_btn" class="btn-heavy btn-blue" onclick="submitBooking()" disabled><i class="fas fa-check"></i> Save Booking</button>
@@ -604,7 +612,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             if (p.is_misconfigured) {
                 return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="true" style="color:#ef4444; background:#fef2f2; font-style:italic; font-weight:bold;">⚠️ ${p.name} (Setup Missing)</option>`;
             } else {
-                return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="false">${p.name} (${p.registration_plate||'N/A'})</option>`;
+                return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-req-driver="${p.requires_driver !== null ? p.requires_driver : 1}" data-lifecycle="${p.lifecycle_type || 'Standard'}" data-missing="false">${p.name} (${p.registration_plate||'N/A'})</option>`;
             }
         }).join('');
         
@@ -631,6 +639,33 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         if (opt.dataset.missing === 'true') {
             alert("Billing details missing. Please configure them in the Fleet Setup before booking.");
             pSelect.value = ''; return;
+        }
+
+        // --- CAPABILITY 1: Toggle Driver Requirement ---
+        const reqDriver = parseInt(opt.getAttribute('data-req-driver'));
+        const driverContainer = document.getElementById('driver_id').parentElement;
+        
+        if (reqDriver === 0) {
+            driverContainer.style.display = 'none';
+            document.getElementById('driver_id').value = ''; // Ensure no driver is sent
+        } else {
+            driverContainer.style.display = 'block';
+        }
+
+        // --- CAPABILITY 2: Toggle End Date for Multi-Day/Auto ---
+        const lifecycle = opt.getAttribute('data-lifecycle');
+        const endDateBox = document.getElementById('box_end_date');
+        const dateLabel = document.getElementById('lbl_booking_date');
+        
+        if (lifecycle === 'Multi-Day' || lifecycle === 'Auto-Scheduled') {
+            endDateBox.style.display = 'block';
+            dateLabel.innerText = 'Start Date';
+            document.getElementById('end_date').required = true;
+        } else {
+            endDateBox.style.display = 'none';
+            dateLabel.innerText = 'Booking Date';
+            document.getElementById('end_date').required = false;
+            document.getElementById('end_date').value = '';
         }
 
         const selectedPlantId = pSelect.value;
@@ -661,7 +696,6 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             clientInput.disabled = false; 
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
-
     function resetClientSearch() { 
         document.getElementById('client_code').value = ''; 
         document.getElementById('client_name').value = ''; 
