@@ -154,9 +154,24 @@ if (count($sessions) > 0) {
     $hoursWorked = $legacyHoursWorked;
 }
 
+// Calculate default days based on calendar dates (inclusive)
+$jobStart = new DateTime($job['booking_date']);
+$jobEnd = !empty($job['end_date']) ? new DateTime($job['end_date']) : clone $jobStart;
+$diffDays = $jobStart->diff($jobEnd)->days + 1; 
+
 $isTripBased = ($job['pricing_type'] == 'per_trip');
-$qtyValue = $isTripBased ? ($job['qty_trips'] > 0 ? $job['qty_trips'] : 1) : $hoursWorked;
-$qtyLabel = $isTripBased ? "Trips Executed" : "Total Hours Executed";
+$isDailyBased = ($job['pricing_type'] == 'daily');
+
+if ($isTripBased) {
+    $qtyValue = ($job['qty_trips'] > 0) ? $job['qty_trips'] : 1;
+    $qtyLabel = "Trips Executed";
+} elseif ($isDailyBased) {
+    $qtyValue = (isset($job['final_hours']) && $job['final_hours'] > 0) ? $job['final_hours'] : $diffDays;
+    $qtyLabel = "Days Executed";
+} else {
+    $qtyValue = $hoursWorked;
+    $qtyLabel = "Total Hours Executed";
+}
 
 // FIX: We strictly pull the saved client data from the DB for BOTH internal and external jobs.
 $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
@@ -522,6 +537,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                     </tr>`;
                 }
             } 
+            } 
             else if (pricingType === 'per_trip') {
                 const tCode = rawNomFixed || 'MISSING';
                 const tDesc = 'Trip Execution Charge';
@@ -536,6 +552,34 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                     <td class="text-right"><b>${tTotal.toFixed(2)}</b></td>
                 </tr>`;
             } 
+            else if (pricingType === 'daily') {
+                const dCode = rawNomFixed || 'MISSING';
+                const dDesc = 'Daily Flat Rate';
+                let dTotal = +(totalQty * rateFixed).toFixed(2);
+                grossSubtotal += dTotal;
+
+                html += `<tr>
+                    <td><b>${dCode}</b></td>
+                    <td>${dDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                    <td class="text-right">${totalQty} Days</td>
+                    <td class="text-right">${fRateInput}</td>
+                    <td class="text-right"><b>${dTotal.toFixed(2)}</b></td>
+                </tr>`;
+            }
+            else {
+                const hCode = rawNomVar || 'MISSING';
+                const hDesc = 'Standard Hourly Operation';
+                let hTotal = +(totalQty * rateVar).toFixed(2);
+                grossSubtotal += hTotal;
+
+                html += `<tr>
+                    <td><b>${hCode}</b></td>
+                    <td>${hDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                    <td class="text-right">${totalQty} Hrs</td>
+                    <td class="text-right">${vRateInput}</td>
+                    <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
+                </tr>`;
+            }
             else {
                 const hCode = rawNomVar || 'MISSING';
                 const hDesc = 'Standard Hourly Operation';
