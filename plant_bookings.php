@@ -1195,8 +1195,22 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             let mapPre = job.location_lat ? `<div id="job-preview-map" style="width:100%; height:200px; border-radius:8px; border:1px solid #e2e8f0; margin-top:10px;"></div>` : '';
             let commHtml = job.comments ? `<div style="background:#fef3c7; border:1px solid #fde68a; padding:15px; border-radius:10px; margin-bottom:15px; color:#92400e; font-size:0.95rem;"><b>Notes:</b><br>${job.comments.replace(/\n/g, '<br>')}</div>` : '';
 
-            let driverName = job.driver_first ? `${job.driver_first} ${job.driver_last}` : null;
-            let driverHtml = driverName ? `<span style="color:#10b981;">Assigned to ${driverName}</span>` : `<span style="color:#ef4444;">Unassigned</span>`;
+            // Holistic Driver Check
+            let driverHtml = '';
+            if (job.requires_driver == 0) {
+                driverHtml = `<span style="color:#64748b; font-style:italic;"><i class="fas fa-robot"></i> Not Required (Static Asset)</span>`;
+            } else {
+                let driverName = job.driver_first ? `${job.driver_first} ${job.driver_last}` : null;
+                driverHtml = driverName ? `<span style="color:#10b981;">Assigned to ${driverName}</span>` : `<span style="color:#ef4444;">Unassigned</span>`;
+            }
+
+            // Holistic Time Display
+            let timeDisplay = '';
+            if (job.pricing_type === 'daily' || job.lifecycle_type === 'Auto-Scheduled') {
+                timeDisplay = `${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} <span style="color:#64748b; font-size:0.9rem;">(Daily Duration)</span>`;
+            } else {
+                timeDisplay = `${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})`;
+            }
             
             let erpStatusHtml = '';
             let isSynced = job.invoice_sysref && job.invoice_sysref !== 'SUCCESS_NO_REF' && job.invoice_sysref !== 'N/A' && job.invoice_sysref !== '';
@@ -1214,7 +1228,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             document.getElementById('job-details').innerHTML = `
                 ${erpStatusHtml}
                 <div style="margin-bottom:12px; font-size: 1.2rem;"><b>Driver:</b> ${driverHtml}</div>
-                <div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
+                <div style="margin-bottom:12px;"><b>Date:</b> ${timeDisplay}</div>
                 <div style="margin-bottom:12px;"><b>Type:</b> ${job.booking_type.toUpperCase()}</div>
                 <div style="margin-bottom:12px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span> ${setupBadgeHtml}</div>
                 ${commHtml}
@@ -1227,12 +1241,14 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             let today = new Date().toISOString().split('T')[0];
             let canInteract = (!isManager && job.booking_date === today) || canManageFleet;
             
-            if (!isManager && (!job.driver_id || job.driver_id == 0) && job.status !== 'Completed') {
+            // Prevent unassigned drivers from claiming driverless assets
+            if (!isManager && job.requires_driver != 0 && (!job.driver_id || job.driver_id == 0) && job.status !== 'Completed') {
                 controlsHtml += `<button class="btn-heavy btn-blue" onclick="claimJob(${job.id})"><i class="fas fa-hand-paper"></i> Claim Job</button>`;
             }
 
             if (canInteract) {
-                if (job.status === 'Pending' && job.driver_id > 0) {
+                // Allow "Start Job" for static assets, or driver-required assets that have a driver
+                if (job.status === 'Pending' && (job.driver_id > 0 || job.requires_driver == 0)) {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
                 } else if (job.status === 'Paused') {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Resume Job</button>`;
