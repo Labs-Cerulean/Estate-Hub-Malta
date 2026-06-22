@@ -1323,7 +1323,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
     }
 
-    let pendingPunchData = null; // Store data while waiting for modal
+    let pendingPunchData = null; 
 
     function punchJob(id, direction) {
         if (!confirm("Are you sure you want to " + (direction === 'in' ? "start" : "complete") + " this job?")) return;
@@ -1332,45 +1332,68 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const originalHtml = btn.innerHTML;
         const job = window.currentActiveJob;
 
-        // If clocking in on a multi-config machine, pop the modal FIRST!
         if (direction === 'in' && job.has_configurations == 1 && job.configurations) {
             try {
                 const cfgs = JSON.parse(job.configurations);
                 const container = document.getElementById('config-options-container');
                 container.innerHTML = '';
                 
-                // Build nice big buttons for the driver to tap
+                let hasModes = false;
+                let hasAddons = false;
+
                 cfgs.forEach((c, idx) => {
                     if (c.type === 'mode') {
+                        if (!hasModes) { container.innerHTML += `<div style="font-size:0.8rem; font-weight:bold; color:#64748b; margin-bottom:5px; text-transform:uppercase;">Primary Mode</div>`; hasModes = true; }
                         container.innerHTML += `
-                        <label style="border:2px solid #e2e8f0; border-radius:12px; padding:15px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:1.1rem; color:#0f172a; background:#f8fafc; transition:0.2s;" onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='#e2e8f0'">
-                            <input type="radio" name="driver_selected_mode" value="${c.name}" style="width:20px; height:20px;" ${idx===0 ? 'checked' : ''}>
+                        <label style="border:2px solid #e2e8f0; border-radius:12px; padding:15px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:1.1rem; color:#0f172a; background:#f8fafc; transition:0.2s; margin-bottom:10px;" onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='#e2e8f0'">
+                            <input type="radio" name="driver_selected_mode" value="${c.name}" style="width:20px; height:20px;" ${hasModes && idx===0 ? 'checked' : ''}>
                             <b>${c.name}</b>
                         </label>`;
+                    } else if (c.type === 'addon') {
+                        if (!hasAddons) { container.innerHTML += `<div style="font-size:0.8rem; font-weight:bold; color:#64748b; margin-top:15px; margin-bottom:5px; text-transform:uppercase;">Extra Add-ons (Qty)</div>`; hasAddons = true; }
+                        container.innerHTML += `
+                        <div style="border:2px solid #e2e8f0; border-radius:12px; padding:10px 15px; display:flex; align-items:center; justify-content:space-between; font-size:1.1rem; color:#0f172a; background:#f8fafc; margin-bottom:10px;">
+                            <b>${c.name}</b>
+                            <input type="number" class="driver-addon-input" data-addon-name="${c.name}" min="0" value="0" style="width:60px; padding:5px; border:1px solid #cbd5e1; border-radius:6px; font-weight:bold; text-align:center;">
+                        </div>`;
                     }
                 });
 
-                // Save state and show modal
+                // If they ONLY have addons, make sure no radio button crashes the script
+                if (!hasModes) {
+                    container.innerHTML += `<input type="hidden" name="driver_selected_mode" value="Standard Operation">`;
+                }
+
                 pendingPunchData = { id, direction, btn, originalHtml };
                 document.getElementById('driver-config-modal').style.display = 'flex';
-                return; // STOP execution here until they click confirm
+                return; 
             } catch(e) { console.warn("Failed to parse configs", e); }
         }
 
-        // If no configs needed, proceed directly to GPS check
-        executePunchLogic(id, direction, btn, originalHtml, null);
+        executePunchLogic(id, direction, btn, originalHtml, null, null);
     }
 
-    // New function triggered by the Modal "Confirm" button
     function confirmConfigAndStart() {
         document.getElementById('driver-config-modal').style.display = 'none';
-        const selectedMode = document.querySelector('input[name="driver_selected_mode"]:checked').value;
+        
+        // Grab Mode
+        const modeEl = document.querySelector('input[name="driver_selected_mode"]:checked') || document.querySelector('input[name="driver_selected_mode"]');
+        const selectedMode = modeEl ? modeEl.value : null;
+
+        // Grab Addons (Only those with Qty > 0)
+        let selectedAddons = [];
+        document.querySelectorAll('.driver-addon-input').forEach(input => {
+            const qty = parseInt(input.value);
+            if (qty > 0) {
+                selectedAddons.push({ name: input.getAttribute('data-addon-name'), qty: qty });
+            }
+        });
+
         const p = pendingPunchData;
-        executePunchLogic(p.id, p.direction, p.btn, p.originalHtml, selectedMode);
+        executePunchLogic(p.id, p.direction, p.btn, p.originalHtml, selectedMode, JSON.stringify(selectedAddons));
     }
 
-    // This holds your existing GPS / Non-GPS logic
-    function executePunchLogic(id, direction, btn, originalHtml, activeMode) {
+    function executePunchLogic(id, direction, btn, originalHtml, activeMode, activeAddons) {
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
         btn.disabled = true;
 
@@ -1379,47 +1402,29 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         if (direction === 'in' && isDriver) {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    function(position) { sendPunchData(id, direction, position.coords.latitude, position.coords.longitude, btn, originalHtml, activeMode); },
-                    function(error) { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode); },
+                    function(position) { sendPunchData(id, direction, position.coords.latitude, position.coords.longitude, btn, originalHtml, activeMode, activeAddons); },
+                    function(error) { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode, activeAddons); },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
-            } else {
-                sendPunchData(id, direction, null, null, btn, originalHtml, activeMode);
-            }
-        } else {
-            sendPunchData(id, direction, null, null, btn, originalHtml, activeMode);
-        }
+            } else { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode, activeAddons); }
+        } else { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode, activeAddons); }
     }
 
-    function sendPunchData(id, direction, lat, lng, btn, originalHtml, activeMode = null) {
+    function sendPunchData(id, direction, lat, lng, btn, originalHtml, activeMode = null, activeAddons = null) {
         const fd = new FormData();
         fd.append('action', direction === 'in' ? 'punch_in' : 'punch_out_complete');
         fd.append('id', id);
         
-        if (lat && lng) {
-            fd.append('lat', lat);
-            fd.append('lng', lng);
-        }
-        if (activeMode) {
-            fd.append('active_mode', activeMode);
-        }
+        if (lat && lng) { fd.append('lat', lat); fd.append('lng', lng); }
+        if (activeMode) { fd.append('active_mode', activeMode); }
+        if (activeAddons) { fd.append('active_addons', activeAddons); }
 
         fetch('api/plant_actions.php?id=' + id, { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => {
-            if (res === 'OK') {
-                loadJob(id);
-                calendar.refetchEvents();
-            } else {
-                alert("Error: " + res);
-                btn.innerHTML = originalHtml;
-                btn.disabled = false;
-            }
-        }).catch(err => {
-            alert("Network error.");
-            btn.innerHTML = originalHtml;
-            btn.disabled = false;
-        });
+            if (res === 'OK') { location.reload(); } 
+            else { alert("Error: " + res); btn.innerHTML = originalHtml; btn.disabled = false; }
+        }).catch(err => { alert("Network error."); btn.innerHTML = originalHtml; btn.disabled = false; });
     }
 
     function startPunchOut(id, pricingType) { 
