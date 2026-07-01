@@ -2,24 +2,17 @@
 require_once 'init.php';
 
 // --- ENTERPRISE CRON BYPASS LOGIC ---
-// 1. Fetch the hidden header (PHP automatically formats 'X-Cron-Token' to 'HTTP_X_CRON_TOKEN')
 $providedToken = $_SERVER['HTTP_X_CRON_TOKEN'] ?? '';
-// 2. Fetch the true password from the Railway environment vault
 $expectedToken = getenv('CRON_SECRET_TOKEN');
-
-// 3. Verify they match perfectly using a timing-safe comparison
 $isCron = (!empty($expectedToken) && hash_equals($expectedToken, $providedToken));
 
 if (!$isCron) {
-    // If the header is missing or wrong, enforce normal human login
     require_once 'session-check.php';
 }
-// ------------------------------------
 
 require_once 'user-functions.php';
 require_once 'S3FileManager.php';
 
-// Auto-deploy database updates for new columns to save custom rates locally
 try { 
     $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
     $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
@@ -28,10 +21,8 @@ try {
 $role = $_SESSION['role'] ?? '';
 $isAdmin = ($role === 'admin');
 $canDiscount = in_array($role, ['admin', 'system_manager', 'accountant']);
-
 $hasPlantAccess = in_array($role, ['admin', 'director', 'system_manager', 'accountant', 'plant_manager', 'plant_driver']);
 
-// Allow access if it's the cron script, OR if the human has valid permissions
 if (!$isCron && !$hasPlantAccess && !hasPermission('view_plant_bookings')) {
     die("Unauthorized Access to Invoice.");
 }
@@ -41,7 +32,7 @@ $bookingId = (int)($_GET['booking_id'] ?? 0);
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
            p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
-           p.setup_fee, p.nom_code_setup,
+           p.setup_fee, p.nom_code_setup, p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
            bc.name as developer_name, bc.logo_path as developer_logo, 
            bc.bank_name, bc.iban, bc.swift_bic, 
            prj.name as project_name,
@@ -117,12 +108,10 @@ if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
     $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
 }
 
-// DYNAMIC PRA/PRAX PREFIX
 $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("%s-%s-%04d", $prefix, $jobYear, $bookingId);
 
-// Fetch all logged sessions for this job
 $sessionsStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
 $sessionsStmt->execute([$bookingId]);
 $sessions = $sessionsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -132,53 +121,135 @@ foreach ($sessions as $s) {
     $totalSessionHours += (float)$s['hours'];
 }
 
-// Check if there is an actively running session right now
 $activeSessionHours = 0;
 if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])) {
     $activeIn = new DateTime($job['punch_in_time']);
-    $activeOut = new DateTime(); // Now
+    $activeOut = new DateTime(); 
     $activeInterval = $activeIn->diff($activeOut);
     $activeSessionHours = round($activeInterval->h + ($activeInterval->i / 60), 2);
 }
 
-// Fallback for standard 1-day jobs
 $inTime = !empty($job['punch_in_time']) ? new DateTime($job['punch_in_time']) : new DateTime($job['booking_date'] . ' ' . $job['start_time']);
 $outTime = !empty($job['punch_out_time']) ? new DateTime($job['punch_out_time']) : new DateTime($job['booking_date'] . ' ' . $job['end_time']);
 $interval = $inTime->diff($outTime);
 $legacyHoursWorked = round($interval->h + ($interval->i / 60), 2);
 
-// Determine the true total hours
 if (count($sessions) > 0) {
     $hoursWorked = $totalSessionHours + $activeSessionHours;
 } else {
     $hoursWorked = $legacyHoursWorked;
 }
 
-$isTripBased = ($job['pricing_type'] == 'per_trip');
-$qtyValue = $isTripBased ? ($job['qty_trips'] > 0 ? $job['qty_trips'] : 1) : $hoursWorked;
-$qtyLabel = $isTripBased ? "Trips Executed" : "Total Hours Executed";
+// --- MULTI-MODE & ADD-ON BILLING BREAKDOWN ---
+$modeBreakdown = [];
+$addonBreakdown = [];
+if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($sessions) > 0) {
+    $cfgs = json_decode($job['configurations'], true);
+    
+    foreach ($sessions as $s) {
+        // 1. Group Primary Operational Modes
+        $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
+        if (!isset($modeBreakdown[$mName])) {
+            $modeBreakdown[$mName] = ['hours' => 0, 'nom_code' => '', 'rate' => 0];
+        }
+        $modeBreakdown[$mName]['hours'] += (float)$s['hours'];
 
-// FIX: We strictly pull the saved client data from the DB for BOTH internal and external jobs.
+        // 2. Group Simultaneous Extra Add-ons
+        if (!empty($s['addons_used'])) {
+            $sAddons = json_decode($s['addons_used'], true);
+            if (is_array($sAddons)) {
+                foreach ($sAddons as $sa) {
+                    $saName = $sa['name'];
+                    $saQty = (int)$sa['qty'];
+                    if ($saQty > 0) {
+                        if (!isset($addonBreakdown[$saName])) {
+                            $addonBreakdown[$saName] = ['qty_hours' => 0, 'nom_code' => '', 'rate' => 0];
+                        }
+                        $addonBreakdown[$saName]['qty_hours'] += ($saQty * (float)$s['hours']);
+                    }
+                }
+            }
+        }
+    }
+    
+    foreach ($modeBreakdown as $mName => &$data) {
+        $matchedCfg = null;
+        if (is_array($cfgs)) {
+            foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
+        }
+        if ($matchedCfg) {
+            $data['nom_code'] = $matchedCfg['nom_code'];
+            $nCodeTrim = trim($matchedCfg['nom_code']); $erpRate = 0;
+            if (!empty($allNominals)) {
+                foreach($allNominals as $n) { if (trim($n['NCCode']) === $nCodeTrim) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
+            }
+            $data['rate'] = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
+        } else {
+            $data['nom_code'] = $job['nom_code_variable'];
+            $data['rate'] = isset($job['final_rate_var']) ? $job['final_rate_var'] : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
+        }
+    }
+    unset($data);
+
+    foreach ($addonBreakdown as $saName => &$data) {
+        $matchedCfg = null;
+        if (is_array($cfgs)) {
+            foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
+        }
+        if ($matchedCfg) {
+            $data['nom_code'] = $matchedCfg['nom_code'];
+            $nCodeTrim = trim($matchedCfg['nom_code']); $erpRate = 0;
+            if (!empty($allNominals)) {
+                foreach($allNominals as $n) { if (trim($n['NCCode']) === $nCodeTrim) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
+            }
+            $data['rate'] = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
+        }
+    }
+    unset($data);
+}
+
+$jobStart = new DateTime($job['booking_date']);
+$jobEnd = !empty($job['end_date']) ? new DateTime($job['end_date']) : clone $jobStart;
+$diffDays = $jobStart->diff($jobEnd)->days + 1;
+
+$isTripBased = ($job['pricing_type'] == 'per_trip');
+$isDailyBased = ($job['pricing_type'] == 'daily');
+
+if ($isTripBased) {
+    $qtyValue = ($job['qty_trips'] > 0) ? $job['qty_trips'] : 1;
+    $qtyLabel = "Trips Executed";
+} elseif ($isDailyBased) {
+    $qtyValue = (isset($job['final_hours']) && $job['final_hours'] > 0) ? $job['final_hours'] : $diffDays;
+    $qtyLabel = "Total Days Billed";
+} else {
+    $qtyValue = $hoursWorked;
+    $qtyLabel = "Total Hours Executed";
+}
+
 $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
 $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
-// --- REVERSE GEOCODING FOR PDF ---
+
 if ($job['booking_type'] == 'in-house') {
     $projectDisplay = !empty($job['project_name']) ? htmlspecialchars($job['project_name']) : 'N/A';
 } else {
     if (!empty($job['location_lat']) && !empty($job['location_lng']) && function_exists('getAddressFromCoordinates')) {
         $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
-        // Fallback to raw coordinates if the map server can't find the road
         $projectDisplay = $address ? htmlspecialchars($address) : 'Lat: ' . round($job['location_lat'], 4) . ', Lng: ' . round($job['location_lng'], 4);
     } else {
         $projectDisplay = 'External Location';
     }
 }
 
-// Determine Edit Lock State
+$reqDriver = (int)($job['requires_driver'] ?? 1);
+if ($reqDriver === 0) {
+    $driverName = "<span style='color:#64748b; font-style:italic;'><i class='fas fa-robot'></i> Not Required (Static)</span>";
+} else {
+    $driverRaw = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    $driverName = htmlspecialchars($driverRaw);
+}
+
 $sysRef = $job['invoice_sysref'] ?? '';
 $isSynced = !empty($sysRef) && !in_array($sysRef, ['N/A', 'SUCCESS_NO_REF']);
-
-// Allow edit if it's the very first time (Pending) OR if an Admin is editing a Local Only RFP
 $canEdit = (isset($_GET['readonly']) && $_GET['readonly'] == '1') ? false : (($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced));
 $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_discount_pct'] : 0.00;
 ?>
@@ -233,7 +304,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <div style="background: #fff; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <label style="font-weight:bold; margin:0;">Final <?= $qtyLabel ?>:</label>
-                    <input type="number" id="calc_master_qty" class="live-calc" value="<?= $job['final_hours'] ?? $qtyValue ?>" step="0.25" oninput="renderTable()">
+                    <input type="number" id="calc_master_qty" class="live-calc" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()">
                 </div>
                 
                 <?php if ($canDiscount): ?>
@@ -313,37 +384,45 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <h4>Job Report (Execution Details)</h4>
             <div class="data-row"><span class="data-label">Machinery</span><span class="data-val"><?= htmlspecialchars($job['plant_name']) ?> (<?= htmlspecialchars($job['category']) ?>)</span></div>
             <div class="data-row"><span class="data-label">Reg Plate</span><span class="data-val"><?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?></span></div>
-            <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= htmlspecialchars($job['first_name'] ?? 'Unassigned') ?> <?= htmlspecialchars($job['last_name'] ?? '') ?></span></div>
+            <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= $driverName ?></span></div>
             
             <div class="data-row" style="align-items: flex-start;">
                 <span class="data-label">Time Logged</span>
                 <span class="data-val">
-                    <?php if (count($sessions) > 0): ?>
-                        <div style="text-align: right; font-size: 0.85rem; color: #475569;">
-                            <?php foreach($sessions as $idx => $s): ?>
-                                <div style="margin-bottom: 3px;">
-                                    <b>Day <?= $idx+1 ?>:</b> <?= date('d M, H:i', strtotime($s['punch_in'])) ?> to <?= date('H:i', strtotime($s['punch_out'])) ?> 
-                                    <span style="color:#000; font-weight:bold;">(<?= $s['hours'] ?> hrs)</span>
-                                </div>
-                            <?php endforeach; ?>
-                            
-                            <?php if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])): ?>
-                                <div style="color:#3b82f6; margin-top: 5px;">
-                                    <b><i class="fas fa-clock fa-spin"></i> Active Now:</b> Since <?= date('d M, H:i', strtotime($job['punch_in_time'])) ?>
-                                </div>
-                            <?php endif; ?>
-                            
-                            <input type="hidden" id="edit_time_in" value="">
-                            <input type="hidden" id="edit_time_out" value="">
+                    <?php if ($isDailyBased || $job['lifecycle_type'] === 'Auto-Scheduled'): ?>
+                        <div style="font-weight: bold; color: #0f172a;">
+                            <?= date('d M Y', strtotime($job['booking_date'])) ?> to <?= !empty($job['end_date']) ? date('d M Y', strtotime($job['end_date'])) : date('d M Y', strtotime($job['booking_date'])) ?>
                         </div>
+                        <input type="hidden" id="edit_time_in" value="">
+                        <input type="hidden" id="edit_time_out" value="">
                     <?php else: ?>
-                        <?php if ($canEdit && !$isTripBased): ?>
-                            <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
-                            <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
+                        <?php if (count($sessions) > 0): ?>
+                            <div style="text-align: right; font-size: 0.85rem; color: #475569;">
+                                <?php foreach($sessions as $idx => $s): ?>
+                                    <div style="margin-bottom: 3px;">
+                                        <b>Day <?= $idx+1 ?>:</b> <?= date('d M, H:i', strtotime($s['punch_in'])) ?> to <?= date('H:i', strtotime($s['punch_out'])) ?> 
+                                        <span style="color:#000; font-weight:bold;">(<?= $s['hours'] ?> hrs)</span>
+                                    </div>
+                                <?php endforeach; ?>
+                                
+                                <?php if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])): ?>
+                                    <div style="color:#3b82f6; margin-top: 5px;">
+                                        <b><i class="fas fa-clock fa-spin"></i> Active Now:</b> Since <?= date('d M, H:i', strtotime($job['punch_in_time'])) ?>
+                                    </div>
+                                <?php endif; ?>
+                                
+                                <input type="hidden" id="edit_time_in" value="">
+                                <input type="hidden" id="edit_time_out" value="">
+                            </div>
                         <?php else: ?>
-                            <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
-                            <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
-                            <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                            <?php if ($canEdit && !$isTripBased): ?>
+                                <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
+                                <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
+                            <?php else: ?>
+                                <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
+                                <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
+                                <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                            <?php endif; ?>
                         <?php endif; ?>
                     <?php endif; ?>
                 </span>
@@ -362,23 +441,31 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             </tr>
         </thead>
         <tbody id="lines-body">
-            </tbody>
+        </tbody>
     </table>
 
     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div style="width: 45%;">
-            <div style="border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; text-align: center; background: #f8fafc;">
-                <h4 style="margin-top:0; margin-bottom: 10px; color: #475569; text-transform: uppercase; font-size: 0.8rem;">Client Representative Verification</h4>
-                <?php if(!empty($job['signature_data'])): ?>
-                    <img src="<?= htmlspecialchars($job['signature_data'], ENT_QUOTES, 'UTF-8') ?>" style="max-width: 100%; height: 80px; object-fit: contain;">
-                <?php else: ?>
-                    <div style="height: 80px; line-height:80px; color: #94a3b8; font-style:italic;">No Signature on File</div>
-                <?php endif; ?>
-                <div style="border-top: 1px solid #cbd5e1; margin-top: 10px; padding-top: 10px; font-size: 0.85rem;">
-                    <b>Name:</b> <?= htmlspecialchars($job['client_rep_name'] ?? 'N/A') ?> &nbsp;|&nbsp; 
-                    <b>ID:</b> <?= htmlspecialchars($job['client_rep_id_card'] ?? 'N/A') ?>
+            <?php if ($job['lifecycle_type'] !== 'Auto-Scheduled'): ?>
+                <div style="border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; text-align: center; background: #f8fafc;">
+                    <h4 style="margin-top:0; margin-bottom: 10px; color: #475569; text-transform: uppercase; font-size: 0.8rem;">Client Representative Verification</h4>
+                    <?php if(!empty($job['signature_data'])): ?>
+                        <img src="<?= htmlspecialchars($job['signature_data'], ENT_QUOTES, 'UTF-8') ?>" style="max-width: 100%; height: 80px; object-fit: contain;">
+                    <?php else: ?>
+                        <div style="height: 80px; line-height:80px; color: #94a3b8; font-style:italic;">No Signature on File</div>
+                    <?php endif; ?>
+                    <div style="border-top: 1px solid #cbd5e1; margin-top: 10px; padding-top: 10px; font-size: 0.85rem;">
+                        <b>Name:</b> <?= htmlspecialchars($job['client_rep_name'] ?? 'N/A') ?> &nbsp;|&nbsp; 
+                        <b>ID:</b> <?= htmlspecialchars($job['client_rep_id_card'] ?? 'N/A') ?>
+                    </div>
                 </div>
-            </div>
+            <?php else: ?>
+                <div style="border: 1px dashed #cbd5e1; padding: 15px; border-radius: 8px; text-align: center; background: #f8fafc; color: #64748b;">
+                    <i class="fas fa-robot" style="font-size: 2rem; margin-bottom: 10px; color: #94a3b8;"></i>
+                    <div style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; color: #475569;">Automated Deployment</div>
+                    <div style="font-size: 0.75rem; margin-top: 4px;">No manual signature required for static assets.</div>
+                </div>
+            <?php endif; ?>
             
             <div style="margin-top: 20px; font-size: 0.85rem; color: #475569;">
                 <b>Payment Instructions:</b> Payable to <?= htmlspecialchars($job['developer_name']) ?>.<br>
@@ -399,7 +486,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
     </div>
 
     <script>
-       const pricingType = '<?= $job['pricing_type'] ?>';
+        const pricingType = '<?= $job['pricing_type'] ?>';
         const minHours = <?= (float)$job['min_hours'] ?>;
         const isInternal = <?= $isInternal ? 'true' : 'false' ?>;
         const jobRef = '<?= $jobRef ?>';
@@ -412,6 +499,8 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
         const hasSetupFee = <?= (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) ? 'true' : 'false' ?>;
+        const modeBreakdown = <?= json_encode($modeBreakdown) ?>;
+        const addonBreakdown = <?= json_encode($addonBreakdown) ?>;
 
         let rateFixed = <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>;
         let rateVar = <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>;
@@ -421,7 +510,6 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         let maxAllowedDiscount = 0;
         let grossSubtotal = 0;
 
-        // Fetch Live Max Discount from ERP on load
         if (canEdit && canDiscount) {
             const clientCode = '<?= addslashes($job['client_code'] ?? '') ?>';
             const companyId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
@@ -431,7 +519,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                 .then(data => {
                     maxAllowedDiscount = parseFloat(data.max_discount) || 0;
                     document.getElementById('max_disc_label').innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
-                    validateAndRenderDiscount(); // Re-validate if a previously saved discount now exceeds the live limit
+                    validateAndRenderDiscount(); 
                 });
             }
         }
@@ -469,7 +557,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
 
         function renderTable() {
             const qtyInput = document.getElementById('calc_master_qty');
-            let totalQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : savedHours).toFixed(2);
+            let totalQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : <?= $qtyValue ?>).toFixed(2);
             
             const tbody = document.getElementById('lines-body');
             let html = '';
@@ -536,24 +624,71 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                     <td class="text-right"><b>${tTotal.toFixed(2)}</b></td>
                 </tr>`;
             } 
-            else {
-                const hCode = rawNomVar || 'MISSING';
-                const hDesc = 'Standard Hourly Operation';
-                let hTotal = +(totalQty * rateVar).toFixed(2);
-                grossSubtotal += hTotal;
+            else if (pricingType === 'daily') {
+                const dCode = rawNomFixed || 'MISSING';
+                const dDesc = 'Daily Flat Rate';
+                let dTotal = +(totalQty * rateFixed).toFixed(2);
+                grossSubtotal += dTotal;
 
                 html += `<tr>
-                    <td><b>${hCode}</b></td>
-                    <td>${hDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">${totalQty} Hrs</td>
-                    <td class="text-right">${vRateInput}</td>
-                    <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
+                    <td><b>${dCode}</b></td>
+                    <td>${dDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                    <td class="text-right">${totalQty} Days</td>
+                    <td class="text-right">${fRateInput}</td>
+                    <td class="text-right"><b>${dTotal.toFixed(2)}</b></td>
                 </tr>`;
+            }
+            else {
+                if (Object.keys(modeBreakdown).length > 0 || Object.keys(addonBreakdown).length > 0) {
+                    for (const [modeName, data] of Object.entries(modeBreakdown)) {
+                        const mCode = data.nom_code || 'MISSING';
+                        let mQty = parseFloat(data.hours).toFixed(2);
+                        let mRate = parseFloat(data.rate);
+                        let mTotal = +(mQty * mRate).toFixed(2);
+                        grossSubtotal += mTotal;
+                        
+                        html += `<tr>
+                            <td><b>${mCode}</b></td>
+                            <td>Primary Mode: ${modeName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                            <td class="text-right">${mQty} Hrs</td>
+                            <td class="text-right">${mRate.toFixed(4)}</td>
+                            <td class="text-right"><b>${mTotal.toFixed(2)}</b></td>
+                        </tr>`;
+                    }
+
+                    for (const [addonName, data] of Object.entries(addonBreakdown)) {
+                        const aCode = data.nom_code || 'MISSING';
+                        let aQtyHours = parseFloat(data.qty_hours).toFixed(2);
+                        let aRate = parseFloat(data.rate);
+                        let aTotal = +(aQtyHours * aRate).toFixed(2);
+                        grossSubtotal += aTotal;
+                        
+                        html += `<tr>
+                            <td><b>${aCode}</b></td>
+                            <td>Extra Add-on Surcharge: ${addonName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                            <td class="text-right">${aQtyHours} Qty-Hrs</td>
+                            <td class="text-right">${aRate.toFixed(4)}</td>
+                            <td class="text-right"><b>${aTotal.toFixed(2)}</b></td>
+                        </tr>`;
+                    }
+                } else {
+                    const hCode = rawNomVar || 'MISSING';
+                    const hDesc = 'Standard Hourly Operation';
+                    let hTotal = +(totalQty * rateVar).toFixed(2);
+                    grossSubtotal += hTotal;
+
+                    html += `<tr>
+                        <td><b>${hCode}</b></td>
+                        <td>${hDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                        <td class="text-right">${totalQty} Hrs</td>
+                        <td class="text-right">${vRateInput}</td>
+                        <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
+                    </tr>`;
+                }
             }
 
             tbody.innerHTML = html;
 
-            // Strict ERP Math & Totals Rendering
             let totalDiscount = +(grossSubtotal * (currentDiscountPct / 100)).toFixed(2);
             let netSubtotal = +(grossSubtotal - totalDiscount).toFixed(2);
             let vat = +(netSubtotal * 0.18).toFixed(2);
@@ -614,7 +749,6 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             });
         }
 
-        // --- Client Edit Logic Remains Identical Below ---
         let invoiceErpClients = [];
         const invCompId = '<?= $job['billing_company_id'] ?>';
         const invBookingId = <?= $bookingId ?>;

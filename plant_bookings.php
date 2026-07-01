@@ -134,8 +134,9 @@ $userId = $_SESSION['user_id'];
                     <div style="flex:2;"><label>Pricing Model *</label>
                         <select id="new_plant_pricing" class="input-heavy" onchange="togglePricingModel()" required>
                             <option value="hourly">Standard Hourly</option>
-                            <option value="fixed_then_hourly">Fixed Minimum + Hourly</option>
+                            <option value="fixed_then_hourly">Fixed Minimum + Hourly (Base + Overtime)</option>
                             <option value="per_trip">Per Trip Rate</option>
+                            <option value="daily">Daily Flat Rate</option>
                         </select>
                     </div>
                     <div style="flex:1; display:none;" id="min_hrs_box"><label>Min Hours</label><input type="number" id="new_plant_min_hrs" class="input-heavy" value="1" min="1"></div>
@@ -161,6 +162,27 @@ $userId = $_SESSION['user_id'];
                             <label style="color:#1e3a8a;">Default Fee (€)</label>
                             <input type="number" id="new_plant_setup_fee" class="input-heavy" style="margin-bottom:0;" value="0.00" step="0.01">
                         </div>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div style="flex:1;"><label>Operational Mode (Lifecycle & Dispatch) *</label>
+                        <select id="new_lifecycle_mode" class="input-heavy" style="margin-bottom:0;" required>
+                            <option value="Standard">Standard Shift (Driver Required)</option>
+                            <option value="Multi-Day">Multi-Day Continuous (Driver Required)</option>
+                            <option value="Auto-Scheduled">Auto-Scheduled / Static (No Driver)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:15px;">
+                    <label style="display:flex; align-items:center; gap:10px; margin:0; cursor:pointer; font-size:1.05rem; color:#0f172a; text-transform:none;">
+                        <input type="checkbox" id="new_has_configs" style="width:20px; height:20px;" onchange="toggleConfigBuilder()">
+                        <b>Enable Advanced Configurations (Modes / Add-ons)</b>
+                    </label>
+                    <div id="config_builder_container" style="display:none; margin-top:15px; border-top:1px dashed #cbd5e1; padding-top:15px;">
+                        <div id="config_list"></div>
+                        <button type="button" class="btn-heavy btn-gray" style="padding:8px 15px; font-size:0.9rem; margin-bottom:0; width:auto;" onclick="addConfigRow()"><i class="fas fa-plus"></i> Add Config Rule</button>
                     </div>
                 </div>
                 
@@ -272,12 +294,20 @@ $userId = $_SESSION['user_id'];
                     <label>Comments / Instructions</label>
                     <textarea id="booking_comments" class="input-heavy" rows="2" disabled></textarea>
                     
-                    <label>Booking Date</label>
-                    <input type="date" id="booking_date" class="input-heavy" required disabled>
+                    <div style="display:flex; gap:10px; margin-bottom:15px;">
+                        <div style="flex:1;">
+                            <label id="lbl_booking_date">Booking Date</label>
+                            <input type="date" id="booking_date" class="input-heavy" style="margin-bottom:0;" required disabled>
+                        </div>
+                        <div style="flex:1; display:none;" id="box_end_date">
+                            <label>End Date</label>
+                            <input type="date" id="end_date" class="input-heavy" style="margin-bottom:0;" disabled>
+                        </div>
+                    </div>
                     
                     <div style="display:flex; gap:10px;">
-                        <div style="flex:1;"><label>Start</label><input type="time" id="start_time" class="input-heavy" value="08:00" required disabled></div>
-                        <div style="flex:1;"><label>End</label><input type="time" id="end_time" class="input-heavy" value="17:00" required disabled></div>
+                        <div style="flex:1;"><label>Start Time</label><input type="time" id="start_time" class="input-heavy" value="08:00" required disabled></div>
+                        <div style="flex:1;"><label>End Time</label><input type="time" id="end_time" class="input-heavy" value="17:00" required disabled></div>
                     </div>
 
                     <button type="button" id="submit_booking_btn" class="btn-heavy btn-blue" onclick="submitBooking()" disabled><i class="fas fa-check"></i> Save Booking</button>
@@ -314,6 +344,20 @@ $userId = $_SESSION['user_id'];
             </div>
             <button type="button" class="btn-heavy btn-red" onclick="submitPunchOut()"><i class="fas fa-check-circle"></i> Complete & Finalize Job</button>
             <button type="button" class="btn-heavy btn-gray" onclick="showView('view-job')">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="driver-config-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.8); z-index:9999; align-items:center; justify-content:center; padding:20px;">
+    <div style="background:#fff; width:100%; max-width:400px; border-radius:16px; padding:25px; box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+        <h3 style="margin-top:0; color:#0f172a; font-weight:900; font-size:1.4rem;"><i class="fas fa-sliders-h text-blue-500"></i> Select Operating Mode</h3>
+        <p style="color:#475569; font-size:0.9rem; margin-bottom:20px;">Please confirm the machine configuration you are using for this session.</p>
+        
+        <div id="config-options-container" style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;"></div>
+        
+        <div style="display:flex; gap:10px;">
+            <button class="btn-heavy btn-gray" style="flex:1; margin:0;" onclick="document.getElementById('driver-config-modal').style.display='none'">Cancel</button>
+            <button class="btn-heavy btn-green" style="flex:2; margin:0;" onclick="confirmConfigAndStart()">Confirm & Start</button>
         </div>
     </div>
 </div>
@@ -484,6 +528,66 @@ $userId = $_SESSION['user_id'];
 
     let currentErpClients = [];
 
+    window.erpNominals = [];
+
+    function toggleConfigBuilder() {
+        document.getElementById('config_builder_container').style.display = document.getElementById('new_has_configs').checked ? 'block' : 'none';
+    }
+
+function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
+        const list = document.getElementById('config_list');
+        const rowId = 'cfg_' + Date.now() + Math.floor(Math.random() * 1000);
+        
+        let nomOpts = '<option value="">-- ERP Code --</option>';
+        if(window.erpNominals && window.erpNominals.length > 0) {
+            // Added data-ext and data-in so the dropdown contains the live ERP prices
+            nomOpts += window.erpNominals.map(n => `<option value="${n.NCCode.trim()}" data-ext="${n.NCDefSP2}" data-in="${n.NCDefSP1}" ${data.nom_code === n.NCCode.trim() ? 'selected' : ''}>${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
+        }
+
+        // The price field is now readonly and visually greyed out, while the nom dropdown triggers the update
+        const html = `
+        <div id="${rowId}" class="config-row" style="display:flex; gap:10px; margin-bottom:10px; align-items:center; background:#fff; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
+            <select class="cfg-type input-heavy" style="margin:0; padding:8px; flex:1.5; font-size:0.9rem;">
+                <option value="mode" ${data.type === 'mode' ? 'selected' : ''}>Mode (Rate/Hr)</option>
+                <option value="addon" ${data.type === 'addon' ? 'selected' : ''}>Add-on (Unit Price)</option>
+            </select>
+            <input type="text" class="cfg-name input-heavy" style="margin:0; padding:8px; flex:2; font-size:0.9rem;" placeholder="Name (e.g. 3m Saw)" value="${data.name}">
+            
+            <input type="number" class="cfg-price input-heavy" style="margin:0; padding:8px; flex:1; font-size:0.9rem; background:#f1f5f9; color:#94a3b8; cursor:not-allowed;" placeholder="ERP Price" step="0.01" value="${data.price}" readonly>
+            
+            <select class="cfg-nom input-heavy" style="margin:0; padding:8px; flex:1.5; font-size:0.9rem;" onchange="updateConfigPrice(this)">${nomOpts}</select>
+            <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#ef4444; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer;"><i class="fas fa-trash"></i></button>
+        </div>`;
+        list.insertAdjacentHTML('beforeend', html);
+    }
+
+    function updateConfigPrice(sel) {
+        const priceInput = sel.closest('.config-row').querySelector('.cfg-price');
+        if(sel.selectedIndex > 0) {
+            const opt = sel.options[sel.selectedIndex];
+            // Pull the External Commercial Rate from the ERP and set it
+            const erpPrice = parseFloat(opt.dataset.ext) || 0;
+            priceInput.value = erpPrice.toFixed(2);
+        } else {
+            priceInput.value = '0.00';
+        }
+    }
+
+    function buildConfigJson() {
+        if(!document.getElementById('new_has_configs').checked) return null;
+        const rows = document.querySelectorAll('.config-row');
+        let configs = [];
+        rows.forEach(r => {
+            configs.push({
+                type: r.querySelector('.cfg-type').value,
+                name: r.querySelector('.cfg-name').value,
+                price: parseFloat(r.querySelector('.cfg-price').value) || 0,
+                nom_code: r.querySelector('.cfg-nom').value
+            });
+        });
+        return JSON.stringify(configs);
+    }
+
     function toggleFleetSetupFee() {
         const cat = document.getElementById('new_plant_cat').value;
         const container = document.getElementById('fleet-setup-fee-container');
@@ -522,7 +626,7 @@ $userId = $_SESSION['user_id'];
             if (p.is_misconfigured) {
                 return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="true" style="color:#ef4444; background:#fef2f2; font-style:italic; font-weight:bold;">⚠️ ${p.name} (Setup Missing)</option>`;
             } else {
-                return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-missing="false">${p.name} (${p.registration_plate||'N/A'})</option>`;
+                return `<option value="${p.id}" data-company-id="${p.billing_company_id}" data-req-driver="${p.requires_driver !== null ? p.requires_driver : 1}" data-lifecycle="${p.lifecycle_type || 'Standard'}" data-missing="false">${p.name} (${p.registration_plate||'N/A'})</option>`;
             }
         }).join('');
         
@@ -549,6 +653,33 @@ $userId = $_SESSION['user_id'];
         if (opt.dataset.missing === 'true') {
             alert("Billing details missing. Please configure them in the Fleet Setup before booking.");
             pSelect.value = ''; return;
+        }
+
+        // --- CAPABILITY 1: Toggle Driver Requirement ---
+        const reqDriver = parseInt(opt.getAttribute('data-req-driver'));
+        const driverContainer = document.getElementById('driver_id').parentElement;
+        
+        if (reqDriver === 0) {
+            driverContainer.style.display = 'none';
+            document.getElementById('driver_id').value = ''; // Ensure no driver is sent
+        } else {
+            driverContainer.style.display = 'block';
+        }
+
+        // --- CAPABILITY 2: Toggle End Date for Multi-Day/Auto ---
+        const lifecycle = opt.getAttribute('data-lifecycle');
+        const endDateBox = document.getElementById('box_end_date');
+        const dateLabel = document.getElementById('lbl_booking_date');
+        
+        if (lifecycle === 'Multi-Day' || lifecycle === 'Auto-Scheduled') {
+            endDateBox.style.display = 'block';
+            dateLabel.innerText = 'Start Date';
+            document.getElementById('end_date').required = true;
+        } else {
+            endDateBox.style.display = 'none';
+            dateLabel.innerText = 'Booking Date';
+            document.getElementById('end_date').required = false;
+            document.getElementById('end_date').value = '';
         }
 
         const selectedPlantId = pSelect.value;
@@ -579,7 +710,6 @@ $userId = $_SESSION['user_id'];
             clientInput.disabled = false; 
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
     }
-
     function resetClientSearch() { 
         document.getElementById('client_code').value = ''; 
         document.getElementById('client_name').value = ''; 
@@ -754,6 +884,7 @@ $userId = $_SESSION['user_id'];
             document.getElementById('project_search').value = '';
         }
         document.getElementById('booking_date').value = j.booking_date;
+        document.getElementById('end_date').value = j.end_date || j.booking_date;
         document.getElementById('start_time').value = j.start_time;
         document.getElementById('end_time').value = j.end_time;
         document.getElementById('booking_comments').value = j.comments || '';
@@ -848,6 +979,7 @@ $userId = $_SESSION['user_id'];
         fd.append('loc_lng', document.getElementById('loc_lng').value);
         fd.append('comments', document.getElementById('booking_comments').value); 
         fd.append('booking_date', document.getElementById('booking_date').value);
+        fd.append('end_date', document.getElementById('end_date').value || document.getElementById('booking_date').value);
         fd.append('start_time', document.getElementById('start_time').value); 
         fd.append('end_time', document.getElementById('end_time').value);
         fd.append('apply_setup_fee', applySetup);
@@ -871,7 +1003,7 @@ $userId = $_SESSION['user_id'];
             document.getElementById('new_nom_fixed').innerHTML = '<option value="">-- Select Company First --</option>';
             document.getElementById('new_nom_var').innerHTML = '<option value="">-- Select Company First --</option>';
             document.getElementById('new_nom_setup').innerHTML = '<option value="">-- Select Company First --</option>';
-            erpNominals = []; return;
+            window.erpNominals = []; return;
         }
         
         document.getElementById('new_nom_fixed').innerHTML = '<option value="">Loading ERP...</option>';
@@ -881,11 +1013,20 @@ $userId = $_SESSION['user_id'];
         fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
         .then(r => r.json())
         .then(res => {
-            erpNominals = res;
+            window.erpNominals = res;
             const opts = '<option value="">-- Select Nominal Code --</option>' + res.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
+            
             document.getElementById('new_nom_fixed').innerHTML = opts;
             document.getElementById('new_nom_var').innerHTML = opts;
             document.getElementById('new_nom_setup').innerHTML = opts;
+            
+            // Auto-update any configuration builder dropdowns
+            document.querySelectorAll('.cfg-nom').forEach(sel => {
+                const currentVal = sel.value;
+                sel.innerHTML = opts;
+                sel.value = currentVal;
+            });
+            
             updateRatesDisplay();
         });
     }
@@ -902,8 +1043,10 @@ $userId = $_SESSION['user_id'];
             minBox.style.display = 'block'; minInput.min = 1; minInput.value = Math.max(1, minInput.value);
             varNomBox.style.display = 'block'; varNomInput.required = true; lblFixed.innerText = "Fixed Nominal Code *";
         } else {
+            // This handles 'hourly', 'per_trip', and 'daily'
             minBox.style.display = 'none'; minInput.value = 0;
-            varNomBox.style.display = 'none'; varNomInput.required = false; varNomInput.value = ''; lblFixed.innerText = "Nominal Code *";
+            varNomBox.style.display = 'none'; varNomInput.required = false; varNomInput.value = ''; 
+            lblFixed.innerText = "Nominal Code *";
         }
         updateRatesDisplay();
     }
@@ -968,6 +1111,18 @@ $userId = $_SESSION['user_id'];
         
         document.getElementById('new_plant_setup_fee').value = parseFloat(p.setup_fee || 0).toFixed(2);
 
+        document.getElementById('new_lifecycle_mode').value = p.lifecycle_type || 'Standard';
+        
+        document.getElementById('new_has_configs').checked = (p.has_configurations == 1);
+        toggleConfigBuilder();
+        document.getElementById('config_list').innerHTML = '';
+        if(p.has_configurations == 1 && p.configurations) {
+            try {
+                const cfgs = JSON.parse(p.configurations);
+                cfgs.forEach(c => addConfigRow(c));
+            } catch(e){}
+        }
+
         loadFleetNominals(p.billing_company_id);
         setTimeout(() => { 
             document.getElementById('new_nom_fixed').value = p.nom_code_fixed || ''; 
@@ -986,6 +1141,11 @@ $userId = $_SESSION['user_id'];
         document.getElementById('fleetForm').reset();
         document.getElementById('fleet-form-title').innerText = "Register Machinery";
         document.getElementById('edit_plant_id').value = '';
+
+        document.getElementById('new_lifecycle_mode').value = 'Standard';
+        document.getElementById('new_has_configs').checked = false;
+        toggleConfigBuilder();
+        document.getElementById('config_list').innerHTML = '';
         
         toggleFleetSetupFee(); 
         togglePricingModel(); 
@@ -1017,6 +1177,18 @@ $userId = $_SESSION['user_id'];
         fd.append('setup_fee', document.getElementById('new_plant_setup_fee').value); 
         fd.append('nom_code_setup', document.getElementById('new_nom_setup').value); 
 
+        const opMode = document.getElementById('new_lifecycle_mode').value;
+        const reqDriver = (opMode === 'Auto-Scheduled') ? 0 : 1;
+        
+        fd.append('requires_driver', reqDriver); 
+        fd.append('lifecycle_type', opMode); 
+        
+        const hasConfigs = document.getElementById('new_has_configs').checked ? 1 : 0;
+        fd.append('has_configurations', hasConfigs); 
+        if (hasConfigs) { 
+            fd.append('configurations', buildConfigJson()); 
+        }
+
         fetch('api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => { 
@@ -1037,8 +1209,22 @@ $userId = $_SESSION['user_id'];
             let mapPre = job.location_lat ? `<div id="job-preview-map" style="width:100%; height:200px; border-radius:8px; border:1px solid #e2e8f0; margin-top:10px;"></div>` : '';
             let commHtml = job.comments ? `<div style="background:#fef3c7; border:1px solid #fde68a; padding:15px; border-radius:10px; margin-bottom:15px; color:#92400e; font-size:0.95rem;"><b>Notes:</b><br>${job.comments.replace(/\n/g, '<br>')}</div>` : '';
 
-            let driverName = job.driver_first ? `${job.driver_first} ${job.driver_last}` : null;
-            let driverHtml = driverName ? `<span style="color:#10b981;">Assigned to ${driverName}</span>` : `<span style="color:#ef4444;">Unassigned</span>`;
+            // Holistic Driver Check
+            let driverHtml = '';
+            if (job.requires_driver == 0) {
+                driverHtml = `<span style="color:#64748b; font-style:italic;"><i class="fas fa-robot"></i> Not Required (Static Asset)</span>`;
+            } else {
+                let driverName = job.driver_first ? `${job.driver_first} ${job.driver_last}` : null;
+                driverHtml = driverName ? `<span style="color:#10b981;">Assigned to ${driverName}</span>` : `<span style="color:#ef4444;">Unassigned</span>`;
+            }
+
+            // Holistic Time Display
+            let timeDisplay = '';
+            if (job.pricing_type === 'daily' || job.lifecycle_type === 'Auto-Scheduled') {
+                timeDisplay = `${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} <span style="color:#64748b; font-size:0.9rem;">(Daily Duration)</span>`;
+            } else {
+                timeDisplay = `${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})`;
+            }
             
             let erpStatusHtml = '';
             let isSynced = job.invoice_sysref && job.invoice_sysref !== 'SUCCESS_NO_REF' && job.invoice_sysref !== 'N/A' && job.invoice_sysref !== '';
@@ -1056,7 +1242,7 @@ $userId = $_SESSION['user_id'];
             document.getElementById('job-details').innerHTML = `
                 ${erpStatusHtml}
                 <div style="margin-bottom:12px; font-size: 1.2rem;"><b>Driver:</b> ${driverHtml}</div>
-                <div style="margin-bottom:12px;"><b>Date:</b> ${job.booking_date} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})</div>
+                <div style="margin-bottom:12px;"><b>Date:</b> ${timeDisplay}</div>
                 <div style="margin-bottom:12px;"><b>Type:</b> ${job.booking_type.toUpperCase()}</div>
                 <div style="margin-bottom:12px;"><b>Status:</b> <span style="color:${statCol}; font-weight:bold;">${job.status}</span> ${setupBadgeHtml}</div>
                 ${commHtml}
@@ -1069,17 +1255,20 @@ $userId = $_SESSION['user_id'];
             let today = new Date().toISOString().split('T')[0];
             let canInteract = (!isManager && job.booking_date === today) || canManageFleet;
             
-            if (!isManager && (!job.driver_id || job.driver_id == 0) && job.status !== 'Completed') {
+            // Prevent unassigned drivers from claiming driverless assets
+            if (!isManager && job.requires_driver != 0 && (!job.driver_id || job.driver_id == 0) && job.status !== 'Completed') {
                 controlsHtml += `<button class="btn-heavy btn-blue" onclick="claimJob(${job.id})"><i class="fas fa-hand-paper"></i> Claim Job</button>`;
             }
 
             if (canInteract) {
-                if (job.status === 'Pending' && job.driver_id > 0) {
+                // Allow "Start Job" for static assets, or driver-required assets that have a driver
+                if (job.status === 'Pending' && (job.driver_id > 0 || job.requires_driver == 0)) {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Start Job</button>`;
                 } else if (job.status === 'Paused') {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Resume Job</button>`;
                 } else if (job.status === 'In Progress') {
-                    if (job.category === 'Excavator') {
+                    // Show Pause button for ANY Multi-Day machine (keeping Excavator check for backward compatibility)
+                    if (job.lifecycle_type === 'Multi-Day' || job.category === 'Excavator') {
                         controlsHtml += `<button class="btn-heavy btn-blue" onclick="pauseJob(${job.id})"><i class="fas fa-pause"></i> Pause Job (End Day)</button>`;
                     }
                     controlsHtml += `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job (Final Signature)</button>`;
@@ -1134,69 +1323,108 @@ $userId = $_SESSION['user_id'];
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
     }
 
+    let pendingPunchData = null; 
+
     function punchJob(id, direction) {
         if (!confirm("Are you sure you want to " + (direction === 'in' ? "start" : "complete") + " this job?")) return;
 
         const btn = event.target.closest('button');
         const originalHtml = btn.innerHTML;
+        const job = window.currentActiveJob;
+
+        if (direction === 'in' && job.has_configurations == 1 && job.configurations) {
+            try {
+                const cfgs = JSON.parse(job.configurations);
+                const container = document.getElementById('config-options-container');
+                container.innerHTML = '';
+                
+                let hasModes = false;
+                let hasAddons = false;
+
+                cfgs.forEach((c, idx) => {
+                    if (c.type === 'mode') {
+                        if (!hasModes) { container.innerHTML += `<div style="font-size:0.8rem; font-weight:bold; color:#64748b; margin-bottom:5px; text-transform:uppercase;">Primary Mode</div>`; hasModes = true; }
+                        container.innerHTML += `
+                        <label style="border:2px solid #e2e8f0; border-radius:12px; padding:15px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:1.1rem; color:#0f172a; background:#f8fafc; transition:0.2s; margin-bottom:10px;" onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='#e2e8f0'">
+                            <input type="radio" name="driver_selected_mode" value="${c.name}" style="width:20px; height:20px;" ${hasModes && idx===0 ? 'checked' : ''}>
+                            <b>${c.name}</b>
+                        </label>`;
+                    } else if (c.type === 'addon') {
+                        if (!hasAddons) { container.innerHTML += `<div style="font-size:0.8rem; font-weight:bold; color:#64748b; margin-top:15px; margin-bottom:5px; text-transform:uppercase;">Extra Add-ons (Qty)</div>`; hasAddons = true; }
+                        container.innerHTML += `
+                        <div style="border:2px solid #e2e8f0; border-radius:12px; padding:10px 15px; display:flex; align-items:center; justify-content:space-between; font-size:1.1rem; color:#0f172a; background:#f8fafc; margin-bottom:10px;">
+                            <b>${c.name}</b>
+                            <input type="number" class="driver-addon-input" data-addon-name="${c.name}" min="0" value="0" style="width:60px; padding:5px; border:1px solid #cbd5e1; border-radius:6px; font-weight:bold; text-align:center;">
+                        </div>`;
+                    }
+                });
+
+                // If they ONLY have addons, make sure no radio button crashes the script
+                if (!hasModes) {
+                    container.innerHTML += `<input type="hidden" name="driver_selected_mode" value="Standard Operation">`;
+                }
+
+                pendingPunchData = { id, direction, btn, originalHtml };
+                document.getElementById('driver-config-modal').style.display = 'flex';
+                return; 
+            } catch(e) { console.warn("Failed to parse configs", e); }
+        }
+
+        executePunchLogic(id, direction, btn, originalHtml, null, null);
+    }
+
+    function confirmConfigAndStart() {
+        document.getElementById('driver-config-modal').style.display = 'none';
+        
+        // Grab Mode
+        const modeEl = document.querySelector('input[name="driver_selected_mode"]:checked') || document.querySelector('input[name="driver_selected_mode"]');
+        const selectedMode = modeEl ? modeEl.value : null;
+
+        // Grab Addons (Only those with Qty > 0)
+        let selectedAddons = [];
+        document.querySelectorAll('.driver-addon-input').forEach(input => {
+            const qty = parseInt(input.value);
+            if (qty > 0) {
+                selectedAddons.push({ name: input.getAttribute('data-addon-name'), qty: qty });
+            }
+        });
+
+        const p = pendingPunchData;
+        executePunchLogic(p.id, p.direction, p.btn, p.originalHtml, selectedMode, JSON.stringify(selectedAddons));
+    }
+
+    function executePunchLogic(id, direction, btn, originalHtml, activeMode, activeAddons) {
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
         btn.disabled = true;
 
-        // Strictly check if the active user is a driver
         const isDriver = <?= ($_SESSION['role'] === 'plant_driver') ? 'true' : 'false' ?>;
 
-        // If it's a driver clocking IN, request their exact phone location
         if (direction === 'in' && isDriver) {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    function(position) {
-                        // Success: We got the exact coordinates!
-                        sendPunchData(id, direction, position.coords.latitude, position.coords.longitude, btn, originalHtml);
-                    },
-                    function(error) {
-                        console.warn("GPS failed or denied. Falling back to standard punch in.");
-                        // Fallback: Let them punch in even if GPS fails so they aren't blocked from working
-                        sendPunchData(id, direction, null, null, btn, originalHtml);
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } // Request high-precision GPS
+                    function(position) { sendPunchData(id, direction, position.coords.latitude, position.coords.longitude, btn, originalHtml, activeMode, activeAddons); },
+                    function(error) { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode, activeAddons); },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
-            } else {
-                // Browser doesn't support GPS
-                sendPunchData(id, direction, null, null, btn, originalHtml);
-            }
-        } else {
-            // Managers, Admins, or clocking OUT bypass the GPS request entirely
-            sendPunchData(id, direction, null, null, btn, originalHtml);
-        }
+            } else { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode, activeAddons); }
+        } else { sendPunchData(id, direction, null, null, btn, originalHtml, activeMode, activeAddons); }
     }
 
-    function sendPunchData(id, direction, lat, lng, btn, originalHtml) {
+    function sendPunchData(id, direction, lat, lng, btn, originalHtml, activeMode = null, activeAddons = null) {
         const fd = new FormData();
         fd.append('action', direction === 'in' ? 'punch_in' : 'punch_out_complete');
         fd.append('id', id);
         
-        // Append GPS data if we have it
-        if (lat && lng) {
-            fd.append('lat', lat);
-            fd.append('lng', lng);
-        }
+        if (lat && lng) { fd.append('lat', lat); fd.append('lng', lng); }
+        if (activeMode) { fd.append('active_mode', activeMode); }
+        if (activeAddons) { fd.append('active_addons', activeAddons); }
 
         fetch('api/plant_actions.php?id=' + id, { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => {
-            if (res === 'OK') {
-                loadJob(id);
-                calendar.refetchEvents();
-            } else {
-                alert("Error: " + res);
-                btn.innerHTML = originalHtml;
-                btn.disabled = false;
-            }
-        }).catch(err => {
-            alert("Network error.");
-            btn.innerHTML = originalHtml;
-            btn.disabled = false;
-        });
+            if (res === 'OK') { location.reload(); } 
+            else { alert("Error: " + res); btn.innerHTML = originalHtml; btn.disabled = false; }
+        }).catch(err => { alert("Network error."); btn.innerHTML = originalHtml; btn.disabled = false; });
     }
 
     function startPunchOut(id, pricingType) { 
