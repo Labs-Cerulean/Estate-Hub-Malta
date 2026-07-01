@@ -43,8 +43,8 @@ try {
 require_once 'header.php';
 ?>
 
-<script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
-<link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
 
 <script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js'></script>
 <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css' type='text/css' />
@@ -756,17 +756,36 @@ require_once 'header.php';
     const defaultZoom = 9.5;
     const defaultPitch = 25;
 
-    mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw'; 
-    
-    const map = new mapboxgl.Map({ 
+    // Alias mapboxgl to maplibregl so the Draw polygon plugin continues to work flawlessly
+    window.mapboxgl = maplibregl;
+
+    // Initialize the 100% free map (Notice: No API Key needed!)
+    const map = new maplibregl.Map({ 
         container: 'sales-map', 
-        style: 'mapbox://styles/mapbox/satellite-streets-v12', 
+        style: {
+            'version': 8,
+            'sources': {
+                'osm': {
+                    'type': 'raster',
+                    'tiles': ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                    'tileSize': 256,
+                    'attribution': '&copy; OpenStreetMap'
+                }
+            },
+            'layers': [{
+                'id': 'osm-layer',
+                'type': 'raster',
+                'source': 'osm',
+                'minzoom': 0,
+                'maxzoom': 19
+            }]
+        },
         center: defaultCenter, 
         zoom: defaultZoom, 
         pitch: defaultPitch, 
         bearing: 0 
     });
-    map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+    map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
     const draw = new MapboxDraw({ 
         displayControlsDefault: false, 
@@ -836,7 +855,7 @@ require_once 'header.php';
                         const el = document.createElement('div');
                         el.style.cssText = `background-color: ${project.available_units > 0 ? '#10B981' : '#EF4444'}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8); cursor: pointer;`;
                         
-                        new mapboxgl.Marker(el).setLngLat([project.longitude, project.latitude]).addTo(map);
+                        new maplibregl.Marker(el).setLngLat([project.longitude, project.latitude]).addTo(map);
                         project.markerEl = el; 
                         
                         el.addEventListener('click', () => loadMultipleProjects([project], true));
