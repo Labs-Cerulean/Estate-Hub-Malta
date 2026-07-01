@@ -140,49 +140,73 @@ if (count($sessions) > 0) {
     $hoursWorked = $legacyHoursWorked;
 }
 
-// --- MULTI-MODE BILLING BREAKDOWN ---
+// --- MULTI-MODE & ADD-ON BILLING BREAKDOWN ---
 $modeBreakdown = [];
+$addonBreakdown = [];
 if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($sessions) > 0) {
     $cfgs = json_decode($job['configurations'], true);
     
-    // 1. Group the logged hours by the driver's selected mode
     foreach ($sessions as $s) {
+        // 1. Group Primary Operational Modes
         $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
         if (!isset($modeBreakdown[$mName])) {
             $modeBreakdown[$mName] = ['hours' => 0, 'nom_code' => '', 'rate' => 0];
         }
         $modeBreakdown[$mName]['hours'] += (float)$s['hours'];
-    }
-    
-    // 2. Cross-reference the grouped modes against the JSON configurations and Live ERP catalog
-    foreach ($modeBreakdown as $mName => &$data) {
-        $matchedCfg = null;
-        if (is_array($cfgs)) {
-            foreach ($cfgs as $c) { if ($c['name'] === $mName) { $matchedCfg = $c; break; } }
-        }
-        
-        if ($matchedCfg) {
-            $data['nom_code'] = $matchedCfg['nom_code'];
-            $nCodeTrim = trim($matchedCfg['nom_code']);
-            $erpRate = 0;
-            // Fetch live rate from ERP
-            if (!empty($allNominals)) {
-                foreach($allNominals as $n) {
-                    if (trim($n['NCCode']) === $nCodeTrim) {
-                        $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2'];
-                        break;
+
+        // 2. Group Simultaneous Extra Add-ons
+        if (!empty($s['addons_used'])) {
+            $sAddons = json_decode($s['addons_used'], true);
+            if (is_array($sAddons)) {
+                foreach ($sAddons as $sa) {
+                    $saName = $sa['name'];
+                    $saQty = (int)$sa['qty'];
+                    if ($saQty > 0) {
+                        if (!isset($addonBreakdown[$saName])) {
+                            $addonBreakdown[$saName] = ['qty_hours' => 0, 'nom_code' => '', 'rate' => 0];
+                        }
+                        $addonBreakdown[$saName]['qty_hours'] += ($saQty * (float)$s['hours']);
                     }
                 }
             }
+        }
+    }
+    
+    foreach ($modeBreakdown as $mName => &$data) {
+        $matchedCfg = null;
+        if (is_array($cfgs)) {
+            foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
+        }
+        if ($matchedCfg) {
+            $data['nom_code'] = $matchedCfg['nom_code'];
+            $nCodeTrim = trim($matchedCfg['nom_code']); $erpRate = 0;
+            if (!empty($allNominals)) {
+                foreach($allNominals as $n) { if (trim($n['NCCode']) === $nCodeTrim) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
+            }
             $data['rate'] = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
         } else {
-            // Fallback to the master variable rate if something goes wrong
             $data['nom_code'] = $job['nom_code_variable'];
             $data['rate'] = isset($job['final_rate_var']) ? $job['final_rate_var'] : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
         }
     }
+    unset($data);
+
+    foreach ($addonBreakdown as $saName => &$data) {
+        $matchedCfg = null;
+        if (is_array($cfgs)) {
+            foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
+        }
+        if ($matchedCfg) {
+            $data['nom_code'] = $matchedCfg['nom_code'];
+            $nCodeTrim = trim($matchedCfg['nom_code']); $erpRate = 0;
+            if (!empty($allNominals)) {
+                foreach($allNominals as $n) { if (trim($n['NCCode']) === $nCodeTrim) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
+            }
+            $data['rate'] = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
+        }
+    }
+    unset($data);
 }
-// ------------------------------------
 
 $jobStart = new DateTime($job['booking_date']);
 $jobEnd = !empty($job['end_date']) ? new DateTime($job['end_date']) : clone $jobStart;
@@ -476,6 +500,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
         const hasSetupFee = <?= (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) ? 'true' : 'false' ?>;
         const modeBreakdown = <?= json_encode($modeBreakdown) ?>;
+        const addonBreakdown = <?= json_encode($addonBreakdown) ?>;
 
         let rateFixed = <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>;
         let rateVar = <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>;
@@ -614,7 +639,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                 </tr>`;
             }
             else {
-                if (Object.keys(modeBreakdown).length > 0) {
+                if (Object.keys(modeBreakdown).length > 0 || Object.keys(addonBreakdown).length > 0) {
                     for (const [modeName, data] of Object.entries(modeBreakdown)) {
                         const mCode = data.nom_code || 'MISSING';
                         let mQty = parseFloat(data.hours).toFixed(2);
@@ -624,10 +649,26 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                         
                         html += `<tr>
                             <td><b>${mCode}</b></td>
-                            <td>${modeName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                            <td>Primary Mode: ${modeName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
                             <td class="text-right">${mQty} Hrs</td>
                             <td class="text-right">${mRate.toFixed(4)}</td>
                             <td class="text-right"><b>${mTotal.toFixed(2)}</b></td>
+                        </tr>`;
+                    }
+
+                    for (const [addonName, data] of Object.entries(addonBreakdown)) {
+                        const aCode = data.nom_code || 'MISSING';
+                        let aQtyHours = parseFloat(data.qty_hours).toFixed(2);
+                        let aRate = parseFloat(data.rate);
+                        let aTotal = +(aQtyHours * aRate).toFixed(2);
+                        grossSubtotal += aTotal;
+                        
+                        html += `<tr>
+                            <td><b>${aCode}</b></td>
+                            <td>Extra Add-on Surcharge: ${addonName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                            <td class="text-right">${aQtyHours} Qty-Hrs</td>
+                            <td class="text-right">${aRate.toFixed(4)}</td>
+                            <td class="text-right"><b>${aTotal.toFixed(2)}</b></td>
                         </tr>`;
                     }
                 } else {
