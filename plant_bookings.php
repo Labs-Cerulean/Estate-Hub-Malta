@@ -25,8 +25,8 @@ $userId = $_SESSION['user_id'];
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
-    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
 
@@ -371,7 +371,7 @@ $userId = $_SESSION['user_id'];
     const canManageFleet = <?= $canManageFleet ? 'true' : 'false' ?>;
     const canViewLedger = <?= $canViewLedger ? 'true' : 'false' ?>;
     const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>;
-    mapboxgl.accessToken = 'pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw';
+    window.mapboxgl = maplibregl;
 
     document.addEventListener('DOMContentLoaded', () => {
         initCalendar(); 
@@ -426,15 +426,36 @@ $userId = $_SESSION['user_id'];
             mapboxMap.resize(); 
             return; 
         }
-        mapboxMap = new mapboxgl.Map({ 
+        
+        // 100% Free MapLibre + OpenStreetMap Engine
+        mapboxMap = new maplibregl.Map({ 
             container: 'map', 
-            style: 'mapbox://styles/mapbox/streets-v12', 
+            style: {
+                'version': 8,
+                'sources': {
+                    'osm': {
+                        'type': 'raster',
+                        'tiles': ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                        'tileSize': 256,
+                        'attribution': '&copy; OpenStreetMap'
+                    }
+                },
+                'layers': [{
+                    'id': 'osm-layer',
+                    'type': 'raster',
+                    'source': 'osm',
+                    'minzoom': 0,
+                    'maxzoom': 19
+                }]
+            }, 
             center: [14.38, 35.92], 
             zoom: 10 
         });
+
         mapboxMap.on('click', (e) => {
             if (marker) marker.remove(); 
-            marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
+            // Updated to use maplibregl marker
+            marker = new maplibregl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
             document.getElementById('loc_lat').value = e.lngLat.lat; 
             document.getElementById('loc_lng').value = e.lngLat.lng;
         });
@@ -1299,8 +1320,31 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             
             if (job.location_lat) {
                 setTimeout(() => { 
-                    const pm = new mapboxgl.Map({ container: 'job-preview-map', style: 'mapbox://styles/mapbox/streets-v12', center: [job.location_lng, job.location_lat], zoom: 13, interactive: false }); 
-                    new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([job.location_lng, job.location_lat]).addTo(pm); 
+                    const pm = new maplibregl.Map({ 
+                        container: 'job-preview-map', 
+                        style: {
+                            'version': 8,
+                            'sources': {
+                                'osm': {
+                                    'type': 'raster',
+                                    'tiles': ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                                    'tileSize': 256,
+                                    'attribution': '&copy; OpenStreetMap'
+                                }
+                            },
+                            'layers': [{
+                                'id': 'osm-layer',
+                                'type': 'raster',
+                                'source': 'osm',
+                                'minzoom': 0,
+                                'maxzoom': 19
+                            }]
+                        }, 
+                        center: [job.location_lng, job.location_lat], 
+                        zoom: 13, 
+                        interactive: false 
+                    }); 
+                    new maplibregl.Marker({color: '#f43f5e'}).setLngLat([job.location_lng, job.location_lat]).addTo(pm); 
                 }, 200);
             }
         });
