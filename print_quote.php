@@ -171,7 +171,9 @@ $colSpan = $isFinishes ? 3 : 5;
         <?php if ($quote['location_lat'] && $quote['location_lng']): ?>
             <h3 style="margin-bottom: 10px; font-size: 16px; color: #4b5563;">Site Location Map:</h3>
             <div class="fp-map-container">
-                <img src="https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/pin-l+ef4444(<?= $quote['location_lng'] ?>,<?= $quote['location_lat'] ?>)/<?= $quote['location_lng'] ?>,<?= $quote['location_lat'] ?>,18,0/800x500@2x?access_token=pk.eyJ1IjoibmljaG9sYXN2IiwiYSI6ImNtbjBuemFmeTBscjEycHM5aDl2Y2VraDIifQ.Bk4c7hHHLtE59Ze8hYFFVw" alt="Site Map">
+                <img src="https://static-maps.openplaceguide.org/render?center=<?= $quote['location_lat'] ?>,<?= $quote['location_lng'] ?>&zoom=16&size=800,500&markers=color:red|<?= $quote['location_lat'] ?>,<?= $quote['location_lng'] ?>" 
+                     alt="Site Map" 
+                     style="width:100%; max-width:800px; height:auto; border-radius:8px; border:1px solid #cbd5e1;">
             </div>
         <?php endif; ?>
     </div>
