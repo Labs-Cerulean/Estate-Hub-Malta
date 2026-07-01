@@ -100,7 +100,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         $lines[] = [ "Type" => "N", "Code" => $dCode, "Description" => $dDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
     } else {
-        // --- INTELLIGENT MULTI-MODE SYNC LOGIC ---
+        // --- INTELLIGENT MULTI-MODE & ADD-ON SYNC LOGIC ---
         $cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
         
         $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
@@ -108,31 +108,41 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (is_array($cfgs) && count($sessions) > 0) {
-            // Group hours by mode
             $modeBreakdown = [];
+            $addonBreakdown = [];
             foreach ($sessions as $s) {
                 $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
                 if (!isset($modeBreakdown[$mName])) $modeBreakdown[$mName] = 0;
                 $modeBreakdown[$mName] += (float)$s['hours'];
+                
+                if (!empty($s['addons_used'])) {
+                    $sAddons = json_decode($s['addons_used'], true);
+                    if (is_array($sAddons)) {
+                        foreach ($sAddons as $sa) {
+                            $saName = $sa['name'];
+                            $saQty = (int)$sa['qty'];
+                            if ($saQty > 0) {
+                                if (!isset($addonBreakdown[$saName])) $addonBreakdown[$saName] = 0;
+                                $addonBreakdown[$saName] += ($saQty * (float)$s['hours']);
+                            }
+                        }
+                    }
+                }
             }
 
             $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
             $isInternal = ($job['booking_type'] == 'in-house');
 
+            // 1. Primary Modes Lines
             foreach ($modeBreakdown as $mName => $mHours) {
                 $matchedCfg = null;
-                foreach ($cfgs as $c) { if ($c['name'] === $mName) { $matchedCfg = $c; break; } }
+                foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
                 
                 if ($matchedCfg) {
                     $mCode = trim($matchedCfg['nom_code']);
                     $erpRate = 0;
                     if (!empty($allNominals)) {
-                        foreach($allNominals as $n) {
-                            if (trim($n['NCCode']) === $mCode) {
-                                $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2'];
-                                break;
-                            }
-                        }
+                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $mCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
                     }
                     $mPrice = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
                     
@@ -140,10 +150,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                     $price = round($mPrice, 4);
                     $grossSubtotal += round($qty * $price, 2);
                     
-                    $lines[] = [ "Type" => "N", "Code" => $mCode, "Description" => substr($mName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
+                    $lines[] = [ "Type" => "N", "Code" => $mCode, "Description" => substr("Mode: ".$mName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
                                  "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
                 } else {
-                    // Fallback
                     $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
                     $qty = round($mHours, 2);
                     $price = round((float)$job['final_rate_var'], 4);
@@ -153,8 +162,29 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                                  "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
                 }
             }
+
+            // 2. Extra Add-ons Lines
+            foreach ($addonBreakdown as $saName => $saQtyHours) {
+                $matchedCfg = null;
+                foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
+                
+                if ($matchedCfg) {
+                    $aCode = trim($matchedCfg['nom_code']);
+                    $erpRate = 0;
+                    if (!empty($allNominals)) {
+                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $aCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
+                    }
+                    $aPrice = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
+                    
+                    $qty = round($saQtyHours, 2);
+                    $price = round($aPrice, 4);
+                    $grossSubtotal += round($qty * $price, 2);
+                    
+                    $lines[] = [ "Type" => "N", "Code" => $aCode, "Description" => substr("Addon: ".$saName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
+                                 "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+                }
+            }
         } else {
-            // Standard Hourly Fallback
             $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
             $hDesc = $varNom ? substr(trim($varNom['NCDesc']), 0, 35) : "Plant Operation";
             $qty = round((float)$job['final_hours'], 2);
@@ -173,28 +203,13 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
     $jobRef = sprintf("%s-%s-%04d", $prefix, date('Y', strtotime($job['booking_date'])), $bookingId);
     
-    // Dynamic Driver String
-    if ((int)($job['requires_driver'] ?? 1) === 0) {
-        $driverName = "Not Required (Static Asset)";
-    } else {
-        $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
-    }
+    if ((int)($job['requires_driver'] ?? 1) === 0) { $driverName = "Not Required (Static Asset)"; } 
+    else { $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? '')); }
 
-    $locationText = ($job['booking_type'] == 'in-house') 
-        ? "Project: " . ($job['project_name'] ?? 'N/A') 
-        : "Client: " . ($job['client_name'] ?? 'N/A');
+    $locationText = ($job['booking_type'] == 'in-house') ? "Project: " . ($job['project_name'] ?? 'N/A') : "Client: " . ($job['client_name'] ?? 'N/A');
 
-    // Text lines do not get discounts applied to them
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Delivery Note: " . $jobRef, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr($locationText, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
-    
-    if ($job['booking_type'] !== 'in-house' && !empty($job['location_lat']) && !empty($job['location_lng'])) {
-        $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
-        if ($address) {
-            $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Loc: " . $address, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
-        }
-    }
-
     $lines[] = [ "Type" => "T", "Code" => "0000", "Description" => substr("Driver: " . $driverName, 0, 35), "Qty" => round(1, 2), "Location" => "01" ];
 
     $payload = [ 
@@ -1015,14 +1030,13 @@ if ($action == 'pause_job') {
     $stmt->execute([$bookingId]);
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Save the daily session
     if (!empty($job['punch_in_time'])) {
         $inTime = new DateTime($job['punch_in_time']);
         $outTime = new DateTime($punchOut);
         $interval = $inTime->diff($outTime);
         $hours = round($interval->h + ($interval->i / 60), 2);
 
-        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchOutTime, $hours, $job['active_mode'], $job['active_addons']]);
+        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchOut, $hours, $job['active_mode'], $job['active_addons']]);
     }
 
     $pdo->prepare("UPDATE plant_bookings SET status='Paused', punch_in_time=NULL WHERE id=?")->execute([$bookingId]);
@@ -1035,8 +1049,8 @@ if ($action == 'punch_out_complete') {
     $punchTime = date('Y-m-d H:i:s');
     $bookingId = $_POST['id'];
     
-    // Log the final session
-    $stmt = $pdo->prepare("SELECT punch_in_time FROM plant_bookings WHERE id = ?");
+    // Log the final session - FIXED: Now pulling active_mode and active_addons
+    $stmt = $pdo->prepare("SELECT punch_in_time, active_mode, active_addons FROM plant_bookings WHERE id = ?");
     $stmt->execute([$bookingId]);
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1046,7 +1060,8 @@ if ($action == 'punch_out_complete') {
         $interval = $inTime->diff($outTime);
         $hours = round($interval->h + ($interval->i / 60), 2);
 
-        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchOutTime, $hours, $job['active_mode'], $job['active_addons']]);
+        // FIXED: Replaced $punchOutTime with $punchTime to eliminate log crashes
+        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours, $job['active_mode'], $job['active_addons']]);
     }
 
     $stmt = $pdo->prepare("
