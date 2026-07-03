@@ -376,7 +376,7 @@ $userId = $_SESSION['user_id'];
     document.addEventListener('DOMContentLoaded', () => {
         initCalendar(); 
         signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
-        if (isManager) {
+        if (isManager || canViewLedger) {
             loadFormData();
         }
     });
