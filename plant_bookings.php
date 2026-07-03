@@ -523,27 +523,43 @@ $userId = $_SESSION['user_id'];
         .then(r => r.json())
         .then(d => {
             groupedPlants = d.plants;
-            document.getElementById('plant_category').innerHTML = '<option value="">-- Category --</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
-            document.getElementById('driver_id').innerHTML = '<option value="">-- Unassigned --</option>' + d.drivers.map(drv => `<option value="${drv.id}">${drv.first_name} ${drv.last_name}</option>`).join('');
+            
+            // Safely check if the booking form elements exist before populating them
+            const catDropdown = document.getElementById('plant_category');
+            if (catDropdown) {
+                catDropdown.innerHTML = '<option value="">-- Category --</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
+            }
+
+            const driverDropdown = document.getElementById('driver_id');
+            if (driverDropdown) {
+                driverDropdown.innerHTML = '<option value="">-- Unassigned --</option>' + d.drivers.map(drv => `<option value="${drv.id}">${drv.first_name} ${drv.last_name}</option>`).join('');
+            }
             
             if (canManageFleet) {
                 const fleetCatSelect = document.getElementById('new_plant_cat');
-                Object.keys(groupedPlants).sort().forEach(c => {
-                    if(!Array.from(fleetCatSelect.options).some(o => o.value === c)) {
-                        fleetCatSelect.insertAdjacentHTML('beforeend', `<option value="${c}">${c}</option>`);
-                    }
-                });
+                if (fleetCatSelect) {
+                    Object.keys(groupedPlants).sort().forEach(c => {
+                        if(!Array.from(fleetCatSelect.options).some(o => o.value === c)) {
+                            fleetCatSelect.insertAdjacentHTML('beforeend', `<option value="${c}">${c}</option>`);
+                        }
+                    });
+                }
             }
 
             window.allProjects = d.projects;
-            // Auto-populate ledger filter dropdowns
+            
+            // Auto-populate ledger filter dropdowns safely
             if(document.getElementById('filter_plant_type')) {
                 document.getElementById('filter_plant_type').innerHTML = '<option value="">All Types</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
             }
             if(document.getElementById('filter_project')) {
                 document.getElementById('filter_project').innerHTML = '<option value="">All Projects</option>' + d.projects.map(prj => `<option value="${prj.id}">${prj.name}</option>`).join('');
             }
-            updatePlantDropdown();
+            
+            // Only update the plant dropdown if the booking form exists
+            if (catDropdown) {
+                updatePlantDropdown();
+            }
         });
     }
 
