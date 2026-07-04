@@ -97,8 +97,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $pms = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role = 'project_manager' AND is_active = 'Yes' ORDER BY first_name")->fetchAll();
 $subs = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name")->fetchAll();
 
-// 2. Define Allowed Stages
+// 2. Define Allowed Stages (execution matrix — excludes Tracking / Feasibility / Permit)
 $allowedStages = ['Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
+$hiddenStages = ['Tracking', 'Feasibility', 'Permit'];
 
 // 3. GET FILTERS AND SORTS
 $filterDefaults = ['filter_type' => $isLegalRep ? 'in-house' : 'in-house'];
@@ -114,8 +115,9 @@ $filterSub = $filters['filter_sub'];
 
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
-$allowedSorts = ['name', 'demo_status', 'exc_status', 'const_status', 'fin_status', 'pm_const'];
+$allowedSorts = ['name', 'city', 'client', 'stage', 'progress'];
 if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
+$stageSortOrder = ['Mobilisation' => 1, 'Demolition' => 2, 'Excavation' => 3, 'Construction' => 4, 'Finishes' => 5, 'Compliance' => 6, 'Condominium' => 7, 'Handed Over' => 8];
 $allowedOrders = ['ASC', 'DESC'];
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
 
@@ -180,11 +182,21 @@ foreach ($projectsRaw as $p) {
     if (($p['project_status'] ?? 'Active') !== 'Active') continue;
     if ($isLegalRep && ($p['type'] ?? '') !== 'in-house') continue;
     $stage = $stagesBatch[$p['id']] ?? getAccurateProjectStage($pdo, $p['id']);
-    
-    if (in_array($stage, $allowedStages)) {
+
+    if (in_array($stage, $hiddenStages, true)) continue;
+
+    $paRecordsEarly = $paData[$p['id']] ?? [];
+    $hasEndorsedPa = pmProjectHasEndorsedPa($paRecordsEarly);
+    $isHandedOver = ($stage === 'Handed Over');
+
+    if (!$hasEndorsedPa && !$isHandedOver) continue;
+    if (!in_array($stage, $allowedStages, true) && !$isHandedOver) continue;
+
+    if (in_array($stage, $allowedStages, true) || $isHandedOver) {
         if ($filterStage !== 'all' && $stage !== $filterStage) continue;
 
         $p['stage'] = $stage;
+        $p['card_mode'] = $isHandedOver ? 'summary' : 'full';
         $p['demo_status'] = $mobData[$p['id']]['demo_status'] ?? 'Pending';
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         $p['safety_status'] = $ohsaData[$p['id']]['safety_status'] ?? 'N/A';
@@ -273,6 +285,24 @@ foreach ($projectsRaw as $p) {
             else { $p['fin_status'] = 'Pending'; }
         }
 
+        $levelPcts = [];
+        if (isset($blockAggData[$p['id']])) {
+            foreach ($blockAggData[$p['id']] as $row) {
+                if (!empty($row['level_id']) && ($row['construction_pct'] ?? 0) > 0) {
+                    $levelPcts[] = (float)$row['construction_pct'];
+                } elseif (empty($row['level_id']) && ($row['progress'] ?? 0) > 0) {
+                    $levelPcts[] = (float)$row['progress'];
+                }
+            }
+        }
+        if ($isHandedOver) {
+            $p['progress_pct'] = 100;
+        } elseif (!empty($levelPcts)) {
+            $p['progress_pct'] = (int)round(array_sum($levelPcts) / count($levelPcts));
+        } else {
+            $p['progress_pct'] = $stageSortOrder[$stage] ?? 0;
+        }
+
         $p['pm_const_name'] = 'Unassigned'; $p['pm_fin_name'] = 'Unassigned';
         foreach ($pms as $pm) {
             if ($pm['id'] == $p['pm_construction_id']) $p['pm_const_name'] = $pm['first_name'] . ' ' . $pm['last_name'];
@@ -313,18 +343,23 @@ if ($filterPm !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p
 if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
 
-$statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
-
-usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $statusEnumMap) {
+usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageSortOrder) {
     $valA = ''; $valB = '';
-    if (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) {
-        $valA = $statusEnumMap[$a[$sortBy]] ?? 0;
-        $valB = $statusEnumMap[$b[$sortBy]] ?? 0;
-    } elseif (in_array($sortBy, ['pm_const', 'pm_fin'])) {
-        $key = $sortBy . '_name';
-        $valA = $a[$key] ?? ''; $valB = $b[$key] ?? '';
+    if ($sortBy === 'client') {
+        $valA = $a['client_name'] ?? '';
+        $valB = $b['client_name'] ?? '';
+    } elseif ($sortBy === 'city') {
+        $valA = $a['city'] ?? '';
+        $valB = $b['city'] ?? '';
+    } elseif ($sortBy === 'stage') {
+        $valA = $stageSortOrder[$a['stage'] ?? ''] ?? 99;
+        $valB = $stageSortOrder[$b['stage'] ?? ''] ?? 99;
+    } elseif ($sortBy === 'progress') {
+        $valA = (int)($a['progress_pct'] ?? 0);
+        $valB = (int)($b['progress_pct'] ?? 0);
     } else {
-        $valA = $a[$sortBy] ?? ''; $valB = $b[$sortBy] ?? '';
+        $valA = $a[$sortBy] ?? '';
+        $valB = $b[$sortBy] ?? '';
     }
 
     if ($valA == $valB) return 0;
@@ -476,6 +511,10 @@ require_once 'header.php';
 .card-sort-bar span { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
 .card-sort-link { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.75rem; text-decoration: none; color: var(--text-secondary); border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); }
 .card-sort-link.active, .card-sort-link:hover { color: #fff; border-color: var(--primary-color); background: rgba(99, 102, 241, 0.2); }
+.project-card.card-summary { border-color: rgba(107, 114, 128, 0.35); }
+.project-card.card-summary .card-header { cursor: pointer; }
+.card-summary-row { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem; }
+.card-summary-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 4px; background: rgba(34, 197, 94, 0.12); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.25); font-weight: 700; text-transform: uppercase; }
 
 .info-tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); white-space: nowrap; }
 .info-tag.ohsa-green { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); cursor: pointer; }
@@ -538,7 +577,7 @@ require_once 'header.php';
         <div>
             <h1 class="page-title" style="margin-bottom: 0;"><?= $isLegalRep ? 'In-House Project Status' : 'Project Execution Matrix' ?></h1>
             <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">
-                <?= $isLegalRep ? 'Read-only view of in-house project delivery milestones and execution status.' : 'Live operational dashboard. Click on any project, status, or team member to manage them directly.' ?>
+                <?= $isLegalRep ? 'Read-only view of in-house project delivery milestones and execution status.' : 'Active projects with an endorsed permit (full detail) and completed handovers (summary). Tracking and pre-permit projects are hidden.' ?>
             </p>
         </div>
         <div>
@@ -580,11 +619,10 @@ require_once 'header.php';
     <?php
     $sortColumns = [
         'name' => 'Name',
-        'demo_status' => 'Demo',
-        'exc_status' => 'Exc',
-        'const_status' => 'Const',
-        'fin_status' => 'Fin',
-        'pm_const' => 'PM',
+        'city' => 'Locality',
+        'client' => 'Client',
+        'stage' => 'Stage',
+        'progress' => 'Progress',
     ];
     ?>
     <div class="card-sort-bar">
@@ -603,18 +641,38 @@ require_once 'header.php';
             $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
             $ohsaClass = strtolower($p['safety_status'] ?? 'na');
             $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
+            $isSummary = ($p['card_mode'] ?? 'full') === 'summary';
+            $sched = $p['schedule'] ?? null;
         ?>
-        <article class="project-card">
+        <article class="project-card<?= $isSummary ? ' card-summary' : '' ?>">
             <div class="card-header" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
                 <div class="card-title"><?= htmlspecialchars($p['name']) ?></div>
-                <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?></div>
+                <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?><?= !empty($p['city']) ? ' · ' . htmlspecialchars($p['city']) : '' ?></div>
                 <div class="card-meta">
                     <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
+                    <?php if (!$isSummary): ?>
                     <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
+                    <span class="info-tag"><?= (int)($p['progress_pct'] ?? 0) ?>% built</span>
                     <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments"><?= $ohsaIcon ?> OHSA</span>
+                    <?php else: ?>
+                    <span class="card-summary-badge">Handed Over</span>
+                    <?php endif; ?>
                 </div>
+                <?php if ($isSummary): ?>
+                <div class="card-summary-row">
+                    <?php if (!empty($sched['actual_finishes_date'])): ?>
+                        <span>Finishes: <?= formatScheduleDate($sched['actual_finishes_date']) ?></span>
+                    <?php elseif (!empty($sched['actual_shell_date'])): ?>
+                        <span>Shell: <?= formatScheduleDate($sched['actual_shell_date']) ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($p['pa_numbers'])): ?>
+                        <span>PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             </div>
 
+            <?php if (!$isSummary): ?>
             <div class="card-section">
                 <div class="card-section-title">Permit Application</div>
                 <?php if (!empty($p['pa_records'])): ?>
@@ -677,6 +735,7 @@ require_once 'header.php';
                     </div>
                 </div>
             </div>
+            <?php endif; ?>
         </article>
         <?php endforeach; ?>
     </div>

@@ -198,7 +198,7 @@ require_once 'header.php';
         <div class="two-column-layout" style="grid-template-columns: 1fr 2fr;">
             <div class="section-card">
                 <h3 style="margin-top: 0;">Add / Edit Standard Item</h3>
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 15px;">These items are injected automatically with a <strong>qty of 0.00</strong> when creating a Demo or Const quote.</p>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 15px;">These items are injected automatically with a <strong>qty of 0.00</strong> when creating a Demo, Const, or OHSA quote. OHSA uses service units (visit, participant, hour, etc.) — manage rates here or run <code>sql/ohsa_standard_rates.sql</code> in phpMyAdmin.</p>
                 <form method="POST">
                     <input type="hidden" name="action" value="add_item" id="form_action">
                     <input type="hidden" name="item_id" id="form_item_id">
@@ -218,13 +218,25 @@ require_once 'header.php';
                         <div class="form-group">
                             <label>Unit</label>
                             <select name="unit" id="form_unit">
-                                <option value="lump_sum">Lump Sum</option>
-                                <option value="sqm">sq.m (Area)</option>
-                                <option value="lm">lm (Linear)</option>
-                                <option value="cum">cu.m</option>
-                                <option value="cu.yd">cu.yd</option>
-                                <option value="hrs">Hours</option>
-                                <option value="qty">Qty / Pcs</option>
+                                <optgroup label="Construction / General" id="unit_group_general">
+                                    <option value="lump_sum">Lump Sum</option>
+                                    <option value="sqm">sq.m (Area)</option>
+                                    <option value="lm">lm (Linear)</option>
+                                    <option value="cum">cu.m</option>
+                                    <option value="cu.yd">cu.yd</option>
+                                    <option value="hrs">Hours</option>
+                                    <option value="qty">Qty / Pcs</option>
+                                </optgroup>
+                                <optgroup label="OHSA Services" id="unit_group_ohsa">
+                                    <option value="visit">Visit</option>
+                                    <option value="participant">Participant</option>
+                                    <option value="procedure">Procedure</option>
+                                    <option value="document">Document</option>
+                                    <option value="assessment">Assessment</option>
+                                    <option value="hour">Hour</option>
+                                    <option value="lump_sum">Lump Sum</option>
+                                    <option value="qty">Qty / Pcs</option>
+                                </optgroup>
                             </select>
                         </div>
                         <div class="form-group"><label>Default Rate (€)</label><input type="number" step="0.01" name="default_rate" id="form_rate" value="0.00" required></div>
@@ -335,6 +347,7 @@ function editItem(data) {
     document.getElementById('form_rate').value = data.default_rate;
     document.getElementById('form_sort').value = data.sort_order;
     document.getElementById('form_submit_btn').innerText = 'Update Item';
+    updateUnitOptions();
 }
 function resetForm() {
     document.getElementById('form_action').value = 'add_item';
@@ -342,7 +355,24 @@ function resetForm() {
     document.getElementById('form_description').value = '';
     document.getElementById('form_rate').value = '0.00';
     document.getElementById('form_submit_btn').innerText = 'Save Item';
+    updateUnitOptions();
 }
+
+function updateUnitOptions() {
+    const type = document.getElementById('form_quote_type').value;
+    const isOhsa = type === 'OHSA';
+    document.getElementById('unit_group_general').style.display = isOhsa ? 'none' : '';
+    document.getElementById('unit_group_ohsa').style.display = isOhsa ? '' : 'none';
+    if (isOhsa) {
+        const sel = document.getElementById('form_unit');
+        if (!['visit','participant','procedure','document','assessment','hour','lump_sum','qty'].includes(sel.value)) {
+            sel.value = 'visit';
+        }
+    }
+}
+
+document.getElementById('form_quote_type').addEventListener('change', updateUnitOptions);
+updateUnitOptions();
 </script>
 
 <?php require_once 'footer.php'; ?>

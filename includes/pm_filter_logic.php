@@ -113,6 +113,19 @@ function pmRenderPaChip(array $pa): string {
     return $paText . $statusHtml;
 }
 
+function pmProjectHasEndorsedPa(array $paRecords): bool {
+    foreach ($paRecords as $pa) {
+        $status = strtolower(trim($pa['pa_status'] ?? ''));
+        if ($status === '' || $status === 'tracking') {
+            continue;
+        }
+        if (strpos($status, 'decided') !== false || strpos($status, 'endorsed') !== false || strpos($status, 'approved') !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function pmGroupProjects(array $projects, string $groupMode, array $paByProject = [], array $stageEnum = []): array {
     $groups = [];
     foreach ($projects as $project) {
