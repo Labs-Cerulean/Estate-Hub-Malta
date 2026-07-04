@@ -137,6 +137,7 @@ foreach ($plants as &$p) {
                 $cfgNom = trim($cfg['nom_code'] ?? '');
                 $cfg['erp_data'] = isset($companyCatalog[$cfgNom]) ? $companyCatalog[$cfgNom] : null;
             }
+            unset($cfg);
             $p['parsed_configs'] = $decoded;
         }
     }
@@ -429,18 +430,18 @@ function formatPricingModel($type) {
                             <?php if ($p['has_configurations'] == 1 && !empty($p['parsed_configs'])): ?>
                                 <div class="config-box">
                                     <h5><i class="fas fa-sliders-h" style="color:#3b82f6;"></i> Selectable Modes / Add-ons</h5>
-                                    <?php foreach ($p['parsed_configs'] as $cfg): ?>
+                                    <?php foreach ($p['parsed_configs'] as $configRow): ?>
                                         <div class="config-row">
                                             <div style="flex:1;">
-                                                <span class="config-tag"><?= htmlspecialchars($cfg['type']) ?></span> 
-                                                <b><?= htmlspecialchars($cfg['name']) ?></b>
+                                                <span class="config-tag"><?= htmlspecialchars($configRow['type']) ?></span> 
+                                                <b><?= htmlspecialchars($configRow['name']) ?></b>
                                             </div>
                                             <div style="flex:1; text-align:right; color:#475569;">
-                                                <?php if (!empty($cfg['erp_data'])): ?>
-                                                    [Code: <b><?= htmlspecialchars(trim($cfg['nom_code'])) ?></b>] &nbsp; 
-                                                    <b style="color:#0f172a;">€<?= number_format((float)$cfg['erp_data']['NCDefSP2'], 2) ?></b>
+                                                <?php if (!empty($configRow['erp_data'])): ?>
+                                                    [Code: <b><?= htmlspecialchars(trim($configRow['nom_code'])) ?></b>] &nbsp; 
+                                                    <b style="color:#0f172a;">€<?= number_format((float)$configRow['erp_data']['NCDefSP2'], 2) ?></b>
                                                 <?php else: ?>
-                                                    [Code: <b><?= htmlspecialchars($cfg['nom_code'] ?? 'None') ?></b>] &nbsp; 
+                                                    [Code: <b><?= htmlspecialchars($configRow['nom_code'] ?? 'None') ?></b>] &nbsp; 
                                                     <b style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Offline/Error</b>
                                                 <?php endif; ?>
                                             </div>
