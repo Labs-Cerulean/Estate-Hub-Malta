@@ -596,6 +596,13 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#ef4444; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer;"><i class="fas fa-trash"></i></button>
         </div>`;
         list.insertAdjacentHTML('beforeend', html);
+
+        const row = document.getElementById(rowId);
+        const nomSel = row.querySelector('.cfg-nom');
+        setNomSelectValue(nomSel, data.nom_code);
+        if (nomSel.selectedIndex > 0) {
+            updateConfigPrice(nomSel);
+        }
     }
 
     function updateConfigPrice(sel) {
@@ -1035,12 +1042,53 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         });
     }
 
-    function loadFleetNominals(companyId) {
+    function setNomSelectValue(selectEl, code) {
+        if (!selectEl || code === null || code === undefined || code === '') return;
+        const trimmed = String(code).trim();
+        if (!trimmed) return;
+
+        selectEl.value = trimmed;
+        if (selectEl.value !== trimmed) {
+            const opt = document.createElement('option');
+            opt.value = trimmed;
+            opt.textContent = `${trimmed} (saved - not in ERP list)`;
+            selectEl.appendChild(opt);
+            selectEl.value = trimmed;
+        }
+    }
+
+    function applyFleetNominalPreselect(preselect) {
+        if (!preselect) return;
+
+        togglePricingModel();
+        const pricingType = document.getElementById('new_plant_pricing').value;
+        const fixedSel = document.getElementById('new_nom_fixed');
+        const varSel = document.getElementById('new_nom_var');
+
+        if (pricingType === 'fixed_then_hourly') {
+            setNomSelectValue(fixedSel, preselect.fixed);
+            setNomSelectValue(varSel, preselect.var);
+        } else if (pricingType === 'hourly') {
+            // Hourly stores the code in nom_code_variable but displays it in the fixed dropdown
+            setNomSelectValue(fixedSel, preselect.var || preselect.fixed);
+        } else {
+            setNomSelectValue(fixedSel, preselect.fixed || preselect.var);
+        }
+
+        setNomSelectValue(document.getElementById('new_nom_setup'), preselect.setup);
+    }
+
+    function loadFleetNominals(companyId, options = {}) {
+        const preselect = options.preselect || null;
+        const onReady = typeof options.onReady === 'function' ? options.onReady : null;
+
         if(!companyId) {
             document.getElementById('new_nom_fixed').innerHTML = '<option value="">-- Select Company First --</option>';
             document.getElementById('new_nom_var').innerHTML = '<option value="">-- Select Company First --</option>';
             document.getElementById('new_nom_setup').innerHTML = '<option value="">-- Select Company First --</option>';
-            window.erpNominals = []; return;
+            window.erpNominals = [];
+            if (onReady) onReady();
+            return;
         }
         
         document.getElementById('new_nom_fixed').innerHTML = '<option value="">Loading ERP...</option>';
@@ -1050,21 +1098,33 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
         .then(r => r.json())
         .then(res => {
-            window.erpNominals = res;
-            const opts = '<option value="">-- Select Nominal Code --</option>' + res.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
+            window.erpNominals = Array.isArray(res) ? res : [];
+            const opts = '<option value="">-- Select Nominal Code --</option>' + window.erpNominals.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
             
             document.getElementById('new_nom_fixed').innerHTML = opts;
             document.getElementById('new_nom_var').innerHTML = opts;
             document.getElementById('new_nom_setup').innerHTML = opts;
             
+            if (preselect) {
+                applyFleetNominalPreselect(preselect);
+            }
+
             // Auto-update any configuration builder dropdowns
             document.querySelectorAll('.cfg-nom').forEach(sel => {
                 const currentVal = sel.value;
                 sel.innerHTML = opts;
-                sel.value = currentVal;
+                setNomSelectValue(sel, currentVal);
             });
             
             updateRatesDisplay();
+            if (onReady) onReady();
+        })
+        .catch(() => {
+            window.erpNominals = [];
+            document.getElementById('new_nom_fixed').innerHTML = '<option value="">-- ERP Load Failed --</option>';
+            document.getElementById('new_nom_var').innerHTML = '<option value="">-- ERP Load Failed --</option>';
+            document.getElementById('new_nom_setup').innerHTML = '<option value="">-- ERP Load Failed --</option>';
+            if (onReady) onReady();
         });
     }
 
@@ -1153,20 +1213,26 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         document.getElementById('new_has_configs').checked = (p.has_configurations == 1);
         toggleConfigBuilder();
         document.getElementById('config_list').innerHTML = '';
-        if(p.has_configurations == 1 && p.configurations) {
+
+        let pendingConfigs = null;
+        if (p.has_configurations == 1 && p.configurations) {
             try {
-                const cfgs = JSON.parse(p.configurations);
-                cfgs.forEach(c => addConfigRow(c));
-            } catch(e){}
+                pendingConfigs = JSON.parse(p.configurations);
+            } catch (e) {}
         }
 
-        loadFleetNominals(p.billing_company_id);
-        setTimeout(() => { 
-            document.getElementById('new_nom_fixed').value = p.nom_code_fixed || ''; 
-            document.getElementById('new_nom_var').value = p.nom_code_variable || ''; 
-            document.getElementById('new_nom_setup').value = p.nom_code_setup || ''; 
-            togglePricingModel(); 
-        }, 300);
+        loadFleetNominals(p.billing_company_id, {
+            preselect: {
+                fixed: p.nom_code_fixed,
+                var: p.nom_code_variable,
+                setup: p.nom_code_setup
+            },
+            onReady: () => {
+                if (pendingConfigs) {
+                    pendingConfigs.forEach(c => addConfigRow(c));
+                }
+            }
+        });
         
         const saveBtn = document.getElementById('save_fleet_btn');
         saveBtn.innerHTML = '<i class="fas fa-save"></i> Update Machinery';
