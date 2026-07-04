@@ -24,14 +24,40 @@ $showManagement = hasPermission('manage_clients') || hasPermission('manage_profe
 
 // Fetch Pending Actions Count
 $pendingActionsCount = 0;
+$headerAvatarUrl = null;
+$headerInitials = '';
 if (isLoggedIn() && isset($pdo)) {
     $stmtAct = $pdo->prepare("SELECT COUNT(*) FROM project_logs WHERE assigned_to = ? AND status = 'Action - Pending'");
     $stmtAct->execute([getCurrentUserId()]);
     $pendingActionsCount = $stmtAct->fetchColumn();
+
+    $headerInitials = getUserInitials($_SESSION['first_name'] ?? '', $_SESSION['last_name'] ?? '', $_SESSION['username'] ?? 'U');
+
+    $avatarKey = $_SESSION['avatar_key'] ?? null;
+    if (!$avatarKey) {
+        $stmtAv = $pdo->prepare("SELECT avatar_key FROM users WHERE id = ?");
+        $stmtAv->execute([getCurrentUserId()]);
+        $avatarKey = $stmtAv->fetchColumn();
+        if ($avatarKey) $_SESSION['avatar_key'] = $avatarKey;
+    }
+    if ($avatarKey) {
+        require_once __DIR__ . '/S3FileManager.php';
+        try {
+            $s3Header = new S3FileManager();
+            $headerAvatarUrl = $s3Header->getPresignedUrl($avatarKey, '+24 hours');
+        } catch (Exception $e) {}
+    }
 }
 
 // Determine Home Link based on Role (Sales Managers and Agents go to Sales Hub)
-$homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.php' : 'dashboard.php';
+if ($userRole === 'legal_representative') {
+    $homeLink = 'projects.php';
+} elseif (in_array($userRole, ['sales_agent', 'sales_manager'])) {
+    $homeLink = 'sales_hub.php';
+} else {
+    $homeLink = 'dashboard.php';
+}
+$isLegalRep = ($userRole === 'legal_representative');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -57,15 +83,17 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                 
                 <div class="header-right">
                     
-                    <?php if (!in_array($userRole, ['sales_agent', 'sales_manager'])): ?>
-                        <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
+                    <?php if ($isLegalRep): ?>
+                        <span class="nav-link active" style="cursor: default;">Project Status</span>
+                    <?php elseif (!in_array($userRole, ['sales_agent', 'sales_manager'])): ?>
+                        <a href="dashboard.php" class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>">Portfolio</a>
                     <?php endif; ?>
 
-                    <?php if (in_array($userRole, ['sales_manager', 'sales_agent', 'admin', 'director']) || hasPermission('view_property_sales')): ?>
+                    <?php if (!$isLegalRep && (in_array($userRole, ['sales_manager', 'sales_agent', 'admin', 'director']) || hasPermission('view_property_sales'))): ?>
                         <a href="sales_hub.php" class="nav-link <?= $currentPage === 'sales_hub' ? 'active' : '' ?>">Sales Hub</a>
                     <?php endif; ?>
                     
-                    <?php if (!in_array($userRole, ['sales_agent', 'sales_manager'])): ?>
+                    <?php if (!$isLegalRep && !in_array($userRole, ['sales_agent', 'sales_manager'])): ?>
                     
                         <?php if ($showProjects): ?>
                         <div class="nav-dropdown">
@@ -74,7 +102,7 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                             </span>
                             <div class="dropdown-content">
                                 <?php if (hasPermission('view_projects') || isAdmin()): ?>
-                                    <a href="projects.php" class="<?= $currentPage === 'projects' ? 'active' : '' ?>">Project Dashboard</a>
+                                    <a href="projects.php" class="<?= $currentPage === 'projects' ? 'active' : '' ?>">Execution Dashboard</a>
                                 <?php endif; ?>
                                 <?php if (hasPermission('view_mobilisation') || isAdmin()): ?>
                                     <a href="mobilization.php" class="<?= $currentPage === 'mobilization' ? 'active' : '' ?>">Mobilisation Dashboard</a>
@@ -108,7 +136,7 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                         <?php if ($showCommercial): ?>
                         <div class="nav-dropdown">
                             <span class="nav-link <?= in_array($currentPage, ['work_sales', 'works_sales', 'property_sales', 'capital_projects', 'subcontractor_accounts']) ? 'active' : '' ?>">
-                                Commercial ▾
+                                Capital & Commercial ▾
                             </span>
                             <div class="dropdown-content">
                                 <?php if ($hasWorkSalesAccess || isAdmin()): ?>
@@ -196,10 +224,20 @@ $homeLink = in_array($userRole, ['sales_agent', 'sales_manager']) ? 'sales_hub.p
                     
                     <?php endif; /* END RESTRICTION WRAPPER */ ?>
                     
-                    <div style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem; padding-left: 1rem; border-left: 1px solid rgba(255,255,255,0.1);">
-                        <a href="profile.php" style="text-align: right; text-decoration: none; color: inherit; display: block;" class="profile-nav-item">
-                            <div style="font-weight: 600; color: #ffffff; font-size: 0.9rem;"><?= htmlspecialchars(getCurrentUserFullName()) ?></div>
-                            <div style="font-size: 0.75rem; color: var(--primary-color); text-transform: uppercase; letter-spacing: 0.5px;"><?= htmlspecialchars(str_replace('_', ' ', getCurrentRole())) ?></div>
+                    <div class="header-user-menu" style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem; padding-left: 1rem; border-left: 1px solid rgba(255,255,255,0.1);">
+                        <a href="profile.php" class="user-menu-btn" title="My Profile">
+                            <span class="user-avatar">
+                                <?php if ($headerAvatarUrl): ?>
+                                    <img src="<?= htmlspecialchars($headerAvatarUrl) ?>" alt="">
+                                <?php else: ?>
+                                    <?= htmlspecialchars($headerInitials) ?>
+                                <?php endif; ?>
+                            </span>
+                            <span class="user-menu-text">
+                                <span class="user-menu-name"><?= htmlspecialchars(getCurrentUserFullName()) ?></span>
+                                <span class="user-menu-role"><?= htmlspecialchars(str_replace('_', ' ', getCurrentRole())) ?></span>
+                            </span>
+                            <span class="user-menu-chevron">▾</span>
                         </a>
                         <a href="api/logout.php" class="nav-link" style="padding: 0.5rem 1rem;">Logout</a>
                     </div>

@@ -5,7 +5,9 @@ session_start();
 // 1. If user is already logged in, redirect them immediately so they don't see the login screen
 if (isset($_SESSION['user_id'])) {
     $normalizedRole = strtolower(trim(str_replace(' ', '_', $_SESSION['role'] ?? '')));
-    if (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
+    if ($normalizedRole === 'legal_representative') {
+        header("Location: projects.php");
+    } elseif (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
         header("Location: sales_hub.php");
     } else {
         header("Location: dashboard.php");
@@ -14,6 +16,7 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $error = '';
+$message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'] ?? '';
@@ -51,7 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     // --- ROLE-BASED REDIRECT ---
                     $normalizedRole = strtolower(trim(str_replace(' ', '_', $user['role'])));
-                    if (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
+                    if ($normalizedRole === 'legal_representative') {
+                        header('Location: projects.php');
+                    } elseif (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
                         header('Location: sales_hub.php');
                     } else {
                         header('Location: dashboard.php');
@@ -74,6 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 if (isset($_GET['timeout'])) {
     $error = 'Your session has expired. Please login again.';
 }
+if (isset($_GET['reset'])) {
+    $error = '';
+    $message = 'Your password has been reset. Please sign in with your new password.';
+}
 
 // Set page title
 $pageTitle = 'Login';
@@ -95,6 +104,10 @@ $pageTitle = 'Login';
                 <p class="login-subtitle">Project Management System</p>
             </div>
             
+            <?php if (!empty($message)): ?>
+                <div class="alert alert-success"><?php echo htmlspecialchars($message); ?></div>
+            <?php endif; ?>
+            
             <?php if ($error): ?>
                 <div class="login-error">
                     <?php echo htmlspecialchars($error); ?>
@@ -114,6 +127,10 @@ $pageTitle = 'Login';
                 
                 <button type="submit" class="login-btn">Sign In</button>
             </form>
+            
+            <p style="text-align: center; margin-top: 1.25rem;">
+                <a href="forgot-password.php" style="color: var(--primary-color); font-size: 0.9rem; text-decoration: none;">Forgot your password?</a>
+            </p>
         </div>
     </div>
 </body>

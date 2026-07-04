@@ -177,7 +177,7 @@ require_once 'header.php';
         <h3>Default Terms & Conditions</h3>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">These terms will automatically be appended to the bottom of any newly created quote of the respective type.</p>
         <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
-            <?php foreach(['Demolition_Excavation', 'Construction', 'Finishes'] as $qt): ?>
+            <?php foreach(['Demolition_Excavation', 'Construction', 'Finishes', 'OHSA'] as $qt): ?>
             <form method="POST" style="background: rgba(255,255,255,0.02); padding: 1rem; border: 1px solid var(--border-glass); border-radius: 8px;">
                 <input type="hidden" name="action" value="save_terms">
                 <input type="hidden" name="quote_type" value="<?= $qt ?>">
@@ -208,6 +208,8 @@ require_once 'header.php';
                         <select name="quote_type" id="form_quote_type" required>
                             <option value="Demolition_Excavation">Demolition & Excavation</option>
                             <option value="Construction">Construction</option>
+                            <option value="Finishes">Finishes</option>
+                            <option value="OHSA">OHSA / Health & Safety</option>
                         </select>
                     </div>
                     <div class="form-group"><label>Category</label><input type="text" name="category" id="form_category" value="General" required></div>

@@ -20,10 +20,10 @@ function hasPermission($capability) {
     $editCapabilities = [
         'add_project', 'edit_project_details', 'update_project_status', 
         'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors',
-        'manage_sales_demo_exc', 'manage_sales_const', 'manage_sales_finishes'
+        'manage_sales_demo_exc', 'manage_sales_const', 'manage_sales_finishes', 'manage_sales_ohsa', 'edit_project_schedule'
     ];
     
-    if ($role === 'viewer' && in_array($capability, $editCapabilities)) {
+    if (in_array($role, ['viewer', 'legal_representative']) && in_array($capability, $editCapabilities)) {
         return false;
     }
 
@@ -40,7 +40,55 @@ function canEditProjectDetails($pdo, $projectId) {
 }
 
 function canUpdateStatus($pdo, $projectId) {
+    if (getCurrentRole() === 'legal_representative') return false;
     return hasPermission('update_project_status') && hasProjectAccess($pdo, $projectId);
+}
+
+function canEditProjectSchedule($pdo, $projectId) {
+    if (getCurrentRole() === 'legal_representative') return false;
+    return hasPermission('edit_project_schedule') && hasProjectAccess($pdo, $projectId);
+}
+
+function isLegalRepresentative() {
+    return getCurrentRole() === 'legal_representative';
+}
+
+function getUserInitials($firstName, $lastName, $username = '') {
+    $f = trim((string)$firstName);
+    $l = trim((string)$lastName);
+    $u = trim((string)$username) ?: 'U';
+    if ($f !== '' && $l !== '') {
+        return mb_strtoupper(mb_substr($f, 0, 1, 'UTF-8') . mb_substr($l, 0, 1, 'UTF-8'), 'UTF-8');
+    }
+    if ($f !== '') {
+        return mb_strtoupper(mb_substr($f, 0, 2, 'UTF-8'), 'UTF-8');
+    }
+    return mb_strtoupper(mb_substr($u, 0, 2, 'UTF-8'), 'UTF-8');
+}
+
+/**
+ * Validate an uploaded image using finfo (not client-provided MIME/extension).
+ * Returns ['mime' => ..., 'ext' => ...] or null if invalid.
+ */
+function validateUploadedImage($tmpPath) {
+    if (!is_uploaded_file($tmpPath)) {
+        return null;
+    }
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    if ($finfo === false) {
+        return null;
+    }
+    $mime = finfo_file($finfo, $tmpPath);
+    finfo_close($finfo);
+    $allowed = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/webp' => 'webp',
+    ];
+    if (!isset($allowed[$mime])) {
+        return null;
+    }
+    return ['mime' => $mime, 'ext' => $allowed[$mime]];
 }
 
 // ==========================================
