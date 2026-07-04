@@ -53,6 +53,44 @@ function isLegalRepresentative() {
     return getCurrentRole() === 'legal_representative';
 }
 
+function getUserInitials($firstName, $lastName, $username = '') {
+    $f = trim((string)$firstName);
+    $l = trim((string)$lastName);
+    $u = trim((string)$username) ?: 'U';
+    if ($f !== '' && $l !== '') {
+        return mb_strtoupper(mb_substr($f, 0, 1, 'UTF-8') . mb_substr($l, 0, 1, 'UTF-8'), 'UTF-8');
+    }
+    if ($f !== '') {
+        return mb_strtoupper(mb_substr($f, 0, 2, 'UTF-8'), 'UTF-8');
+    }
+    return mb_strtoupper(mb_substr($u, 0, 2, 'UTF-8'), 'UTF-8');
+}
+
+/**
+ * Validate an uploaded image using finfo (not client-provided MIME/extension).
+ * Returns ['mime' => ..., 'ext' => ...] or null if invalid.
+ */
+function validateUploadedImage($tmpPath) {
+    if (!is_uploaded_file($tmpPath)) {
+        return null;
+    }
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    if ($finfo === false) {
+        return null;
+    }
+    $mime = finfo_file($finfo, $tmpPath);
+    finfo_close($finfo);
+    $allowed = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/webp' => 'webp',
+    ];
+    if (!isset($allowed[$mime])) {
+        return null;
+    }
+    return ['mime' => $mime, 'ext' => $allowed[$mime]];
+}
+
 // ==========================================
 // 2. STAGE ENGINE (EXCEL LOGIC MAP APPLIED)
 // ==========================================

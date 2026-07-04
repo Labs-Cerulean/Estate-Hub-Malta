@@ -1,6 +1,5 @@
 <?php
-require_once 'config.php';
-session_start();
+require_once 'init.php';
 
 if (isset($_SESSION['user_id'])) {
     header('Location: dashboard.php');
@@ -29,8 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")->execute([$user['id'], $tokenHash, $expires]);
 
                 require_once __DIR__ . '/email_helper.php';
-                $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
-                $resetLink = $baseUrl . '/reset-password.php?token=' . urlencode($token);
+                $resetLink = rtrim(APP_URL, '/') . '/reset-password.php?token=' . urlencode($token);
                 $name = htmlspecialchars($user['first_name'] ?: 'User');
                 $html = "<p>Hello {$name},</p><p>We received a request to reset your Estate Hub password.</p><p><a href=\"{$resetLink}\">Reset your password</a></p><p>This link expires in 1 hour. If you did not request this, you can ignore this email.</p>";
                 sendSystemEmail($user['email'], 'Estate Hub — Password Reset', $html);

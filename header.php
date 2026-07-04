@@ -31,12 +31,7 @@ if (isLoggedIn() && isset($pdo)) {
     $stmtAct->execute([getCurrentUserId()]);
     $pendingActionsCount = $stmtAct->fetchColumn();
 
-    $fn = $_SESSION['first_name'] ?? '';
-    $ln = $_SESSION['last_name'] ?? '';
-    $un = $_SESSION['username'] ?? 'U';
-    if ($fn && $ln) $headerInitials = strtoupper(substr($fn, 0, 1) . substr($ln, 0, 1));
-    elseif ($fn) $headerInitials = strtoupper(substr($fn, 0, 2));
-    else $headerInitials = strtoupper(substr($un, 0, 2));
+    $headerInitials = getUserInitials($_SESSION['first_name'] ?? '', $_SESSION['last_name'] ?? '', $_SESSION['username'] ?? 'U');
 
     $avatarKey = $_SESSION['avatar_key'] ?? null;
     if (!$avatarKey) {
