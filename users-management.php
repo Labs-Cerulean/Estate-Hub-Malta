@@ -66,6 +66,21 @@ function umCapsFromRole(string $role): array {
     return $caps;
 }
 
+function umBuildCapabilitiesUpsertSql(): string {
+    $keys = umAllCapabilityKeys();
+    $cols = implode(', ', $keys);
+    $placeholders = implode(', ', array_fill(0, count($keys), '?'));
+    $updates = implode(', ', array_map(fn($k) => "$k=VALUES($k)", $keys));
+    return "INSERT INTO user_capabilities (user_id, $cols) VALUES (?, $placeholders) ON DUPLICATE KEY UPDATE $updates";
+}
+
+function umExecuteCapabilitiesUpsert(PDO $pdo, int $userId, array $caps): void {
+    $stmt = $pdo->prepare(umBuildCapabilitiesUpsertSql());
+    $params = array_values($caps);
+    array_unshift($params, $userId);
+    $stmt->execute($params);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
@@ -88,12 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newId = $pdo->lastInsertId();
 
                 $caps = umCapsFromRole($role);
-                $capCols = implode(', ', umAllCapabilityKeys());
-                $capPlaceholders = implode(', ', array_fill(0, count(umAllCapabilityKeys()), '?'));
-                $stmtCaps = $pdo->prepare("INSERT INTO user_capabilities (user_id, $capCols) VALUES (?, $capPlaceholders)");
-                $params = array_values($caps);
-                array_unshift($params, $newId);
-                $stmtCaps->execute($params);
+                umExecuteCapabilitiesUpsert($pdo, (int)$newId, $caps);
 
                 $pdo->commit();
                 $message = 'User created successfully! Select them from the list to fine-tune permissions and project access.';
@@ -131,41 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE users SET password_hash=? WHERE id=?")->execute([$pass, $userId]);
             }
 
-            $stmt2 = $pdo->prepare("
-                INSERT INTO user_capabilities (
-                    user_id, view_tracking, add_project, edit_project_details, update_project_status, 
-                    edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
-                    view_subcontractor_accounts, manage_subcontractor_accounts,
-                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
-                    view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes,
-                    view_plant_bookings, manage_plant_fleet, view_plant_ledger,
-                    view_all_projects, edit_project_schedule, view_sales_ohsa, manage_sales_ohsa
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE 
-                    view_tracking=VALUES(view_tracking), add_project=VALUES(add_project), edit_project_details=VALUES(edit_project_details), 
-                    update_project_status=VALUES(update_project_status), edit_services=VALUES(edit_services), assign_actions=VALUES(assign_actions), 
-                    manage_clients=VALUES(manage_clients), manage_professionals=VALUES(manage_professionals), manage_users=VALUES(manage_users), 
-                    manage_subcontractors=VALUES(manage_subcontractors), 
-                    view_subcontractor_accounts=VALUES(view_subcontractor_accounts), manage_subcontractor_accounts=VALUES(manage_subcontractor_accounts),
-                    view_mobilisation=VALUES(view_mobilisation), view_projects=VALUES(view_projects), 
-                    view_ohsa=VALUES(view_ohsa), view_works_sales=VALUES(view_works_sales), view_documentation=VALUES(view_documentation), 
-                    view_drawings=VALUES(view_drawings), view_property_sales=VALUES(view_property_sales), view_capital_projects=VALUES(view_capital_projects),
-                    view_nav_subcontractors=VALUES(view_nav_subcontractors),
-                    view_sales_demo_exc=VALUES(view_sales_demo_exc), manage_sales_demo_exc=VALUES(manage_sales_demo_exc),
-                    view_sales_const=VALUES(view_sales_const), manage_sales_const=VALUES(manage_sales_const),
-                    view_sales_finishes=VALUES(view_sales_finishes), manage_sales_finishes=VALUES(manage_sales_finishes),
-                    approve_quotes=VALUES(approve_quotes),
-                    view_plant_bookings=VALUES(view_plant_bookings),
-                    manage_plant_fleet=VALUES(manage_plant_fleet),
-                    view_plant_ledger=VALUES(view_plant_ledger),
-                    view_all_projects=VALUES(view_all_projects),
-                    edit_project_schedule=VALUES(edit_project_schedule),
-                    view_sales_ohsa=VALUES(view_sales_ohsa),
-                    manage_sales_ohsa=VALUES(manage_sales_ohsa)
-            ");
-            $params = array_values($caps);
-            array_unshift($params, $userId);
-            $stmt2->execute($params);
+            umExecuteCapabilitiesUpsert($pdo, (int)$userId, $caps);
             
             $pdo->commit();
             $message = 'User profile & permissions updated successfully!';
