@@ -10,54 +10,80 @@ $message = ''; $error = '';
 try { $pdo->exec("ALTER TABLE users ADD COLUMN doc_training TINYINT(1) DEFAULT 0"); } catch (PDOException $e) { }
 $pdo->exec("INSERT IGNORE INTO user_capabilities (user_id) SELECT id FROM users");
 
+// Core capability keys (single source of truth)
+function umAllCapabilityKeys(): array {
+    return [
+        'view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions',
+        'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors',
+        'view_subcontractor_accounts', 'manage_subcontractor_accounts',
+        'view_mobilisation', 'view_projects', 'view_ohsa', 'view_works_sales', 'view_documentation', 'view_drawings',
+        'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors',
+        'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const',
+        'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa', 'approve_quotes',
+        'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger', 'view_all_projects', 'edit_project_schedule',
+    ];
+}
+
+function umGetRoleDefaultCapabilities(): array {
+    return [
+        'admin' => ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_all_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa', 'approve_quotes', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
+        'director' => ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_all_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa', 'approve_quotes'],
+        'system_manager' => ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
+        'project_manager' => ['update_project_status', 'edit_project_schedule', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+        'accountant' => ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors', 'view_sales_demo_exc', 'view_sales_const', 'view_sales_finishes', 'view_sales_ohsa'],
+        'architect' => ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
+        'structural_engineer' => ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
+        'services_engineer' => ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
+        'site_technical_officer' => ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+        'quality_controller' => ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation'],
+        'pmo_staff' => ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation'],
+        'ohsa_rep' => ['assign_actions', 'view_projects', 'view_ohsa', 'view_works_sales', 'view_sales_ohsa', 'manage_sales_ohsa'],
+        'subcontractor' => ['assign_actions', 'view_projects', 'view_drawings'],
+        'sales_manager' => ['view_works_sales', 'view_property_sales', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa'],
+        'sales_agent' => ['view_property_sales'],
+        'condominium_agent' => [], 'end_customer' => [], 'viewer' => ['view_projects'],
+        'legal_representative' => ['view_projects'],
+        'plant_manager' => ['view_plant_bookings'],
+        'plant_driver' => ['view_plant_bookings'],
+    ];
+}
+
+function umCapsFromPost(): array {
+    $caps = [];
+    foreach (umAllCapabilityKeys() as $key) {
+        $caps[$key] = isset($_POST[$key]) ? 1 : 0;
+    }
+    return $caps;
+}
+
+function umCapsFromRole(string $role): array {
+    $caps = array_fill_keys(umAllCapabilityKeys(), 0);
+    foreach (umGetRoleDefaultCapabilities()[$role] ?? [] as $cap) {
+        if (array_key_exists($cap, $caps)) {
+            $caps[$cap] = 1;
+        }
+    }
+    return $caps;
+}
+
+function umBuildCapabilitiesUpsertSql(): string {
+    $keys = umAllCapabilityKeys();
+    $cols = implode(', ', $keys);
+    $placeholders = implode(', ', array_fill(0, count($keys), '?'));
+    $updates = implode(', ', array_map(fn($k) => "$k=VALUES($k)", $keys));
+    return "INSERT INTO user_capabilities (user_id, $cols) VALUES (?, $placeholders) ON DUPLICATE KEY UPDATE $updates";
+}
+
+function umExecuteCapabilitiesUpsert(PDO $pdo, int $userId, array $caps): void {
+    $stmt = $pdo->prepare(umBuildCapabilitiesUpsertSql());
+    $params = array_values($caps);
+    array_unshift($params, $userId);
+    $stmt->execute($params);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
-    // Core Capabilities + Module Access + Commercial Sales Access + Approval Access
-    $caps = [
-        'view_tracking' => isset($_POST['view_tracking']) ? 1 : 0,
-        'add_project' => isset($_POST['add_project']) ? 1 : 0,
-        'edit_project_details' => isset($_POST['edit_project_details']) ? 1 : 0,
-        'update_project_status' => isset($_POST['update_project_status']) ? 1 : 0,
-        'edit_services' => isset($_POST['edit_services']) ? 1 : 0,
-        'assign_actions' => isset($_POST['assign_actions']) ? 1 : 0,
-        'manage_clients' => isset($_POST['manage_clients']) ? 1 : 0,
-        'manage_professionals' => isset($_POST['manage_professionals']) ? 1 : 0,
-        'manage_users' => isset($_POST['manage_users']) ? 1 : 0,
-        'manage_subcontractors' => isset($_POST['manage_subcontractors']) ? 1 : 0,
-        'view_subcontractor_accounts' => isset($_POST['view_subcontractor_accounts']) ? 1 : 0,
-        'manage_subcontractor_accounts' => isset($_POST['manage_subcontractor_accounts']) ? 1 : 0,
-        'view_mobilisation' => isset($_POST['view_mobilisation']) ? 1 : 0,
-        'view_projects' => isset($_POST['view_projects']) ? 1 : 0,
-        'view_ohsa' => isset($_POST['view_ohsa']) ? 1 : 0,
-        'view_works_sales' => isset($_POST['view_works_sales']) ? 1 : 0,
-        'view_documentation' => isset($_POST['view_documentation']) ? 1 : 0,
-        'view_drawings' => isset($_POST['view_drawings']) ? 1 : 0,
-        'view_property_sales' => isset($_POST['view_property_sales']) ? 1 : 0,
-        'view_capital_projects' => isset($_POST['view_capital_projects']) ? 1 : 0,
-        'view_nav_subcontractors' => isset($_POST['view_nav_subcontractors']) ? 1 : 0,
-        
-        // Commercial Sales Granular Access
-        'view_sales_demo_exc' => isset($_POST['view_sales_demo_exc']) ? 1 : 0,
-        'manage_sales_demo_exc' => isset($_POST['manage_sales_demo_exc']) ? 1 : 0,
-        'view_sales_const' => isset($_POST['view_sales_const']) ? 1 : 0,
-        'manage_sales_const' => isset($_POST['manage_sales_const']) ? 1 : 0,
-        'view_sales_finishes' => isset($_POST['view_sales_finishes']) ? 1 : 0,
-        'manage_sales_finishes' => isset($_POST['manage_sales_finishes']) ? 1 : 0,
-        
-        // Approval Workflow Bypass
-        'approve_quotes' => isset($_POST['approve_quotes']) ? 1 : 0,
-
-        // NEW: Plant Bookings Access (Including Sub-modules for IT/Admin testing)
-        'view_plant_bookings' => isset($_POST['view_plant_bookings']) ? 1 : 0,
-        'manage_plant_fleet' => isset($_POST['manage_plant_fleet']) ? 1 : 0,
-        'view_plant_ledger' => isset($_POST['view_plant_ledger']) ? 1 : 0,
-        'view_all_projects' => isset($_POST['view_all_projects']) ? 1 : 0,
-        'edit_project_schedule' => isset($_POST['edit_project_schedule']) ? 1 : 0,
-        'view_sales_ohsa' => isset($_POST['view_sales_ohsa']) ? 1 : 0,
-        'manage_sales_ohsa' => isset($_POST['manage_sales_ohsa']) ? 1 : 0,
-    ];
-
     if ($action === 'create_user') {
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
@@ -76,23 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$first_name, $last_name, $username, $email, $hash, $role]);
                 $newId = $pdo->lastInsertId();
 
-                $stmtCaps = $pdo->prepare("
-                    INSERT INTO user_capabilities (
-                        user_id, view_tracking, add_project, edit_project_details, update_project_status, 
-                        edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
-                        view_subcontractor_accounts, manage_subcontractor_accounts,
-                        view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
-                        view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes,
-                        view_plant_bookings, manage_plant_fleet, view_plant_ledger,
-                        view_all_projects, edit_project_schedule, view_sales_ohsa, manage_sales_ohsa
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-                $params = array_values($caps);
-                array_unshift($params, $newId);
-                $stmtCaps->execute($params);
+                $caps = umCapsFromRole($role);
+                umExecuteCapabilitiesUpsert($pdo, (int)$newId, $caps);
 
                 $pdo->commit();
-                $message = 'User created successfully! Select them from the list to configure their project access levels.';
+                $message = 'User created successfully! Select them from the list to fine-tune permissions and project access.';
             } catch (PDOException $e) { 
                 $pdo->rollBack(); 
                 $error = 'Error: ' . $e->getMessage(); 
@@ -115,6 +129,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $doc_sales = isset($_POST['doc_sales']) ? (int)$_POST['doc_sales'] : 0;
         $doc_training = isset($_POST['doc_training']) ? (int)$_POST['doc_training'] : 0;
 
+        $caps = umCapsFromPost();
+
         try {
             $pdo->beginTransaction();
             $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_engineering=?, doc_commercial=?, doc_sales=?, doc_training=? WHERE id=?");
@@ -125,41 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE users SET password_hash=? WHERE id=?")->execute([$pass, $userId]);
             }
 
-            $stmt2 = $pdo->prepare("
-                INSERT INTO user_capabilities (
-                    user_id, view_tracking, add_project, edit_project_details, update_project_status, 
-                    edit_services, assign_actions, manage_clients, manage_professionals, manage_users, manage_subcontractors,
-                    view_subcontractor_accounts, manage_subcontractor_accounts,
-                    view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
-                    view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes,
-                    view_plant_bookings, manage_plant_fleet, view_plant_ledger,
-                    view_all_projects, edit_project_schedule, view_sales_ohsa, manage_sales_ohsa
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE 
-                    view_tracking=VALUES(view_tracking), add_project=VALUES(add_project), edit_project_details=VALUES(edit_project_details), 
-                    update_project_status=VALUES(update_project_status), edit_services=VALUES(edit_services), assign_actions=VALUES(assign_actions), 
-                    manage_clients=VALUES(manage_clients), manage_professionals=VALUES(manage_professionals), manage_users=VALUES(manage_users), 
-                    manage_subcontractors=VALUES(manage_subcontractors), 
-                    view_subcontractor_accounts=VALUES(view_subcontractor_accounts), manage_subcontractor_accounts=VALUES(manage_subcontractor_accounts),
-                    view_mobilisation=VALUES(view_mobilisation), view_projects=VALUES(view_projects), 
-                    view_ohsa=VALUES(view_ohsa), view_works_sales=VALUES(view_works_sales), view_documentation=VALUES(view_documentation), 
-                    view_drawings=VALUES(view_drawings), view_property_sales=VALUES(view_property_sales), view_capital_projects=VALUES(view_capital_projects),
-                    view_nav_subcontractors=VALUES(view_nav_subcontractors),
-                    view_sales_demo_exc=VALUES(view_sales_demo_exc), manage_sales_demo_exc=VALUES(manage_sales_demo_exc),
-                    view_sales_const=VALUES(view_sales_const), manage_sales_const=VALUES(manage_sales_const),
-                    view_sales_finishes=VALUES(view_sales_finishes), manage_sales_finishes=VALUES(manage_sales_finishes),
-                    approve_quotes=VALUES(approve_quotes),
-                    view_plant_bookings=VALUES(view_plant_bookings),
-                    manage_plant_fleet=VALUES(manage_plant_fleet),
-                    view_plant_ledger=VALUES(view_plant_ledger),
-                    view_all_projects=VALUES(view_all_projects),
-                    edit_project_schedule=VALUES(edit_project_schedule),
-                    view_sales_ohsa=VALUES(view_sales_ohsa),
-                    manage_sales_ohsa=VALUES(manage_sales_ohsa)
-            ");
-            $params = array_values($caps);
-            array_unshift($params, $userId);
-            $stmt2->execute($params);
+            umExecuteCapabilitiesUpsert($pdo, (int)$userId, $caps);
             
             $pdo->commit();
             $message = 'User profile & permissions updated successfully!';
@@ -244,14 +226,15 @@ $capSections = [
         ['manage_subcontractor_accounts', 'Manage Subcon. Accounts'],
     ],
     'Work Sales & Commercial' => [
+        ['view_works_sales', 'Works Sales Hub (menu access)'],
         ['view_sales_demo_exc', 'View Demo & Exc Quotes'],
         ['manage_sales_demo_exc', 'Manage Demo & Exc Quotes', 'manage'],
         ['view_sales_const', 'View Construction Quotes'],
         ['manage_sales_const', 'Manage Construction Quotes', 'manage'],
         ['view_sales_finishes', 'View Finishes Quotes'],
         ['manage_sales_finishes', 'Manage Finishes Quotes', 'manage'],
-        ['view_sales_ohsa', 'View OHSA Quotes'],
-        ['manage_sales_ohsa', 'Manage OHSA Quotes', 'manage'],
+        ['view_sales_ohsa', 'View OHSA / Health & Safety Quotes', 'ohsa'],
+        ['manage_sales_ohsa', 'Manage OHSA / Health & Safety Quotes', 'ohsa-manage'],
         ['approve_quotes', 'Approve Commercial Quotes (Bypass)', 'approve'],
     ],
     'Menu Navigation' => [
@@ -260,7 +243,6 @@ $capSections = [
         ['view_ohsa', 'OHSA'],
         ['view_documentation', 'Documentation'],
         ['view_drawings', 'Drawings'],
-        ['view_works_sales', 'Works Sales'],
         ['view_property_sales', 'Property Sales'],
         ['view_capital_projects', 'Capital Projects'],
         ['view_nav_subcontractors', 'Subcon. Accounts'],
@@ -348,6 +330,8 @@ require_once 'header.php';
 .um-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.5rem 1rem; }
 .um-card-grid .checkbox-item { font-size: 0.82rem; }
 .um-label-manage { color: #f59e0b; }
+.um-label-ohsa { color: #14b8a6; }
+.um-label-ohsa-manage { color: #0d9488; font-weight: 600; }
 .um-label-approve { color: #10b981; font-weight: 600; }
 .um-label-plant { color: #ff9800; font-weight: 600; }
 
@@ -485,13 +469,23 @@ require_once 'header.php';
 
                     <div class="um-panel" id="um-panel-permissions">
                         <?php foreach ($capSections as $sectionTitle => $items): ?>
-                        <details class="um-accordion"<?= $sectionTitle === 'Action Permissions' ? ' open' : '' ?>>
+                        <details class="um-accordion"<?= $sectionTitle === 'Work Sales & Commercial' ? ' open' : ($sectionTitle === 'Action Permissions' ? ' open' : '') ?>>
                             <summary><?= htmlspecialchars($sectionTitle) ?></summary>
                             <div class="um-accordion-body">
+                                <?php if ($sectionTitle === 'Work Sales & Commercial'): ?>
+                                <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.75rem;line-height:1.45;">Grant <strong style="color:#14b8a6;">View/Manage OHSA Quotes</strong> for Health &amp; Safety commercial quotes in Works Sales. Users also need <strong>Works Sales Hub</strong> (or any granular quote view) to see the menu link.</p>
+                                <?php endif; ?>
                                 <div class="um-card-grid">
                                     <?php foreach ($items as $item):
                                         $capKey = $item[0]; $capLabel = $item[1]; $capStyle = $item[2] ?? '';
-                                        $labelClass = $capStyle === 'manage' ? 'um-label-manage' : ($capStyle === 'approve' ? 'um-label-approve' : ($capStyle === 'plant' ? 'um-label-plant' : ''));
+                                        $labelClass = match ($capStyle) {
+                                            'manage' => 'um-label-manage',
+                                            'approve' => 'um-label-approve',
+                                            'plant' => 'um-label-plant',
+                                            'ohsa' => 'um-label-ohsa',
+                                            'ohsa-manage' => 'um-label-ohsa-manage',
+                                            default => '',
+                                        };
                                     ?>
                                     <label class="checkbox-item">
                                         <input type="checkbox" class="cap-check-edit" name="<?= $capKey ?>" id="edit_cap_<?= $capKey ?>" <?= !empty($selectedUser[$capKey]) ? 'checked' : '' ?>>
@@ -654,29 +648,7 @@ function openCreateModal() { document.getElementById('createModal').style.displa
 function closeCreateModal() { document.getElementById('createModal').style.display = 'none'; }
 window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
 
-const roleDefaults = {
-    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_all_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa', 'approve_quotes', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
-    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_all_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa', 'approve_quotes'],
-    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
-    'project_manager': ['update_project_status', 'edit_project_schedule', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors', 'view_sales_demo_exc', 'view_sales_const', 'view_sales_finishes'],
-    'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
-    'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
-    'services_engineer': ['edit_services', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
-    'site_technical_officer': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
-    'quality_controller': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation'],
-    'pmo_staff': ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation'],
-    'ohsa_rep': ['assign_actions', 'view_projects', 'view_ohsa'],
-    'subcontractor': ['assign_actions', 'view_projects', 'view_drawings'],
-    'sales_manager': ['view_works_sales', 'view_property_sales'],
-    'sales_agent': ['view_property_sales'],
-    'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects'],
-    'legal_representative': ['view_projects'],
-    
-    // Plant Roles (IT uses Plant Manager and ticks the extra boxes manually)
-    'plant_manager': ['view_plant_bookings'],
-    'plant_driver': ['view_plant_bookings']
-};
+const roleDefaults = <?= json_encode(umGetRoleDefaultCapabilities(), JSON_UNESCAPED_UNICODE) ?>;
 
 const docDefaults = {
     'admin': { doc_bca: 4, doc_ohsa: 4, doc_drawings: 4, doc_engineering: 4, doc_commercial: 4, doc_sales: 4, doc_training: 4 },
@@ -769,6 +741,17 @@ function applyRoleDefaults(type) {
     }
 }
 
+function syncOhsaSalesCaps() {
+    const manage = document.getElementById('edit_cap_manage_sales_ohsa');
+    const view = document.getElementById('edit_cap_view_sales_ohsa');
+    const hub = document.getElementById('edit_cap_view_works_sales');
+    if (!manage || !view) return;
+    if (manage.checked) {
+        view.checked = true;
+        if (hub) hub.checked = true;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     toggleAccessSections('edit');
     initUmTabs();
@@ -778,6 +761,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (searchEl) searchEl.addEventListener('input', filterUmUserList);
     if (roleEl) roleEl.addEventListener('change', filterUmUserList);
     if (statusEl) statusEl.addEventListener('change', filterUmUserList);
+    const manageOhsa = document.getElementById('edit_cap_manage_sales_ohsa');
+    if (manageOhsa) manageOhsa.addEventListener('change', syncOhsaSalesCaps);
 });
 </script>
 

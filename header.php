@@ -15,7 +15,7 @@ $showProjects = hasPermission('view_projects') || hasPermission('view_mobilisati
 $showSiteDocs = hasPermission('view_ohsa') || hasPermission('view_documentation') || hasPermission('view_drawings') || isAdmin();
 
 // Check if user has ANY Work Sales access (Generic or Granular)
-$hasWorkSalesAccess = hasPermission('view_works_sales') || hasPermission('view_sales_demo_exc') || hasPermission('view_sales_const') || hasPermission('view_sales_finishes');
+$hasWorkSalesAccess = hasPermission('view_works_sales') || hasPermission('view_sales_demo_exc') || hasPermission('view_sales_const') || hasPermission('view_sales_finishes') || hasPermission('view_sales_ohsa');
 
 $showCommercial = $hasWorkSalesAccess || hasPermission('view_property_sales') || hasPermission('view_capital_projects') || hasPermission('view_nav_subcontractors') || isAdmin();
 
