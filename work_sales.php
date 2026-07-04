@@ -918,6 +918,7 @@ function displayUnit($u) {
     return $m[$u] ?? $u;
 }
 
+require_once __DIR__ . '/includes/entity_select_helpers.php';
 require_once 'header.php';
 ?>
 
@@ -958,11 +959,11 @@ require_once 'header.php';
         <strong style="color: var(--primary-color);">Account Context (Contractor):</strong>
         <form method="GET" style="margin: 0; display:flex; gap: 10px; align-items:center;">
             <?php if (isset($_GET['tab'])): ?><input type="hidden" name="tab" value="<?= htmlspecialchars($_GET['tab']) ?>"><?php endif; ?>
-            <select name="contractor_id" onchange="this.form.submit()">
-                <option value="">-- Select Issuing Contractor --</option>
-                <?php foreach($allEntities as $c): ?>
-                    <option value="<?= $c['id'] ?>" <?= $selected_contractor_id == $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
-                <?php endforeach; ?>
+            <select name="contractor_id" class="entity-select entity-select-search" data-recent-kind="contractor" onchange="this.form.submit()">
+                <?= entitySelectOptionsHtml($allEntities, [
+                    'placeholder' => '-- Select Issuing Contractor --',
+                    'selected' => $selected_contractor_id,
+                ]) ?>
             </select>
         </form>
     </div>
@@ -1170,14 +1171,17 @@ require_once 'header.php';
                         <input type="hidden" name="contractor_id" value="<?= $selected_contractor_id ?>">
                         <input type="hidden" id="gen_contractor_prefix" value="<?= $contractorPrefix ?>">
                         
+                        <div data-entity-cascade="client-project">
                         <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px;">
                             <label style="color: var(--primary-color);">1. Who is the Client? (Choose ONE option)</label>
                             
                             <div style="margin-top: 10px;">
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option A: Select Existing Client / Internal Company</label>
-                                <select name="client_id" onchange="autoGenRef()">
-                                    <option value="">-- Select Existing Client --</option>
-                                    <?php foreach($allEntities as $c): ?><option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option><?php endforeach; ?>
+                                <select name="client_id" class="entity-select entity-select-search" data-recent-kind="client" data-entity-role="client" onchange="autoGenRef()">
+                                    <?= entitySelectOptionsHtml($allEntities, [
+                                        'placeholder' => '-- Select Existing Client --',
+                                        'subtitleFn' => 'entityClientSubtitle',
+                                    ]) ?>
                                 </select>
                             </div>
                             
@@ -1194,9 +1198,12 @@ require_once 'header.php';
                             
                             <div style="margin-top: 10px;">
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option A: Select Existing Project</label>
-                                <select name="project_id" id="create_project_select" onchange="autoGenRef()">
-                                    <option value="">-- Select Project --</option>
-                                    <?php foreach($projectsDb as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['client_name']) ?>)</option><?php endforeach; ?>
+                                <select name="project_id" id="create_project_select" class="entity-select entity-select-search" data-recent-kind="project" data-entity-role="project" data-placeholder="-- Select Project --" onchange="autoGenRef()">
+                                    <?= entitySelectOptionsHtml($projectsDb, [
+                                        'placeholder' => '-- Select Project --',
+                                        'subtitleFn' => 'entityProjectSubtitle',
+                                        'dataAttrs' => ['client-id' => 'clientid'],
+                                    ]) ?>
                                 </select>
                             </div>
                             
@@ -1206,6 +1213,7 @@ require_once 'header.php';
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option B: Free-Text Project Reference</label>
                                 <input type="text" name="project_name_free" onkeyup="autoGenRef()" placeholder="e.g. Block A Renovation">
                             </div>
+                        </div>
                         </div>
                         <div class="form-grid" style="grid-template-columns: 2fr 1fr; gap: 10px;">
                             <div class="form-group">

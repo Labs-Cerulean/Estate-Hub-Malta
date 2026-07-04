@@ -39,7 +39,7 @@ function umGetRoleDefaultCapabilities(): array {
         'pmo_staff' => ['manage_subcontractors', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_documentation'],
         'ohsa_rep' => ['assign_actions', 'view_projects', 'view_ohsa', 'view_works_sales', 'view_sales_ohsa', 'manage_sales_ohsa'],
         'subcontractor' => ['assign_actions', 'view_projects', 'view_drawings'],
-        'sales_manager' => ['view_works_sales', 'view_property_sales', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa'],
+        'sales_manager' => ['view_projects', 'add_project', 'edit_project_details', 'view_property_sales', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa'],
         'sales_agent' => ['view_property_sales'],
         'condominium_agent' => [], 'end_customer' => [], 'viewer' => ['view_projects'],
         'legal_representative' => ['view_projects'],
