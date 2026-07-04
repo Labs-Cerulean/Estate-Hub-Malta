@@ -292,7 +292,7 @@ foreach ($projectsRaw as $p) {
                 if (!empty($row['level_id'])) {
                     $levelPcts[] = (float)($row['construction_pct'] ?? 0);
                     $hasProgressData = true;
-                } elseif (empty($row['level_id'])) {
+                } else {
                     $levelPcts[] = (float)($row['progress'] ?? 0);
                     $hasProgressData = true;
                 }

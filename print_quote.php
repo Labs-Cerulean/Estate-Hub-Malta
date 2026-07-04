@@ -63,12 +63,35 @@ $effectiveProjectName = $quote['project_name'] ?? $quote['project_name_free'] ??
 $paNumber = $quote['pa_number'] ?? '';
 
 function displayUnit($u) {
-    $m = ['lump_sum'=>'Lump Sum', 'sqm'=>'sq.m', 'lm'=>'lm', 'cum'=>'cu.m', 'cu.yd'=>'cu.yd', 'hrs'=>'Hours', 'qty'=>'Qty / Pcs'];
+    $m = [
+        'lump_sum' => 'Lump Sum', 'sqm' => 'sq.m', 'lm' => 'lm', 'cum' => 'cu.m', 'cu.yd' => 'cu.yd',
+        'hrs' => 'Hours', 'hour' => 'Hour', 'qty' => 'Qty / Pcs',
+        'visit' => 'Visit', 'participant' => 'Participant', 'procedure' => 'Procedure',
+        'document' => 'Document', 'assessment' => 'Assessment',
+    ];
     return $m[$u] ?? $u;
 }
 
+function quoteTypeLabel($type) {
+    $labels = [
+        'Demolition_Excavation' => 'Demolition & Excavation',
+        'Construction' => 'Construction',
+        'Finishes' => 'Finishes',
+        'OHSA' => 'OHSA / Health & Safety',
+    ];
+    return $labels[$type] ?? str_replace('_', ' & ', $type);
+}
+
 $isFinishes = ($quote['quote_type'] === 'Finishes');
+$isOhsa = ($quote['quote_type'] === 'OHSA');
 $colSpan = $isFinishes ? 3 : 5;
+$scheduleTitle = $isOhsa ? 'Schedule of Services' : 'Bill of Quantities';
+$frontTitleSuffix = match ($quote['quote_type']) {
+    'Demolition_Excavation' => '& Methodology',
+    'OHSA' => '— Health & Safety Services',
+    default => '',
+};
+$compactCover = $isOhsa && empty($quote['location_lat']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -85,6 +108,7 @@ $colSpan = $isFinishes ? 3 : 5;
         
         /* Front Page Layout */
         .front-page { min-height: 90vh; display: flex; flex-direction: column; }
+        .front-page.compact-cover { min-height: auto; padding-bottom: 20px; }
         .logo-box { max-width: 250px; max-height: 100px; margin-bottom: 40px; }
         .logo-box img { max-width: 100%; max-height: 100px; object-fit: contain; }
         
@@ -105,20 +129,40 @@ $colSpan = $isFinishes ? 3 : 5;
         .sec-header { display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px; }
         
         /* Table */
-        .print-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 11px; }
+        .print-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 11px; table-layout: fixed; }
+        .print-table thead { display: table-header-group; }
         .print-table th { background: #f3f4f6; padding: 10px; text-align: left; font-weight: bold; border-bottom: 2px solid #d1d5db; color: #374151; }
-        .print-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
-        .print-table .num { text-align: right; }
+        .print-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+        .print-table .num { text-align: right; white-space: nowrap; }
         .print-table .strong { font-weight: bold; }
+        .print-table .desc-col { width: <?= $isOhsa ? '52%' : ($isFinishes ? '70%' : '50%') ?>; }
+        .print-table .unit-col { width: <?= $isOhsa ? '12%' : 'auto' ?>; }
+        .print-table .qty-col { width: <?= $isOhsa ? '10%' : 'auto' ?>; }
+        .print-table .rate-col { width: <?= $isOhsa ? '13%' : 'auto' ?>; }
+        .print-table .amount-col { width: <?= $isOhsa ? '13%' : 'auto' ?>; }
+        .print-table tr.cat-row td { background: #f9fafb; color: #1f2937; font-weight: bold; page-break-after: avoid; }
+        .print-table.ohsa-table { font-size: 10px; }
+        .print-table.ohsa-table td.desc-col { line-height: 1.45; }
+        .print-table tbody tr.item-row { page-break-inside: auto; }
+
+        /* OHSA services — block layout for long descriptions */
+        .ohsa-schedule { margin-bottom: 30px; }
+        .ohsa-cat { background: #f3f4f6; color: #1f2937; font-weight: bold; padding: 8px 12px; margin: 18px 0 8px; border-radius: 4px; page-break-after: avoid; font-size: 11px; }
+        .ohsa-cat:first-child { margin-top: 0; }
+        .ohsa-item { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; page-break-inside: avoid; }
+        .ohsa-item-desc { font-size: 10.5px; line-height: 1.5; color: #111827; margin-bottom: 8px; }
+        .ohsa-item-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 10px; color: #4b5563; border-top: 1px solid #f3f4f6; padding-top: 8px; }
+        .ohsa-item-meta span strong { color: #374151; font-weight: 600; }
+        .ohsa-item-meta .ohsa-amt { margin-left: auto; font-weight: bold; color: #111827; }
 
         /* Totals */
-        .totals-box { float: right; width: 300px; margin-bottom: 30px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+        .totals-box { float: right; width: 300px; margin-bottom: 30px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; page-break-inside: avoid; }
         .totals-row { display: flex; justify-content: space-between; padding: 8px 15px; border-bottom: 1px solid #e5e7eb; }
         .totals-row.grand { background: #f3f4f6; font-weight: bold; font-size: 14px; border-bottom: none; }
-        
+
         /* Terms & Signatures */
-        .terms-box { clear: both; margin-top: 40px; padding: 15px; border: 1px solid #e5e7eb; background: #f9fafb; font-size: 10px; color: #4b5563; border-radius: 6px; }
-        .signatures-grid { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+        .terms-box { clear: both; margin-top: 40px; padding: 15px; border: 1px solid #e5e7eb; background: #f9fafb; font-size: 10px; color: #4b5563; border-radius: 6px; page-break-inside: avoid; }
+        .signatures-grid { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; page-break-inside: avoid; }
         .signature-block { width: 30%; text-align: center; }
         .signature-line { border-bottom: 1px solid #111827; height: 40px; margin-bottom: 10px; }
         .footer { margin-top: 40px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #9ca3af; }
@@ -128,6 +172,9 @@ $colSpan = $isFinishes ? 3 : 5;
             .page-container { width: 100%; max-width: 100%; }
             @page { margin: 1cm 1.5cm; }
             .no-print { display: none !important; }
+            .print-table { font-size: <?= $isOhsa ? '9.5px' : '11px' ?>; }
+            .print-table td { orphans: 3; widows: 3; }
+            .front-page { min-height: auto; page-break-after: always; }
         }
     </style>
 </head>
@@ -153,13 +200,13 @@ $colSpan = $isFinishes ? 3 : 5;
         </div>
 
         <h1 class="fp-title">
-            Quotation <?= $quote['quote_type'] === 'Demolition_Excavation' ? '& Methodology' : '' ?>
+            Quotation <?= safe_html(trim($frontTitleSuffix)) ?>
         </h1>
 
         <table class="fp-grid">
             <tr><td class="fp-label">To:</td><td class="fp-value"><?= safe_html($effectiveClientName) ?></td></tr>
             <tr><td class="fp-label">Date:</td><td class="fp-value"><?= date('d F Y', strtotime($quote['created_at'])) ?></td></tr>
-            <tr><td class="fp-label">Re:</td><td class="fp-value"><?= safe_html(str_replace('_', ' & ', $quote['quote_type'])) ?></td></tr>
+            <tr><td class="fp-label">Re:</td><td class="fp-value"><?= safe_html(quoteTypeLabel($quote['quote_type'])) ?></td></tr>
             <tr><td class="fp-label">Our Ref:</td><td class="fp-value"><?= safe_html($quote['reference_number']) ?></td></tr>
             <tr><td class="fp-label">Site:</td><td class="fp-value"><?= safe_html($effectiveProjectName) ?></td></tr>
             <?php if ($paNumber): ?>
@@ -182,7 +229,7 @@ $colSpan = $isFinishes ? 3 : 5;
         
         <div class="sec-header">
             <div>
-                <h3 style="margin-bottom: 5px;">Bill of Quantities</h3>
+                <h3 style="margin-bottom: 5px;"><?= safe_html($scheduleTitle) ?></h3>
                 <span style="color: #6b7280; font-size: 11px;">Ref: <?= safe_html($quote['reference_number']) ?> | Site: <?= safe_html($effectiveProjectName) ?></span>
             </div>
             <?php if (!empty($logoSrc)): ?>
@@ -190,15 +237,39 @@ $colSpan = $isFinishes ? 3 : 5;
             <?php endif; ?>
         </div>
 
+        <?php if ($isOhsa): ?>
+        <div class="ohsa-schedule">
+            <?php if (empty($items)): ?>
+                <p style="text-align:center; color:#6b7280; padding:20px;">No services specified in this quote.</p>
+            <?php else:
+                $currentCat = '';
+                foreach ($items as $i):
+                    if ($i['category'] !== $currentCat):
+                        $currentCat = $i['category'];
+            ?>
+                <div class="ohsa-cat"><?= safe_html($currentCat) ?></div>
+            <?php endif; ?>
+                <div class="ohsa-item">
+                    <div class="ohsa-item-desc"><?= nl2br(safe_html($i['description'])) ?></div>
+                    <div class="ohsa-item-meta">
+                        <span><strong>Unit:</strong> <?= safe_html(displayUnit($i['unit'])) ?></span>
+                        <span><strong>Qty:</strong> <?= (float)$i['estimated_qty'] ?></span>
+                        <span><strong>Rate:</strong> €<?= number_format($i['unit_rate'], 2) ?></span>
+                        <span class="ohsa-amt">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></span>
+                    </div>
+                </div>
+            <?php endforeach; endif; ?>
+        </div>
+        <?php else: ?>
         <table class="print-table">
             <thead>
                 <tr>
-                    <th style="width: <?= $isFinishes ? '70%' : '50%' ?>;">Description</th>
-                    <th>Unit</th>
-                    <th class="num">Est. Qty</th>
+                    <th class="desc-col">Description</th>
+                    <th class="unit-col">Unit</th>
+                    <th class="num qty-col">Est. Qty</th>
                     <?php if (!$isFinishes): ?>
-                        <th class="num">Unit Rate</th>
-                        <th class="num">Amount (€)</th>
+                        <th class="num rate-col">Unit Rate</th>
+                        <th class="num amount-col">Amount (€)</th>
                     <?php endif; ?>
                 </tr>
             </thead>
@@ -209,22 +280,23 @@ $colSpan = $isFinishes ? 3 : 5;
                     $currentCat = '';
                     foreach($items as $i): 
                         if ($i['category'] !== $currentCat) {
-                            echo "<tr><td colspan='{$colSpan}' style='background: #f9fafb; color: #1f2937; font-weight: bold;'>".safe_html($i['category'])."</td></tr>";
+                            echo "<tr class='cat-row'><td colspan='{$colSpan}'>" . safe_html($i['category']) . "</td></tr>";
                             $currentCat = $i['category'];
                         }
                 ?>
-                <tr>
-                    <td><?= nl2br(safe_html($i['description'])) ?></td>
-                    <td><?= displayUnit($i['unit']) ?></td>
-                    <td class="num"><?= (float)$i['estimated_qty'] ?></td>
+                <tr class="item-row">
+                    <td class="desc-col"><?= nl2br(safe_html($i['description'])) ?></td>
+                    <td class="unit-col"><?= safe_html(displayUnit($i['unit'])) ?></td>
+                    <td class="num qty-col"><?= (float)$i['estimated_qty'] ?></td>
                     <?php if (!$isFinishes): ?>
-                        <td class="num">€<?= number_format($i['unit_rate'], 2) ?></td>
-                        <td class="num strong">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
+                        <td class="num rate-col">€<?= number_format($i['unit_rate'], 2) ?></td>
+                        <td class="num strong amount-col">€<?= number_format($i['estimated_qty'] * $i['unit_rate'], 2) ?></td>
                     <?php endif; ?>
                 </tr>
                 <?php endforeach; endif; ?>
             </tbody>
         </table>
+        <?php endif; ?>
 
         <div class="totals-box">
             <div class="totals-row">

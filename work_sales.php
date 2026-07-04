@@ -755,7 +755,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $qCheck = $pdo->prepare("SELECT quote_type, status FROM sales_quotes WHERE id = ?");
             $qCheck->execute([$qId]);
             $qRow = $qCheck->fetch(PDO::FETCH_ASSOC);
-            if (!$qRow || $qRow['quote_type'] !== 'OHSA') throw new Exception("Not an OHSA quote.");
+            if (!$qRow) throw new Exception("Quote not found.");
+            if ($qRow['quote_type'] !== 'OHSA') throw new Exception("Not an OHSA quote.");
             if (!in_array($qRow['status'], ['Draft', 'Rejected'])) throw new Exception("Quote is locked.");
 
             $pdo->beginTransaction();
