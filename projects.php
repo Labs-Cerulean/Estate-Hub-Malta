@@ -301,7 +301,7 @@ foreach ($projectsRaw as $p) {
         if ($isHandedOver) {
             $p['progress_pct'] = 100;
             $p['sort_progress'] = 100;
-        } elseif ($hasProgressData) {
+        } elseif ($hasProgressData && !empty($levelPcts)) {
             $p['progress_pct'] = (int)round(array_sum($levelPcts) / count($levelPcts));
             $p['sort_progress'] = $p['progress_pct'];
         } else {

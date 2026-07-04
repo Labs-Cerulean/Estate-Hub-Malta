@@ -92,6 +92,8 @@ $frontTitleSuffix = match ($quote['quote_type']) {
     default => '',
 };
 $compactCover = $isOhsa && empty($quote['location_lat']);
+$ohsaSinglePage = $isOhsa && $compactCover;
+$attachments = json_decode($quote['attachments'] ?? '[]', true) ?: [];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -124,9 +126,11 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
         
         /* Page Break */
         .page-break { page-break-before: always; padding-top: 40px; }
+        .content-section { padding-top: 0; }
+        .content-section.continuous { padding-top: 24px; border-top: 2px solid #e5e7eb; margin-top: 28px; }
 
         /* Secondary Page Header */
-        .sec-header { display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px; }
+        .sec-header { display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px; page-break-after: avoid; break-after: avoid; }
         
         /* Table */
         .print-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 11px; table-layout: fixed; }
@@ -149,20 +153,22 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
         .ohsa-schedule { margin-bottom: 30px; }
         .ohsa-cat { background: #f3f4f6; color: #1f2937; font-weight: bold; padding: 8px 12px; margin: 18px 0 8px; border-radius: 4px; page-break-after: avoid; font-size: 11px; }
         .ohsa-cat:first-child { margin-top: 0; }
-        .ohsa-item { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; page-break-inside: avoid; }
-        .ohsa-item-desc { font-size: 10.5px; line-height: 1.5; color: #111827; margin-bottom: 8px; }
-        .ohsa-item-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 10px; color: #4b5563; border-top: 1px solid #f3f4f6; padding-top: 8px; }
+        .ohsa-item { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; page-break-inside: avoid; break-inside: avoid; }
+        .ohsa-item-desc { font-size: 10.5px; line-height: 1.5; color: #111827; margin-bottom: 8px; word-wrap: break-word; overflow-wrap: break-word; }
+        .ohsa-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 10px; color: #4b5563; border-top: 1px solid #f3f4f6; padding-top: 8px; }
         .ohsa-item-meta span strong { color: #374151; font-weight: 600; }
-        .ohsa-item-meta .ohsa-amt { margin-left: auto; font-weight: bold; color: #111827; }
+        .ohsa-item-meta .ohsa-amt { margin-left: auto; font-weight: bold; color: #111827; white-space: nowrap; }
 
-        /* Totals */
-        .totals-box { float: right; width: 300px; margin-bottom: 30px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; page-break-inside: avoid; }
+        /* Totals & footer — no floats (float breaks print order) */
+        .quote-footer { clear: both; margin-top: 24px; page-break-inside: avoid; break-inside: avoid; }
+        .totals-wrap { display: flex; justify-content: flex-end; margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid; }
+        .totals-box { width: 300px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
         .totals-row { display: flex; justify-content: space-between; padding: 8px 15px; border-bottom: 1px solid #e5e7eb; }
         .totals-row.grand { background: #f3f4f6; font-weight: bold; font-size: 14px; border-bottom: none; }
 
         /* Terms & Signatures */
-        .terms-box { clear: both; margin-top: 40px; padding: 15px; border: 1px solid #e5e7eb; background: #f9fafb; font-size: 10px; color: #4b5563; border-radius: 6px; page-break-inside: avoid; }
-        .signatures-grid { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; page-break-inside: avoid; }
+        .terms-box { margin-top: 8px; padding: 15px; border: 1px solid #e5e7eb; background: #f9fafb; font-size: 10px; color: #4b5563; border-radius: 6px; page-break-inside: avoid; break-inside: avoid; }
+        .signatures-grid { display: flex; justify-content: space-between; margin-top: 28px; padding-top: 20px; border-top: 1px solid #e5e7eb; page-break-inside: avoid; break-inside: avoid; }
         .signature-block { width: 30%; text-align: center; }
         .signature-line { border-bottom: 1px solid #111827; height: 40px; margin-bottom: 10px; }
         .footer { margin-top: 40px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #9ca3af; }
@@ -170,11 +176,15 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
         @media print {
             body { padding: 0; }
             .page-container { width: 100%; max-width: 100%; }
-            @page { margin: 1cm 1.5cm; }
+            @page { margin: 1cm 1.5cm; size: A4; }
             .no-print { display: none !important; }
             .print-table { font-size: <?= $isOhsa ? '9.5px' : '11px' ?>; }
             .print-table td { orphans: 3; widows: 3; }
-            .front-page { min-height: auto; page-break-after: always; }
+            .front-page { min-height: auto; <?= $ohsaSinglePage ? 'page-break-after: auto;' : 'page-break-after: always;' ?> }
+            .page-break { page-break-before: always; padding-top: 0; }
+            .content-section.continuous { page-break-before: avoid; border-top: none; margin-top: 20px; padding-top: 0; }
+            .ohsa-schedule { page-break-before: avoid; }
+            .quote-footer { page-break-before: avoid; }
         }
     </style>
 </head>
@@ -190,7 +200,7 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
         <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Print / Save as PDF</button>
     </div>
 
-    <div class="front-page">
+    <div class="front-page<?= $compactCover ? ' compact-cover' : '' ?>">
         <div class="logo-box">
             <?php if (!empty($logoSrc)): ?>
                 <img src="<?= safe_html($logoSrc) ?>" alt="Contractor Logo">
@@ -225,7 +235,7 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
         <?php endif; ?>
     </div>
 
-    <div class="page-break">
+    <div class="<?= $ohsaSinglePage ? 'content-section continuous' : 'page-break' ?>">
         
         <div class="sec-header">
             <div>
@@ -298,6 +308,8 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
         </table>
         <?php endif; ?>
 
+        <div class="quote-footer">
+        <div class="totals-wrap">
         <div class="totals-box">
             <div class="totals-row">
                 <span>Subtotal (Exc. VAT)</span>
@@ -311,6 +323,7 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
                 <span>Total (Inc. VAT)</span>
                 <span>€<?= number_format($quote['total_inc_vat'], 2) ?></span>
             </div>
+        </div>
         </div>
         
         <?php if(!empty($quote['terms_conditions'])): ?>
@@ -346,9 +359,9 @@ $compactCover = $isOhsa && empty($quote['location_lat']);
             Issued by <?= safe_html($quote['contractor_name']) ?> <br>
             Estate Hub Commercial Management
         </div>
+        </div><!-- .quote-footer -->
     </div>
 
-    <?php $attachments = json_decode($quote['attachments'], true) ?: []; ?>
     <?php if (count($attachments) > 0): ?>
         <div class="page-break">
             <h2 style="color: #1f2937; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px;">Quotation Attachments</h2>
