@@ -780,6 +780,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $qId = (int)$_POST['quote_id'];
             if (!$access['OHSA']['manage']) throw new Exception("Unauthorized.");
 
+            $qCheck = $pdo->prepare("SELECT quote_type, status FROM sales_quotes WHERE id = ?");
+            $qCheck->execute([$qId]);
+            $qRow = $qCheck->fetch(PDO::FETCH_ASSOC);
+            if (!$qRow || $qRow['quote_type'] !== 'OHSA') throw new Exception("Not an OHSA quote.");
+            if (!in_array($qRow['status'], ['Draft', 'Rejected'])) throw new Exception("Quote is locked.");
+
             $stdId = (int)$_POST['standard_item_id'];
             $stmt = $pdo->prepare("SELECT * FROM sales_standard_items WHERE id = ? AND quote_type = 'OHSA' AND is_active = 1");
             $stmt->execute([$stdId]);
