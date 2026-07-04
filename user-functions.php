@@ -375,3 +375,88 @@ function getAddressFromCoordinates($lat, $lng) {
     }
     return null; // Fallback if the map server is offline
 }
+
+function getPlantJobSessions($pdo, $bookingId) {
+    $stmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
+    $stmt->execute([(int)$bookingId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getPlantJobLocationLabel($job) {
+    if (($job['booking_type'] ?? '') === 'in-house') {
+        return !empty($job['project_name']) ? $job['project_name'] : 'N/A';
+    }
+
+    if (!empty($job['location_lat']) && !empty($job['location_lng'])) {
+        $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
+        if ($address) {
+            return $address;
+        }
+        return 'Lat: ' . round((float)$job['location_lat'], 4) . ', Lng: ' . round((float)$job['location_lng'], 4);
+    }
+
+    return 'External Location';
+}
+
+function formatPlantJobTimeRange(DateTime $inTime, DateTime $outTime) {
+    if ($inTime->format('Y-m-d') !== $outTime->format('Y-m-d')) {
+        return $inTime->format('d M, H:i') . ' to ' . $outTime->format('d M, H:i');
+    }
+
+    return $inTime->format('H:i') . ' to ' . $outTime->format('H:i');
+}
+
+function getPlantJobTimeLogged($pdo, $job, $sessions = null) {
+    $pricingType = $job['pricing_type'] ?? '';
+    $lifecycleType = $job['lifecycle_type'] ?? 'Standard';
+
+    if ($pricingType === 'daily' || $lifecycleType === 'Auto-Scheduled') {
+        $start = date('d M Y', strtotime($job['booking_date']));
+        $end = !empty($job['end_date']) ? date('d M Y', strtotime($job['end_date'])) : $start;
+        return $start . ' to ' . $end;
+    }
+
+    if ($sessions === null) {
+        $sessions = getPlantJobSessions($pdo, $job['id']);
+    }
+
+    if (count($sessions) > 0) {
+        $lines = [];
+        foreach ($sessions as $idx => $session) {
+            $lines[] = 'Day ' . ($idx + 1) . ': '
+                . date('d M, H:i', strtotime($session['punch_in'])) . ' to '
+                . date('H:i', strtotime($session['punch_out']))
+                . ' (' . $session['hours'] . ' hrs)';
+        }
+
+        if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])) {
+            $lines[] = 'Active: since ' . date('d M, H:i', strtotime($job['punch_in_time']));
+        }
+
+        return implode('; ', $lines);
+    }
+
+    if (!empty($job['punch_in_time']) && !empty($job['punch_out_time'])) {
+        return formatPlantJobTimeRange(
+            new DateTime($job['punch_in_time']),
+            new DateTime($job['punch_out_time'])
+        );
+    }
+
+    if (!empty($job['punch_out_time']) && empty($job['punch_in_time'])) {
+        return formatPlantJobTimeRange(
+            new DateTime($job['booking_date'] . ' ' . ($job['start_time'] ?? '00:00:00')),
+            new DateTime($job['punch_out_time'])
+        );
+    }
+
+    $inTime = !empty($job['punch_in_time'])
+        ? new DateTime($job['punch_in_time'])
+        : new DateTime($job['booking_date'] . ' ' . ($job['start_time'] ?? '00:00:00'));
+
+    $outTime = !empty($job['punch_out_time'])
+        ? new DateTime($job['punch_out_time'])
+        : new DateTime($job['booking_date'] . ' ' . ($job['end_time'] ?? '00:00:00'));
+
+    return formatPlantJobTimeRange($inTime, $outTime);
+}
