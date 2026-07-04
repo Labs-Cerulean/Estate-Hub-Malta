@@ -5,7 +5,6 @@
  */
 
 require_once '../init.php'; 
-require_once '../user-functions.php';
 require_once '../email_helper.php';
 require_once '../vendor/autoload.php'; 
 require_once '../S3FileManager.php'; // ADDED: Required to fetch Cloudflare Logos
@@ -64,7 +63,7 @@ $praEmails = ['nicholasv@pramalta.com', 'accounts@pramalta.com', 'marka@agiusgro
 
 $praxEmails = ['nicholasv@pramalta.com', 'thomasg@pandamalta.com', 'marka@agiusgroup.com', 'AlessiaA@AgiusGroup.Com', 'GabriellaA@AgiusGroup.Com', 'clydes@pramalta.com'];
 
-function generateJobPdfFile($job, $pdo) {
+function generateJobPdfFile($job, $pdo, $sessions = null) {
     $tempDir = __DIR__ . '/../temp_pdfs/';
     if (!is_dir($tempDir)) {
         mkdir($tempDir, 0777, true);
@@ -178,7 +177,9 @@ function generateJobPdfFile($job, $pdo) {
     $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
     $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
     $projectDisplay = htmlspecialchars(getPlantJobLocationLabel($job));
-    $sessions = getPlantJobSessions($pdo, $job['id']);
+    if ($sessions === null) {
+        $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
+    }
     $timeLogged = htmlspecialchars(getPlantJobTimeLogged($pdo, $job, $sessions));
     
     $signatureHtml = "";
@@ -386,7 +387,7 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
         $clientCell = "{$clientName}<br><span style='font-size:11px; color:#64748b;'>Code: {$clientCode}</span>";
 
         $locationCell = htmlspecialchars(getPlantJobLocationLabel($job));
-        $sessions = getPlantJobSessions($pdo, $job['id']);
+        $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
         $shift = htmlspecialchars(getPlantJobTimeLogged($pdo, $job, $sessions));
 
         $subtotal = (float)($job['final_subtotal'] ?? 0);
@@ -403,7 +404,7 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
                         <td><strong>{$totalDue}</strong></td>
                       </tr>";
         
-        $pdfPath = generateJobPdfFile($job, $pdo);
+        $pdfPath = generateJobPdfFile($job, $pdo, $sessions);
         if ($pdfPath) {
             $attachments[] = $pdfPath;
         }

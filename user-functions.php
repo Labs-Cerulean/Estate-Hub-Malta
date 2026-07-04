@@ -406,57 +406,120 @@ function formatPlantJobTimeRange(DateTime $inTime, DateTime $outTime) {
     return $inTime->format('H:i') . ' to ' . $outTime->format('H:i');
 }
 
+function tryPlantDateTime($value) {
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    try {
+        return new DateTime($value);
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+function tryPlantBookingDateTime($job, $timeField) {
+    $bookingDate = $job['booking_date'] ?? null;
+    $time = $job[$timeField] ?? null;
+    if (empty($bookingDate) || empty($time)) {
+        return null;
+    }
+
+    return tryPlantDateTime($bookingDate . ' ' . $time);
+}
+
 function getPlantJobTimeLogged($pdo, $job, $sessions = null) {
-    $pricingType = $job['pricing_type'] ?? '';
-    $lifecycleType = $job['lifecycle_type'] ?? 'Standard';
+    try {
+        $pricingType = $job['pricing_type'] ?? '';
+        $lifecycleType = $job['lifecycle_type'] ?? 'Standard';
+        $bookingDate = $job['booking_date'] ?? null;
 
-    if ($pricingType === 'daily' || $lifecycleType === 'Auto-Scheduled') {
-        $start = date('d M Y', strtotime($job['booking_date']));
-        $end = !empty($job['end_date']) ? date('d M Y', strtotime($job['end_date'])) : $start;
-        return $start . ' to ' . $end;
-    }
-
-    if ($sessions === null) {
-        $sessions = getPlantJobSessions($pdo, $job['id']);
-    }
-
-    if (count($sessions) > 0) {
-        $lines = [];
-        foreach ($sessions as $idx => $session) {
-            $lines[] = 'Day ' . ($idx + 1) . ': '
-                . date('d M, H:i', strtotime($session['punch_in'])) . ' to '
-                . date('H:i', strtotime($session['punch_out']))
-                . ' (' . $session['hours'] . ' hrs)';
+        if ($pricingType === 'daily' || $lifecycleType === 'Auto-Scheduled') {
+            if (empty($bookingDate)) {
+                return 'N/A';
+            }
+            $startTs = strtotime($bookingDate);
+            if ($startTs === false) {
+                return 'N/A';
+            }
+            $start = date('d M Y', $startTs);
+            $endDate = $job['end_date'] ?? null;
+            $endTs = !empty($endDate) ? strtotime($endDate) : false;
+            $end = ($endTs !== false) ? date('d M Y', $endTs) : $start;
+            return $start . ' to ' . $end;
         }
 
-        if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])) {
-            $lines[] = 'Active: since ' . date('d M, H:i', strtotime($job['punch_in_time']));
+        $bookingId = (int)($job['id'] ?? 0);
+        if ($bookingId <= 0) {
+            return 'N/A';
         }
 
-        return implode('; ', $lines);
+        if ($sessions === null) {
+            $sessions = getPlantJobSessions($pdo, $bookingId);
+        }
+
+        if (count($sessions) > 0) {
+            $lines = [];
+            foreach ($sessions as $idx => $session) {
+                if (empty($session['punch_in'])) {
+                    continue;
+                }
+
+                $punchInTs = strtotime($session['punch_in']);
+                if ($punchInTs === false) {
+                    continue;
+                }
+
+                $line = 'Day ' . ($idx + 1) . ': ' . date('d M, H:i', $punchInTs);
+
+                if (!empty($session['punch_out'])) {
+                    $punchOutTs = strtotime($session['punch_out']);
+                    if ($punchOutTs !== false) {
+                        $hours = isset($session['hours']) ? (float)$session['hours'] : 0;
+                        $line .= ' to ' . date('H:i', $punchOutTs) . ' (' . number_format($hours, 2) . ' hrs)';
+                    }
+                } else {
+                    $line .= ' (In Progress)';
+                }
+
+                $lines[] = $line;
+            }
+
+            if (($job['status'] ?? '') === 'In Progress' && !empty($job['punch_in_time'])) {
+                $activeTs = strtotime($job['punch_in_time']);
+                if ($activeTs !== false) {
+                    $lines[] = 'Active: since ' . date('d M, H:i', $activeTs);
+                }
+            }
+
+            if (!empty($lines)) {
+                return implode('; ', $lines);
+            }
+        }
+
+        $inFromPunch = tryPlantDateTime($job['punch_in_time'] ?? null);
+        $outFromPunch = tryPlantDateTime($job['punch_out_time'] ?? null);
+
+        if ($inFromPunch && $outFromPunch) {
+            return formatPlantJobTimeRange($inFromPunch, $outFromPunch);
+        }
+
+        if ($outFromPunch && !$inFromPunch) {
+            $inFromSchedule = tryPlantBookingDateTime($job, 'start_time');
+            if ($inFromSchedule) {
+                return formatPlantJobTimeRange($inFromSchedule, $outFromPunch);
+            }
+        }
+
+        $inTime = $inFromPunch ?? tryPlantBookingDateTime($job, 'start_time');
+        $outTime = $outFromPunch ?? tryPlantBookingDateTime($job, 'end_time');
+
+        if ($inTime && $outTime) {
+            return formatPlantJobTimeRange($inTime, $outTime);
+        }
+
+        return 'N/A';
+    } catch (Exception $e) {
+        return 'N/A';
     }
-
-    if (!empty($job['punch_in_time']) && !empty($job['punch_out_time'])) {
-        return formatPlantJobTimeRange(
-            new DateTime($job['punch_in_time']),
-            new DateTime($job['punch_out_time'])
-        );
-    }
-
-    if (!empty($job['punch_out_time']) && empty($job['punch_in_time'])) {
-        return formatPlantJobTimeRange(
-            new DateTime($job['booking_date'] . ' ' . ($job['start_time'] ?? '00:00:00')),
-            new DateTime($job['punch_out_time'])
-        );
-    }
-
-    $inTime = !empty($job['punch_in_time'])
-        ? new DateTime($job['punch_in_time'])
-        : new DateTime($job['booking_date'] . ' ' . ($job['start_time'] ?? '00:00:00'));
-
-    $outTime = !empty($job['punch_out_time'])
-        ? new DateTime($job['punch_out_time'])
-        : new DateTime($job['booking_date'] . ' ' . ($job['end_time'] ?? '00:00:00'));
-
-    return formatPlantJobTimeRange($inTime, $outTime);
 }
