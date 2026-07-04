@@ -3,6 +3,23 @@ require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
 
+function plantApiAuthorized(): bool {
+    $role = $_SESSION['role'] ?? '';
+    if (in_array($role, ['admin', 'director', 'accountant', 'system_manager', 'plant_manager', 'plant_driver'], true)) {
+        return true;
+    }
+    return hasPermission('view_plant_bookings')
+        || hasPermission('manage_plant_fleet')
+        || hasPermission('view_plant_ledger');
+}
+
+if (!plantApiAuthorized()) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(403);
+    echo json_encode(['error' => 'Unauthorized access to Plant Hub API.']);
+    exit;
+}
+
 function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
     try {
@@ -263,11 +280,13 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
-// Dynamic API Key Mapper
+// Dynamic API Key Mapper — fetch_bookings only needs DB; ERP keys required for other actions
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
-if (!$praApiKey || !$praxApiKey) {
+if ($action !== 'fetch_bookings' && (!$praApiKey || !$praxApiKey)) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(500);
     die(json_encode(['error' => 'Critical Error: ERP API keys are missing from environment configuration.']));
 }
 
@@ -403,6 +422,7 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
+    header('Content-Type: application/json; charset=utf-8');
     $nominalCache = [];
     foreach (['24', '26'] as $compId) {
         $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
@@ -656,6 +676,7 @@ if ($action == 'get_dashboard_stats' && $canViewDashboard) {
 }
 
 if ($action == 'fetch_bookings') {
+    header('Content-Type: application/json; charset=utf-8');
     $events = [];
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
