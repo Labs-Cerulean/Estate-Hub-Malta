@@ -388,6 +388,21 @@ $userId = $_SESSION['user_id'];
 
     const PLANT_API = '/api/plant_actions.php';
 
+    function plantFetchText(options) {
+        return fetch(PLANT_API, options).then(r => {
+            if (!r.ok) throw new Error('Server error (' + r.status + ')');
+            return r.text();
+        });
+    }
+
+    function plantNetworkError(btn, originalHtml) {
+        alert('Network error. Please try again.');
+        if (btn) {
+            btn.disabled = false;
+            if (originalHtml) btn.innerHTML = originalHtml;
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         initCalendar(); 
         signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
@@ -1233,8 +1248,8 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('end_time', document.getElementById('end_time').value);
         fd.append('apply_setup_fee', applySetup);
 
-        fetch('/api/plant_actions.php', { method: 'POST', body: fd })
-        .then(r => r.text())
+        const saveBtnLabel = editId ? '<i class="fas fa-save"></i> Update Booking' : '<i class="fas fa-check"></i> Save Booking';
+        plantFetchText({ method: 'POST', body: fd })
         .then(res => {
             if (res === 'OK') { 
                 alert("Saved!"); calendar.refetchEvents(); showView('view-calendar'); 
@@ -1243,7 +1258,11 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             } else { 
                 alert("Error: " + res); 
             }
-            btn.disabled = false; btn.innerHTML = editId ? '<i class="fas fa-save"></i> Update Booking' : '<i class="fas fa-check"></i> Save Booking';
+        })
+        .catch(() => plantNetworkError(btn, saveBtnLabel))
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = saveBtnLabel;
         });
     }
 
@@ -1497,12 +1516,12 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             fd.append('configurations', buildConfigJson()); 
         }
 
-        fetch('/api/plant_actions.php', { method: 'POST', body: fd })
-        .then(r => r.text())
+        plantFetchText({ method: 'POST', body: fd })
         .then(res => { 
             if (res === 'OK') { alert(editId ? "Machinery Updated!" : "Machinery Added!"); resetFleetForm(); loadFormData(); loadFleetView(); } 
             else { alert("Error: " + res); }
-        });
+        })
+        .catch(() => alert('Network error. Please try again.'));
     }
 
     function loadJob(id) {
@@ -1641,17 +1660,20 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         if (!confirm("Are you sure you want to claim this job?")) return;
         const fd = new FormData(); fd.append('action', 'claim_job'); fd.append('id', id);
         
-        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
+        plantFetchText({ method: 'POST', body: fd }).then(res => {
             if (res === 'OK') { alert("Job claimed successfully!"); loadJob(id); calendar.refetchEvents(); } 
             else if (res === 'ERROR_OVERLAP') { alert("Cannot claim job: You already have another job scheduled during this time."); } 
             else { alert("Error: " + res); }
-        });
+        }).catch(() => alert('Network error. Please try again.'));
     }
 
     function cancelJob(id) {
         if (!confirm("Delete booking?")) return;
         const fd = new FormData(); fd.append('action', 'cancel_booking'); fd.append('id', id);
-        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
+        plantFetchText({ method: 'POST', body: fd }).then(res => {
+            if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); }
+            else { alert("Error: " + res); }
+        }).catch(() => alert('Network error. Please try again.'));
     }
 
     let pendingPunchData = null; 
@@ -1750,12 +1772,15 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         if (activeMode) { fd.append('active_mode', activeMode); }
         if (activeAddons) { fd.append('active_addons', activeAddons); }
 
-        fetch('/api/plant_actions.php?id=' + id, { method: 'POST', body: fd })
-        .then(r => r.text())
+        fetch(PLANT_API + '?id=' + id, { method: 'POST', body: fd })
+        .then(r => {
+            if (!r.ok) throw new Error('Server error (' + r.status + ')');
+            return r.text();
+        })
         .then(res => {
             if (res === 'OK') { location.reload(); } 
             else { alert("Error: " + res); btn.innerHTML = originalHtml; btn.disabled = false; }
-        }).catch(err => { alert("Network error."); btn.innerHTML = originalHtml; btn.disabled = false; });
+        }).catch(() => plantNetworkError(btn, originalHtml));
     }
 
     function startPunchOut(id, pricingType) { 
@@ -1774,10 +1799,11 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('qty_trips', document.getElementById('qty_trips').value); fd.append('rep_name', document.getElementById('rep_name').value);
         fd.append('rep_id', document.getElementById('rep_id').value); fd.append('signature', signaturePad.toDataURL());
         
-        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
+        const punchOutBtnLabel = '<i class="fas fa-check-circle"></i> Complete & Finalize Job';
+        plantFetchText({ method: 'POST', body: fd }).then(res => {
             if (res === 'OK') { alert("Completed!"); calendar.refetchEvents(); showView('view-calendar'); } 
-            else { alert("Error: " + res); btn.disabled = false; }
-        });
+            else { alert("Error: " + res); plantNetworkError(btn, punchOutBtnLabel); }
+        }).catch(() => plantNetworkError(btn, punchOutBtnLabel));
     }
 
     function loadLedger() {
@@ -1955,15 +1981,13 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('action', 'retry_erp_sync');
         fd.append('booking_id', bookingId);
 
-        fetch('/api/plant_actions.php', { method: 'POST', body: fd })
-        .then(r => r.text())
+        plantFetchText({ method: 'POST', body: fd })
         .then(res => {
             if (res === 'OK') {
                 alert("Successfully Synced to ERP!");
-                loadLedger(); // Reloads the ledger to show the new SysRef
+                loadLedger();
             } else {
                 alert("Sync Failed: " + res);
-                // Re-enable buttons if it failed so they can try again later
                 allRetryBtns.forEach(btn => {
                     btn.disabled = false;
                     btn.style.opacity = '1';
@@ -1972,7 +1996,11 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             }
         }).catch(err => {
             alert("Network error occurred.");
-            loadLedger(); // Reset UI state
+            allRetryBtns.forEach(btn => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.innerHTML = '<i class="fas fa-sync"></i> Retry ERP Sync';
+            });
         });
     }
 
@@ -1985,7 +2013,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         btn.disabled = true;
 
         const fd = new FormData(); fd.append('action', 'pause_job'); fd.append('id', id);
-        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { 
+        plantFetchText({ method: 'POST', body: fd }).then(res => { 
             if (res === 'OK') { 
                 loadJob(id); 
                 calendar.refetchEvents(); 
@@ -1994,11 +2022,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
             }
-        }).catch(err => {
-            alert("Network error occurred.");
-            btn.innerHTML = originalHtml;
-            btn.disabled = false;
-        });
+        }).catch(() => plantNetworkError(btn, originalHtml));
     }
 </script>
 </body>
