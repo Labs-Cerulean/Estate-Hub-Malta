@@ -286,21 +286,27 @@ foreach ($projectsRaw as $p) {
         }
 
         $levelPcts = [];
+        $hasProgressData = false;
         if (isset($blockAggData[$p['id']])) {
             foreach ($blockAggData[$p['id']] as $row) {
-                if (!empty($row['level_id']) && ($row['construction_pct'] ?? 0) > 0) {
-                    $levelPcts[] = (float)$row['construction_pct'];
-                } elseif (empty($row['level_id']) && ($row['progress'] ?? 0) > 0) {
-                    $levelPcts[] = (float)$row['progress'];
+                if (!empty($row['level_id'])) {
+                    $levelPcts[] = (float)($row['construction_pct'] ?? 0);
+                    $hasProgressData = true;
+                } elseif (empty($row['level_id'])) {
+                    $levelPcts[] = (float)($row['progress'] ?? 0);
+                    $hasProgressData = true;
                 }
             }
         }
         if ($isHandedOver) {
             $p['progress_pct'] = 100;
-        } elseif (!empty($levelPcts)) {
+            $p['sort_progress'] = 100;
+        } elseif ($hasProgressData) {
             $p['progress_pct'] = (int)round(array_sum($levelPcts) / count($levelPcts));
+            $p['sort_progress'] = $p['progress_pct'];
         } else {
-            $p['progress_pct'] = $stageSortOrder[$stage] ?? 0;
+            $p['progress_pct'] = 0;
+            $p['sort_progress'] = $stageSortOrder[$stage] ?? 0;
         }
 
         $p['pm_const_name'] = 'Unassigned'; $p['pm_fin_name'] = 'Unassigned';
@@ -355,8 +361,8 @@ usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageSortOrde
         $valA = $stageSortOrder[$a['stage'] ?? ''] ?? 99;
         $valB = $stageSortOrder[$b['stage'] ?? ''] ?? 99;
     } elseif ($sortBy === 'progress') {
-        $valA = (int)($a['progress_pct'] ?? 0);
-        $valB = (int)($b['progress_pct'] ?? 0);
+        $valA = (int)($a['sort_progress'] ?? 0);
+        $valB = (int)($b['sort_progress'] ?? 0);
     } else {
         $valA = $a[$sortBy] ?? '';
         $valB = $b[$sortBy] ?? '';

@@ -361,13 +361,17 @@ function resetForm() {
 function updateUnitOptions() {
     const type = document.getElementById('form_quote_type').value;
     const isOhsa = type === 'OHSA';
+    const sel = document.getElementById('form_unit');
+    const generalUnits = ['lump_sum', 'sqm', 'lm', 'cum', 'cu.yd', 'hrs', 'qty'];
+    const ohsaUnits = ['visit', 'participant', 'procedure', 'document', 'assessment', 'hour', 'lump_sum', 'qty'];
     document.getElementById('unit_group_general').style.display = isOhsa ? 'none' : '';
     document.getElementById('unit_group_ohsa').style.display = isOhsa ? '' : 'none';
     if (isOhsa) {
-        const sel = document.getElementById('form_unit');
-        if (!['visit','participant','procedure','document','assessment','hour','lump_sum','qty'].includes(sel.value)) {
+        if (!ohsaUnits.includes(sel.value)) {
             sel.value = 'visit';
         }
+    } else if (!generalUnits.includes(sel.value)) {
+        sel.value = 'lump_sum';
     }
 }
 
