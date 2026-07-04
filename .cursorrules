@@ -30,7 +30,10 @@ This is a live, production PHP application ("Estate Hub Malta"). It is built usi
    - Respect the 500MB upload limits defined in `conf.d/custom.ini`.
 3. **Timezones**: Always force the timezone to `Europe/Malta` when handling dates, especially in cron jobs (`cron_lifecycle_manager.php`, `cron_delivery_reports.php`).
 
-# Agent Behavior
-- **Explain Before Modifying**: If asked to refactor or add a feature, explain your approach first before writing the code.
-- **Minimal Diffs**: Only change the code necessary to fulfill the prompt. Do not reformat entire files unless explicitly asked.
-- **Fail Gracefully**: If you are unsure how a change will affect the J2 ERP billing system or user permissions, STOP and ask the user for clarification.
+# Agent Workflow: Understand First (MANDATORY)
+Before generating any code to add a feature, fix a bug, or refactor, you MUST follow this sequence:
+1. **Analyze:** Read the relevant files. Trace the database dependencies and function calls. Identify which Hub (Plant, PM, Sales) the request belongs to.
+2. **Assess Security:** Determine which permission checks from `user-functions.php` are required for this specific change.
+3. **Explain:** Reply to the user summarizing your understanding of how the current code works, what files are involved, and what exact changes you plan to make. 
+4. **Wait for Approval:** Ask the user "Does this approach look correct?" and WAIT for their confirmation before writing the code snippet.
+5. **Minimal Diffs:** Once approved, only output the exact code blocks that need changing. Do not rewrite entire files unless absolutely necessary.
