@@ -109,13 +109,6 @@ try {
     try {
         $pdo->exec("INSERT IGNORE INTO sales_default_terms (quote_type, terms_text) VALUES ('OHSA', 'All prices quoted are exclusive of VAT. Payment terms: 50% on acceptance, balance on completion unless otherwise agreed.')");
     } catch (PDOException $e) {}
-
-    $quoteTypeEnum = "ENUM('Demolition_Excavation','Construction','Finishes','OHSA') NOT NULL";
-    foreach (['sales_quotes', 'sales_standard_items', 'sales_default_terms'] as $tbl) {
-        try {
-            $pdo->exec("ALTER TABLE `$tbl` MODIFY COLUMN quote_type $quoteTypeEnum");
-        } catch (PDOException $e) {}
-    }
 } catch(PDOException $e) {}
 
 

@@ -83,14 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         view_subcontractor_accounts, manage_subcontractor_accounts,
                         view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
                         view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes,
-                        view_plant_bookings, manage_plant_fleet, view_plant_ledger
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        view_plant_bookings, manage_plant_fleet, view_plant_ledger,
+                        view_all_projects, edit_project_schedule, view_sales_ohsa, manage_sales_ohsa
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $params = array_values($caps);
                 array_unshift($params, $newId);
                 $stmtCaps->execute($params);
-                $pdo->prepare("UPDATE user_capabilities SET view_all_projects=?, edit_project_schedule=?, view_sales_ohsa=?, manage_sales_ohsa=? WHERE user_id=?")
-                    ->execute([$caps['view_all_projects'], $caps['edit_project_schedule'], $caps['view_sales_ohsa'], $caps['manage_sales_ohsa'], $newId]);
 
                 $pdo->commit();
                 $message = 'User created successfully! Select them from the list to configure their project access levels.';
@@ -133,8 +132,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     view_subcontractor_accounts, manage_subcontractor_accounts,
                     view_mobilisation, view_projects, view_ohsa, view_works_sales, view_documentation, view_drawings, view_property_sales, view_capital_projects, view_nav_subcontractors,
                     view_sales_demo_exc, manage_sales_demo_exc, view_sales_const, manage_sales_const, view_sales_finishes, manage_sales_finishes, approve_quotes,
-                    view_plant_bookings, manage_plant_fleet, view_plant_ledger
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    view_plant_bookings, manage_plant_fleet, view_plant_ledger,
+                    view_all_projects, edit_project_schedule, view_sales_ohsa, manage_sales_ohsa
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                     view_tracking=VALUES(view_tracking), add_project=VALUES(add_project), edit_project_details=VALUES(edit_project_details), 
                     update_project_status=VALUES(update_project_status), edit_services=VALUES(edit_services), assign_actions=VALUES(assign_actions), 
@@ -151,13 +151,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     approve_quotes=VALUES(approve_quotes),
                     view_plant_bookings=VALUES(view_plant_bookings),
                     manage_plant_fleet=VALUES(manage_plant_fleet),
-                    view_plant_ledger=VALUES(view_plant_ledger)
+                    view_plant_ledger=VALUES(view_plant_ledger),
+                    view_all_projects=VALUES(view_all_projects),
+                    edit_project_schedule=VALUES(edit_project_schedule),
+                    view_sales_ohsa=VALUES(view_sales_ohsa),
+                    manage_sales_ohsa=VALUES(manage_sales_ohsa)
             ");
             $params = array_values($caps);
             array_unshift($params, $userId);
             $stmt2->execute($params);
-            $pdo->prepare("UPDATE user_capabilities SET view_all_projects=?, edit_project_schedule=?, view_sales_ohsa=?, manage_sales_ohsa=? WHERE user_id=?")
-                ->execute([$caps['view_all_projects'], $caps['edit_project_schedule'], $caps['view_sales_ohsa'], $caps['manage_sales_ohsa'], $userId]);
             
             $pdo->commit();
             $message = 'User profile & permissions updated successfully!';
