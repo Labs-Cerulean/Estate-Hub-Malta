@@ -596,6 +596,13 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#ef4444; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer;"><i class="fas fa-trash"></i></button>
         </div>`;
         list.insertAdjacentHTML('beforeend', html);
+
+        const row = document.getElementById(rowId);
+        const nomSel = row.querySelector('.cfg-nom');
+        setNomSelectValue(nomSel, data.nom_code);
+        if (nomSel.selectedIndex > 0) {
+            updateConfigPrice(nomSel);
+        }
     }
 
     function updateConfigPrice(sel) {
@@ -1050,6 +1057,27 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         }
     }
 
+    function applyFleetNominalPreselect(preselect) {
+        if (!preselect) return;
+
+        togglePricingModel();
+        const pricingType = document.getElementById('new_plant_pricing').value;
+        const fixedSel = document.getElementById('new_nom_fixed');
+        const varSel = document.getElementById('new_nom_var');
+
+        if (pricingType === 'fixed_then_hourly') {
+            setNomSelectValue(fixedSel, preselect.fixed);
+            setNomSelectValue(varSel, preselect.var);
+        } else if (pricingType === 'hourly') {
+            // Hourly stores the code in nom_code_variable but displays it in the fixed dropdown
+            setNomSelectValue(fixedSel, preselect.var || preselect.fixed);
+        } else {
+            setNomSelectValue(fixedSel, preselect.fixed || preselect.var);
+        }
+
+        setNomSelectValue(document.getElementById('new_nom_setup'), preselect.setup);
+    }
+
     function loadFleetNominals(companyId, options = {}) {
         const preselect = options.preselect || null;
         const onReady = typeof options.onReady === 'function' ? options.onReady : null;
@@ -1078,12 +1106,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             document.getElementById('new_nom_setup').innerHTML = opts;
             
             if (preselect) {
-                togglePricingModel();
-                setNomSelectValue(document.getElementById('new_nom_fixed'), preselect.fixed);
-                if (document.getElementById('new_plant_pricing').value === 'fixed_then_hourly') {
-                    setNomSelectValue(document.getElementById('new_nom_var'), preselect.var);
-                }
-                setNomSelectValue(document.getElementById('new_nom_setup'), preselect.setup);
+                applyFleetNominalPreselect(preselect);
             }
 
             // Auto-update any configuration builder dropdowns
