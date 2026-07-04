@@ -28,8 +28,8 @@ This is a live, production PHP application ("Estate Hub Malta"). It is built usi
    - create and update paths MUST use the same persistence helper.
    - Treat `approve_quotes`, `manage_users`, `manage_plant_fleet`, and ERP-adjacent caps as elevated privilege — call them out in change summaries.
 
-# Cybersecurity & Confidential Data (NON-NEGOTIABLE)
-Company data is highly confidential. Do not introduce vulnerabilities. When in doubt, fail closed and ask the user.
+# Cybersecurity & Confidential Data (NON-NEGOTIABLE — ALL FILES)
+Company data is highly confidential. These rules apply to **every file** in the repo (PHP, JS, SQL, config, cron, print templates, admin pages, APIs). Do not introduce vulnerabilities. When in doubt, fail closed and ask the user.
 
 ## Input, Output & Injection
 1. **SQL**: PDO prepared statements only — no string concatenation of user input into queries. Never put variables inside column/table names without a strict allowlist.
@@ -38,12 +38,13 @@ Company data is highly confidential. Do not introduce vulnerabilities. When in d
 4. **SSRF**: Do not fetch arbitrary URLs from user-supplied input. External HTTP calls (maps, ERP, S3) must use server-defined endpoints/keys only.
 5. **Path traversal**: File paths from user input must be validated; uploads/downloads go through `S3FileManager.php` with controlled keys — no direct filesystem reads from request params.
 
-## Authentication, Sessions & Authorization
-1. **Every mutating endpoint** (POST/DELETE actions, API writes) must verify session + permission before side effects — not just hide the UI button.
-2. **IDOR**: Never trust `id`, `project_id`, `client_id`, `quote_id`, etc. from the request alone. Verify with `hasProjectAccess()`, client assignment checks, or module-specific auth (e.g. quote type + capability).
-3. **Admin-only surfaces** (`users-management.php`, rate admin, ERP config): gate with `isAdmin()` or explicit capability — never "security through obscurity".
-4. **Passwords**: Use `password_hash()` / `password_verify()` only — never store or log plaintext passwords.
-5. **Sessions**: Do not weaken session checks, extend session lifetime, or bypass `session-check.php` for convenience.
+## Authentication, Sessions & Authorization (every protected file)
+1. **Every PHP page and API file** that reads or writes data must include `init.php` + `session-check.php` unless it is an explicitly documented public entry (e.g. login) — no exceptions for "internal" or "admin-only" scripts.
+2. **Every mutating endpoint** (POST/DELETE actions, API writes, cron that modifies data) must verify session + permission before side effects — not just hide the UI button.
+3. **IDOR**: Never trust `id`, `project_id`, `client_id`, `quote_id`, etc. from the request alone. Verify with `hasProjectAccess()`, client assignment checks, or module-specific auth (e.g. quote type + capability).
+4. **Admin-only surfaces**: gate with `isAdmin()` or explicit capability — never "security through obscurity".
+5. **Passwords**: Use `password_hash()` / `password_verify()` only — never store or log plaintext passwords.
+6. **Sessions**: Do not weaken session checks, extend session lifetime, or bypass `session-check.php` for convenience.
 
 ## Secrets & Sensitive Data
 1. **Never commit** API keys, DB passwords, JWT secrets, R2/S3 credentials, or `.env` contents. Use existing config/env patterns only.
@@ -60,29 +61,31 @@ Company data is highly confidential. Do not introduce vulnerabilities. When in d
 2. Validate `action` / `quote_type` / role values against allowlists — reject unknown enum values (do not silently coerce to dangerous defaults).
 3. Rate-limit or confirm destructive actions (delete, bulk assign, unlock quote, reload catalogue) where the codebase already uses confirmation patterns.
 
-## Agent Security Workflow (MANDATORY for risky changes)
-Before implementing, explicitly assess and state in the reply:
-1. **Threat**: What could go wrong? (IDOR, privilege escalation, data leak, injection)
+## Agent Security Workflow (MANDATORY — every code change, every file)
+Before implementing **any** change (feature, bugfix, refactor, CSS, SQL, JS), explicitly assess and state in the reply:
+1. **Threat**: What could go wrong? (IDOR, privilege escalation, data leak, injection, XSS, cap scrambling)
 2. **Controls**: Which checks exist or will be added?
-3. **Regression**: What existing auth path must remain unchanged?
+3. **Scope**: Which Hubs/files are touched and what must NOT regress?
 
-**Wait for user approval before coding** any change to:
+**Wait for user approval before coding** (see Agent Workflow below) — especially for:
 - Permissions, roles, capabilities, or user save/load logic
 - Auth, sessions, password reset, or login
 - File upload/download, document vault, or presigned URL logic
 - Plant ERP / J2 / billing integrations
 - Bulk UPDATE/DELETE, or schema/ENUM changes
-- New public/unauthenticated endpoints
+- New or modified API/AJAX endpoints
+- Any file handling confidential client, financial, or HR data
 
-May proceed without pre-approval only for: copy/UI labels, read-only explanations, or changes the user explicitly scoped as cosmetic/safe.
+Even for small diffs: apply the same security lens. A one-line SQL or echo change can open IDOR or XSS.
 
-## Pre-push security self-check (agent)
-- [ ] No raw user input in SQL, shell, or HTML output
+## Pre-push security self-check (agent — required for every commit)
+- [ ] Reviewed **all** changed files, not only the "main" one
+- [ ] No raw user input in SQL, shell, or HTML/JS output
 - [ ] Protected pages/endpoints include session + permission checks
 - [ ] IDs in URLs/POST verified against user access (not just cast to int)
-- [ ] Elevated caps not accidentally granted via array/SQL mismatch
+- [ ] Array → SQL bind order matches if persisting flags/caps/config
 - [ ] No secrets, credentials, or verbose errors added to the diff
-
+- [ ] Fail-closed: denied user cannot access via direct URL or forged POST
 # Code Style and Architecture Rules
 1. **No New Frameworks**: Do not introduce React, Vue, Tailwind, Bootstrap, or Laravel components. Stick to the existing vanilla HTML/JS and the CSS variables defined in `styles.css` (e.g., `var(--primary-color)`, `var(--bg-card)`).
 2. **File Handling**: 
@@ -90,10 +93,11 @@ May proceed without pre-approval only for: copy/UI labels, read-only explanation
    - Respect the 500MB upload limits defined in `conf.d/custom.ini`.
 3. **Timezones**: Always force the timezone to `Europe/Malta` when handling dates, especially in cron jobs (`cron_lifecycle_manager.php`, `cron_delivery_reports.php`).
 
-# Agent Workflow: Understand First (MANDATORY)
-Before generating any code to add a feature, fix a bug, or refactor, you MUST follow this sequence:
+# Agent Workflow: Understand First (MANDATORY — all files)
+Before generating any code to add a feature, fix a bug, or refactor in **any file**, you MUST follow this sequence:
 1. **Analyze:** Read the relevant files. Trace the database dependencies and function calls. Identify which Hub (Plant, PM, Sales) the request belongs to.
-2. **Assess Security:** Determine which permission checks from `user-functions.php` are required for this specific change.
-3. **Explain:** Reply to the user summarizing your understanding of how the current code works, what files are involved, and what exact changes you plan to make. 
+2. **Assess Security:** Apply the Cybersecurity section above to this specific change — every file, every time.
+3. **Explain:** Reply to the user summarizing how the current code works, what files are involved, security controls, and what exact changes you plan to make.
 4. **Wait for Approval:** Ask the user "Does this approach look correct?" and WAIT for their confirmation before writing the code snippet.
 5. **Minimal Diffs:** Once approved, only output the exact code blocks that need changing. Do not rewrite entire files unless absolutely necessary.
+6. **Verify:** Before commit, run the Pre-push security self-check against the full diff.
