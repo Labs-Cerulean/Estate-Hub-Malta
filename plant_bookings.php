@@ -287,7 +287,16 @@ $userId = $_SESSION['user_id'];
                 </div>
 
                 <div id="seq-step-5" class="step-disabled">
-                    <label>5. Location (Tap Map to Pin manually)</label>
+                    <label>5. Location</label>
+                    <div style="display:flex; gap:10px; margin-bottom:10px; align-items:stretch;">
+                        <input type="text" id="location_paste" class="input-heavy" style="margin-bottom:0; flex:1;" placeholder="Paste Google Maps link or coordinates (e.g. 35.91, 14.48)" autocomplete="off" disabled onkeydown="if(event.key === 'Enter') { event.preventDefault(); applyPastedLocation(); return false; }">
+                        <button type="button" id="location_paste_btn" class="btn-heavy btn-blue" style="margin:0; width:auto; padding:0 18px; white-space:nowrap;" onclick="applyPastedLocation()" disabled>Set</button>
+                    </div>
+                    <div style="position:relative; margin-bottom:10px;">
+                        <input type="text" id="location_address_search" class="input-heavy" style="margin-bottom:0;" placeholder="Or search street address in Malta..." autocomplete="off" onkeyup="filterAddressSearch(this.value)" onkeydown="if(event.key === 'Enter') { event.preventDefault(); return false; }" disabled>
+                        <div id="location_address_results" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:2px solid #6366f1; border-radius:12px; z-index:100; max-height:220px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2); margin-top:4px;"></div>
+                    </div>
+                    <p id="location_status" style="font-size:0.85rem; color:#64748b; margin:0 0 10px 0;">Tap the map, paste a WhatsApp/Google Maps link, or search an address.</p>
                     <div id="map" style="width: 100%; height: 250px; border-radius: 12px; margin-bottom: 15px; border: 2px solid #e2e8f0;"></div>
                     <input type="hidden" id="loc_lat"><input type="hidden" id="loc_lng">
                     
@@ -453,12 +462,179 @@ $userId = $_SESSION['user_id'];
         });
 
         mapboxMap.on('click', (e) => {
-            if (marker) marker.remove(); 
-            // Updated to use maplibregl marker
-            marker = new maplibregl.Marker({color: '#f43f5e'}).setLngLat(e.lngLat).addTo(mapboxMap);
-            document.getElementById('loc_lat').value = e.lngLat.lat; 
-            document.getElementById('loc_lng').value = e.lngLat.lng;
+            setMapLocation(e.lngLat.lat, e.lngLat.lng);
         });
+    }
+
+    function updateLocationStatus(label) {
+        const statusEl = document.getElementById('location_status');
+        const lat = document.getElementById('loc_lat').value;
+        const lng = document.getElementById('loc_lng').value;
+        if (!statusEl || !lat || !lng) return;
+
+        const coordsText = `${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}`;
+        statusEl.innerHTML = label
+            ? `<i class="fas fa-map-pin" style="color:#10b981;"></i> <b>Location set:</b> ${label} <span style="color:#94a3b8;">(${coordsText})</span>`
+            : `<i class="fas fa-map-pin" style="color:#10b981;"></i> <b>Location set:</b> ${coordsText}`;
+    }
+
+    function setMapLocation(lat, lng, label) {
+        lat = parseFloat(lat);
+        lng = parseFloat(lng);
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return false;
+
+        if (!mapboxMap) initMap();
+
+        document.getElementById('loc_lat').value = lat;
+        document.getElementById('loc_lng').value = lng;
+
+        if (marker) marker.remove();
+        marker = new maplibregl.Marker({color: '#f43f5e'}).setLngLat([lng, lat]).addTo(mapboxMap);
+        mapboxMap.flyTo({center: [lng, lat], zoom: 16});
+
+        document.getElementById('map').style.borderColor = '#10b981';
+        updateLocationStatus(label || '');
+        return true;
+    }
+
+    function parseCoordsFromText(text) {
+        text = (text || '').trim();
+        if (!text) return null;
+
+        let match = text.match(/^(-?\d+\.?\d*)\s*[,;\s]\s*(-?\d+\.?\d*)$/);
+        if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+
+        match = text.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+        if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+
+        match = text.match(/@(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/);
+        if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+
+        match = text.match(/[?&](?:query|q)=(-?\d+\.?\d*)%2C(-?\d+\.?\d*)/i) || text.match(/[?&](?:query|q)=(-?\d+\.?\d*),(-?\d+\.?\d*)/i);
+        if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+
+        match = text.match(/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/i);
+        if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+
+        return null;
+    }
+
+    function isResolvableMapUrl(text) {
+        return /^(https?:\/\/)?(maps\.app\.goo\.gl|goo\.gl\/maps|www\.google\.[^/]+\/maps|google\.[^/]+\/maps)/i.test(text);
+    }
+
+    async function applyPastedLocation() {
+        const inputEl = document.getElementById('location_paste');
+        const input = inputEl.value.trim();
+        if (!input) {
+            alert('Paste a Google Maps link or coordinates first.');
+            inputEl.focus();
+            return;
+        }
+
+        let coords = parseCoordsFromText(input);
+        if (!coords && isResolvableMapUrl(input)) {
+            const btn = document.getElementById('location_paste_btn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            try {
+                const res = await fetch(`api/plant_actions.php?action=resolve_map_url&url=${encodeURIComponent(input)}`);
+                const data = await res.json();
+                if (data.lat && data.lng) {
+                    coords = data;
+                } else {
+                    alert(data.error || 'Could not extract location from that link.');
+                    return;
+                }
+            } catch (err) {
+                alert('Failed to resolve map link. Try pasting coordinates directly.');
+                return;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        if (!coords) {
+            alert('Could not find coordinates. Paste a full Google Maps link or lat,lng values (e.g. 35.9123, 14.4892).');
+            inputEl.focus();
+            return;
+        }
+
+        if (!setMapLocation(coords.lat, coords.lng)) {
+            alert('Invalid coordinates.');
+            return;
+        }
+
+        document.getElementById('location_address_search').value = '';
+        document.getElementById('location_address_results').style.display = 'none';
+    }
+
+    function escapeHtml(str) {
+        return String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    let addressSearchTimer = null;
+    window.lastAddressResults = [];
+
+    function filterAddressSearch(query) {
+        clearTimeout(addressSearchTimer);
+        const resultsDiv = document.getElementById('location_address_results');
+        if (query.trim().length < 3) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        addressSearchTimer = setTimeout(() => {
+            fetch(`api/plant_actions.php?action=geocode_search&q=${encodeURIComponent(query.trim())}`)
+            .then(r => r.json())
+            .then(results => {
+                window.lastAddressResults = Array.isArray(results) ? results : [];
+                if (window.lastAddressResults.length === 0) {
+                    resultsDiv.innerHTML = '<div style="padding:15px; color:#64748b; font-weight:600;">No addresses found.</div>';
+                } else {
+                    resultsDiv.innerHTML = window.lastAddressResults.map((item, index) => `
+                        <div style="padding:12px 15px; cursor:pointer; border-bottom:1px solid #e2e8f0; color:#0f172a; background:#fff; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="selectAddressResult(${index})">
+                            <div style="font-weight:700; font-size:0.9rem;">${escapeHtml(item.label.split(',')[0])}</div>
+                            <div style="color:#64748b; font-size:0.8rem; margin-top:2px;">${escapeHtml(item.label)}</div>
+                        </div>
+                    `).join('');
+                }
+                resultsDiv.style.display = 'block';
+            })
+            .catch(() => {
+                resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:600;">Address search unavailable.</div>';
+                resultsDiv.style.display = 'block';
+            });
+        }, 450);
+    }
+
+    function selectAddressResult(index) {
+        const item = window.lastAddressResults[index];
+        if (!item) return;
+
+        document.getElementById('location_address_search').value = item.label;
+        document.getElementById('location_address_results').style.display = 'none';
+        document.getElementById('location_paste').value = '';
+        setMapLocation(item.lat, item.lng, item.label);
+    }
+
+    function resetLocationFields() {
+        document.getElementById('location_paste').value = '';
+        document.getElementById('location_address_search').value = '';
+        document.getElementById('location_address_results').style.display = 'none';
+        document.getElementById('loc_lat').value = '';
+        document.getElementById('loc_lng').value = '';
+        document.getElementById('location_status').innerHTML = 'Tap the map, paste a WhatsApp/Google Maps link, or search an address.';
+        document.getElementById('map').style.borderColor = '#e2e8f0';
+        window.lastAddressResults = [];
+        if (marker) marker.remove();
     }
 
     function updateProjectLocation() {
@@ -486,16 +662,9 @@ $userId = $_SESSION['user_id'];
             const hasStreet = streetValue !== null && streetValue.trim() !== "";
 
             if (hasCoords && hasStreet) {
-                document.getElementById('loc_lat').value = data.latitude; 
-                document.getElementById('loc_lng').value = data.longitude;
-                if (mapboxMap) { 
-                    if (marker) marker.remove(); 
-                    marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([data.longitude, data.latitude]).addTo(mapboxMap); 
-                    mapboxMap.flyTo({center: [data.longitude, data.latitude], zoom: 14}); 
-                }
+                setMapLocation(data.latitude, data.longitude, streetValue);
             } else {
-                document.getElementById('loc_lat').value = ''; document.getElementById('loc_lng').value = '';
-                if (marker) marker.remove();
+                resetLocationFields();
                 alert("Location or street data for this project is missing/incomplete. Please select the exact location manually by tapping on the map.");
             }
         })
@@ -503,8 +672,7 @@ $userId = $_SESSION['user_id'];
             // DEBUG 4: This is the most important part. It will tell us EXACTLY why it failed.
             console.error("THE EXACT ERROR IS:", err); 
             
-            document.getElementById('loc_lat').value = ''; document.getElementById('loc_lng').value = '';
-            if (marker) marker.remove();
+            resetLocationFields();
             alert("Failed to fetch project location. Please select the location manually by tapping on the map.");
         });
     }
@@ -894,7 +1062,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         
         document.getElementById('setup-fee-container').style.display = 'none';
         
-        if(marker) marker.remove(); toggleJobType(); resetClientSearch(); showView('view-create');
+        if(marker) marker.remove(); toggleJobType(); resetClientSearch(); resetLocationFields(); showView('view-create');
     }
 
     function initiateBookingEdit() {
@@ -957,11 +1125,10 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
 
         if(j.location_lat && j.location_lng) {
             setTimeout(() => {
-                if(!mapboxMap) initMap();
-                if(marker) marker.remove();
-                marker = new mapboxgl.Marker({color: '#f43f5e'}).setLngLat([j.location_lng, j.location_lat]).addTo(mapboxMap);
-                mapboxMap.flyTo({center: [j.location_lng, j.location_lat], zoom: 14});
+                setMapLocation(j.location_lat, j.location_lng);
             }, 300);
+        } else {
+            resetLocationFields();
         }
     }
 
@@ -988,10 +1155,13 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         // STRICT FIX: Always require ERP client for both internal and external jobs to prevent "No Client"
         if (!document.getElementById('client_code').value) { showError('client_name'); }
 
-        if (!document.getElementById('loc_lat').value || !document.getElementById('loc_lng').value) { showError('map'); }
+        if (!document.getElementById('loc_lat').value || !document.getElementById('loc_lng').value) {
+            showError('map');
+            showError('location_paste');
+        }
 
         if (!isValid) {
-            alert("Please fill out all highlighted fields and ensure a location is pinned on the map.");
+            alert("Please fill out all highlighted fields and set a location using the map, a pasted link, or address search.");
             if (firstError) { firstError.scrollIntoView({ behavior: 'smooth', block: 'center' }); if(firstError.focus) firstError.focus(); }
             return; 
         }
