@@ -3,17 +3,7 @@ require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
 
-function plantApiAuthorized(): bool {
-    $role = $_SESSION['role'] ?? '';
-    if (in_array($role, ['admin', 'director', 'accountant', 'system_manager', 'plant_manager', 'plant_driver'], true)) {
-        return true;
-    }
-    return hasPermission('view_plant_bookings')
-        || hasPermission('manage_plant_fleet')
-        || hasPermission('view_plant_ledger');
-}
-
-if (!plantApiAuthorized()) {
+if (!canUsePlantHubApi()) {
     header('Content-Type: application/json; charset=utf-8');
     http_response_code(403);
     echo json_encode(['error' => 'Unauthorized access to Plant Hub API.']);
@@ -26,17 +16,22 @@ function plantSchemaNeedsMigration(PDO $pdo): bool {
         return $needsMigration;
     }
 
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND (
-            (TABLE_NAME = 'plants' AND COLUMN_NAME = 'billing_unit')
-            OR (TABLE_NAME = 'plant_bookings' AND COLUMN_NAME = 'end_date')
-            OR (TABLE_NAME = 'plant_job_sessions' AND COLUMN_NAME = 'mode_name')
-          )
-    ");
-    $stmt->execute();
-    $needsMigration = ((int)$stmt->fetchColumn()) < 3;
+    try {
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND (
+                (TABLE_NAME = 'plants' AND COLUMN_NAME = 'billing_unit')
+                OR (TABLE_NAME = 'plant_bookings' AND COLUMN_NAME = 'end_date')
+                OR (TABLE_NAME = 'plant_job_sessions' AND COLUMN_NAME = 'mode_name')
+              )
+        ");
+        $stmt->execute();
+        $needsMigration = ((int)$stmt->fetchColumn()) < 3;
+    } catch (PDOException $e) {
+        // If schema introspection fails, run the safe ALTER block once (main-branch behaviour).
+        $needsMigration = true;
+    }
     return $needsMigration;
 }
 
