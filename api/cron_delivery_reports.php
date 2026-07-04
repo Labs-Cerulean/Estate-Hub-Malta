@@ -198,7 +198,7 @@ function generateJobPdfFile($job, $pdo) {
     <head>
         <meta charset='UTF-8'>
         <style>
-            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #fff; color: #000; font-size: 13px; line-height: 1.4; margin: 0; padding: 0; }
+            body { font-family: 'DejaVu Sans', sans-serif; background: #fff; color: #000; font-size: 13px; line-height: 1.4; margin: 0; padding: 0; }
             .header { border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; }
             .header table { width: 100%; border: none; }
             .header td { border: none; padding: 0; vertical-align: bottom; }
@@ -329,10 +329,10 @@ function generateJobPdfFile($job, $pdo) {
 
     $options = new \Dompdf\Options();
     $options->set('isRemoteEnabled', true);
-    $options->set('defaultFont', 'Helvetica');
+    $options->set('defaultFont', 'DejaVu Sans');
     $dompdf = new \Dompdf\Dompdf($options);
     
-    $dompdf->loadHtml($html);
+    $dompdf->loadHtml($html, 'UTF-8');
     $dompdf->setPaper('A4', 'portrait');
     $dompdf->render();
     
@@ -351,7 +351,8 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     
     $subject = "Plant Bookings Hub: $companyName Delivery Notes ($dateLabel)";
     
-    $htmlBody = "<h2>Plant Bookings Hub</h2>";
+    $htmlBody = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>";
+    $htmlBody .= "<h2>Plant Bookings Hub</h2>";
     $htmlBody .= "<h3>$companyName - Daily Delivery Notes</h3>";
     $htmlBody .= "<p>Please find attached the delivery notes for completed plant bookings for <strong>$dateLabel</strong>.</p>";
     
@@ -408,7 +409,7 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
         }
     }
     
-    $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p>";
+    $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p></body></html>";
 
     $emailSuccess = sendSystemEmail($recipients, $subject, $htmlBody, $attachments);
 
