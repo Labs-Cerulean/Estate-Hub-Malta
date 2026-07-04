@@ -49,6 +49,10 @@ $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$job) die("Job not found.");
 
+if (!headers_sent()) {
+    header('Content-Type: text/html; charset=UTF-8');
+}
+
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
@@ -255,13 +259,14 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="mt">
 <head>
+    <meta charset="UTF-8">
     <title>RFP / Delivery Note - <?= $jobRef ?></title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: 'Inter', sans-serif; background: #fff; color: #000; padding: 40px; font-size: 0.95rem; }
+        body { font-family: 'Inter', 'DejaVu Sans', 'Segoe UI', 'Noto Sans', sans-serif; background: #fff; color: #000; padding: 40px; font-size: 0.95rem; }
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 25px; }
         .logo { max-width: 200px; max-height: 80px; object-fit: contain; }
         .title { font-size: 1.8rem; font-weight: 900; text-transform: uppercase; color: #0f172a; }

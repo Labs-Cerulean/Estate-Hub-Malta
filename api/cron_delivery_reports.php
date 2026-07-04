@@ -33,7 +33,7 @@ $endDate = $_POST['end_date'] ?? $_GET['end_date'] ?? date('Y-m-d');
 
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.billing_company_id, p.category,
-           p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.setup_fee, p.nom_code_setup,
+           p.pricing_type, p.lifecycle_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.setup_fee, p.nom_code_setup,
            bc.name as developer_name, bc.logo_path as developer_logo, bc.bank_name, bc.iban,
            u.first_name, u.last_name, prj.name as project_name
     FROM plant_bookings pb 
@@ -63,7 +63,7 @@ $praEmails = ['nicholasv@pramalta.com', 'accounts@pramalta.com', 'marka@agiusgro
 
 $praxEmails = ['nicholasv@pramalta.com', 'thomasg@pandamalta.com', 'marka@agiusgroup.com', 'AlessiaA@AgiusGroup.Com', 'GabriellaA@AgiusGroup.Com', 'clydes@pramalta.com'];
 
-function generateJobPdfFile($job) {
+function generateJobPdfFile($job, $pdo, $sessions = null) {
     $tempDir = __DIR__ . '/../temp_pdfs/';
     if (!is_dir($tempDir)) {
         mkdir($tempDir, 0777, true);
@@ -176,22 +176,11 @@ function generateJobPdfFile($job) {
 
     $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
     $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
-    // --- REVERSE GEOCODING FOR PDF ---
-    if ($job['booking_type'] == 'in-house') {
-        $projectDisplay = !empty($job['project_name']) ? htmlspecialchars($job['project_name']) : 'N/A';
-    } else {
-        if (!empty($job['location_lat']) && !empty($job['location_lng']) && function_exists('getAddressFromCoordinates')) {
-            $address = getAddressFromCoordinates($job['location_lat'], $job['location_lng']);
-            // Fallback to raw coordinates if the map server can't find the road
-            $projectDisplay = $address ? htmlspecialchars($address) : 'Lat: ' . round($job['location_lat'], 4) . ', Lng: ' . round($job['location_lng'], 4);
-        } else {
-            $projectDisplay = 'External Location';
-        }
+    $projectDisplay = htmlspecialchars(getPlantJobLocationLabel($job));
+    if ($sessions === null) {
+        $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
     }
-    
-    $tIn = !empty($job['punch_in_time']) ? date('H:i', strtotime($job['punch_in_time'])) : (!empty($job['start_time']) ? date('H:i', strtotime($job['start_time'])) : '--:--');
-    $tOut = !empty($job['punch_out_time']) ? date('H:i', strtotime($job['punch_out_time'])) : (!empty($job['end_time']) ? date('H:i', strtotime($job['end_time'])) : '--:--');
-    $timeLogged = "{$tIn} to {$tOut}";
+    $timeLogged = htmlspecialchars(getPlantJobTimeLogged($pdo, $job, $sessions));
     
     $signatureHtml = "";
     if (!empty($job['signature_data'])) {
@@ -210,7 +199,7 @@ function generateJobPdfFile($job) {
     <head>
         <meta charset='UTF-8'>
         <style>
-            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #fff; color: #000; font-size: 13px; line-height: 1.4; margin: 0; padding: 0; }
+            body { font-family: 'DejaVu Sans', sans-serif; background: #fff; color: #000; font-size: 13px; line-height: 1.4; margin: 0; padding: 0; }
             .header { border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; }
             .header table { width: 100%; border: none; }
             .header td { border: none; padding: 0; vertical-align: bottom; }
@@ -341,10 +330,10 @@ function generateJobPdfFile($job) {
 
     $options = new \Dompdf\Options();
     $options->set('isRemoteEnabled', true);
-    $options->set('defaultFont', 'Helvetica');
+    $options->set('defaultFont', 'DejaVu Sans');
     $dompdf = new \Dompdf\Dompdf($options);
     
-    $dompdf->loadHtml($html);
+    $dompdf->loadHtml($html, 'UTF-8');
     $dompdf->setPaper('A4', 'portrait');
     $dompdf->render();
     
@@ -353,7 +342,7 @@ function generateJobPdfFile($job) {
     return $filePath;
 }
 
-function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $start, $end) {
+function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $start, $end, $pdo) {
     if (empty($jobsList)) {
         return "0 jobs found.";
     }
@@ -363,15 +352,18 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
     
     $subject = "Plant Bookings Hub: $companyName Delivery Notes ($dateLabel)";
     
-    $htmlBody = "<h2>Plant Bookings Hub</h2>";
+    $htmlBody = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>";
+    $htmlBody .= "<h2>Plant Bookings Hub</h2>";
     $htmlBody .= "<h3>$companyName - Daily Delivery Notes</h3>";
     $htmlBody .= "<p>Please find attached the delivery notes for completed plant bookings for <strong>$dateLabel</strong>.</p>";
     
-    $htmlBody .= "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width:100%; max-width: 800px; font-family: Arial, sans-serif; font-size: 13px;'>
+    $htmlBody .= "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width:100%; max-width: 1100px; font-family: Arial, sans-serif; font-size: 13px;'>
                     <tr style='background:#0f172a; color:white; text-align: left;'>
                         <th>Job Ref</th>
                         <th>Plant & Reg</th>
                         <th>Driver</th>
+                        <th>Client</th>
+                        <th>Project / Location</th>
                         <th>Shift Time</th>
                         <th>Date</th>
                         <th>Total (€)</th>
@@ -389,10 +381,14 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
         
         $driverName = trim(($job['first_name'] ?? '') . ' ' . ($job['last_name'] ?? ''));
         $driver = !empty($driverName) ? htmlspecialchars($driverName) : 'N/A';
-        
-        $tIn = !empty($job['punch_in_time']) ? date('H:i', strtotime($job['punch_in_time'])) : (!empty($job['start_time']) ? date('H:i', strtotime($job['start_time'])) : '--:--');
-        $tOut = !empty($job['punch_out_time']) ? date('H:i', strtotime($job['punch_out_time'])) : (!empty($job['end_time']) ? date('H:i', strtotime($job['end_time'])) : '--:--');
-        $shift = "{$tIn} to {$tOut}";
+
+        $clientName = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
+        $clientCode = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : '—';
+        $clientCell = "{$clientName}<br><span style='font-size:11px; color:#64748b;'>Code: {$clientCode}</span>";
+
+        $locationCell = htmlspecialchars(getPlantJobLocationLabel($job));
+        $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
+        $shift = htmlspecialchars(getPlantJobTimeLogged($pdo, $job, $sessions));
 
         $subtotal = (float)($job['final_subtotal'] ?? 0);
         $totalDue = $subtotal > 0 ? '€ ' . number_format($subtotal * 1.18, 2) : 'TBC'; 
@@ -401,18 +397,20 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
                         <td><strong>{$jobRef}</strong></td>
                         <td>{$plantInfo}</td>
                         <td>{$driver}</td>
+                        <td>{$clientCell}</td>
+                        <td>{$locationCell}</td>
                         <td>{$shift}</td>
                         <td>" . $job['booking_date'] . "</td>
                         <td><strong>{$totalDue}</strong></td>
                       </tr>";
         
-        $pdfPath = generateJobPdfFile($job);
+        $pdfPath = generateJobPdfFile($job, $pdo, $sessions);
         if ($pdfPath) {
             $attachments[] = $pdfPath;
         }
     }
     
-    $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p>";
+    $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p></body></html>";
 
     $emailSuccess = sendSystemEmail($recipients, $subject, $htmlBody, $attachments);
 
@@ -428,11 +426,11 @@ function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $star
 }
 
 $results = [];
-$results['pra'] = processAndSendCompanyEmails('PRA Construction', $praJobs, $praEmails, $startDate, $endDate);
+$results['pra'] = processAndSendCompanyEmails('PRA Construction', $praJobs, $praEmails, $startDate, $endDate, $pdo);
 
 sleep(3); 
 
-$results['prax'] = processAndSendCompanyEmails('PRAX Concrete', $praxJobs, $praxEmails, $startDate, $endDate);
+$results['prax'] = processAndSendCompanyEmails('PRAX Concrete', $praxJobs, $praxEmails, $startDate, $endDate, $pdo);
 
 header('Content-Type: application/json');
 echo json_encode([
