@@ -1318,6 +1318,132 @@ function extractCoordsFromMapUrl($url) {
     return null;
 }
 
+function isAllowedGoogleMapsHost($host) {
+    $host = strtolower(trim($host ?? ''));
+    if ($host === '' || filter_var($host, FILTER_VALIDATE_IP)) {
+        return false;
+    }
+
+    static $allowedExact = [
+        'maps.app.goo.gl',
+        'goo.gl',
+        'maps.google.com',
+        'www.google.com',
+        'google.com',
+        'www.google.com.mt',
+        'google.com.mt',
+    ];
+    if (in_array($host, $allowedExact, true)) {
+        return true;
+    }
+
+    return (bool)preg_match('/^[a-z0-9-]+\.google\.(com|com\.mt)$/', $host);
+}
+
+function isAllowedGoogleMapsUrl($url) {
+    $parts = parse_url($url);
+    if (!$parts || empty($parts['scheme']) || empty($parts['host'])) {
+        return false;
+    }
+
+    if (!in_array(strtolower($parts['scheme']), ['http', 'https'], true)) {
+        return false;
+    }
+
+    if (!isAllowedGoogleMapsHost($parts['host'])) {
+        return false;
+    }
+
+    if (strtolower($parts['host']) === 'goo.gl') {
+        $path = $parts['path'] ?? '';
+        if ($path === '' || $path[0] !== '/' || strncmp($path, '/maps', 5) !== 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function resolveRedirectTarget($baseUrl, $locationHeader) {
+    $locationHeader = trim($locationHeader ?? '');
+    if ($locationHeader === '') {
+        return null;
+    }
+
+    if (preg_match('#^https?://#i', $locationHeader)) {
+        return $locationHeader;
+    }
+
+    $baseParts = parse_url($baseUrl);
+    if (!$baseParts || empty($baseParts['scheme']) || empty($baseParts['host'])) {
+        return null;
+    }
+
+    if ($locationHeader[0] === '/') {
+        return $baseParts['scheme'] . '://' . $baseParts['host'] . $locationHeader;
+    }
+
+    $basePath = $baseParts['path'] ?? '/';
+    $directory = rtrim(substr($basePath, 0, strrpos($basePath . '/', '/')), '/');
+    return $baseParts['scheme'] . '://' . $baseParts['host'] . $directory . '/' . $locationHeader;
+}
+
+function extractRedirectLocation($responseHeaders) {
+    if (!is_string($responseHeaders) || $responseHeaders === '') {
+        return null;
+    }
+
+    if (preg_match('/^Location:\s*(.+)$/im', $responseHeaders, $matches)) {
+        return trim($matches[1]);
+    }
+
+    return null;
+}
+
+function resolveGoogleMapsUrlSafely($startUrl, $maxRedirects = 5) {
+    if (!isAllowedGoogleMapsUrl($startUrl)) {
+        return null;
+    }
+
+    $currentUrl = $startUrl;
+    for ($attempt = 0; $attempt <= $maxRedirects; $attempt++) {
+        $coords = extractCoordsFromMapUrl($currentUrl);
+        if ($coords) {
+            return $coords;
+        }
+
+        $ch = curl_init($currentUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        curl_setopt($ch, CURLOPT_NOBODY, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'EstateHubMalta/1.0 (Plant Hub Map Resolver)');
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+        curl_close($ch);
+
+        if ($httpCode < 300 || $httpCode >= 400) {
+            return null;
+        }
+
+        if (empty($redirectUrl)) {
+            $redirectUrl = extractRedirectLocation($response);
+            $redirectUrl = resolveRedirectTarget($currentUrl, $redirectUrl);
+        }
+
+        if (empty($redirectUrl) || !isAllowedGoogleMapsUrl($redirectUrl)) {
+            return null;
+        }
+
+        $currentUrl = $redirectUrl;
+    }
+
+    return extractCoordsFromMapUrl($currentUrl);
+}
+
 function fetchNominatimJson($url) {
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1383,26 +1509,14 @@ if ($action == 'resolve_map_url' && $isManager) {
         exit;
     }
 
-    if (!preg_match('#(google\.[^/]+/maps|maps\.app\.goo\.gl|goo\.gl/maps)#i', $url)) {
+    if (!isAllowedGoogleMapsUrl($url)) {
         echo json_encode(['error' => 'Only Google Maps links are supported']);
         exit;
     }
 
     $coords = extractCoordsFromMapUrl($url);
     if (!$coords) {
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'EstateHubMalta/1.0 (Plant Hub Map Resolver)');
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_exec($ch);
-        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        curl_close($ch);
-
-        if (!empty($finalUrl)) {
-            $coords = extractCoordsFromMapUrl($finalUrl);
-        }
+        $coords = resolveGoogleMapsUrlSafely($url);
     }
 
     if (!$coords) {
