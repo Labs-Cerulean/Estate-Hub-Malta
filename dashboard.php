@@ -66,7 +66,10 @@ $filterStatus = $_GET['filter_status'] ?? 'all';
 $filterProf = $_GET['filter_prof'] ?? 'all'; 
 $filterDbStatus = $_GET['filter_db_status'] ?? 'Active'; // Active, On-Hold, Completed, Withdrawn, All
 $currentView = $_GET['view'] ?? 'table';
-$sortBy = $_GET['sort'] ?? 'name';
+$groupMode = $_GET['group_mode'] ?? 'stage';
+$allowedGroupModes = ['stage', 'client', 'perit', 'pa_review', 'flat'];
+if (!in_array($groupMode, $allowedGroupModes, true)) $groupMode = 'stage';
+$sortBy = $_GET['sort'] ?? 'stage';
 $sortOrder = $_GET['order'] ?? 'ASC';
 
 // Allow sorting via array mapping
@@ -189,7 +192,25 @@ usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
     return $sortOrder === 'ASC' ? $cmp : -$cmp;
 });
 
-function getSortUrl($column) { global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView, $filterProf; $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC'; return "?view=$currentView&filter_type=$filterType&filter_city=$filterCity&filter_client=$filterClient&filter_island=$filterIsland&filter_status=$filterStatus&filter_db_status=$filterDbStatus&filter_prof=".urlencode($filterProf)."&sort=$column&order=$newOrder"; }
+$projectGroups = pmGroupProjects($projects, $groupMode, $paByProject, $stageEnum);
+
+function getSortUrl($column) {
+    global $sortBy, $sortOrder, $filterType, $filterCity, $filterClient, $filterIsland, $filterStatus, $filterDbStatus, $currentView, $filterProf, $groupMode;
+    $newOrder = ($sortBy === $column && $sortOrder === 'ASC') ? 'DESC' : 'ASC';
+    return '?' . http_build_query([
+        'view' => $currentView,
+        'group_mode' => $groupMode,
+        'filter_type' => $filterType,
+        'filter_city' => $filterCity,
+        'filter_client' => $filterClient,
+        'filter_island' => $filterIsland,
+        'filter_status' => $filterStatus,
+        'filter_db_status' => $filterDbStatus,
+        'filter_prof' => $filterProf,
+        'sort' => $column,
+        'order' => $newOrder,
+    ]);
+}
 function getSortIndicator($column) { global $sortBy, $sortOrder; if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼'; return ''; }
 if (!function_exists('buildPaUrl')) {
     function buildPaUrl(?string $paNumber): ?string { if (empty($paNumber)) return null; if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null; return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}"; }
@@ -239,6 +260,15 @@ require_once 'header.php';
 .view-toggle-btn { flex: 1; padding: 8px 16px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: all 0.2s; font-size: 0.9rem; border: none; outline: none; }
 .view-toggle-btn.active { background: var(--primary-color); color: #fff; box-shadow: 0 2px 8px rgba(14, 165, 233, 0.4); }
 
+.group-mode-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
+.group-mode-bar > span { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-right: 0.25rem; }
+.group-mode-btn { padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.78rem; text-decoration: none; color: var(--text-secondary); border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); white-space: nowrap; }
+.group-mode-btn.active, .group-mode-btn:hover { color: #fff; border-color: var(--primary-color); background: rgba(99, 102, 241, 0.2); }
+.group-section { margin-bottom: 1.75rem; }
+.group-section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; padding: 0.65rem 1rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 8px; }
+.group-section-header h3 { margin: 0; font-size: 0.95rem; color: var(--text-primary); }
+.group-count { font-size: 0.75rem; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 999px; }
+
 /* Table Improvements */
 .dashboard-wrapper { overflow-x: auto; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border-glass); max-height: calc(100vh - 350px); overflow-y: auto; }
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
@@ -251,6 +281,9 @@ tr:last-child td { border-bottom: none; }
 .cell-list-item { display: block; margin-bottom: 0.5rem; min-height: 1.2rem; line-height: 1.3; } .cell-list-item:last-child { margin-bottom: 0; }
 .action-buttons-wrapper { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; max-width: 220px; }
 .action-buttons-wrapper .btn-sm { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.75rem; flex: 0 0 auto; text-align: center; white-space: nowrap; cursor: pointer; }
+.pa-link { color: var(--primary-color); text-decoration: none; font-weight: 600; }
+.pa-link:hover { text-decoration: underline; }
+.pa-status-chip { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; background: rgba(139, 92, 246, 0.15); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.25); }
 
 /* Map Layout with Sidebar */
 .map-layout { display: flex; height: calc(100vh - 200px); min-height: 500px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); overflow: hidden; background: #1a1a24; }
@@ -357,9 +390,39 @@ tr:last-child td { border-bottom: none; }
                 </div>
             </div>
 
+            <?php
+            $groupModeLabels = [
+                'stage' => 'By Stage',
+                'client' => 'By Client',
+                'perit' => 'By Perit',
+                'pa_review' => 'PA Review',
+                'flat' => 'Flat List',
+            ];
+            $groupModeQuery = array_filter([
+                'view' => $currentView,
+                'filter_type' => $filterType !== 'all' ? $filterType : null,
+                'filter_city' => $filterCity !== 'all' ? $filterCity : null,
+                'filter_client' => $filterClient !== 'all' ? $filterClient : null,
+                'filter_island' => $filterIsland !== 'all' ? $filterIsland : null,
+                'filter_status' => $filterStatus !== 'all' ? $filterStatus : null,
+                'filter_db_status' => $filterDbStatus !== 'Active' ? $filterDbStatus : null,
+                'filter_prof' => $filterProf !== 'all' ? $filterProf : null,
+                'sort' => $sortBy !== 'stage' ? $sortBy : null,
+                'order' => $sortOrder !== 'ASC' ? $sortOrder : null,
+            ]);
+            ?>
+            <div class="group-mode-bar">
+                <span>View mode:</span>
+                <?php foreach ($groupModeLabels as $mode => $label): ?>
+                    <?php $modeQuery = http_build_query(array_merge($groupModeQuery, ['group_mode' => $mode])); ?>
+                    <a href="dashboard.php?<?= $modeQuery ?>" class="group-mode-btn<?= $groupMode === $mode ? ' active' : '' ?>"><?= $label ?></a>
+                <?php endforeach; ?>
+            </div>
+
             <div class="filters-section">
                 <form method="GET" id="dashboardFilters" class="pm-auto-filter">
                     <input type="hidden" name="view" id="viewStateInput" value="<?= htmlspecialchars($currentView) ?>">
+                    <input type="hidden" name="group_mode" value="<?= htmlspecialchars($groupMode) ?>">
                     <div class="filters-grid">
                         <?php if (in_array($userRole, ['admin', 'director'])): ?>
                         <div class="filter-group" style="background: rgba(239, 68, 68, 0.05); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2);">
@@ -479,6 +542,17 @@ tr:last-child td { border-bottom: none; }
             
             <div id="tableView" style="display: <?= $currentView === 'table' ? 'block' : 'none' ?>;">
                 <?php $isSalesDb = ($dashboardType === 'Sales Dashboard'); ?>
+                <?php foreach ($projectGroups as $groupKey => $group): ?>
+                <div class="group-section">
+                    <?php if ($groupMode !== 'flat'): ?>
+                    <div class="group-section-header">
+                        <?php if ($groupMode === 'stage'): ?>
+                            <span class="stage-dot" style="background-color: <?= $stageColors[$group['label']] ?? '#64748b' ?>;"></span>
+                        <?php endif; ?>
+                        <h3><?= htmlspecialchars($group['label']) ?></h3>
+                        <span class="group-count"><?= count($group['projects']) ?> project<?= count($group['projects']) === 1 ? '' : 's' ?></span>
+                    </div>
+                    <?php endif; ?>
                 <div class="dashboard-wrapper">
                     <table>
                         <thead>
@@ -490,7 +564,7 @@ tr:last-child td { border-bottom: none; }
                                 <th class="nowrap-cell"><a href="<?= getSortUrl('city') ?>" class="sortable-header" style="color: inherit;">City<?= getSortIndicator('city') ?></a></th>
                                 <th class="nowrap-cell"><a href="<?= getSortUrl('finish_level') ?>" class="sortable-header" style="color: inherit;">Finish Level<?= getSortIndicator('finish_level') ?></a></th>
                                 <?php if (!$isSalesDb): ?>
-                                    <th class="nowrap-cell">PA Number</th>
+                                    <th class="nowrap-cell">PA Number / Status</th>
                                     <th class="min-w-150">Architect</th>
                                     <th class="min-w-150">Structural Engineer</th>
                                 <?php endif; ?>
@@ -498,7 +572,7 @@ tr:last-child td { border-bottom: none; }
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($projects as $project): ?>
+                            <?php foreach ($group['projects'] as $project): ?>
                                 <tr style="<?= in_array($project['project_status'] ?? '', ['Withdrawn', 'On-Hold']) ? 'opacity: 0.6;' : '' ?>">
                                     <td style="text-align: center;"><span class="stage-dot" style="background-color: <?= $stageColors[$project['stage']] ?>;" title="<?= $project['stage'] ?>"></span></td>
                                     <td style="font-weight: 600;">
@@ -521,17 +595,7 @@ tr:last-child td { border-bottom: none; }
                                     <?php $projectPAs = $paByProject[$project['id']] ?? []; if (!$isSalesDb): ?>
                                         <td class="nowrap-cell">
                                             <?php if (!empty($projectPAs)): foreach ($projectPAs as $pa): ?>
-                                                <div class="cell-list-item">
-                                                    <?php 
-                                                    $paText = htmlspecialchars(formatPANumber($pa['pa_number'])); 
-                                                    $paUrl = buildPaUrl($pa['pa_number']); 
-                                                    $statusText = !empty($pa['pa_status']) ? ' <span style="font-size:0.75rem; color:var(--text-muted);">[' . htmlspecialchars($pa['pa_status']) . ']</span>' : '';
-                                                    if ($paUrl): ?>
-                                                        <a href="<?= htmlspecialchars($paUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $paText ?></a><?= $statusText ?>
-                                                    <?php else: ?>
-                                                        <?= $paText ?><?= $statusText ?>
-                                                    <?php endif; ?>
-                                                </div>
+                                                <div class="cell-list-item"><?= pmRenderPaChip($pa) ?></div>
                                             <?php endforeach; else: ?><span style="color: var(--text-muted)">TBC</span><?php endif; ?>
                                         </td>
                                         
@@ -570,6 +634,8 @@ tr:last-child td { border-bottom: none; }
                         </tbody>
                     </table>
                 </div>
+                </div>
+                <?php endforeach; ?>
             </div>
 
             <div id="mapView" style="display: <?= $currentView === 'map' ? 'block' : 'none' ?>;">
