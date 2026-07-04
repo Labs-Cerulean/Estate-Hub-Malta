@@ -147,9 +147,11 @@ if (!empty($projectIds)) {
     $ohsaStmt->execute($projectIds);
     foreach ($ohsaStmt->fetchAll() as $row) { $ohsaData[$row['project_id']] = $row; }
 
-    $paStmt = $pdo->prepare("SELECT project_id, pa_number FROM project_pa_numbers WHERE project_id IN ($placeholders)");
+    $paStmt = $pdo->prepare("SELECT project_id, pa_number, pa_status FROM project_pa_numbers WHERE project_id IN ($placeholders) ORDER BY pa_number ASC");
     $paStmt->execute($projectIds);
-    foreach ($paStmt->fetchAll() as $row) { $paData[$row['project_id']][] = $row['pa_number']; }
+    foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $paData[$row['project_id']][] = $row;
+    }
 
     $blockStmt = $pdo->prepare("
         SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, pb.finish_level, pb.progress, bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status, bl.construction_pct
@@ -187,7 +189,10 @@ foreach ($projectsRaw as $p) {
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         $p['safety_status'] = $ohsaData[$p['id']]['safety_status'] ?? 'N/A';
         $p['safety_comments'] = $ohsaData[$p['id']]['safety_comments'] ?? '';
-        $p['pa_numbers'] = isset($paData[$p['id']]) ? implode(', ', $paData[$p['id']]) : null;
+        $p['pa_records'] = $paData[$p['id']] ?? [];
+        $p['pa_numbers'] = !empty($p['pa_records'])
+            ? implode(', ', array_map(fn($pa) => pmFormatPaDisplay($pa['pa_number']), $p['pa_records']))
+            : null;
 
         $projConstStatuses = [];
         $projFinStatuses = [];
@@ -440,30 +445,38 @@ require_once 'header.php';
 <script src="/assets/js/pm-filters.js?v=<?= time() ?>"></script>
 
 <style>
-/* MATRIX WRAPPER & SCROLLBAR */
-.matrix-wrapper { position: relative; width: 100%; max-height: calc(100vh - 180px); overflow: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
-.matrix-wrapper::-webkit-scrollbar { height: 12px; width: 12px; }
-.matrix-wrapper::-webkit-scrollbar-track { background: rgba(0,0,0,0.15); border-radius: 8px; }
-.matrix-wrapper::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.6); border-radius: 8px; border: 2px solid var(--bg-card); cursor: pointer; }
-.matrix-wrapper::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 1); }
+/* CARD GRID LAYOUT */
+.matrix-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1rem; }
+.project-card { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: border-color 0.2s, box-shadow 0.2s; }
+.project-card:hover { border-color: rgba(99, 102, 241, 0.35); box-shadow: var(--shadow-sm); }
+.card-header { padding: 1rem 1rem 0.75rem; border-bottom: 1px solid var(--border-glass); cursor: pointer; }
+.card-header:hover { background: rgba(255,255,255,0.02); }
+.card-title { font-weight: 700; color: var(--primary-color); font-size: 1rem; line-height: 1.3; margin-bottom: 0.25rem; }
+.card-client { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+.card-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-section { padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.card-section:last-child { border-bottom: none; }
+.card-section-title { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; margin-bottom: 0.5rem; }
+.card-pa-list { display: flex; flex-direction: column; gap: 4px; }
+.card-pa-item { font-size: 0.8rem; line-height: 1.4; }
+.pa-link { color: var(--primary-color); text-decoration: none; font-weight: 600; }
+.pa-link:hover { text-decoration: underline; }
+.pa-status-chip { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; background: rgba(139, 92, 246, 0.15); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.25); }
+.card-execution { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+.exec-item { text-align: center; }
+.exec-label { display: block; font-size: 0.6rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+.exec-item .clickable-cell, .exec-item .normal-cell { padding: 0.35rem 0.25rem; justify-content: center; min-height: 36px; }
+.card-schedule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.card-schedule-grid .clickable-cell, .card-schedule-grid .normal-cell { padding: 0.5rem; align-items: flex-start; font-size: 0.72rem; }
+.card-team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.card-team-block { font-size: 0.75rem; line-height: 1.45; }
+.card-team-block .clickable-cell, .card-team-block .normal-cell { padding: 0; align-items: flex-start; }
+.card-empty { color: var(--text-muted); font-size: 0.8rem; font-style: italic; }
+.card-sort-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
+.card-sort-bar span { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
+.card-sort-link { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.75rem; text-decoration: none; color: var(--text-secondary); border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); }
+.card-sort-link.active, .card-sort-link:hover { color: #fff; border-color: var(--primary-color); background: rgba(99, 102, 241, 0.2); }
 
-/* TABLE BASE */
-.matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.85rem; }
-.matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-.matrix-table td { padding: 0; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; height: 50px; }
-
-/* FORCIBLY UNFREEZE RIGHT COLUMNS */
-.matrix-table th, .matrix-table td { position: static !important; right: auto !important; }
-.matrix-table thead th:first-child { position: sticky !important; left: 0 !important; z-index: 20 !important; border-right: 2px solid var(--border-glass) !important; background: #1e1e2d; }
-.matrix-table tbody tr td:first-child { position: sticky !important; left: 0 !important; background: #1e1e2d !important; z-index: 5 !important; border-right: 2px solid var(--border-glass) !important; }
-.matrix-table tbody tr:hover td:first-child { background: #2a2a3b !important; }
-.matrix-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
-
-/* CONSOLIDATED PROJECT CELL */
-.project-info-cell { display: flex; flex-direction: column; gap: 6px; align-items: flex-start !important; padding: 0.75rem 1rem !important; }
-.project-title { font-weight: 700; color: var(--primary-color); font-size: 0.95rem; white-space: normal; line-height: 1.2; }
-.project-client { font-size: 0.75rem; color: var(--text-muted); font-weight: normal; margin-bottom: 4px; }
-.project-tags { display: flex; flex-wrap: wrap; gap: 6px; max-width: 320px; }
 .info-tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); white-space: nowrap; }
 .info-tag.ohsa-green { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); cursor: pointer; }
 .info-tag.ohsa-yellow { color: #f59e0b; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.1); cursor: pointer; }
@@ -471,9 +484,6 @@ require_once 'header.php';
 .info-tag.ohsa-green:hover, .info-tag.ohsa-yellow:hover, .info-tag.ohsa-red:hover { filter: brightness(1.2); }
 
 /* INTERACTIONS */
-.sort-link { color: inherit; text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.sort-link:hover { color: var(--primary-color); }
-.sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 .normal-cell { padding: 0.75rem 1rem; height: 100%; display: flex; align-items: center; }
 .clickable-cell { cursor: pointer; padding: 0.75rem 1rem; height: 100%; width: 100%; display: flex; align-items: center; gap: 8px; transition: background 0.2s ease; border-radius: 4px; }
 .clickable-cell:hover { background: rgba(99, 102, 241, 0.15); }
@@ -501,34 +511,24 @@ require_once 'header.php';
 .tag-option:hover { background: rgba(99, 102, 241, 0.2); }
 .tag-empty { padding: 10px 12px; font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
 
-/* ==========================================
-   PRINT / PDF EXPORT STYLES
-   ========================================== */
+.schedule-cell { font-size: 0.72rem; line-height: 1.5; }
+.schedule-cell .sch-row { display: flex; justify-content: space-between; gap: 6px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.schedule-cell .sch-label { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.65rem; }
+.rag-green { color: #22c55e; } .rag-amber { color: #f59e0b; } .rag-red { color: #ef4444; } .rag-neutral { color: var(--text-muted); }
+.schedule-rag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.schedule-rag-dot.rag-green { background: #22c55e; } .schedule-rag-dot.rag-amber { background: #f59e0b; }
+.schedule-rag-dot.rag-red { background: #ef4444; } .schedule-rag-dot.rag-neutral { background: #6b7280; }
+
 @media print {
     @page { size: landscape; margin: 1cm; }
     body { background: #fff !important; color: #000 !important; }
-    
-    /* Hide UI Elements */
-    .header, .sidebar, .filters-section, .edit-icon, .close-modal, .sort-indicator, .modal { display: none !important; }
+    .header, .sidebar, .filters-section, .edit-icon, .close-modal, .modal, .card-sort-bar { display: none !important; }
     button, .btn { display: none !important; }
-    
-    /* Adjust Containers for PDF */
     .main-container { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
-    .matrix-wrapper { max-height: none !important; overflow: visible !important; border: none !important; box-shadow: none !important; background: transparent !important; }
-    
-    /* Adjust Table for PDF */
-    .matrix-table { width: 100% !important; border-collapse: collapse !important; page-break-inside: auto; }
-    .matrix-table th { position: static !important; background: #f3f4f6 !important; color: #111827 !important; border: 1px solid #d1d5db !important; padding: 8px !important; font-size: 10pt !important; }
-    .matrix-table td { position: static !important; background: #fff !important; color: #1f2937 !important; border: 1px solid #d1d5db !important; padding: 8px !important; font-size: 9pt !important; }
-    
-    /* Preserve Badge Colors via Webkit extension */
-    .badge, .info-tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; border-color: #d1d5db !important; }
-    
-    /* Reset layout quirks for printing */
-    .normal-cell, .clickable-cell { padding: 4px !important; }
-    a { text-decoration: none !important; color: inherit !important; }
+    .matrix-cards { display: block !important; }
+    .project-card { break-inside: avoid; margin-bottom: 1rem; border: 1px solid #d1d5db !important; box-shadow: none !important; }
+    .badge, .info-tag, .pa-status-chip { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     h1.page-title { color: #000 !important; margin-bottom: 20px !important; }
-    p { color: #4b5563 !important; }
 }
 </style>
 
@@ -577,83 +577,110 @@ require_once 'header.php';
         </form>
     </div>
 
-<style>
-.schedule-cell { font-size: 0.72rem; line-height: 1.5; min-width: 140px; }
-.schedule-cell .sch-row { display: flex; justify-content: space-between; gap: 6px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-.schedule-cell .sch-label { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.65rem; }
-.rag-green { color: #22c55e; } .rag-amber { color: #f59e0b; } .rag-red { color: #ef4444; } .rag-neutral { color: var(--text-muted); }
-.schedule-rag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-.schedule-rag-dot.rag-green { background: #22c55e; } .schedule-rag-dot.rag-amber { background: #f59e0b; }
-.schedule-rag-dot.rag-red { background: #ef4444; } .schedule-rag-dot.rag-neutral { background: #6b7280; }
-</style>
-
-    <div class="matrix-wrapper">
-        <table class="matrix-table">
-            <thead>
-                <tr>
-                    <th><a href="<?= getSortUrl('name') ?>" class="sort-link">Project Detail <span class="sort-indicator"><?= getSortIndicator('name') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass); text-align: center;"><a href="<?= getSortUrl('demo_status') ?>" class="sort-link" style="justify-content:center;">Demolition <span class="sort-indicator"><?= getSortIndicator('demo_status') ?></span></a></th>
-                    <th style="text-align: center;"><a href="<?= getSortUrl('exc_status') ?>" class="sort-link" style="justify-content:center;">Excavation <span class="sort-indicator"><?= getSortIndicator('exc_status') ?></span></a></th>
-                    <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
-                    <th style="text-align: center;"><a href="<?= getSortUrl('fin_status') ?>" class="sort-link" style="justify-content:center;">Finishes <span class="sort-indicator"><?= getSortIndicator('fin_status') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass); text-align: center; min-width: 150px;">Construction Complete<br><span style="font-size:0.65rem;color:var(--text-muted);">Legal / Sale Contracts</span></th>
-                    <th style="text-align: center; min-width: 150px;">Finishes Complete<br><span style="font-size:0.65rem;color:var(--text-muted);">Credit Control</span></th>
-                    <th style="border-left: 2px solid var(--border-glass);"><a href="<?= getSortUrl('pm_const') ?>" class="sort-link">Project Managers <span class="sort-indicator"><?= getSortIndicator('pm_const') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass);">Lead Subcontractors</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="9" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
-                <?php else: ?>
-                    <?php foreach($matrixProjects as $p): 
-                        $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
-                        $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
-                        
-                        $ohsaClass = strtolower($p['safety_status'] ?? 'na');
-                        $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
-                    ?>
-                        <tr>
-                            <td style="min-width: 320px; max-width: 380px;">
-                                <div class="clickable-cell project-info-cell" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
-                                    <div class="project-title"><?= htmlspecialchars($p['name']) ?></div>
-                                    <div class="project-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?></div>
-                                    
-                                    <div class="project-tags">
-                                        <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
-                                        <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
-                                        <?php if($p['pa_numbers']): ?>
-                                            <span class="info-tag" style="white-space:normal;">PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
-                                        <?php endif; ?>
-                                        <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments">
-                                            <?= $ohsaIcon ?> OHSA
-                                        </span>
-                                    </div>
-                                </div>
-                            </td>
-                            
-                            <td style="border-left: 2px solid var(--border-glass);">
-                                <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
-                            </td>
-                            <td><?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?></td>
-                            <td><?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?></td>
-                            <td><?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?></td>
-
-                            <td style="border-left: 2px solid var(--border-glass);"><?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?></td>
-                            <td><?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?></td>
-
-                            <td style="border-left: 2px solid var(--border-glass);">
-                                <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
-                            </td>
-                            <td style="border-left: 2px solid var(--border-glass); min-width: 250px;">
-                                <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
+    <?php
+    $sortColumns = [
+        'name' => 'Name',
+        'demo_status' => 'Demo',
+        'exc_status' => 'Exc',
+        'const_status' => 'Const',
+        'fin_status' => 'Fin',
+        'pm_const' => 'PM',
+    ];
+    ?>
+    <div class="card-sort-bar">
+        <span>Sort:</span>
+        <?php foreach ($sortColumns as $col => $label): ?>
+            <a href="<?= getSortUrl($col) ?>" class="card-sort-link<?= $sortBy === $col ? ' active' : '' ?>"><?= $label ?><?= getSortIndicator($col) ?></a>
+        <?php endforeach; ?>
     </div>
+
+    <?php if (empty($matrixProjects)): ?>
+        <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
+    <?php else: ?>
+    <div class="matrix-cards">
+        <?php foreach ($matrixProjects as $p):
+            $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
+            $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
+            $ohsaClass = strtolower($p['safety_status'] ?? 'na');
+            $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
+        ?>
+        <article class="project-card">
+            <div class="card-header" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
+                <div class="card-title"><?= htmlspecialchars($p['name']) ?></div>
+                <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?></div>
+                <div class="card-meta">
+                    <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
+                    <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
+                    <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments"><?= $ohsaIcon ?> OHSA</span>
+                </div>
+            </div>
+
+            <div class="card-section">
+                <div class="card-section-title">Permit Application</div>
+                <?php if (!empty($p['pa_records'])): ?>
+                    <div class="card-pa-list">
+                        <?php foreach ($p['pa_records'] as $pa): ?>
+                            <div class="card-pa-item"><?= pmRenderPaChip($pa) ?></div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="card-empty">No PA number assigned</div>
+                <?php endif; ?>
+            </div>
+
+            <div class="card-section">
+                <div class="card-section-title">Execution Status</div>
+                <div class="card-execution">
+                    <div class="exec-item">
+                        <span class="exec-label">Demo</span>
+                        <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
+                    </div>
+                    <div class="exec-item">
+                        <span class="exec-label">Exc</span>
+                        <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?>
+                    </div>
+                    <div class="exec-item">
+                        <span class="exec-label">Const</span>
+                        <?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?>
+                    </div>
+                    <div class="exec-item">
+                        <span class="exec-label">Fin</span>
+                        <?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-section">
+                <div class="card-section-title">Delivery Milestones</div>
+                <div class="card-schedule-grid">
+                    <div>
+                        <div style="font-size:0.65rem;color:#6366f1;font-weight:700;margin-bottom:4px;">Construction Complete</div>
+                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?>
+                    </div>
+                    <div>
+                        <div style="font-size:0.65rem;color:#22c55e;font-weight:700;margin-bottom:4px;">Finishes Complete</div>
+                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-section">
+                <div class="card-section-title">Team</div>
+                <div class="card-team-grid">
+                    <div class="card-team-block">
+                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Project Managers</div>
+                        <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
+                    </div>
+                    <div class="card-team-block">
+                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Subcontractors</div>
+                        <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
+                    </div>
+                </div>
+            </div>
+        </article>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 </div>
 
 <?php if ($canEditSchedule && !$isLegalRep): ?>

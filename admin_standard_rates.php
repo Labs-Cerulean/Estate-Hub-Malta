@@ -73,6 +73,13 @@ try {
         $s = $pdo->prepare("INSERT INTO sales_finishes_rates (item_key, category, description, unit, rate) VALUES (?, ?, ?, ?, ?)");
         foreach ($defaultRates as $r) { $s->execute($r); }
     }
+
+    $quoteTypeEnum = "ENUM('Demolition_Excavation','Construction','Finishes','OHSA') NOT NULL";
+    foreach (['sales_quotes', 'sales_standard_items', 'sales_default_terms'] as $tbl) {
+        try {
+            $pdo->exec("ALTER TABLE `$tbl` MODIFY COLUMN quote_type $quoteTypeEnum");
+        } catch (PDOException $e) {}
+    }
 } catch(PDOException $e) {}
 
 

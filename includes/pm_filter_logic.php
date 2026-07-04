@@ -87,3 +87,87 @@ function formatScheduleDate($date) {
     if (empty($date)) return '—';
     return date('d M Y', strtotime($date));
 }
+
+function pmBuildPaUrl(?string $paNumber): ?string {
+    if (empty($paNumber)) return null;
+    if (!preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) return null;
+    return "https://eapps.pa.org.mt/Case/CaseDetails?caseType={$m[1]}&casenumber={$m[2]}&caseYear={$m[3]}";
+}
+
+function pmFormatPaDisplay(?string $paNumber): ?string {
+    if (empty($paNumber)) return null;
+    if (preg_match('/(PA|PC|DN)\/(\d+)\/(\d+)/', $paNumber, $m)) {
+        return "{$m[1]} {$m[2]}/{$m[3]}";
+    }
+    return $paNumber;
+}
+
+function pmRenderPaChip(array $pa): string {
+    $paText = htmlspecialchars(pmFormatPaDisplay($pa['pa_number'] ?? '') ?? '');
+    $paUrl = pmBuildPaUrl($pa['pa_number'] ?? '');
+    $status = trim($pa['pa_status'] ?? '');
+    $statusHtml = $status !== '' ? ' <span class="pa-status-chip">' . htmlspecialchars($status) . '</span>' : '';
+    if ($paUrl) {
+        return '<a href="' . htmlspecialchars($paUrl) . '" target="_blank" rel="noopener noreferrer" class="pa-link">' . $paText . '</a>' . $statusHtml;
+    }
+    return $paText . $statusHtml;
+}
+
+function pmGroupProjects(array $projects, string $groupMode, array $paByProject = [], array $stageEnum = []): array {
+    $groups = [];
+    foreach ($projects as $project) {
+        switch ($groupMode) {
+            case 'client':
+                $key = trim($project['client_name'] ?? '') ?: 'Unassigned Client';
+                break;
+            case 'perit':
+                $pas = $paByProject[$project['id']] ?? [];
+                $firms = array_values(array_unique(array_filter(array_column($pas, 'arch_firm'))));
+                $key = !empty($firms) ? $firms[0] : 'No Perit Assigned';
+                break;
+            case 'pa_review':
+                $pas = $paByProject[$project['id']] ?? [];
+                if (empty($pas)) {
+                    $key = 'zz_no_pa';
+                } else {
+                    $statuses = array_values(array_unique(array_filter(array_column($pas, 'pa_status'))));
+                    $key = !empty($statuses) ? $statuses[0] : 'Status Unknown';
+                }
+                break;
+            case 'flat':
+                $key = 'all';
+                break;
+            case 'stage':
+            default:
+                $key = $project['stage'] ?? 'Unknown';
+                break;
+        }
+        if (!isset($groups[$key])) {
+            $groups[$key] = ['label' => $key === 'zz_no_pa' ? 'No PA Number' : ($key === 'all' ? 'All Projects' : $key), 'projects' => []];
+        }
+        $groups[$key]['projects'][] = $project;
+    }
+
+    if ($groupMode === 'stage') {
+        uksort($groups, function ($a, $b) use ($stageEnum) {
+            return ($stageEnum[$a] ?? 99) <=> ($stageEnum[$b] ?? 99);
+        });
+    } elseif ($groupMode === 'pa_review') {
+        ksort($groups, SORT_NATURAL | SORT_FLAG_CASE);
+        if (isset($groups['zz_no_pa'])) {
+            $noPa = $groups['zz_no_pa'];
+            unset($groups['zz_no_pa']);
+            $groups['zz_no_pa'] = $noPa;
+        }
+    } else {
+        uksort($groups, function ($a, $b) {
+            if ($a === 'No Perit Assigned') return 1;
+            if ($b === 'No Perit Assigned') return -1;
+            if ($a === 'Unassigned Client') return 1;
+            if ($b === 'Unassigned Client') return -1;
+            return strcasecmp($a, $b);
+        });
+    }
+
+    return $groups;
+}
