@@ -20,20 +20,73 @@ if (!plantApiAuthorized()) {
     exit;
 }
 
+function plantSchemaNeedsMigration(PDO $pdo): bool {
+    static $needsMigration = null;
+    if ($needsMigration !== null) {
+        return $needsMigration;
+    }
+
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND (
+            (TABLE_NAME = 'plants' AND COLUMN_NAME = 'billing_unit')
+            OR (TABLE_NAME = 'plant_bookings' AND COLUMN_NAME = 'end_date')
+            OR (TABLE_NAME = 'plant_job_sessions' AND COLUMN_NAME = 'mode_name')
+          )
+    ");
+    $stmt->execute();
+    $needsMigration = ((int)$stmt->fetchColumn()) < 3;
+    return $needsMigration;
+}
+
+function plantEnsureSchema(PDO $pdo): void {
+    static $ensured = false;
+    if ($ensured || !plantSchemaNeedsMigration($pdo)) {
+        $ensured = true;
+        return;
+    }
+
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            booking_id INT NOT NULL,
+            punch_in DATETIME NOT NULL,
+            punch_out DATETIME NOT NULL,
+            hours DECIMAL(10,2) NOT NULL,
+            mode_name VARCHAR(100) DEFAULT NULL,
+            addons_used TEXT DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
+        $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00");
+        $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plants ADD COLUMN requires_driver TINYINT(1) DEFAULT 1");
+        $pdo->exec("ALTER TABLE plants ADD COLUMN lifecycle_type VARCHAR(50) DEFAULT 'Standard'");
+        $pdo->exec("ALTER TABLE plants ADD COLUMN has_configurations TINYINT(1) DEFAULT 0");
+        $pdo->exec("ALTER TABLE plants ADD COLUMN configurations TEXT DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plants ADD COLUMN billing_unit VARCHAR(50) DEFAULT 'Hourly'");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN apply_setup_fee TINYINT(1) DEFAULT 0");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_setup_fee DECIMAL(10,2) DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN end_date DATE DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_mode VARCHAR(100) DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_addons TEXT DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN mode_name VARCHAR(100) DEFAULT NULL");
+        $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN addons_used TEXT DEFAULT NULL");
+    } catch (PDOException $e) {
+        // Swallow duplicate-column errors; prefer sql/plant_hub_schema_phpmyadmin.sql for deploys.
+    }
+
+    $ensured = true;
+}
+
 function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
     try {
         $stmt = $pdo->prepare("INSERT INTO plant_audit_log (user_id, booking_id, action_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$userId, $bookingId, $actionType, $details, $ip]);
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
-        $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        booking_id INT NOT NULL,
-        punch_in DATETIME NOT NULL,
-        punch_out DATETIME NOT NULL,
-        hours DECIMAL(10,2) NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
     } catch(PDOException $e) {
         // Silently fail so a logging error never stops a live billing transaction
     }
@@ -260,15 +313,8 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
 // Force Malta Timezone strictly for all operations in this file
 date_default_timezone_set('Europe/Malta');
 
-// Auto-deploy database updates for Setup Fee and Local Rate Overrides
-try { 
-    $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00"); 
-    $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN apply_setup_fee TINYINT(1) DEFAULT 0"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_setup_fee DECIMAL(10,2) DEFAULT NULL"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
-} catch(PDOException $e) {}
+// Run schema updates only when sentinel columns are missing (see sql/plant_hub_schema_phpmyadmin.sql)
+plantEnsureSchema($pdo);
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
