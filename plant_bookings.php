@@ -6,9 +6,13 @@ require_once 'user-functions.php';
 $role = $_SESSION['role'];
 $isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
 $isAccountant = ($role === 'accountant');
+$canAccessPlantPage = hasPermission('view_plant_bookings')
+    || $isPlantUser
+    || $isAccountant
+    || in_array($role, ['admin', 'director'], true);
 
-if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant) { 
-    die("Unauthorized Access."); 
+if (!$canAccessPlantPage) {
+    die("Unauthorized Access.");
 }
 
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']); 
@@ -382,6 +386,8 @@ $userId = $_SESSION['user_id'];
     const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>;
     window.mapboxgl = maplibregl;
 
+    const PLANT_API = '/api/plant_actions.php';
+
     document.addEventListener('DOMContentLoaded', () => {
         initCalendar(); 
         signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
@@ -423,7 +429,14 @@ $userId = $_SESSION['user_id'];
             slotMaxTime: '20:00:00', 
             allDaySlot: false, 
             contentHeight: 'auto',
-            events: 'api/plant_actions.php?action=fetch_bookings', 
+            events: {
+                url: PLANT_API + '?action=fetch_bookings',
+                failure: function() {
+                    console.error('Plant Hub: failed to load bookings.');
+                    const title = document.getElementById('custom-cal-title');
+                    if (title) title.innerText = 'Could not load bookings — try refreshing';
+                }
+            },
             eventClick: (info) => loadJob(info.event.id),
             datesSet: (info) => document.getElementById('custom-cal-title').innerText = info.view.title
         }); 
@@ -554,7 +567,7 @@ $userId = $_SESSION['user_id'];
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
-                const res = await fetch(`api/plant_actions.php?action=resolve_map_url&url=${encodeURIComponent(input)}`);
+                const res = await fetch(`/api/plant_actions.php?action=resolve_map_url&url=${encodeURIComponent(input)}`);
                 const data = await res.json();
                 if (data.lat && data.lng) {
                     coords = data;
@@ -606,7 +619,7 @@ $userId = $_SESSION['user_id'];
         }
 
         addressSearchTimer = setTimeout(() => {
-            fetch(`api/plant_actions.php?action=geocode_search&q=${encodeURIComponent(query.trim())}`)
+            fetch(`/api/plant_actions.php?action=geocode_search&q=${encodeURIComponent(query.trim())}`)
             .then(r => r.json())
             .then(results => {
                 window.lastAddressResults = Array.isArray(results) ? results : [];
@@ -662,7 +675,7 @@ $userId = $_SESSION['user_id'];
             return;
         }
         
-        fetch(`api/plant_actions.php?action=get_project_location&project_id=${pId}`)
+        fetch(`/api/plant_actions.php?action=get_project_location&project_id=${pId}`)
         .then(r => {
             console.log("Response Status:", r.status); // DEBUG 2: Check if API answers
             return r.json();
@@ -701,10 +714,14 @@ $userId = $_SESSION['user_id'];
     }
 
     function loadFormData() {
-        fetch('api/plant_actions.php?action=form_data')
-        .then(r => r.json())
+        fetch(PLANT_API + '?action=form_data')
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(d => {
-            groupedPlants = d.plants;
+            if (d.error) throw new Error(d.error);
+            groupedPlants = d.plants || {};
             
             // Safely check if the booking form elements exist before populating them
             const catDropdown = document.getElementById('plant_category');
@@ -734,7 +751,7 @@ $userId = $_SESSION['user_id'];
             if(document.getElementById('filter_plant_type')) {
                 document.getElementById('filter_plant_type').innerHTML = '<option value="">All Types</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
             }
-            if(document.getElementById('filter_project')) {
+            if(document.getElementById('filter_project') && Array.isArray(d.projects)) {
                 document.getElementById('filter_project').innerHTML = '<option value="">All Projects</option>' + d.projects.map(prj => `<option value="${prj.id}">${prj.name}</option>`).join('');
             }
             
@@ -742,6 +759,10 @@ $userId = $_SESSION['user_id'];
             if (catDropdown) {
                 updatePlantDropdown();
             }
+        })
+        .catch(err => {
+            console.error('Plant Hub: failed to load form data.', err);
+            alert('Could not load Plant Hub data. Please refresh or contact support if this continues.');
         });
     }
 
@@ -928,7 +949,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             clientInput.disabled = true;
         }
 
-        fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
+        fetch(`/api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
         .then(r => r.json())
         .then(res => {
             currentErpClients = res; 
@@ -1014,7 +1035,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const compId = pSelect.selectedIndex > 0 ? pSelect.options[pSelect.selectedIndex].getAttribute('data-company-id') : '';
 
         // 2. Pass BOTH project_id and company_id to the backend
-        fetch(`api/plant_actions.php?action=get_last_project_client&project_id=${id}&company_id=${compId}`)
+        fetch(`/api/plant_actions.php?action=get_last_project_client&project_id=${id}&company_id=${compId}`)
         .then(r => r.json())
         .then(data => {
             let clientAutoFilled = false;
@@ -1212,7 +1233,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('end_time', document.getElementById('end_time').value);
         fd.append('apply_setup_fee', applySetup);
 
-        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        fetch('/api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => {
             if (res === 'OK') { 
@@ -1279,7 +1300,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         document.getElementById('new_nom_var').innerHTML = '<option value="">Loading ERP...</option>';
         document.getElementById('new_nom_setup').innerHTML = '<option value="">Loading ERP...</option>';
     
-        fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
+        fetch(`/api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
         .then(r => r.json())
         .then(res => {
             window.erpNominals = Array.isArray(res) ? res : [];
@@ -1354,7 +1375,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
 
     function loadFleetView() {
         if (!canManageFleet) return;
-        fetch('api/plant_actions.php?action=get_fleet')
+        fetch('/api/plant_actions.php?action=get_fleet')
         .then(r => r.json())
         .then(fleet => {
             window.fleetData = fleet;
@@ -1476,7 +1497,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             fd.append('configurations', buildConfigJson()); 
         }
 
-        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        fetch('/api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => { 
             if (res === 'OK') { alert(editId ? "Machinery Updated!" : "Machinery Added!"); resetFleetForm(); loadFormData(); loadFleetView(); } 
@@ -1485,7 +1506,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function loadJob(id) {
-        fetch(`api/plant_actions.php?action=get_job&id=${id}`)
+        fetch(`/api/plant_actions.php?action=get_job&id=${id}`)
         .then(r => r.json())
         .then(job => {
             window.currentActiveJob = job; 
@@ -1620,7 +1641,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         if (!confirm("Are you sure you want to claim this job?")) return;
         const fd = new FormData(); fd.append('action', 'claim_job'); fd.append('id', id);
         
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
+        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
             if (res === 'OK') { alert("Job claimed successfully!"); loadJob(id); calendar.refetchEvents(); } 
             else if (res === 'ERROR_OVERLAP') { alert("Cannot claim job: You already have another job scheduled during this time."); } 
             else { alert("Error: " + res); }
@@ -1630,7 +1651,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     function cancelJob(id) {
         if (!confirm("Delete booking?")) return;
         const fd = new FormData(); fd.append('action', 'cancel_booking'); fd.append('id', id);
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
+        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { if (res === 'OK') { calendar.refetchEvents(); showView('view-calendar'); } });
     }
 
     let pendingPunchData = null; 
@@ -1729,7 +1750,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         if (activeMode) { fd.append('active_mode', activeMode); }
         if (activeAddons) { fd.append('active_addons', activeAddons); }
 
-        fetch('api/plant_actions.php?id=' + id, { method: 'POST', body: fd })
+        fetch('/api/plant_actions.php?id=' + id, { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => {
             if (res === 'OK') { location.reload(); } 
@@ -1753,7 +1774,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('qty_trips', document.getElementById('qty_trips').value); fd.append('rep_name', document.getElementById('rep_name').value);
         fd.append('rep_id', document.getElementById('rep_id').value); fd.append('signature', signaturePad.toDataURL());
         
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
+        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
             if (res === 'OK') { alert("Completed!"); calendar.refetchEvents(); showView('view-calendar'); } 
             else { alert("Error: " + res); btn.disabled = false; }
         });
@@ -1777,7 +1798,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
 
         document.getElementById('ledger-list').innerHTML = '<p style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> Loading ledger...</p>';
 
-        fetch(`api/plant_actions.php?${qs}`)
+        fetch(`/api/plant_actions.php?${qs}`)
         .then(r => r.json())
 .then(jobs => {
             document.getElementById('ledger-list').innerHTML = jobs.length === 0 ? '<p style="text-align:center; font-weight:bold; color:#ef4444;">No bookings found for these filters.</p>' : jobs.map(j => {
@@ -1934,7 +1955,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fd.append('action', 'retry_erp_sync');
         fd.append('booking_id', bookingId);
 
-        fetch('api/plant_actions.php', { method: 'POST', body: fd })
+        fetch('/api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => {
             if (res === 'OK') {
@@ -1964,7 +1985,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         btn.disabled = true;
 
         const fd = new FormData(); fd.append('action', 'pause_job'); fd.append('id', id);
-        fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { 
+        fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => { 
             if (res === 'OK') { 
                 loadJob(id); 
                 calendar.refetchEvents(); 

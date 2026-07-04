@@ -428,7 +428,7 @@ include 'header.php';
             height: 600,
             eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
             displayEventEnd: true,
-            events: 'api/plant_actions.php?action=fetch_bookings',
+            events: '/api/plant_actions.php?action=fetch_bookings',
             
             eventContent: function(arg) {
                 let title = arg.event.title;
@@ -502,7 +502,7 @@ include 'header.php';
             },
             
             eventClick: function(info) {
-                fetch(`api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
+                fetch(`/api/plant_actions.php?action=get_job&id=${info.event.id}`).then(r => r.json()).then(job => {
                     if (job.status === 'Completed' && (parseFloat(job.final_subtotal) > 0 || ['Invoiced','Settled'].includes(job.payment_status))) {
                         window.open(`print_plant_invoice.php?booking_id=${job.id}&readonly=1`, 'rfpPopup', 'width=1000,height=900,scrollbars=yes');
                     } else {
@@ -536,7 +536,7 @@ include 'header.php';
                 if (activeMapMode === 'period') { loadMapTelemetry(); }
 
                 const fd = new FormData(); fd.append('action', 'get_dashboard_stats'); fd.append('start', calStartCache); fd.append('end', calEndCache);
-                fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+                fetch('/api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
                     document.getElementById('kpi-completed-book').innerText = data.kpi.completed_bookings;
                     document.getElementById('kpi-completed-hrs').innerText = parseFloat(data.kpi.executed_hours).toFixed(1);
                     document.getElementById('kpi-planned-book').innerText = data.kpi.planned_bookings;
