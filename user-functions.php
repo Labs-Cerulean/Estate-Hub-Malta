@@ -20,10 +20,10 @@ function hasPermission($capability) {
     $editCapabilities = [
         'add_project', 'edit_project_details', 'update_project_status', 
         'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors',
-        'manage_sales_demo_exc', 'manage_sales_const', 'manage_sales_finishes'
+        'manage_sales_demo_exc', 'manage_sales_const', 'manage_sales_finishes', 'manage_sales_ohsa', 'edit_project_schedule'
     ];
     
-    if ($role === 'viewer' && in_array($capability, $editCapabilities)) {
+    if (in_array($role, ['viewer', 'legal_representative']) && in_array($capability, $editCapabilities)) {
         return false;
     }
 
@@ -40,7 +40,17 @@ function canEditProjectDetails($pdo, $projectId) {
 }
 
 function canUpdateStatus($pdo, $projectId) {
+    if (getCurrentRole() === 'legal_representative') return false;
     return hasPermission('update_project_status') && hasProjectAccess($pdo, $projectId);
+}
+
+function canEditProjectSchedule($pdo, $projectId) {
+    if (getCurrentRole() === 'legal_representative') return false;
+    return hasPermission('edit_project_schedule') && hasProjectAccess($pdo, $projectId);
+}
+
+function isLegalRepresentative() {
+    return getCurrentRole() === 'legal_representative';
 }
 
 // ==========================================

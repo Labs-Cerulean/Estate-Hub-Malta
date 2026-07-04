@@ -41,3 +41,20 @@ if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['plant_manager', 'p
         exit;
     }
 }
+
+// Legal representatives: project status matrix + read-only hub + profile only
+if (isset($_SESSION['role']) && $_SESSION['role'] === 'legal_representative') {
+    $current_file = basename($_SERVER['PHP_SELF']);
+    $allowed_legal_pages = [
+        'projects.php',
+        'mobilisation_detail.php',
+        'project-status.php',
+        'profile.php',
+    ];
+    $isApi = strpos($_SERVER['PHP_SELF'], '/api/') !== false;
+    $isLogout = $current_file === 'logout.php' || strpos($_SERVER['PHP_SELF'], 'logout') !== false;
+    if (!$isApi && !$isLogout && !in_array($current_file, $allowed_legal_pages)) {
+        header('Location: projects.php');
+        exit;
+    }
+}

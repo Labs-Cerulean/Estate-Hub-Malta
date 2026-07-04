@@ -58,6 +58,43 @@ if (isLoggedIn()) {
     $_SESSION['last_activity'] = time();
 }
 
+// Auto-deploy schema additions for PM cohesion features
+if (isset($pdo)) {
+    try { $pdo->exec("ALTER TABLE user_capabilities ADD COLUMN view_all_projects TINYINT(1) DEFAULT 0"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE user_capabilities ADD COLUMN edit_project_schedule TINYINT(1) DEFAULT 0"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE user_capabilities ADD COLUMN view_sales_ohsa TINYINT(1) DEFAULT 0"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE user_capabilities ADD COLUMN manage_sales_ohsa TINYINT(1) DEFAULT 0"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE users ADD COLUMN avatar_key VARCHAR(255) DEFAULT NULL"); } catch (PDOException $e) {}
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            token_hash VARCHAR(255) NOT NULL,
+            expires_at DATETIME NOT NULL,
+            used_at DATETIME DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_token (token_hash),
+            INDEX idx_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (PDOException $e) {}
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS project_delivery_schedule (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            project_id INT NOT NULL UNIQUE,
+            planned_shell_date DATE DEFAULT NULL,
+            forecast_shell_date DATE DEFAULT NULL,
+            actual_shell_date DATE DEFAULT NULL,
+            planned_finishes_date DATE DEFAULT NULL,
+            forecast_finishes_date DATE DEFAULT NULL,
+            actual_finishes_date DATE DEFAULT NULL,
+            finishes_scope VARCHAR(50) DEFAULT NULL,
+            notes TEXT DEFAULT NULL,
+            updated_by INT DEFAULT NULL,
+            updated_at DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (PDOException $e) {}
+}
+
 
 // Helper function to check if user is services engineer
 function isServicesEngineer() {

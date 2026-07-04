@@ -57,6 +57,7 @@ $stageColors = ['Feasibility'=>'#64748b', 'Tracking'=>'#f59e0b', 'Permit'=>'#8b5
 $legendItems = ['Feasibility', 'Tracking', 'Permit', 'Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 // Process Filters
+require_once __DIR__ . '/includes/pm_filter_logic.php';
 $filterType = $_GET['filter_type'] ?? 'all';
 $filterCity = $_GET['filter_city'] ?? 'all';
 $filterClient = $_GET['filter_client'] ?? 'all';
@@ -113,8 +114,10 @@ $preExecCount = 0; $execCount = 0; $finalCount = 0;
 $companyKpis = [];
 
 $filteredProjects = [];
+$stageIds = array_column($projects, 'id');
+$stagesBatch = getAccurateProjectStagesBatch($pdo, $stageIds);
 foreach ($projects as $project) {
-    $project['stage'] = getAccurateProjectStage($pdo, $project['id']);
+    $project['stage'] = $stagesBatch[$project['id']] ?? getAccurateProjectStage($pdo, $project['id']);
     $stageNum = $stageEnum[$project['stage']] ?? 1;
 
     // Apply DB Status filter FIRST
@@ -355,7 +358,7 @@ tr:last-child td { border-bottom: none; }
             </div>
 
             <div class="filters-section">
-                <form method="GET" id="dashboardFilters">
+                <form method="GET" id="dashboardFilters" class="pm-auto-filter">
                     <input type="hidden" name="view" id="viewStateInput" value="<?= htmlspecialchars($currentView) ?>">
                     <div class="filters-grid">
                         <?php if (in_array($userRole, ['admin', 'director'])): ?>
@@ -830,3 +833,4 @@ if ('<?= $currentView ?>' === 'map') {
 </script>
 
 <?php require_once 'footer.php'; ?>
+<script src="/assets/js/pm-filters.js?v=<?= time() ?>"></script>

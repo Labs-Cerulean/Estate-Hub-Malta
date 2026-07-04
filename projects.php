@@ -1,6 +1,7 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
+require_once __DIR__ . '/includes/pm_filter_logic.php';
 
 if (!hasPermission('view_projects') && !isAdmin()) {
     header('Location: dashboard.php?error=unauthorized');
@@ -10,6 +11,8 @@ if (!hasPermission('view_projects') && !isAdmin()) {
 $message = ''; $error = '';
 $canAssignTeam = hasPermission('edit_project_details') || isAdmin();
 $canUpdateStatus = hasPermission('update_project_status') || isAdmin();
+$canEditSchedule = hasPermission('edit_project_schedule') || isAdmin();
+$isLegalRep = isLegalRepresentative();
 
 // ==========================================
 // HANDLE POST ACTIONS
@@ -18,7 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
     if ($_POST['action'] === 'assign_team' && $canAssignTeam) {
         try {
-            $pId = $_POST['project_id'];
+            $pId = (int)$_POST['project_id'];
+            if (!hasProjectAccess($pdo, $pId)) { throw new Exception('Access denied to this project.'); }
             $subFinishes = isset($_POST['sub_finishes']) ? implode(',', $_POST['sub_finishes']) : null;
             
             $stmt = $pdo->prepare("UPDATE projects SET pm_construction_id=?, pm_finishes_id=?, sub_demolition_id=?, sub_excavation_id=?, sub_construction_id=?, sub_finishes_ids=? WHERE id=?");
@@ -38,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'update_mobilisation' && $canUpdateStatus) {
         try {
             $pId = (int)$_POST['project_id'];
+            if (!hasProjectAccess($pdo, $pId)) { throw new Exception('Access denied to this project.'); }
             $type = $_POST['mob_type'];
             $status = $_POST['status'];
             $col = ($type === 'demo') ? 'demo_status' : 'excavation_status';
@@ -49,6 +54,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stmt->execute([$status, $pId]);
             $message = "Mobilisation status updated successfully!";
         } catch (PDOException $e) { $error = "Error updating status: " . $e->getMessage(); }
+        catch (Exception $e) { $error = $e->getMessage(); }
+    }
+
+    if ($_POST['action'] === 'update_schedule' && $canEditSchedule) {
+        try {
+            $pId = (int)$_POST['project_id'];
+            if (!hasProjectAccess($pdo, $pId)) { throw new Exception('Access denied to this project.'); }
+            $proj = $pdo->prepare("SELECT type, finishlevel FROM projects WHERE id = ?");
+            $proj->execute([$pId]);
+            $projRow = $proj->fetch(PDO::FETCH_ASSOC);
+            if (!$projRow || ($projRow['type'] ?? '') !== 'in-house') {
+                throw new Exception('Delivery schedule applies to in-house projects only.');
+            }
+            $stmt = $pdo->prepare("
+                INSERT INTO project_delivery_schedule
+                (project_id, planned_shell_date, forecast_shell_date, actual_shell_date,
+                 planned_finishes_date, forecast_finishes_date, actual_finishes_date, finishes_scope, notes, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                planned_shell_date=VALUES(planned_shell_date), forecast_shell_date=VALUES(forecast_shell_date),
+                actual_shell_date=VALUES(actual_shell_date), planned_finishes_date=VALUES(planned_finishes_date),
+                forecast_finishes_date=VALUES(forecast_finishes_date), actual_finishes_date=VALUES(actual_finishes_date),
+                finishes_scope=VALUES(finishes_scope), notes=VALUES(notes), updated_by=VALUES(updated_by)
+            ");
+            $emptyDate = fn($k) => empty($_POST[$k]) ? null : $_POST[$k];
+            $stmt->execute([
+                $pId,
+                $emptyDate('planned_shell_date'), $emptyDate('forecast_shell_date'), $emptyDate('actual_shell_date'),
+                $emptyDate('planned_finishes_date'), $emptyDate('forecast_finishes_date'), $emptyDate('actual_finishes_date'),
+                $_POST['finishes_scope'] ?? $projRow['finishlevel'],
+                trim($_POST['schedule_notes'] ?? ''),
+                getCurrentUserId()
+            ]);
+            $message = 'Delivery schedule updated successfully!';
+        } catch (PDOException $e) { $error = 'Error updating schedule: ' . $e->getMessage(); }
+        catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
 
@@ -60,14 +101,16 @@ $subs = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name")->fetchA
 $allowedStages = ['Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
 
 // 3. GET FILTERS AND SORTS
-$filterStage = $_GET['filter_stage'] ?? 'all';
-$filterType = $_GET['filter_type'] ?? 'all';
-$filterFinish = $_GET['filter_finish'] ?? 'all';
-$filterCity = $_GET['filter_city'] ?? 'all';
-$filterClient = $_GET['filter_client'] ?? 'all';
-$filterIsland = $_GET['filter_island'] ?? 'all';
-$filterPm = $_GET['filter_pm'] ?? 'all';
-$filterSub = $_GET['filter_sub'] ?? 'all';
+$filterDefaults = ['filter_type' => $isLegalRep ? 'in-house' : 'in-house'];
+$filters = pmGetFilterParams($filterDefaults);
+$filterStage = $filters['filter_stage'];
+$filterType = $isLegalRep ? 'in-house' : $filters['filter_type'];
+$filterFinish = $filters['filter_finish'];
+$filterCity = $filters['filter_city'];
+$filterClient = $filters['filter_client'];
+$filterIsland = $filters['filter_island'];
+$filterPm = $filters['filter_pm'];
+$filterSub = $filters['filter_sub'];
 
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
@@ -126,10 +169,15 @@ if (!empty($projectIds)) {
 }
 
 // 5. Build Final Matrix Array
+$projectIdsForStage = array_column($projectsRaw, 'id');
+$stagesBatch = getAccurateProjectStagesBatch($pdo, $projectIdsForStage);
+$schedulesBatch = getDeliverySchedulesBatch($pdo, $projectIdsForStage);
+
 $matrixProjects = [];
 foreach ($projectsRaw as $p) {
     if (($p['project_status'] ?? 'Active') !== 'Active') continue;
-    $stage = getAccurateProjectStage($pdo, $p['id']);
+    if ($isLegalRep && ($p['type'] ?? '') !== 'in-house') continue;
+    $stage = $stagesBatch[$p['id']] ?? getAccurateProjectStage($pdo, $p['id']);
     
     if (in_array($stage, $allowedStages)) {
         if ($filterStage !== 'all' && $stage !== $filterStage) continue;
@@ -237,6 +285,11 @@ foreach ($projectsRaw as $p) {
     }
 }
 
+foreach ($matrixProjects as &$mp) {
+    $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
+}
+unset($mp);
+
 if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
 if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
 if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['city'] === $filterCity);
@@ -292,6 +345,29 @@ function getSortIndicator($column) {
     global $sortBy, $sortOrder;
     if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
     return '';
+}
+
+function renderScheduleColumn($project, $schedule, $column, $canEditSchedule) {
+    if (($project['type'] ?? '') !== 'in-house') {
+        return '<div class="normal-cell schedule-cell" style="justify-content:center;"><span class="rag-neutral">Capital</span></div>';
+    }
+    $s = $schedule ?? [];
+    if ($column === 'finishes' && in_array($project['finishlevel'] ?? '', ['Shell', 'Shell (No Finishes)', null, ''])) {
+        return '<div class="normal-cell schedule-cell" style="justify-content:center;"><span class="rag-neutral">N/A</span></div>';
+    }
+    $keys = $column === 'shell'
+        ? ['planned_shell_date', 'forecast_shell_date', 'actual_shell_date']
+        : ['planned_finishes_date', 'forecast_finishes_date', 'actual_finishes_date'];
+    $rag = getScheduleRagClass($s[$keys[0]] ?? null, $s[$keys[1]] ?? null, $s[$keys[2]] ?? null);
+    $inner = '<div class="schedule-cell"><span class="schedule-rag-dot ' . $rag . '"></span>'
+        . '<div class="sch-row"><span class="sch-label">Plan</span>' . formatScheduleDate($s[$keys[0]] ?? null) . '</div>'
+        . '<div class="sch-row"><span class="sch-label">Fcst</span>' . formatScheduleDate($s[$keys[1]] ?? null) . '</div>'
+        . '<div class="sch-row"><span class="sch-label">Act</span>' . formatScheduleDate($s[$keys[2]] ?? null) . '</div></div>';
+    if ($canEditSchedule) {
+        $payload = htmlspecialchars(json_encode(['id' => $project['id'], 'name' => $project['name'], 'schedule' => $s, 'finishlevel' => $project['finishlevel'] ?? '']), ENT_QUOTES);
+        return '<div class="clickable-cell" onclick=\'openScheduleModal(' . $payload . ')\' style="flex-direction:column;align-items:flex-start;">' . $inner . '<span class="edit-icon">✎</span></div>';
+    }
+    return '<div class="normal-cell" style="align-items:flex-start;">' . $inner . '</div>';
 }
 
 function renderStatusBadge($status) {
@@ -358,9 +434,10 @@ function renderAllSubsCell($demo, $exc, $const, $finIds, $subsArray, $pJson, $ca
     return "<div class='normal-cell' style='align-items:flex-start;'>$content</div>";
 }
 
-$pageTitle = 'Project Execution Matrix';
+$pageTitle = $isLegalRep ? 'Project Status' : 'Project Execution Matrix';
 require_once 'header.php';
 ?>
+<script src="/assets/js/pm-filters.js?v=<?= time() ?>"></script>
 
 <style>
 /* MATRIX WRAPPER & SCROLLBAR */
@@ -459,8 +536,10 @@ require_once 'header.php';
     
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
-            <h1 class="page-title" style="margin-bottom: 0;">Project Execution Matrix</h1>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Live operational dashboard. Click on any project, status, or team member to manage them directly.</p>
+            <h1 class="page-title" style="margin-bottom: 0;"><?= $isLegalRep ? 'In-House Project Status' : 'Project Execution Matrix' ?></h1>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">
+                <?= $isLegalRep ? 'Read-only view of in-house project delivery milestones and execution status.' : 'Live operational dashboard. Click on any project, status, or team member to manage them directly.' ?>
+            </p>
         </div>
         <div>
             <button onclick="window.print()" class="btn" style="background: var(--primary-color); color: white; display: flex; align-items: center; gap: 8px;">
@@ -470,13 +549,16 @@ require_once 'header.php';
     </div>
 
     <div class="filters-section" style="margin-bottom: 1.5rem;">
-        <form method="GET" id="matrixFilters">
+        <form method="GET" id="matrixFilters" class="pm-auto-filter">
             <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
             <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
             <div class="filters-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
                 <div class="filter-group"><label>Stage</label><select name="filter_stage"><option value="all">All Stages</option><?php foreach ($allowedStages as $stg): ?><option value="<?= $stg ?>" <?= $filterStage === $stg ? 'selected' : '' ?>><?= $stg ?></option><?php endforeach; ?></select></div>
                 <div class="filter-group"><label>Finish Req</label><select name="filter_finish"><option value="all">All Levels</option><option value="Shell" <?= $filterFinish === 'Shell' ? 'selected' : '' ?>>Shell</option><option value="Common Parts Only" <?= $filterFinish === 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option><option value="Semi Finished" <?= $filterFinish === 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option><option value="Finished" <?= $filterFinish === 'Finished' ? 'selected' : '' ?>>Finished</option></select></div>
-                <div class="filter-group"><label>Project Type</label><select name="filter_type"><option value="all">All Types</option><option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option><option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party</option></select></div>
+                <?php if (!$isLegalRep): ?>
+                <div class="filter-group"><label>Project Type</label><select name="filter_type"><option value="all">All Types</option><option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option><option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party (Capital)</option></select></div>
+                <?php endif; ?>
+                <div class="filter-group"><label>Locality</label><select name="filter_city"><option value="all">All Localities</option><?php foreach ($cities as $city): ?><option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>><?= htmlspecialchars($city) ?></option><?php endforeach; ?></select></div>
                 <div class="filter-group"><label>Client</label><select name="filter_client"><option value="all">All Clients</option><optgroup label="Groups"><option value="group_excel" <?= $filterClient === 'group_excel' ? 'selected' : '' ?>>Excel Group</option><option value="group_blue_clay" <?= $filterClient === 'group_blue_clay' ? 'selected' : '' ?>>Blue Clay</option></optgroup><optgroup label="Individual"><?php foreach ($clients as $client): ?><option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option><?php endforeach; ?></optgroup></select></div>
                 
                 <div class="filter-group">
@@ -495,6 +577,16 @@ require_once 'header.php';
         </form>
     </div>
 
+<style>
+.schedule-cell { font-size: 0.72rem; line-height: 1.5; min-width: 140px; }
+.schedule-cell .sch-row { display: flex; justify-content: space-between; gap: 6px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.schedule-cell .sch-label { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.65rem; }
+.rag-green { color: #22c55e; } .rag-amber { color: #f59e0b; } .rag-red { color: #ef4444; } .rag-neutral { color: var(--text-muted); }
+.schedule-rag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.schedule-rag-dot.rag-green { background: #22c55e; } .schedule-rag-dot.rag-amber { background: #f59e0b; }
+.schedule-rag-dot.rag-red { background: #ef4444; } .schedule-rag-dot.rag-neutral { background: #6b7280; }
+</style>
+
     <div class="matrix-wrapper">
         <table class="matrix-table">
             <thead>
@@ -504,13 +596,15 @@ require_once 'header.php';
                     <th style="text-align: center;"><a href="<?= getSortUrl('exc_status') ?>" class="sort-link" style="justify-content:center;">Excavation <span class="sort-indicator"><?= getSortIndicator('exc_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
                     <th style="text-align: center;"><a href="<?= getSortUrl('fin_status') ?>" class="sort-link" style="justify-content:center;">Finishes <span class="sort-indicator"><?= getSortIndicator('fin_status') ?></span></a></th>
+                    <th style="border-left: 2px solid var(--border-glass); text-align: center; min-width: 150px;">Construction Complete<br><span style="font-size:0.65rem;color:var(--text-muted);">Legal / Sale Contracts</span></th>
+                    <th style="text-align: center; min-width: 150px;">Finishes Complete<br><span style="font-size:0.65rem;color:var(--text-muted);">Credit Control</span></th>
                     <th style="border-left: 2px solid var(--border-glass);"><a href="<?= getSortUrl('pm_const') ?>" class="sort-link">Project Managers <span class="sort-indicator"><?= getSortIndicator('pm_const') ?></span></a></th>
                     <th style="border-left: 2px solid var(--border-glass);">Lead Subcontractors</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="7" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
+                    <tr><td colspan="9" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
                 <?php else: ?>
                     <?php foreach($matrixProjects as $p): 
                         $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
@@ -545,6 +639,9 @@ require_once 'header.php';
                             <td><?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?></td>
                             <td><?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?></td>
 
+                            <td style="border-left: 2px solid var(--border-glass);"><?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?></td>
+                            <td><?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?></td>
+
                             <td style="border-left: 2px solid var(--border-glass);">
                                 <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
                             </td>
@@ -558,6 +655,35 @@ require_once 'header.php';
         </table>
     </div>
 </div>
+
+<?php if ($canEditSchedule && !$isLegalRep): ?>
+<div id="scheduleModal" class="modal">
+    <div class="modal-content" style="max-width: 560px;">
+        <span class="close-modal" onclick="closeModal('scheduleModal')">&times;</span>
+        <h2 id="scheduleModalTitle" style="margin-top:0;color:var(--primary-color);">Delivery Schedule</h2>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1.5rem;">In-house delivery milestones — construction complete triggers legal sale contracts; finishes complete triggers final payment.</p>
+        <form method="POST">
+            <input type="hidden" name="action" value="update_schedule">
+            <input type="hidden" name="project_id" id="schedProjectId">
+            <input type="hidden" name="finishes_scope" id="schedFinishesScope">
+            <h4 style="color:#6366f1;margin:1rem 0 0.5rem;">Construction Complete (Shell)</h4>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
+                <div class="form-group"><label>Planned</label><input type="date" name="planned_shell_date" id="schedPlanShell"></div>
+                <div class="form-group"><label>Forecast</label><input type="date" name="forecast_shell_date" id="schedFcstShell"></div>
+                <div class="form-group"><label>Actual</label><input type="date" name="actual_shell_date" id="schedActShell"></div>
+            </div>
+            <h4 style="color:#22c55e;margin:1rem 0 0.5rem;">Finishes Complete</h4>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
+                <div class="form-group"><label>Planned</label><input type="date" name="planned_finishes_date" id="schedPlanFin"></div>
+                <div class="form-group"><label>Forecast</label><input type="date" name="forecast_finishes_date" id="schedFcstFin"></div>
+                <div class="form-group"><label>Actual</label><input type="date" name="actual_finishes_date" id="schedActFin"></div>
+            </div>
+            <div class="form-group" style="margin-top:1rem;"><label>Notes</label><textarea name="schedule_notes" id="schedNotes" rows="2" style="width:100%;"></textarea></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:1rem;">Save Schedule</button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <div id="ohsaInfoModal" class="modal">
     <div class="modal-content" style="max-width: 450px;">
@@ -843,6 +969,21 @@ function openAssignModal(data) {
 }
 
 document.addEventListener('DOMContentLoaded', initTagSelector);
+
+function openScheduleModal(data) {
+    document.getElementById('schedProjectId').value = data.id;
+    document.getElementById('scheduleModalTitle').textContent = 'Delivery Schedule: ' + data.name;
+    document.getElementById('schedFinishesScope').value = data.finishlevel || '';
+    const s = data.schedule || {};
+    document.getElementById('schedPlanShell').value = s.planned_shell_date || '';
+    document.getElementById('schedFcstShell').value = s.forecast_shell_date || '';
+    document.getElementById('schedActShell').value = s.actual_shell_date || '';
+    document.getElementById('schedPlanFin').value = s.planned_finishes_date || '';
+    document.getElementById('schedFcstFin').value = s.forecast_finishes_date || '';
+    document.getElementById('schedActFin').value = s.actual_finishes_date || '';
+    document.getElementById('schedNotes').value = s.notes || '';
+    document.getElementById('scheduleModal').style.display = 'block';
+}
 </script>
 
 <?php require_once 'footer.php'; ?>

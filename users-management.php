@@ -52,6 +52,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'view_plant_bookings' => isset($_POST['view_plant_bookings']) ? 1 : 0,
         'manage_plant_fleet' => isset($_POST['manage_plant_fleet']) ? 1 : 0,
         'view_plant_ledger' => isset($_POST['view_plant_ledger']) ? 1 : 0,
+        'view_all_projects' => isset($_POST['view_all_projects']) ? 1 : 0,
+        'edit_project_schedule' => isset($_POST['edit_project_schedule']) ? 1 : 0,
+        'view_sales_ohsa' => isset($_POST['view_sales_ohsa']) ? 1 : 0,
+        'manage_sales_ohsa' => isset($_POST['manage_sales_ohsa']) ? 1 : 0,
     ];
 
     if ($action === 'create_user') {
@@ -85,6 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $params = array_values($caps);
                 array_unshift($params, $newId);
                 $stmtCaps->execute($params);
+                $pdo->prepare("UPDATE user_capabilities SET view_all_projects=?, edit_project_schedule=?, view_sales_ohsa=?, manage_sales_ohsa=? WHERE user_id=?")
+                    ->execute([$caps['view_all_projects'], $caps['edit_project_schedule'], $caps['view_sales_ohsa'], $caps['manage_sales_ohsa'], $newId]);
 
                 $pdo->commit();
                 $message = 'User created successfully! Select them from the list to configure their project access levels.';
@@ -150,6 +156,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $params = array_values($caps);
             array_unshift($params, $userId);
             $stmt2->execute($params);
+            $pdo->prepare("UPDATE user_capabilities SET view_all_projects=?, edit_project_schedule=?, view_sales_ohsa=?, manage_sales_ohsa=? WHERE user_id=?")
+                ->execute([$caps['view_all_projects'], $caps['edit_project_schedule'], $caps['view_sales_ohsa'], $caps['manage_sales_ohsa'], $userId]);
             
             $pdo->commit();
             $message = 'User profile & permissions updated successfully!';
@@ -195,8 +203,8 @@ $rolesList = [
     'admin', 'director', 'system_manager', 'project_manager', 'accountant', 'architect', 'structural_engineer', 
     'services_engineer', 'quality_controller', 'pmo_staff', 'ohsa_rep', 
     'site_technical_officer', 'subcontractor', 'condominium_agent', 
-    'sales_manager', 'sales_agent', 'end_customer', 'viewer',
-    'plant_manager', 'plant_driver' // NEW ROLES
+    'sales_manager', 'sales_agent', 'end_customer', 'viewer', 'legal_representative',
+    'plant_manager', 'plant_driver'
 ];
 
 $pageTitle = 'User Management';
@@ -267,6 +275,8 @@ require_once 'header.php';
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="add_project" id="edit_cap_add_project" <?= !empty($selectedUser['add_project']) ? 'checked' : '' ?>> Create New Projects</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="edit_project_details" id="edit_cap_edit_project_details" <?= !empty($selectedUser['edit_project_details']) ? 'checked' : '' ?>> Edit Project Details</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="update_project_status" id="edit_cap_update_project_status" <?= !empty($selectedUser['update_project_status']) ? 'checked' : '' ?>> Execution Checklists</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="edit_project_schedule" id="edit_cap_edit_project_schedule" <?= !empty($selectedUser['edit_project_schedule']) ? 'checked' : '' ?>> Edit Delivery Schedule</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_all_projects" id="edit_cap_view_all_projects" <?= !empty($selectedUser['view_all_projects']) ? 'checked' : '' ?>> View All Project Stages</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="edit_services" id="edit_cap_edit_services" <?= !empty($selectedUser['edit_services']) ? 'checked' : '' ?>> Services & Utilities</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="assign_actions" id="edit_cap_assign_actions" <?= !empty($selectedUser['assign_actions']) ? 'checked' : '' ?>> Assign Actions</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_clients" id="edit_cap_manage_clients" <?= !empty($selectedUser['manage_clients']) ? 'checked' : '' ?>> Manage Clients</label>
@@ -287,6 +297,9 @@ require_once 'header.php';
 
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_sales_finishes" id="edit_cap_view_sales_finishes" <?= !empty($selectedUser['view_sales_finishes']) ? 'checked' : '' ?>> View Finishes Quotes</label>
                             <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_sales_finishes" id="edit_cap_manage_sales_finishes" <?= !empty($selectedUser['manage_sales_finishes']) ? 'checked' : '' ?>> <span style="color: #f59e0b;">Manage</span> Finishes Quotes</label>
+
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="view_sales_ohsa" id="edit_cap_view_sales_ohsa" <?= !empty($selectedUser['view_sales_ohsa']) ? 'checked' : '' ?>> View OHSA Quotes</label>
+                            <label class="checkbox-item"><input type="checkbox" class="cap-check-edit" name="manage_sales_ohsa" id="edit_cap_manage_sales_ohsa" <?= !empty($selectedUser['manage_sales_ohsa']) ? 'checked' : '' ?>> <span style="color: #f59e0b;">Manage</span> OHSA Quotes</label>
                             
                             <label class="checkbox-item" style="grid-column: span 2; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
                                 <input type="checkbox" class="cap-check-edit" name="approve_quotes" id="edit_cap_approve_quotes" <?= !empty($selectedUser['approve_quotes']) ? 'checked' : '' ?>> 
@@ -530,10 +543,10 @@ function closeCreateModal() { document.getElementById('createModal').style.displ
 window.onclick = function(event) { if (event.target == document.getElementById('createModal')) closeCreateModal(); }
 
 const roleDefaults = {
-    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'approve_quotes', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
-    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'approve_quotes'],
-    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
-    'project_manager': ['update_project_status', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
+    'admin': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_clients', 'manage_professionals', 'manage_users', 'manage_subcontractors', 'view_subcontractor_accounts', 'manage_subcontractor_accounts', 'view_projects', 'view_all_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_nav_subcontractors', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa', 'approve_quotes', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
+    'director': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_all_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_works_sales', 'view_property_sales', 'view_capital_projects', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa', 'approve_quotes'],
+    'system_manager': ['view_tracking', 'add_project', 'edit_project_details', 'update_project_status', 'edit_project_schedule', 'edit_services', 'assign_actions', 'manage_professionals', 'manage_subcontractors', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings', 'view_plant_bookings', 'manage_plant_fleet', 'view_plant_ledger'],
+    'project_manager': ['update_project_status', 'edit_project_schedule', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_drawings'],
     'accountant': ['assign_actions', 'view_projects', 'view_mobilisation', 'view_ohsa', 'view_documentation', 'view_works_sales', 'view_capital_projects', 'view_subcontractor_accounts', 'view_nav_subcontractors', 'view_sales_demo_exc', 'view_sales_const', 'view_sales_finishes'],
     'architect': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
     'structural_engineer': ['view_tracking', 'assign_actions', 'view_projects', 'view_mobilisation', 'view_drawings', 'view_documentation'],
@@ -546,6 +559,7 @@ const roleDefaults = {
     'sales_manager': ['view_works_sales', 'view_property_sales'],
     'sales_agent': ['view_property_sales'],
     'condominium_agent': [], 'end_customer': [], 'viewer': ['view_projects'],
+    'legal_representative': ['view_projects'],
     
     // Plant Roles (IT uses Plant Manager and ticks the extra boxes manually)
     'plant_manager': ['view_plant_bookings'],

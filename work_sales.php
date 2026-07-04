@@ -82,6 +82,33 @@ try {
     
     // 3. Add free-text project reference column
     $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN project_name_free VARCHAR(255) DEFAULT NULL");
+
+    $ohsaCount = (int)$pdo->query("SELECT COUNT(*) FROM sales_standard_items WHERE quote_type = 'OHSA'")->fetchColumn();
+    if ($ohsaCount === 0) {
+        $ohsaItems = [
+            ['1 - Documentation', 'Preparation and submission of initial documentation for construction projects', 'lump_sum', 350.00, 10],
+            ['2 - Site Inspections', 'Site inspection and preparation of report — normal size sites (max 45 min)', 'visit', 50.00, 20],
+            ['2 - Site Inspections', 'Site inspection and preparation of report — large size sites (max 1 hr; extra at €35/hr)', 'visit', 70.00, 21],
+            ['3 - Training', 'General OHS training', 'participant', 45.00, 30],
+            ['3 - Training', 'Policies and procedures training to management/workers', 'participant', 45.00, 31],
+            ['1 - Documentation', 'Preparation of Company policy and procedures for OHSMS (€250–350 per procedure)', 'procedure', 300.00, 11],
+            ['1 - Documentation', 'Preparation of OHSMS documentation — registers, forms, permits, checklists', 'document', 150.00, 12],
+            ['1 - Documentation', 'Preparation of evacuation procedure — small to medium premises', 'procedure', 250.00, 13],
+            ['1 - Documentation', 'Preparation of evacuation procedure — large premises (€350–500)', 'procedure', 425.00, 14],
+            ['4 - Risk Assessments', 'Preparation of a general risk assessment', 'assessment', 250.00, 40],
+            ['4 - Risk Assessments', 'Preparation of specific risk assessment / SWMS / RAMS (€350–450)', 'assessment', 400.00, 41],
+            ['4 - Risk Assessments', 'General risk assessment — small to medium workplaces', 'assessment', 450.00, 42],
+            ['4 - Risk Assessments', 'General risk assessment — large workplaces (€550–850)', 'assessment', 700.00, 43],
+            ['4 - Risk Assessments', 'General risk assessment — small to medium Hotels (€550–750)', 'assessment', 650.00, 44],
+            ['4 - Risk Assessments', 'General risk assessment — large and complex Hotels (€850–1,250)', 'assessment', 1050.00, 45],
+            ['5 - Consultancy', 'General OHS Consultancy', 'hour', 35.00, 50],
+        ];
+        $insOhsa = $pdo->prepare("INSERT INTO sales_standard_items (quote_type, category, description, unit, default_rate, sort_order, is_active) VALUES ('OHSA', ?, ?, ?, ?, ?, 1)");
+        foreach ($ohsaItems as $item) { $insOhsa->execute($item); }
+    }
+    try {
+        $pdo->exec("INSERT IGNORE INTO sales_default_terms (quote_type, terms_text) VALUES ('OHSA', 'All prices quoted are exclusive of VAT. Payment terms: 50% on acceptance, balance on completion unless otherwise agreed.')");
+    } catch (PDOException $e) {}
 } catch(PDOException $e) {}
 
 
@@ -89,12 +116,13 @@ try {
 $access = [
     'Demolition_Excavation' => ['view' => hasPermission('view_sales_demo_exc') || $isAdmin, 'manage' => hasPermission('manage_sales_demo_exc') || $isAdmin],
     'Construction' => ['view' => hasPermission('view_sales_const') || $isAdmin, 'manage' => hasPermission('manage_sales_const') || $isAdmin],
-    'Finishes' => ['view' => hasPermission('view_sales_finishes') || $isAdmin, 'manage' => hasPermission('manage_sales_finishes') || $isAdmin]
+    'Finishes' => ['view' => hasPermission('view_sales_finishes') || $isAdmin, 'manage' => hasPermission('manage_sales_finishes') || $isAdmin],
+    'OHSA' => ['view' => hasPermission('view_sales_ohsa') || $isAdmin, 'manage' => hasPermission('manage_sales_ohsa') || $isAdmin],
 ];
 
 $canApproveQuotes = hasPermission('approve_quotes') || $isAdmin;
 
-if (!$access['Demolition_Excavation']['view'] && !$access['Construction']['view'] && !$access['Finishes']['view']) {
+if (!$access['Demolition_Excavation']['view'] && !$access['Construction']['view'] && !$access['Finishes']['view'] && !$access['OHSA']['view']) {
     header('Location: dashboard.php?error=unauthorized');
     exit;
 }
@@ -129,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $project_id = !empty($_POST['project_id']) ? (int)$_POST['project_id'] : null;
             $project_name_free = !empty($_POST['project_name_free']) ? trim($_POST['project_name_free']) : null;
             
-            if (!$project_id && !$project_name_free && $type !== 'Demolition_Excavation') {
+            if (!$project_id && !$project_name_free && !in_array($type, ['Demolition_Excavation'])) {
                 throw new Exception("You must select an existing project OR enter a free-text project reference.");
             }
             
@@ -903,6 +931,9 @@ require_once 'header.php';
                     <?php if ($access['Finishes']['manage']): ?>
                         <button class="btn btn-primary" style="background: #8b5cf6; border: none;" onclick="openCreateQuoteModal('Finishes')">+ Finishes Quote</button>
                     <?php endif; ?>
+                    <?php if ($access['OHSA']['manage']): ?>
+                        <button class="btn btn-primary" style="background: #14b8a6; border: none;" onclick="openCreateQuoteModal('OHSA')">+ OHSA Quote</button>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -915,6 +946,9 @@ require_once 'header.php';
                 <?php endif; ?>
                 <?php if ($access['Finishes']['view']): ?>
                     <a href="?contractor_id=<?= $selected_contractor_id ?>&tab=Finishes" class="tab-btn <?= $currentTab === 'Finishes' ? 'active' : '' ?>">Turnkey & Finishes</a>
+                <?php endif; ?>
+                <?php if ($access['OHSA']['view']): ?>
+                    <a href="?contractor_id=<?= $selected_contractor_id ?>&tab=OHSA" class="tab-btn <?= $currentTab === 'OHSA' ? 'active' : '' ?>">OHSA / Health & Safety</a>
                 <?php endif; ?>
             </div>
 
@@ -1060,7 +1094,7 @@ require_once 'header.php';
                 </table>
             </div>
 
-            <?php if ($access['Demolition_Excavation']['manage'] || $access['Construction']['manage'] || $access['Finishes']['manage']): ?>
+            <?php if ($access['Demolition_Excavation']['manage'] || $access['Construction']['manage'] || $access['Finishes']['manage'] || $access['OHSA']['manage']): ?>
             <div id="createQuoteModal" class="modal">
                 <div class="modal-content">
                     <span class="close-modal" onclick="document.getElementById('createQuoteModal').style.display='none'">&times;</span>
@@ -1136,6 +1170,7 @@ require_once 'header.php';
                 } else {
                     if (type === 'Construction') title = 'Create Construction Quote';
                     if (type === 'Finishes') title = 'Create Turnkey & Finishes Quote';
+                    if (type === 'OHSA') title = 'Create OHSA / Health & Safety Quote';
                     projLabel.innerText = '2. Project Reference (Required) *';
                 }
                 
