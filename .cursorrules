@@ -1,0 +1,36 @@
+# Context
+This is a live, production PHP application ("Estate Hub Malta"). It is built using vanilla PHP 8+, PDO for MySQL database interactions, and plain HTML/CSS/JS with some external libraries (Leaflet, FullCalendar, Chart.js).
+
+# MISSION-CRITICAL DIRECTIVES (DO NOT BREAK)
+1. **PLANT ERP BILLING (J2 API) IS SACRED**: 
+   - NEVER modify the `pushBookingToERP()` function inside `api/plant_actions.php` without explicit, repeated confirmation from the user. 
+   - NEVER alter the JSON payload structure sent to `/sales/transaction`.
+   - NEVER change how nominal codes (`nom_code_fixed`, `nom_code_variable`, `nom_code_setup`) are fetched or calculated.
+   - Do not touch the cURL requests or headers in `getJ2ApiData` or `postJ2ApiData`.
+2. **LIVE DATABASE SAFETY**: 
+   - Never write scripts that DROP tables or TRUNCATE critical data.
+   - All new database interactions MUST use PDO prepared statements. Never interpolate variables directly into SQL strings.
+   - When adding new columns via "auto-deploy" blocks at the top of files, always wrap them in `try { ... } catch(PDOException $e) {}` to prevent fatal crashes if the column already exists.
+
+# Security & Access Control (STRICT)
+1. **Strict Modular Boundaries**: The system is strictly divided into three distinct functional areas:
+   - **Plant Hub** (Plant bookings, J2 ERP integrations, mobilization)
+   - **Project Management Area** (Capital projects, engineering, ohsa)
+   - **Sales Hub** (Unit sales, commercial proposals, sales maps)
+2. **Granular Verification**: NEVER assume a user has cross-module access. When writing queries or endpoints, you MUST verify access strictly on three levels:
+   - **Global/Module Level**: Can the user see this Hub at all? (Use `isAdmin()` or specific `hasPermission('capability_name')` checks from `user-functions.php`).
+   - **Client Level**: Is the user authorized to view records for this specific Client ID?
+   - **Project Level**: Is the user assigned to or authorized to view this specific Project ID?
+3. **Fail Closed**: Every protected page and API endpoint MUST include `require_once 'init.php';` and `require_once 'session-check.php';` at the very top. If a user's module, client, or project access cannot be verified, the application must immediately deny access. Do not leak data across distinct functions.
+
+# Code Style and Architecture Rules
+1. **No New Frameworks**: Do not introduce React, Vue, Tailwind, Bootstrap, or Laravel components. Stick to the existing vanilla HTML/JS and the CSS variables defined in `styles.css` (e.g., `var(--primary-color)`, `var(--bg-card)`).
+2. **File Handling**: 
+   - File uploads must go through `S3FileManager.php` to Cloudflare R2. Do not write local file storage scripts.
+   - Respect the 500MB upload limits defined in `conf.d/custom.ini`.
+3. **Timezones**: Always force the timezone to `Europe/Malta` when handling dates, especially in cron jobs (`cron_lifecycle_manager.php`, `cron_delivery_reports.php`).
+
+# Agent Behavior
+- **Explain Before Modifying**: If asked to refactor or add a feature, explain your approach first before writing the code.
+- **Minimal Diffs**: Only change the code necessary to fulfill the prompt. Do not reformat entire files unless explicitly asked.
+- **Fail Gracefully**: If you are unsure how a change will affect the J2 ERP billing system or user permissions, STOP and ask the user for clarification.
