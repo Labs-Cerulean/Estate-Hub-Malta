@@ -386,7 +386,7 @@ $userId = $_SESSION['user_id'];
     const isAdmin = <?= ($role === 'admin') ? 'true' : 'false' ?>;
     window.mapboxgl = maplibregl;
 
-    const PLANT_API = '/api/plant_actions.php';
+    const PLANT_API = 'api/plant_actions.php';
 
     function plantFetchText(options) {
         return fetch(PLANT_API, options).then(r => {
@@ -582,7 +582,7 @@ $userId = $_SESSION['user_id'];
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
-                const res = await fetch(`/api/plant_actions.php?action=resolve_map_url&url=${encodeURIComponent(input)}`);
+                const res = await fetch(`${PLANT_API}?action=resolve_map_url&url=${encodeURIComponent(input)}`);
                 const data = await res.json();
                 if (data.lat && data.lng) {
                     coords = data;
@@ -634,7 +634,7 @@ $userId = $_SESSION['user_id'];
         }
 
         addressSearchTimer = setTimeout(() => {
-            fetch(`/api/plant_actions.php?action=geocode_search&q=${encodeURIComponent(query.trim())}`)
+            fetch(`${PLANT_API}?action=geocode_search&q=${encodeURIComponent(query.trim())}`)
             .then(r => r.json())
             .then(results => {
                 window.lastAddressResults = Array.isArray(results) ? results : [];
@@ -690,7 +690,7 @@ $userId = $_SESSION['user_id'];
             return;
         }
         
-        fetch(`/api/plant_actions.php?action=get_project_location&project_id=${pId}`)
+        fetch(`${PLANT_API}?action=get_project_location&project_id=${pId}`)
         .then(r => {
             console.log("Response Status:", r.status); // DEBUG 2: Check if API answers
             return r.json();
@@ -964,7 +964,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             clientInput.disabled = true;
         }
 
-        fetch(`/api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
+        fetch(`${PLANT_API}?action=get_company_clients&company_id=${compId}`)
         .then(r => r.json())
         .then(res => {
             currentErpClients = res; 
@@ -1050,7 +1050,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const compId = pSelect.selectedIndex > 0 ? pSelect.options[pSelect.selectedIndex].getAttribute('data-company-id') : '';
 
         // 2. Pass BOTH project_id and company_id to the backend
-        fetch(`/api/plant_actions.php?action=get_last_project_client&project_id=${id}&company_id=${compId}`)
+        fetch(`${PLANT_API}?action=get_last_project_client&project_id=${id}&company_id=${compId}`)
         .then(r => r.json())
         .then(data => {
             let clientAutoFilled = false;
@@ -1319,7 +1319,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         document.getElementById('new_nom_var').innerHTML = '<option value="">Loading ERP...</option>';
         document.getElementById('new_nom_setup').innerHTML = '<option value="">Loading ERP...</option>';
     
-        fetch(`/api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
+        fetch(`${PLANT_API}?action=get_nominals&company_id=${companyId}`)
         .then(r => r.json())
         .then(res => {
             window.erpNominals = Array.isArray(res) ? res : [];
@@ -1394,7 +1394,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
 
     function loadFleetView() {
         if (!canManageFleet) return;
-        fetch('/api/plant_actions.php?action=get_fleet')
+        fetch(`${PLANT_API}?action=get_fleet`)
         .then(r => r.json())
         .then(fleet => {
             window.fleetData = fleet;
@@ -1525,7 +1525,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function loadJob(id) {
-        fetch(`/api/plant_actions.php?action=get_job&id=${id}`)
+        fetch(`${PLANT_API}?action=get_job&id=${id}`)
         .then(r => r.json())
         .then(job => {
             window.currentActiveJob = job; 
@@ -1824,7 +1824,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
 
         document.getElementById('ledger-list').innerHTML = '<p style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> Loading ledger...</p>';
 
-        fetch(`/api/plant_actions.php?${qs}`)
+        fetch(`${PLANT_API}?${qs}`)
         .then(r => r.json())
 .then(jobs => {
             document.getElementById('ledger-list').innerHTML = jobs.length === 0 ? '<p style="text-align:center; font-weight:bold; color:#ef4444;">No bookings found for these filters.</p>' : jobs.map(j => {

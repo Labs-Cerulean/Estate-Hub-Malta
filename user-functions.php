@@ -8,6 +8,16 @@
 // 1. CAPABILITY ENGINE
 // ==========================================
 
+function canUsePlantHubApi(): bool {
+    $role = $_SESSION['role'] ?? '';
+    if (in_array($role, ['admin', 'director', 'accountant', 'system_manager', 'plant_manager', 'plant_driver'], true)) {
+        return true;
+    }
+    return hasPermission('view_plant_bookings')
+        || hasPermission('manage_plant_fleet')
+        || hasPermission('view_plant_ledger');
+}
+
 function hasPermission($capability) {
     global $pdo;
     $userId = $_SESSION['user_id'] ?? null;
