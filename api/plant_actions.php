@@ -1302,6 +1302,118 @@ if ($action == 'get_project_location' && $isManager) {
     exit; 
 }
 
+function extractCoordsFromMapUrl($url) {
+    $patterns = [
+        '/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/',
+        '/@(-?\d+\.?\d*),(-?\d+\.?\d*)/',
+        '/[?&](?:query|q)=(-?\d+\.?\d*)%2C(-?\d+\.?\d*)/i',
+        '/[?&](?:query|q)=(-?\d+\.?\d*),(-?\d+\.?\d*)/i',
+        '/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/i',
+    ];
+    foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $url, $matches)) {
+            return ['lat' => (float)$matches[1], 'lng' => (float)$matches[2]];
+        }
+    }
+    return null;
+}
+
+function fetchNominatimJson($url) {
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'EstateHubMalta/1.0 (Plant Hub Booking Geocoder)');
+    curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode < 200 || $httpCode >= 300 || !$response) {
+        return [];
+    }
+
+    $decoded = json_decode($response, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+if ($action == 'geocode_search' && $isManager) {
+    header('Content-Type: application/json');
+    $query = trim($_GET['q'] ?? '');
+    if (strlen($query) < 3) {
+        echo json_encode([]);
+        exit;
+    }
+
+    $searchUrl = 'https://nominatim.openstreetmap.org/search?' . http_build_query([
+        'format' => 'json',
+        'q' => $query,
+        'countrycodes' => 'mt',
+        'limit' => 6,
+        'addressdetails' => 1,
+    ]);
+
+    $results = [];
+    foreach (fetchNominatimJson($searchUrl) as $row) {
+        if (!isset($row['lat'], $row['lon'])) {
+            continue;
+        }
+
+        $label = trim($row['display_name'] ?? '');
+        if ($label === '') {
+            continue;
+        }
+
+        $results[] = [
+            'lat' => (float)$row['lat'],
+            'lng' => (float)$row['lon'],
+            'label' => $label,
+        ];
+    }
+
+    echo json_encode($results);
+    exit;
+}
+
+if ($action == 'resolve_map_url' && $isManager) {
+    header('Content-Type: application/json');
+    $url = trim($_GET['url'] ?? '');
+
+    if ($url === '' || !preg_match('#^https?://#i', $url)) {
+        echo json_encode(['error' => 'Invalid URL']);
+        exit;
+    }
+
+    if (!preg_match('#(google\.[^/]+/maps|maps\.app\.goo\.gl|goo\.gl/maps)#i', $url)) {
+        echo json_encode(['error' => 'Only Google Maps links are supported']);
+        exit;
+    }
+
+    $coords = extractCoordsFromMapUrl($url);
+    if (!$coords) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'EstateHubMalta/1.0 (Plant Hub Map Resolver)');
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_exec($ch);
+        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        if (!empty($finalUrl)) {
+            $coords = extractCoordsFromMapUrl($finalUrl);
+        }
+    }
+
+    if (!$coords) {
+        echo json_encode(['error' => 'Could not extract coordinates from link. Try copying coordinates directly.']);
+        exit;
+    }
+
+    echo json_encode($coords);
+    exit;
+}
+
 if ($action == 'update_job_client' && $isManager) {
     $bookingId = $_POST['booking_id'];
     $clientCode = $_POST['client_code'];
