@@ -474,7 +474,7 @@ $userId = $_SESSION['user_id'];
 
         const coordsText = `${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}`;
         statusEl.innerHTML = label
-            ? `<i class="fas fa-map-pin" style="color:#10b981;"></i> <b>Location set:</b> ${label} <span style="color:#94a3b8;">(${coordsText})</span>`
+            ? `<i class="fas fa-map-pin" style="color:#10b981;"></i> <b>Location set:</b> ${escapeHtml(label)} <span style="color:#94a3b8;">(${coordsText})</span>`
             : `<i class="fas fa-map-pin" style="color:#10b981;"></i> <b>Location set:</b> ${coordsText}`;
     }
 
@@ -519,8 +519,22 @@ $userId = $_SESSION['user_id'];
         return null;
     }
 
+    function isAllowedGoogleMapsHost(host) {
+        host = (host || '').toLowerCase();
+        const allowedExact = ['maps.app.goo.gl', 'goo.gl', 'maps.google.com', 'www.google.com', 'google.com', 'www.google.com.mt', 'google.com.mt'];
+        if (allowedExact.includes(host)) return true;
+        return /^[a-z0-9-]+\.google\.(com|com\.mt)$/.test(host);
+    }
+
     function isResolvableMapUrl(text) {
-        return /^(https?:\/\/)?(maps\.app\.goo\.gl|goo\.gl\/maps|www\.google\.[^/]+\/maps|google\.[^/]+\/maps)/i.test(text);
+        try {
+            const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+            if (!isAllowedGoogleMapsHost(url.hostname)) return false;
+            if (url.hostname.toLowerCase() === 'goo.gl' && !url.pathname.startsWith('/maps')) return false;
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     async function applyPastedLocation() {
