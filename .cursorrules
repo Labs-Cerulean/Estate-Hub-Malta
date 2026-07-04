@@ -37,3 +37,56 @@ Before generating any code to add a feature, fix a bug, or refactor, you MUST fo
 3. **Explain:** Reply to the user summarizing your understanding of how the current code works, what files are involved, and what exact changes you plan to make. 
 4. **Wait for Approval:** Ask the user "Does this approach look correct?" and WAIT for their confirmation before writing the code snippet.
 5. **Minimal Diffs:** Once approved, only output the exact code blocks that need changing. Do not rewrite entire files unless absolutely necessary.
+
+# Permission / Capability Persistence (CRITICAL)
+- `user_capabilities` and any auth-related writes are MISSION-CRITICAL.
+- NEVER hardcode column lists in SQL if values come from `array_values()` on a PHP array.
+- Use ONE canonical key list (e.g. `umAllCapabilityKeys()`) to build:
+  - form field names
+  - INSERT/UPDATE column lists
+  - bind parameter order
+- If adding a new capability: update the canonical list ONCE; generate SQL dynamically from it.
+- Before finishing any change to `users-management.php`, `user-functions.php`, or `user_capabilities`:
+  - Trace POST field → `$caps` array → SQL columns → DB column (same order, same names).
+  - Explicitly state in the reply: "Checkbox X maps to column Y" for any new/changed cap.
+- Treat `approve_quotes`, `manage_users`, `manage_plant_fleet`, and ERP-adjacent caps as **elevated privilege** — call them out in the change summary.
+
+# Live Production Change Gate
+- This is LIVE. Prefer the smallest diff that fixes the reported issue.
+- Do NOT refactor working save/load paths while adding a feature unless the user asked for a refactor.
+- Forbidden without explicit user confirmation:
+  - Reordering arrays used in SQL binds
+  - Duplicating the same field list in two places (PHP array + hardcoded SQL)
+  - ENUM/schema changes via PHP auto-deploy (user prefers manual phpMyAdmin SQL)
+- After any auth, billing, or permission change, list:
+  1. What a user WITHOUT the cap cannot do (menu + direct URL)
+  2. What a user WITH the cap can do
+  3. What was NOT changed (e.g. other modules unaffected)
+
+# SQL Parameter Binding
+- When binding many `?` placeholders from an array, column order MUST match `array_values()` order exactly.
+- Prefer dynamic SQL: `implode(', ', $keys)` for columns and `col=VALUES(col)` for upserts.
+- If hardcoded SQL is unavoidable, add an inline comment listing bind order next to the query.
+- Never assume two visually similar column lists are in the same order — diff them explicitly.
+
+
+# Approval Required Before Coding (risk-based)
+ALWAYS wait for user approval before implementing:
+- Permission/capability changes
+- Auth, session, or role ENUM changes
+- Anything touching Plant ERP / J2 / `pushBookingToERP()`
+- Bulk UPDATE/INSERT affecting all users or all projects
+- New auto-deploy ALTER TABLE blocks
+
+May proceed without pre-approval only for:
+- Copy/UI labels, print layout CSS
+- Read-only explanations
+- Changes explicitly scoped as "safe cosmetic" by the user
+
+# Pre-push checklist (agent must self-verify)
+For permission or user-management changes:
+- [ ] Canonical key list is single source of truth
+- [ ] create AND update paths use the same persistence helper
+- [ ] Nav visibility (`header.php`) matches page gate (`hasPermission` on entry)
+- [ ] Manage implies View where business logic requires it
+- [ ] No new hardcoded 30+ column SQL strings
