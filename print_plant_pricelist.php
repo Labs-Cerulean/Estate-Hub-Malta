@@ -124,9 +124,9 @@ foreach ($plants as &$p) {
     $companyCatalog = $nominalCache[$bcProfile] ?? [];
     $erpOnline = $apiHealthMatrix[$bcProfile] ?? false;
     
-    $p['fixed_data'] = (!empty($p['nom_code_fixed']) && isset($companyCatalog[trim($p['nom_code_fixed'])])) ? $companyCatalog[trim($p['nom_code_fixed'])] : null;
-    $p['var_data'] = (!empty($p['nom_code_variable']) && isset($companyCatalog[trim($p['nom_code_variable'])])) ? $companyCatalog[trim($p['nom_code_variable'])] : null;
-    $p['setup_data'] = (!empty($p['nom_code_setup']) && isset($companyCatalog[trim($p['nom_code_setup'])])) ? $companyCatalog[trim($p['nom_code_setup'])] : null;
+    $p['fixed_data'] = (!empty($p['nom_code_fixed']) && isset($companyCatalog[trim($p['nom_code_fixed'] ?? '')])) ? $companyCatalog[trim($p['nom_code_fixed'] ?? '')] : null;
+    $p['var_data'] = (!empty($p['nom_code_variable']) && isset($companyCatalog[trim($p['nom_code_variable'] ?? '')])) ? $companyCatalog[trim($p['nom_code_variable'] ?? '')] : null;
+    $p['setup_data'] = (!empty($p['nom_code_setup']) && isset($companyCatalog[trim($p['nom_code_setup'] ?? '')])) ? $companyCatalog[trim($p['nom_code_setup'] ?? '')] : null;
     
     // Parse the new JSON Configurations into an array
     $p['parsed_configs'] = [];
@@ -137,6 +137,7 @@ foreach ($plants as &$p) {
                 $cfgNom = trim($cfg['nom_code'] ?? '');
                 $cfg['erp_data'] = isset($companyCatalog[$cfgNom]) ? $companyCatalog[$cfgNom] : null;
             }
+            unset($cfg);
             $p['parsed_configs'] = $decoded;
         }
     }
@@ -171,6 +172,14 @@ function formatPricingModel($type) {
         case 'daily':             return 'Daily Flat Rate';
         default:                  return 'Not Defined';
     }
+}
+
+function formatNomCode($code) {
+    return htmlspecialchars(trim((string)($code ?? '')));
+}
+
+function formatErpRate($data, $key = 'NCDefSP2') {
+    return number_format((float)($data[$key] ?? 0), 2);
 }
 ?>
 <!DOCTYPE html>
@@ -372,10 +381,10 @@ function formatPricingModel($type) {
                                         <div class="error-msg" style="margin-top:4px;"><i class="fas fa-wifi"></i> ERP Offline</div>
                                     <?php elseif ($p['setup_data']): ?>
                                         <div class="nominal-cell" style="margin-top: 4px; border-color: #bfdbfe; background: #eff6ff; padding: 6px;">
-                                            <strong style="color: #1e40af; font-size: 0.8rem;"><?= htmlspecialchars(trim($p['setup_data']['NCCode'])) ?></strong>
+                                            <strong style="color: #1e40af; font-size: 0.8rem;"><?= formatNomCode($p['setup_data']['NCCode'] ?? '') ?></strong>
                                             <div class="rate-grid" style="border-color: #bfdbfe; margin-top: 2px; padding-top: 2px;">
-                                                <div class="rate-item"><span class="rate-label" style="color: #3b82f6;">Hse:</span> <span class="rate-value" style="color: #1e40af;">€<?= number_format((float)$p['setup_data']['NCDefSP1'], 2) ?></span></div>
-                                                <div class="rate-item"><span class="rate-label" style="color: #3b82f6;">Com:</span> <span class="rate-value" style="color: #1e40af;">€<?= number_format((float)$p['setup_data']['NCDefSP2'], 2) ?></span></div>
+                                                <div class="rate-item"><span class="rate-label" style="color: #3b82f6;">Hse:</span> <span class="rate-value" style="color: #1e40af;">€<?= formatErpRate($p['setup_data'], 'NCDefSP1') ?></span></div>
+                                                <div class="rate-item"><span class="rate-label" style="color: #3b82f6;">Com:</span> <span class="rate-value" style="color: #1e40af;">€<?= formatErpRate($p['setup_data'], 'NCDefSP2') ?></span></div>
                                             </div>
                                         </div>
                                     <?php else: ?>
@@ -393,11 +402,11 @@ function formatPricingModel($type) {
                                             <div class="error-msg"><i class="fas fa-wifi"></i> Offline</div>
                                         <?php elseif ($p['fixed_data']): ?>
                                             <div class="nominal-cell">
-                                                <strong><span style="color:#64748b; font-size:0.7rem; font-family:sans-serif;">BASE:</span> <?= htmlspecialchars(trim($p['fixed_data']['NCCode'])) ?></strong>
-                                                <span class="nominal-desc" title="<?= htmlspecialchars($p['fixed_data']['NCDesc']) ?>"><?= htmlspecialchars($p['fixed_data']['NCDesc']) ?></span>
+                                                <strong><span style="color:#64748b; font-size:0.7rem; font-family:sans-serif;">BASE:</span> <?= formatNomCode($p['fixed_data']['NCCode'] ?? '') ?></strong>
+                                                <span class="nominal-desc" title="<?= htmlspecialchars($p['fixed_data']['NCDesc'] ?? '') ?>"><?= htmlspecialchars($p['fixed_data']['NCDesc'] ?? '') ?></span>
                                                 <div class="rate-grid">
-                                                    <div class="rate-item"><span class="rate-label">Hse:</span> <span class="rate-value">€<?= number_format((float)$p['fixed_data']['NCDefSP1'], 2) ?></span></div>
-                                                    <div class="rate-item"><span class="rate-label">Com:</span> <span class="rate-value">€<?= number_format((float)$p['fixed_data']['NCDefSP2'], 2) ?></span></div>
+                                                    <div class="rate-item"><span class="rate-label">Hse:</span> <span class="rate-value">€<?= formatErpRate($p['fixed_data'], 'NCDefSP1') ?></span></div>
+                                                    <div class="rate-item"><span class="rate-label">Com:</span> <span class="rate-value">€<?= formatErpRate($p['fixed_data'], 'NCDefSP2') ?></span></div>
                                                 </div>
                                             </div>
                                         <?php else: ?>
@@ -412,11 +421,11 @@ function formatPricingModel($type) {
                                             <div class="error-msg"><i class="fas fa-wifi"></i> Offline</div>
                                         <?php elseif ($p['var_data']): ?>
                                             <div class="nominal-cell">
-                                                <strong><span style="color:#64748b; font-size:0.7rem; font-family:sans-serif;">VAR:</span> <?= htmlspecialchars(trim($p['var_data']['NCCode'])) ?></strong>
-                                                <span class="nominal-desc" title="<?= htmlspecialchars($p['var_data']['NCDesc']) ?>"><?= htmlspecialchars($p['var_data']['NCDesc']) ?></span>
+                                                <strong><span style="color:#64748b; font-size:0.7rem; font-family:sans-serif;">VAR:</span> <?= formatNomCode($p['var_data']['NCCode'] ?? '') ?></strong>
+                                                <span class="nominal-desc" title="<?= htmlspecialchars($p['var_data']['NCDesc'] ?? '') ?>"><?= htmlspecialchars($p['var_data']['NCDesc'] ?? '') ?></span>
                                                 <div class="rate-grid">
-                                                    <div class="rate-item"><span class="rate-label">Hse:</span> <span class="rate-value">€<?= number_format((float)$p['var_data']['NCDefSP1'], 2) ?></span></div>
-                                                    <div class="rate-item"><span class="rate-label">Com:</span> <span class="rate-value">€<?= number_format((float)$p['var_data']['NCDefSP2'], 2) ?></span></div>
+                                                    <div class="rate-item"><span class="rate-label">Hse:</span> <span class="rate-value">€<?= formatErpRate($p['var_data'], 'NCDefSP1') ?></span></div>
+                                                    <div class="rate-item"><span class="rate-label">Com:</span> <span class="rate-value">€<?= formatErpRate($p['var_data'], 'NCDefSP2') ?></span></div>
                                                 </div>
                                             </div>
                                         <?php else: ?>
@@ -429,18 +438,18 @@ function formatPricingModel($type) {
                             <?php if ($p['has_configurations'] == 1 && !empty($p['parsed_configs'])): ?>
                                 <div class="config-box">
                                     <h5><i class="fas fa-sliders-h" style="color:#3b82f6;"></i> Selectable Modes / Add-ons</h5>
-                                    <?php foreach ($p['parsed_configs'] as $cfg): ?>
+                                    <?php foreach ($p['parsed_configs'] as $configRow): ?>
                                         <div class="config-row">
                                             <div style="flex:1;">
-                                                <span class="config-tag"><?= htmlspecialchars($cfg['type']) ?></span> 
-                                                <b><?= htmlspecialchars($cfg['name']) ?></b>
+                                                <span class="config-tag"><?= htmlspecialchars($configRow['type'] ?? '') ?></span> 
+                                                <b><?= htmlspecialchars($configRow['name'] ?? '') ?></b>
                                             </div>
                                             <div style="flex:1; text-align:right; color:#475569;">
-                                                <?php if (!empty($cfg['erp_data'])): ?>
-                                                    [Code: <b><?= htmlspecialchars(trim($cfg['nom_code'])) ?></b>] &nbsp; 
-                                                    <b style="color:#0f172a;">€<?= number_format((float)$cfg['erp_data']['NCDefSP2'], 2) ?></b>
+                                                <?php if (!empty($configRow['erp_data'])): ?>
+                                                    [Code: <b><?= formatNomCode($configRow['nom_code'] ?? '') ?></b>] &nbsp; 
+                                                    <b style="color:#0f172a;">€<?= formatErpRate($configRow['erp_data'], 'NCDefSP2') ?></b>
                                                 <?php else: ?>
-                                                    [Code: <b><?= htmlspecialchars($cfg['nom_code'] ?? 'None') ?></b>] &nbsp; 
+                                                    [Code: <b><?= formatNomCode($configRow['nom_code'] ?? 'None') ?></b>] &nbsp; 
                                                     <b style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Offline/Error</b>
                                                 <?php endif; ?>
                                             </div>
