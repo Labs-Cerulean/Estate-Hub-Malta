@@ -2,6 +2,7 @@
 require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
+require_once '../includes/plant_schema_deploy.php';
 
 function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
@@ -244,35 +245,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
 date_default_timezone_set('Europe/Malta');
 
 // Auto-deploy Plant Hub schema (safe to re-run; duplicate column errors are swallowed)
-try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        booking_id INT NOT NULL,
-        punch_in DATETIME NOT NULL,
-        punch_out DATETIME NOT NULL,
-        hours DECIMAL(10,2) NOT NULL,
-        mode_name VARCHAR(100) DEFAULT NULL,
-        addons_used TEXT DEFAULT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
-    $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00");
-    $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plants ADD COLUMN requires_driver TINYINT(1) DEFAULT 1");
-    $pdo->exec("ALTER TABLE plants ADD COLUMN lifecycle_type VARCHAR(50) DEFAULT 'Standard'");
-    $pdo->exec("ALTER TABLE plants ADD COLUMN has_configurations TINYINT(1) DEFAULT 0");
-    $pdo->exec("ALTER TABLE plants ADD COLUMN configurations TEXT DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plants ADD COLUMN billing_unit VARCHAR(50) DEFAULT 'Hourly'");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN apply_setup_fee TINYINT(1) DEFAULT 0");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_setup_fee DECIMAL(10,2) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN end_date DATE DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_mode VARCHAR(100) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_addons TEXT DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN mode_name VARCHAR(100) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN addons_used TEXT DEFAULT NULL");
-} catch (PDOException $e) {}
+plantDeploySchema($pdo);
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
@@ -288,7 +261,9 @@ $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accoun
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
-if ($action !== 'fetch_bookings' && (!$praApiKey || !$praxApiKey)) {
+$plantErpRequiredActions = ['get_nominals', 'get_company_clients', 'get_client_max_discount', 'finalize_and_invoice', 'retry_erp_sync'];
+
+if (in_array($action, $plantErpRequiredActions, true) && (!$praApiKey || !$praxApiKey)) {
     header('Content-Type: application/json; charset=utf-8');
     die(json_encode(['error' => 'Critical Error: ERP API keys are missing from environment configuration.']));
 }
@@ -425,22 +400,37 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
+    header('Content-Type: application/json; charset=utf-8');
     $nominalCache = [];
-    foreach (['24', '26'] as $compId) {
-        $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
-        $indexed = [];
-        if (is_array($noms)) {
-            foreach ($noms as $n) {
-                if (isset($n['NCCode'])) {
-                    $indexed[trim((string)$n['NCCode'])] = true;
+    if ($praApiKey && $praxApiKey) {
+        foreach (['24', '26'] as $compId) {
+            $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
+            $indexed = [];
+            if (is_array($noms)) {
+                foreach ($noms as $n) {
+                    if (isset($n['NCCode'])) {
+                        $indexed[trim((string)$n['NCCode'])] = true;
+                    }
                 }
             }
+            $nominalCache[$compId] = $indexed;
         }
-        $nominalCache[$compId] = $indexed;
     }
 
-    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, requires_driver, lifecycle_type, has_configurations, configurations, billing_unit FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
-    $plants = []; 
+    try {
+        $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, requires_driver, lifecycle_type, has_configurations, configurations, billing_unit FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($plantsRaw as &$row) {
+            $row['requires_driver'] = 1;
+            $row['lifecycle_type'] = 'Standard';
+            $row['has_configurations'] = 0;
+            $row['configurations'] = null;
+            $row['billing_unit'] = 'Hourly';
+        }
+        unset($row);
+    }
+    $plants = [];
     
     foreach($plantsRaw as $p) { 
         $bcId = $p['billing_company_id'] ?? 'default';
