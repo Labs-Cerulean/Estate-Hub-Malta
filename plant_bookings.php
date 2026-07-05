@@ -702,10 +702,14 @@ $userId = $_SESSION['user_id'];
 
     function loadFormData() {
         fetch('api/plant_actions.php?action=form_data')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(d => {
-            groupedPlants = d.plants;
-            
+            if (d.error) throw new Error(d.error);
+            groupedPlants = d.plants || {};
+
             // Safely check if the booking form elements exist before populating them
             const catDropdown = document.getElementById('plant_category');
             if (catDropdown) {
@@ -713,7 +717,7 @@ $userId = $_SESSION['user_id'];
             }
 
             const driverDropdown = document.getElementById('driver_id');
-            if (driverDropdown) {
+            if (driverDropdown && Array.isArray(d.drivers)) {
                 driverDropdown.innerHTML = '<option value="">-- Unassigned --</option>' + d.drivers.map(drv => `<option value="${drv.id}">${drv.first_name} ${drv.last_name}</option>`).join('');
             }
             
@@ -728,13 +732,13 @@ $userId = $_SESSION['user_id'];
                 }
             }
 
-            window.allProjects = d.projects;
+            window.allProjects = Array.isArray(d.projects) ? d.projects : [];
             
             // Auto-populate ledger filter dropdowns safely
             if(document.getElementById('filter_plant_type')) {
                 document.getElementById('filter_plant_type').innerHTML = '<option value="">All Types</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
             }
-            if(document.getElementById('filter_project')) {
+            if(document.getElementById('filter_project') && Array.isArray(d.projects)) {
                 document.getElementById('filter_project').innerHTML = '<option value="">All Projects</option>' + d.projects.map(prj => `<option value="${prj.id}">${prj.name}</option>`).join('');
             }
             
@@ -742,6 +746,10 @@ $userId = $_SESSION['user_id'];
             if (catDropdown) {
                 updatePlantDropdown();
             }
+        })
+        .catch(err => {
+            console.error('loadFormData failed:', err);
+            alert('Could not load booking form data. Please refresh the page.');
         });
     }
 
