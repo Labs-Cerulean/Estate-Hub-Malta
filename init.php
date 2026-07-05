@@ -58,8 +58,10 @@ if (isLoggedIn()) {
     $_SESSION['last_activity'] = time();
 }
 
-// Auto-deploy schema additions for PM cohesion features
-if (isset($pdo)) {
+// Auto-deploy schema additions for PM cohesion features (skip on API calls to avoid lock contention)
+$requestUri = $_SERVER['REQUEST_URI'] ?? '';
+$isApiRequest = str_contains($requestUri, '/api/');
+if (isset($pdo) && !$isApiRequest) {
     try { $pdo->exec("ALTER TABLE user_capabilities ADD COLUMN view_all_projects TINYINT(1) DEFAULT 0"); } catch (PDOException $e) {}
     try { $pdo->exec("ALTER TABLE user_capabilities ADD COLUMN edit_project_schedule TINYINT(1) DEFAULT 0"); } catch (PDOException $e) {}
     try { $pdo->exec("ALTER TABLE user_capabilities ADD COLUMN view_sales_ohsa TINYINT(1) DEFAULT 0"); } catch (PDOException $e) {}
