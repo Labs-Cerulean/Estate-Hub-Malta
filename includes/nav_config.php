@@ -76,6 +76,17 @@ function navCanAccessPlantHub(): bool {
         || in_array(getCurrentRole(), ['admin', 'director', 'accountant', 'plant_manager', 'plant_driver'], true);
 }
 
+function navCanAccessPlantDashboard(): bool {
+    if (in_array(getCurrentRole(), ['admin', 'director'], true)) {
+        return true;
+    }
+    return getCurrentRole() === 'system_manager' && hasPermission('manage_plant_fleet');
+}
+
+function navPlantHubHome(): string {
+    return 'plant_hub.php';
+}
+
 function navUserHubs(): array {
     $hubs = [];
     if (navCanAccessEstateHub()) {
@@ -104,7 +115,7 @@ function navHubMeta(): array {
         ],
         'plant' => [
             'label' => 'Plant Hub',
-            'home'  => 'plant_bookings.php',
+            'home'  => navPlantHubHome(),
             'class' => 'hub-plant',
         ],
     ];
@@ -142,6 +153,7 @@ function navPageHubMap(): array {
         'import_key_simplified' => 'sales',
 
         'plant_bookings' => 'plant',
+        'plant_hub' => 'plant',
         'plant_dashboard' => 'plant',
         'print_plant_invoice' => 'plant',
         'print_plant_pricelist' => 'plant',
@@ -293,7 +305,7 @@ function navPlantItems(): array {
     if (hasPermission('view_plant_bookings') || in_array(getCurrentRole(), ['admin', 'accountant', 'plant_manager', 'plant_driver'], true)) {
         $items[] = ['type' => 'link', 'label' => 'Plant Operations', 'href' => 'plant_bookings.php', 'pages' => ['plant_bookings']];
     }
-    if (in_array(getCurrentRole(), ['admin', 'director'], true) || (getCurrentRole() === 'system_manager' && hasPermission('manage_plant_fleet'))) {
+    if (navCanAccessPlantDashboard()) {
         $items[] = ['type' => 'link', 'label' => 'Fleet Dashboard', 'href' => 'plant_dashboard.php', 'pages' => ['plant_dashboard'], 'class' => 'nav-plant-accent'];
     }
 
