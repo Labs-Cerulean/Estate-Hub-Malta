@@ -64,6 +64,7 @@ if (!sessionShouldSkipHubIsolation()) {
 
     if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['plant_manager', 'plant_driver'], true)) {
         $allowed_plant_pages = [
+            'plant_hub.php',
             'plant_bookings.php',
             'print_plant_invoice.php',
             'print_plant_pricelist.php',

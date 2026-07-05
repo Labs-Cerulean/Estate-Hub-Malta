@@ -2,10 +2,12 @@
 require_once 'config.php';
 require_once 'session-check.php';
 require_once 'user-functions.php';
+require_once __DIR__ . '/includes/nav_config.php';
 
 $role = $_SESSION['role'];
 $isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
 $isAccountant = ($role === 'accountant');
+$canAccessPlantDashboard = navCanAccessPlantDashboard();
 
 if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant && !in_array($role, ['admin', 'director'], true)) { 
     die("Unauthorized Access."); 
@@ -77,6 +79,7 @@ $userId = $_SESSION['user_id'];
     <div class="header">
         <h2 onclick="showView('view-calendar')" style="cursor:pointer;"><i class="fas fa-tractor text-teal-400"></i> Plant Hub</h2>
         <div style="display: flex; gap: 10px;">
+            <?php if ($canAccessPlantDashboard): ?><a href="plant_dashboard.php" class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem; text-decoration:none;" title="Fleet Dashboard"><i class="fas fa-chart-line"></i></a><?php endif; ?>
             <?php if ($canViewLedger): ?><button class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="loadLedger()"><i class="fas fa-file-invoice-dollar"></i></button><?php endif; ?>
             <?php if ($canManageFleet): ?><button class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="loadFleetView()"><i class="fas fa-truck-monster"></i></button><?php endif; ?>
             <?php if ($isManager): ?><button class="btn-heavy btn-blue" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="openCreateForm()"><i class="fas fa-plus"></i></button><?php endif; ?>

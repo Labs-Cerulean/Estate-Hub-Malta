@@ -141,9 +141,14 @@ $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("%s-%s-%04d", $prefix, $jobYear, $bookingId);
 
-$sessionsStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
-$sessionsStmt->execute([$bookingId]);
-$sessions = $sessionsStmt->fetchAll(PDO::FETCH_ASSOC);
+$sessions = [];
+try {
+    $sessionsStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
+    $sessionsStmt->execute([$bookingId]);
+    $sessions = $sessionsStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $sessions = [];
+}
 
 $totalSessionHours = 0;
 foreach ($sessions as $s) {
