@@ -8,6 +8,15 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
     try {
         $stmt = $pdo->prepare("INSERT INTO plant_audit_log (user_id, booking_id, action_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$userId, $bookingId, $actionType, $details, $ip]);
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        booking_id INT NOT NULL,
+        punch_in DATETIME NOT NULL,
+        punch_out DATETIME NOT NULL,
+        hours DECIMAL(10,2) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
     } catch(PDOException $e) {
         // Silently fail so a logging error never stops a live billing transaction
     }
@@ -275,13 +284,12 @@ $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_mana
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
 
-// Dynamic API Key Mapper — fetch_bookings only needs DB; ERP keys required for other actions
+// Dynamic API Key Mapper
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
 if ($action !== 'fetch_bookings' && (!$praApiKey || !$praxApiKey)) {
     header('Content-Type: application/json; charset=utf-8');
-    http_response_code(500);
     die(json_encode(['error' => 'Critical Error: ERP API keys are missing from environment configuration.']));
 }
 
@@ -417,7 +425,6 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
-    header('Content-Type: application/json; charset=utf-8');
     $nominalCache = [];
     foreach (['24', '26'] as $compId) {
         $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
@@ -686,20 +693,14 @@ if ($action == 'fetch_bookings') {
         $stmt->execute([$endDate, $startDate]);
         $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        try {
-            $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
-                      FROM plant_bookings pb 
-                      JOIN plants p ON pb.plant_id = p.id 
-                      LEFT JOIN projects prj ON pb.project_id = prj.id
-                      WHERE pb.booking_date <= ? AND pb.booking_date >= ?";
-            $stmt = $pdo->prepare($query);
-            $stmt->execute([$endDate, $startDate]);
-            $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e2) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Failed to load plant bookings from database.']);
-            exit;
-        }
+        $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+                  FROM plant_bookings pb 
+                  JOIN plants p ON pb.plant_id = p.id 
+                  LEFT JOIN projects prj ON pb.project_id = prj.id
+                  WHERE pb.booking_date <= ? AND pb.booking_date >= ?";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$endDate, $startDate]);
+        $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
     $catColors = [
@@ -991,23 +992,58 @@ if ($action == 'cancel_booking' && $isManager) {
 }
 
 if ($action == 'get_job') {
-    $stmt = $pdo->prepare("
-        SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee, 
-               p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
-               prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
-        FROM plant_bookings pb 
-        JOIN plants p ON pb.plant_id = p.id 
-        LEFT JOIN projects prj ON pb.project_id = prj.id 
-        LEFT JOIN users u ON pb.driver_id = u.id 
-        WHERE pb.id = ?
-    "); 
-    
-    $stmt->execute([$_GET['id']]); 
-    $job = $stmt->fetch(PDO::FETCH_ASSOC); 
-    
-    $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; 
-    
-    echo json_encode($job); 
+    header('Content-Type: application/json; charset=utf-8');
+    $jobId = (int)($_GET['id'] ?? 0);
+    if ($jobId <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid booking ID.']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee, 
+                   p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
+                   prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
+            FROM plant_bookings pb 
+            JOIN plants p ON pb.plant_id = p.id 
+            LEFT JOIN projects prj ON pb.project_id = prj.id 
+            LEFT JOIN users u ON pb.driver_id = u.id 
+            WHERE pb.id = ?
+        ");
+        $stmt->execute([$jobId]);
+        $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $stmt = $pdo->prepare("
+            SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee,
+                   prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
+            FROM plant_bookings pb 
+            JOIN plants p ON pb.plant_id = p.id 
+            LEFT JOIN projects prj ON pb.project_id = prj.id 
+            LEFT JOIN users u ON pb.driver_id = u.id 
+            WHERE pb.id = ?
+        ");
+        $stmt->execute([$jobId]);
+        $job = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($job) {
+            $job['requires_driver'] = 1;
+            $job['lifecycle_type'] = 'Standard';
+            $job['has_configurations'] = 0;
+            $job['configurations'] = null;
+        }
+    }
+
+    if (!$job) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Booking not found.']);
+        exit;
+    }
+
+    $job['location_text'] = $job['booking_type'] == 'in-house'
+        ? 'Project: ' . ($job['project_name'] ?? 'Unknown')
+        : 'External: ' . ($job['client_name'] ?? 'Unknown');
+
+    echo json_encode($job);
     exit;
 }
 

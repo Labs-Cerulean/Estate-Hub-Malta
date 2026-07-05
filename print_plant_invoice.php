@@ -15,7 +15,13 @@ require_once 'S3FileManager.php';
 
 try { 
     $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN requires_driver TINYINT(1) DEFAULT 1");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN lifecycle_type VARCHAR(50) DEFAULT 'Standard'");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN has_configurations TINYINT(1) DEFAULT 0");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN configurations TEXT DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN end_date DATE DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
 } catch(PDOException $e) {}
 
 $role = $_SESSION['role'] ?? '';
