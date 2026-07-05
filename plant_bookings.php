@@ -444,14 +444,7 @@ $userId = $_SESSION['user_id'];
             slotMaxTime: '20:00:00', 
             allDaySlot: false, 
             contentHeight: 'auto',
-            events: {
-                url: PLANT_API + '?action=fetch_bookings',
-                failure: function() {
-                    console.error('Plant Hub: failed to load bookings.');
-                    const title = document.getElementById('custom-cal-title');
-                    if (title) title.innerText = 'Could not load bookings — try refreshing';
-                }
-            },
+            events: 'api/plant_actions.php?action=fetch_bookings',
             eventClick: (info) => loadJob(info.event.id),
             datesSet: (info) => document.getElementById('custom-cal-title').innerText = info.view.title
         }); 

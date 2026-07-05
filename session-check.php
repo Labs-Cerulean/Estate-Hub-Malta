@@ -24,6 +24,7 @@ if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 
 $sessionBasename = basename($_SERVER['SCRIPT_FILENAME'] ?? $_SERVER['PHP_SELF'] ?? '');
 $phpSelfBasename = basename($_SERVER['PHP_SELF'] ?? '');
 $sessionRequestUri = $_SERVER['REQUEST_URI'] ?? '';
+$phpSelf = $_SERVER['PHP_SELF'] ?? '';
 
 function sessionIsPlantActionsRequest(): bool {
     global $sessionBasename, $phpSelfBasename, $sessionRequestUri;
@@ -42,12 +43,24 @@ function sessionIsLogoutRequest(): bool {
 }
 
 /**
- * Authorized plant_actions.php requests must bypass hub isolation redirects.
- * Main branch never applied hub isolation to the Plant API; staging regressed this in f2a4e39.
+ * Match main-branch behaviour: never apply hub isolation redirects to Plant API calls.
+ * Main allowed all /api/ requests for plant staff via PHP_SELF check.
  */
-$allowPlantHubApi = sessionIsPlantActionsRequest() && canUsePlantHubApi();
+function sessionShouldSkipHubIsolation(): bool {
+    global $sessionRequestUri, $phpSelf;
+    if (sessionIsPlantActionsRequest()) {
+        return true;
+    }
+    $role = $_SESSION['role'] ?? '';
+    if (in_array($role, ['plant_manager', 'plant_driver'], true)) {
+        if (str_contains($phpSelf, '/api/') || str_contains($sessionRequestUri, '/api/')) {
+            return true;
+        }
+    }
+    return false;
+}
 
-if (!$allowPlantHubApi) {
+if (!sessionShouldSkipHubIsolation()) {
 
     if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['plant_manager', 'plant_driver'], true)) {
         $allowed_plant_pages = [
@@ -55,20 +68,10 @@ if (!$allowPlantHubApi) {
             'print_plant_invoice.php',
             'print_plant_pricelist.php',
         ];
-        $allowed_plant_apis = ['plant_actions.php'];
-        $isApiRequest = sessionIsPlantActionsRequest()
-            || str_contains($_SERVER['PHP_SELF'] ?? '', '/api/')
-            || str_contains($sessionRequestUri, '/api/');
 
         if (sessionIsLogoutRequest()) {
             // allow
-        } elseif ($isApiRequest && (
-            in_array($sessionBasename, $allowed_plant_apis, true)
-            || in_array($phpSelfBasename, $allowed_plant_apis, true)
-            || str_contains($sessionRequestUri, 'plant_actions')
-        )) {
-            // allow plant API (do not rely on PHP_SELF always containing /api/)
-        } elseif (in_array($sessionBasename, $allowed_plant_pages, true)) {
+        } elseif (in_array($sessionBasename, $allowed_plant_pages, true) || in_array($phpSelfBasename, $allowed_plant_pages, true)) {
             // allow
         } else {
             header('Location: /plant_bookings.php');
@@ -77,7 +80,7 @@ if (!$allowPlantHubApi) {
     }
 
     if (isset($_SESSION['role']) && $_SESSION['role'] === 'sales_agent') {
-        $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($_SERVER['PHP_SELF'] ?? '', '/api/');
+        $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
         $allowed_sales_agent_pages = ['sales_hub.php', 'profile.php'];
         $allowed_sales_agent_apis = [
             'sales_actions.php', 'get_sales_map_data.php', 'get_holds_ledger.php',
@@ -98,7 +101,7 @@ if (!$allowPlantHubApi) {
     }
 
     if (isset($_SESSION['role']) && $_SESSION['role'] === 'sales_manager') {
-        $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($_SERVER['PHP_SELF'] ?? '', '/api/');
+        $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
         $blocked_sales_manager_pages = ['work_sales.php', 'works_sales.php', 'admin_standard_rates.php'];
         $allowed_sales_manager_pages = [
             'sales_hub.php', 'sales_project_manager.php', 'import_key_simplified.php',
@@ -130,7 +133,7 @@ if (!$allowPlantHubApi) {
 
     if (isset($_SESSION['role']) && $_SESSION['role'] === 'legal_representative') {
         $allowed_legal_pages = ['projects.php', 'mobilisation_detail.php', 'project-status.php', 'profile.php'];
-        $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($_SERVER['PHP_SELF'] ?? '', '/api/');
+        $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
         if (!$isApi && !sessionIsLogoutRequest() && !in_array($sessionBasename, $allowed_legal_pages, true)) {
             header('Location: /projects.php');
             exit;

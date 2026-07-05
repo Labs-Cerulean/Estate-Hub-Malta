@@ -3,80 +3,6 @@ require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
 
-if (!canUsePlantHubApi()) {
-    header('Content-Type: application/json; charset=utf-8');
-    http_response_code(403);
-    echo json_encode(['error' => 'Unauthorized access to Plant Hub API.']);
-    exit;
-}
-
-function plantSchemaNeedsMigration(PDO $pdo): bool {
-    static $needsMigration = null;
-    if ($needsMigration !== null) {
-        return $needsMigration;
-    }
-
-    try {
-        $stmt = $pdo->prepare("
-            SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND (
-                (TABLE_NAME = 'plants' AND COLUMN_NAME = 'billing_unit')
-                OR (TABLE_NAME = 'plant_bookings' AND COLUMN_NAME = 'end_date')
-                OR (TABLE_NAME = 'plant_job_sessions' AND COLUMN_NAME = 'mode_name')
-              )
-        ");
-        $stmt->execute();
-        $needsMigration = ((int)$stmt->fetchColumn()) < 3;
-    } catch (PDOException $e) {
-        // If schema introspection fails, run the safe ALTER block once (main-branch behaviour).
-        $needsMigration = true;
-    }
-    return $needsMigration;
-}
-
-function plantEnsureSchema(PDO $pdo): void {
-    static $ensured = false;
-    if ($ensured || !plantSchemaNeedsMigration($pdo)) {
-        $ensured = true;
-        return;
-    }
-
-    try {
-        $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            booking_id INT NOT NULL,
-            punch_in DATETIME NOT NULL,
-            punch_out DATETIME NOT NULL,
-            hours DECIMAL(10,2) NOT NULL,
-            mode_name VARCHAR(100) DEFAULT NULL,
-            addons_used TEXT DEFAULT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )");
-        $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00");
-        $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plants ADD COLUMN requires_driver TINYINT(1) DEFAULT 1");
-        $pdo->exec("ALTER TABLE plants ADD COLUMN lifecycle_type VARCHAR(50) DEFAULT 'Standard'");
-        $pdo->exec("ALTER TABLE plants ADD COLUMN has_configurations TINYINT(1) DEFAULT 0");
-        $pdo->exec("ALTER TABLE plants ADD COLUMN configurations TEXT DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plants ADD COLUMN billing_unit VARCHAR(50) DEFAULT 'Hourly'");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN apply_setup_fee TINYINT(1) DEFAULT 0");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_setup_fee DECIMAL(10,2) DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN end_date DATE DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_mode VARCHAR(100) DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_addons TEXT DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN mode_name VARCHAR(100) DEFAULT NULL");
-        $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN addons_used TEXT DEFAULT NULL");
-    } catch (PDOException $e) {
-        // Swallow duplicate-column errors; prefer sql/plant_hub_schema_phpmyadmin.sql for deploys.
-    }
-
-    $ensured = true;
-}
-
 function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
     try {
@@ -308,8 +234,36 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
 // Force Malta Timezone strictly for all operations in this file
 date_default_timezone_set('Europe/Malta');
 
-// Run schema updates only when sentinel columns are missing (see sql/plant_hub_schema_phpmyadmin.sql)
-plantEnsureSchema($pdo);
+// Auto-deploy Plant Hub schema (safe to re-run; duplicate column errors are swallowed)
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        booking_id INT NOT NULL,
+        punch_in DATETIME NOT NULL,
+        punch_out DATETIME NOT NULL,
+        hours DECIMAL(10,2) NOT NULL,
+        mode_name VARCHAR(100) DEFAULT NULL,
+        addons_used TEXT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN requires_driver TINYINT(1) DEFAULT 1");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN lifecycle_type VARCHAR(50) DEFAULT 'Standard'");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN has_configurations TINYINT(1) DEFAULT 0");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN configurations TEXT DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plants ADD COLUMN billing_unit VARCHAR(50) DEFAULT 'Hourly'");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN apply_setup_fee TINYINT(1) DEFAULT 0");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_setup_fee DECIMAL(10,2) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN end_date DATE DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_mode VARCHAR(100) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN active_addons TEXT DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN mode_name VARCHAR(100) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE plant_job_sessions ADD COLUMN addons_used TEXT DEFAULT NULL");
+} catch (PDOException $e) {}
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $userId = $_SESSION['user_id'];
@@ -721,16 +675,32 @@ if ($action == 'fetch_bookings') {
     $events = [];
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
-    
-    // GLOBAL VISIBILITY: All users pull the full schedule without driver restrictions
-    $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
-              FROM plant_bookings pb 
-              JOIN plants p ON pb.plant_id = p.id 
-              LEFT JOIN projects prj ON pb.project_id = prj.id
-              WHERE pb.booking_date <= ? AND COALESCE(pb.end_date, pb.booking_date) >= ?";
-              
-    $stmt = $pdo->prepare($query);
-    $stmt->execute([$endDate, $startDate]);
+
+    try {
+        $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+                  FROM plant_bookings pb 
+                  JOIN plants p ON pb.plant_id = p.id 
+                  LEFT JOIN projects prj ON pb.project_id = prj.id
+                  WHERE pb.booking_date <= ? AND COALESCE(pb.end_date, pb.booking_date) >= ?";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$endDate, $startDate]);
+        $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        try {
+            $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+                      FROM plant_bookings pb 
+                      JOIN plants p ON pb.plant_id = p.id 
+                      LEFT JOIN projects prj ON pb.project_id = prj.id
+                      WHERE pb.booking_date <= ? AND pb.booking_date >= ?";
+            $stmt = $pdo->prepare($query);
+            $stmt->execute([$endDate, $startDate]);
+            $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e2) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to load plant bookings from database.']);
+            exit;
+        }
+    }
     
     $catColors = [
         'Cranes' => '#eab308', 'Pumps' => '#3b82f6', 'Booms' => '#f97316', 
@@ -738,7 +708,7 @@ if ($action == 'fetch_bookings') {
         'Rock Saw' => '#10b981', 'Other Trucks' => '#64748b', 'Scarifier' => '#ec4899', 'General' => '#6366f1'
     ];
 
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
+    foreach ($bookings as $b) {
         $cat = $b['category'] ?: 'General';
         $color = $catColors[$cat] ?? '#6366f1';
         
