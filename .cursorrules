@@ -78,6 +78,16 @@ Before implementing **any** change (feature, bugfix, refactor, CSS, SQL, JS), ex
 
 Even for small diffs: apply the same security lens. A one-line SQL or echo change can open IDOR or XSS.
 
+# Quality & Markup (catch issues before GitHub review)
+See **`docs/DEFINITION_OF_DONE.md`** for the full checklist. Agents and humans must follow it before merging to staging.
+
+1. **Tables:** `<thead>` column count must match `<tbody>` cells per row.
+2. **Forms:** Never nest `<form>` inside `<form>` (breaks submit buttons and validation).
+3. **Transactions:** Multi-statement DB mutations (delete + insert + totals) should use `$pdo->beginTransaction()` / `commit()`.
+4. **API responses:** JSON endpoints return `403`/`400` JSON — not HTML redirects — for denied AJAX/fetch calls.
+5. **N+1:** Do not run a prepared query inside a loop over rows when one batch query suffices.
+6. **CI:** Before commit, run `bash scripts/ci/quality_checks.sh` (or ensure GitHub Quality workflow will pass).
+
 ## Pre-push security self-check (agent — required for every commit)
 - [ ] Reviewed **all** changed files, not only the "main" one
 - [ ] No raw user input in SQL, shell, or HTML/JS output
@@ -100,4 +110,5 @@ Before generating any code to add a feature, fix a bug, or refactor in **any fil
 3. **Explain:** Reply to the user summarizing how the current code works, what files are involved, security controls, and what exact changes you plan to make.
 4. **Wait for Approval:** Ask the user "Does this approach look correct?" and WAIT for their confirmation before writing the code snippet.
 5. **Minimal Diffs:** Once approved, only output the exact code blocks that need changing. Do not rewrite entire files unless absolutely necessary.
-6. **Verify:** Before commit, run the Pre-push security self-check against the full diff.
+6. **Verify:** Before commit, run the Pre-push security self-check against the full diff and `bash scripts/ci/quality_checks.sh`.
+7. **Review:** For Track B changes, recommend security-review and Bugbot on the branch diff before opening a PR.
