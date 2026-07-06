@@ -51,7 +51,7 @@ GitHub Actions workflow **Quality** (`.github/workflows/quality.yml`) runs:
 | Check | What it catches |
 |-------|-----------------|
 | PHP syntax | Parse errors in changed `.php` files |
-| No DDL in PHP | New `ALTER`/`CREATE`/`TRUNCATE` in changed PHP (use `sql/`) |
+| No DDL in PHP | New `ALTER`/`CREATE`/`TRUNCATE` in **added diff lines** (legacy blocks in touched files ignored) |
 | API session-check | Changed `api/*.php` missing auth (with known exempt list) |
 | SQL interpolation | Obvious `$pdo->exec("...$var...")`, concat, and `$sql = "...$var"` patterns |
 | Nested forms | Two `<form>` open before `</form>` in changed templates |
@@ -63,7 +63,7 @@ These checks are **heuristics** — always combine with human/agent review for T
 | Check | Known gaps |
 |-------|------------|
 | **SQL interpolation** | Line-oriented only. Misses multi-line query strings, variables assigned to `$sql` then passed later, and some concat forms. |
-| **DDL in PHP** | May false-positive if `ALTER TABLE` appears in a `//` comment line (whole-line comments are skipped) or inside a string literal. |
+| **DDL in PHP** | Scans **added lines in the diff** only. Legacy runtime DDL in files you touch for other reasons will not fail CI. May still false-positive on DDL keywords in new comments/strings. |
 | **Nested forms** | Counts `<form` tokens in comments or PHP strings; not a real HTML parser. |
 | **Changed files (local)** | Uses merge-base vs `origin/staging` by default (`QUALITY_BASE_REF`). Falls back to last commit only if the remote base is unavailable. |
 
