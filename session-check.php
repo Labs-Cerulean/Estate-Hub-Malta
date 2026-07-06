@@ -42,6 +42,13 @@ function sessionIsLogoutRequest(): bool {
     return $sessionBasename === 'logout.php' || str_contains($sessionRequestUri, 'logout');
 }
 
+function sessionDenyApiAccess(): void {
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Unauthorized API access.']);
+    exit;
+}
+
 /**
  * Match main-branch behaviour: never apply hub isolation redirects to Plant API calls.
  * Main allowed all /api/ requests for plant staff via PHP_SELF check.
@@ -92,8 +99,7 @@ if (!sessionShouldSkipHubIsolation()) {
             // allow
         } elseif ($isApi) {
             if (!in_array($sessionBasename, $allowed_sales_agent_apis, true)) {
-                header('Location: /sales_hub.php');
-                exit;
+                sessionDenyApiAccess();
             }
         } elseif (!in_array($sessionBasename, $allowed_sales_agent_pages, true)) {
             header('Location: /sales_hub.php');
@@ -123,8 +129,7 @@ if (!sessionShouldSkipHubIsolation()) {
             exit;
         } elseif ($isApi) {
             if (!in_array($sessionBasename, $allowed_sales_manager_apis, true)) {
-                header('Location: /sales_hub.php');
-                exit;
+                sessionDenyApiAccess();
             }
         } elseif (!in_array($sessionBasename, $allowed_sales_manager_pages, true)) {
             header('Location: /sales_hub.php');

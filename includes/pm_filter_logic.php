@@ -54,9 +54,65 @@ function pmMatchesStageFilter($stage, $filterStage, $filterStatus = 'all') {
 }
 
 function getAccurateProjectStagesBatch($pdo, array $projectIds) {
+    $ids = array_values(array_unique(array_filter(array_map('intval', $projectIds))));
+    if (empty($ids)) return [];
+
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+    $projects = [];
+    $stmt = $pdo->prepare("SELECT id, type, finishlevel, project_status, is_tracking FROM projects WHERE id IN ($placeholders)");
+    $stmt->execute($ids);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $projects[(int)$row['id']] = $row;
+    }
+
+    $paByProject = [];
+    $stmt = $pdo->prepare("SELECT project_id, pa_number, pa_status FROM project_pa_numbers WHERE project_id IN ($placeholders)");
+    $stmt->execute($ids);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $paByProject[(int)$row['project_id']][] = $row;
+    }
+
+    $mobByProject = [];
+    $stmt = $pdo->prepare("SELECT project_id, demo_status, excavation_status, mob_demolition, mob_excavation, mob_construction FROM project_mobilisation WHERE project_id IN ($placeholders)");
+    $stmt->execute($ids);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $mobByProject[(int)$row['project_id']] = $row;
+    }
+
+    $blocksByProject = [];
+    $blockIds = [];
+    $stmt = $pdo->prepare("SELECT project_id, id, block_type, finish_level, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed, finishes_overall_status, progress FROM project_blocks WHERE project_id IN ($placeholders)");
+    $stmt->execute($ids);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $blocksByProject[(int)$row['project_id']][] = $row;
+        $blockIds[] = (int)$row['id'];
+    }
+
+    $levelsByBlockId = [];
+    if (!empty($blockIds)) {
+        $blockPlaceholders = implode(',', array_fill(0, count($blockIds), '?'));
+        $stmt = $pdo->prepare("SELECT block_id, construction_status FROM block_levels WHERE block_id IN ($blockPlaceholders)");
+        $stmt->execute($blockIds);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $levelsByBlockId[(int)$row['block_id']][] = $row;
+        }
+    }
+
     $stages = [];
-    foreach ($projectIds as $id) {
-        $stages[(int)$id] = getAccurateProjectStage($pdo, (int)$id);
+    foreach ($ids as $id) {
+        $proj = $projects[$id] ?? null;
+        if (!$proj) {
+            $stages[$id] = 'Feasibility';
+            continue;
+        }
+        $stages[$id] = computeAccurateProjectStage(
+            $proj,
+            $paByProject[$id] ?? [],
+            $mobByProject[$id] ?? null,
+            $blocksByProject[$id] ?? [],
+            $levelsByBlockId
+        );
     }
     return $stages;
 }

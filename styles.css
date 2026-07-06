@@ -1420,6 +1420,7 @@ tbody tr:hover td:last-child { background: var(--bg-card); }
     .user-menu-text { display: none; }
     .user-menu-chevron { display: none; }
     .header-top-actions { gap: 0.4rem; }
+    .nav-utility { padding: 0.6rem 0.5rem !important; }
     .hub-switcher { max-width: 100%; }
 }
 

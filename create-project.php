@@ -102,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
 
 // Fetch Dropdown Data
 require_once __DIR__ . '/includes/entity_select_helpers.php';
-$clients = $pdo->query("SELECT id, name, type FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+$clients = $pdo->query("SELECT id, name, type, city FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 $architects = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('architect', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 $engineers = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('structural_engineer', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
