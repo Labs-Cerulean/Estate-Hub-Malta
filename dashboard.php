@@ -117,16 +117,48 @@ $preExecCount = 0; $execCount = 0; $finalCount = 0;
 $companyKpis = [];
 
 $filteredProjects = [];
+$archiveProjects = [];
+$showArchiveSection = ($filterDbStatus === 'Active');
 $stageIds = array_column($projects, 'id');
 $stagesBatch = getAccurateProjectStagesBatch($pdo, $stageIds);
 foreach ($projects as $project) {
     $project['stage'] = $stagesBatch[$project['id']] ?? getAccurateProjectStage($pdo, $project['id']);
     $stageNum = $stageEnum[$project['stage']] ?? 1;
+    $pStatus = $project['project_status'] ?? 'Active';
+    if ($pStatus === '') $pStatus = 'Active';
+    $isArchive = pmIsArchiveProject($project, $project['stage']);
+
+    if ($isArchive && $showArchiveSection) {
+        if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
+            if ($filterStatus !== 'all') {
+                if ($filterStatus === 'group_pre' && !in_array($project['stage'], $preExecStages)) continue;
+                elseif ($filterStatus === 'group_exec' && !in_array($project['stage'], $execStages)) continue;
+                elseif ($filterStatus === 'group_final' && !in_array($project['stage'], $finalStages)) continue;
+                elseif (!in_array($filterStatus, ['group_pre', 'group_exec', 'group_final']) && $project['stage'] !== $filterStatus) continue;
+            }
+            if ($filterType !== 'all' && $project['type'] !== $filterType) continue;
+            if ($filterCity !== 'all' && $project['city'] !== $filterCity) continue;
+            if ($filterIsland !== 'all' && $project['island'] !== $filterIsland) continue;
+            if ($filterClient !== 'all') {
+                if ($filterClient === 'group_excel') {
+                    if (stripos($project['client_name'] ?? '', 'Excel') === false) continue;
+                } elseif ($filterClient === 'group_blue_clay') {
+                    if (stripos($project['client_name'] ?? '', 'Blue Clay') === false && stripos($project['client_name'] ?? '', 'Blueclay') === false) continue;
+                } elseif ($project['clientid'] != $filterClient) {
+                    continue;
+                }
+            }
+            if ($filterProf !== 'all') {
+                $frms = $profData[$project['id']] ?? [];
+                if (!in_array($filterProf, $frms)) continue;
+            }
+            $archiveProjects[] = $project;
+        }
+        continue;
+    }
 
     // Apply DB Status filter FIRST
     if ($filterDbStatus !== 'All') {
-        $pStatus = $project['project_status'] ?? 'Active';
-        if ($pStatus === '') $pStatus = 'Active'; 
         if ($pStatus !== $filterDbStatus) continue;
     }
 
@@ -174,6 +206,7 @@ foreach ($projects as $project) {
 
 $projects = $filteredProjects;
 $projectCount = count($projects);
+$archiveProjectCount = count($archiveProjects);
 $userCount = $isAdmin ? $pdo->query("SELECT COUNT(*) FROM users WHERE is_active='Yes'")->fetchColumn() : 0;
 
 usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
@@ -185,6 +218,22 @@ usort($projects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
     elseif ($sortBy === 'finish_level') { $valA = strtolower($a['finishlevel'] ?? ''); $valB = strtolower($b['finishlevel'] ?? ''); }
     elseif ($sortBy === 'stage') { 
         $valA = $stageEnum[$a['stage']] ?? 0; $valB = $stageEnum[$b['stage']] ?? 0; 
+        return $sortOrder === 'ASC' ? $valA <=> $valB : $valB <=> $valA;
+    }
+    if ($valA == $valB) return 0;
+    $cmp = ($valA < $valB) ? -1 : 1;
+    return $sortOrder === 'ASC' ? $cmp : -$cmp;
+});
+
+usort($archiveProjects, function($a, $b) use ($sortBy, $sortOrder, $stageEnum) {
+    $valA = ''; $valB = '';
+    if ($sortBy === 'name') { $valA = strtolower($a['name']); $valB = strtolower($b['name']); }
+    elseif ($sortBy === 'client') { $valA = strtolower($a['client_name'] ?? 'z'); $valB = strtolower($b['client_name'] ?? 'z'); }
+    elseif ($sortBy === 'city') { $valA = strtolower($a['city']); $valB = strtolower($b['city']); }
+    elseif ($sortBy === 'type') { $valA = strtolower($a['type']); $valB = strtolower($b['type']); }
+    elseif ($sortBy === 'finish_level') { $valA = strtolower($a['finishlevel'] ?? ''); $valB = strtolower($b['finishlevel'] ?? ''); }
+    elseif ($sortBy === 'stage') {
+        $valA = $stageEnum[$a['stage']] ?? 0; $valB = $stageEnum[$b['stage']] ?? 0;
         return $sortOrder === 'ASC' ? $valA <=> $valB : $valB <=> $valA;
     }
     if ($valA == $valB) return 0;
@@ -337,6 +386,17 @@ tr:last-child td { border-bottom: none; }
 .kpi-table td { color: #fff; font-weight: 500; }
 .kpi-table tr:hover td { background: rgba(255,255,255,0.02); }
 .total-col { color: var(--primary-color) !important; font-weight: 800 !important; }
+
+.pm-archive-section { margin-top: 2rem; padding: 1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid rgba(107, 114, 128, 0.35); background: rgba(15, 23, 42, 0.35); }
+.pm-archive-section > summary { cursor: pointer; font-weight: 700; color: var(--text-secondary); font-size: 0.95rem; list-style: none; display: flex; align-items: center; gap: 0.5rem; }
+.pm-archive-section > summary::-webkit-details-marker { display: none; }
+.pm-archive-section > summary::before { content: '▸'; display: inline-block; transition: transform 0.2s; color: var(--text-muted); }
+.pm-archive-section[open] > summary::before { transform: rotate(90deg); }
+.pm-archive-section .archive-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0.75rem 0 1rem; }
+.pm-archive-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.pm-archive-table th, .pm-archive-table td { padding: 0.55rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
+.pm-archive-table th { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.pm-archive-table tr:hover td { background: rgba(255,255,255,0.02); }
 
 /* Generic Iframe Modal (Widened for Execution Hub) */
 #genericIframeModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
@@ -659,8 +719,52 @@ tr:last-child td { border-bottom: none; }
                 </div>
             </div>
 
-            <?php else: ?>
+            <?php elseif (!$showArchiveSection || $archiveProjectCount === 0): ?>
             <div class="empty-state"><p>No projects match your current filters or assigned access limits.</p></div>
+            <?php endif; ?>
+
+            <?php if ($showArchiveSection && $archiveProjectCount > 0): ?>
+            <details class="pm-archive-section">
+                <summary>Handed Over Archive (<?= $archiveProjectCount ?>)</summary>
+                <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>.</p>
+                <div class="dashboard-wrapper">
+                    <table class="pm-archive-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px; text-align: center;">Stage</th>
+                                <th>Project</th>
+                                <th>Client</th>
+                                <th>City</th>
+                                <th>Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($archiveProjects as $project): ?>
+                            <tr>
+                                <td style="text-align: center;"><span class="stage-dot" style="background-color: <?= $stageColors[$project['stage']] ?? '#10b981' ?>;" title="<?= htmlspecialchars($project['stage']) ?>"></span></td>
+                                <td style="font-weight: 600;">
+                                    <a href="project-status.php?id=<?= $project['id'] ?>" style="color: var(--text-primary); text-decoration: none;"><?= htmlspecialchars($project['name']) ?></a>
+                                </td>
+                                <td><?= htmlspecialchars($project['client_name'] ?? 'N/A') ?></td>
+                                <td><?= htmlspecialchars($project['city']) ?></td>
+                                <td><?= $project['type'] === 'in-house' ? 'In-House' : ($project['type'] === '3rd-party' ? 'Capital' : htmlspecialchars($project['type'])) ?></td>
+                                <td>
+                                    <div class="action-buttons-wrapper">
+                                        <?php if (hasPermission('edit_services') || $isAdmin): ?>
+                                            <a href="engineering.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #14b8a6; color: white; border: none;">Engineering</a>
+                                        <?php endif; ?>
+                                        <?php if (hasPermission('view_mobilisation') || $isAdmin): ?>
+                                            <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary" style="cursor: pointer;">View Hub</button>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </details>
             <?php endif; ?>
         </div>
     <?php endif; ?>
