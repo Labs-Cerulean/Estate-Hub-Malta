@@ -5,7 +5,7 @@
 # Known limitations (see also docs/DEFINITION_OF_DONE.md §3):
 #   - SQL interpolation: line-oriented; misses multi-line strings, concat ("..." . $var),
 #     and queries built in $sql then passed to exec/query.
-#   - DDL in PHP: may false-positive on keywords in // comments or string literals.
+#   - DDL in PHP: scans added diff lines only (legacy runtime DDL in untouched hunks is ignored).
 #   - Nested forms: tag-count heuristic; may false-positive on <form in comments/strings.
 #
 # Local runs: set QUALITY_BASE_REF=staging (default) to diff all commits on your branch
@@ -23,6 +23,27 @@ NC='\033[0m'
 fail() { echo -e "${RED}FAIL:${NC} $1" >&2; exit 1; }
 pass() { echo -e "${GREEN}OK:${NC} $1"; }
 warn() { echo -e "${YELLOW}NOTE:${NC} $1"; }
+
+# Merge-base for diff hunks (added lines only)
+resolve_diff_base() {
+    local base="${GITHUB_BASE_REF:-${QUALITY_BASE_REF:-staging}}"
+    if git rev-parse "origin/${base}" >/dev/null 2>&1; then
+        git merge-base HEAD "origin/${base}" 2>/dev/null || echo "origin/${base}"
+    elif git rev-parse HEAD~1 >/dev/null 2>&1; then
+        echo "HEAD~1"
+    else
+        echo ""
+    fi
+}
+
+DIFF_BASE="$(resolve_diff_base)"
+
+# Lines added in this branch/PR (not deletions or context)
+diff_added_lines() {
+    local file="$1"
+    [[ -n "$DIFF_BASE" ]] || return 1
+    git diff "${DIFF_BASE}...HEAD" -- "$file" | grep -E '^\+' | grep -v '^\+\+\+' | sed 's/^+//'
+}
 
 # ---------------------------------------------------------------------------
 # Determine which files changed (PR diff vs branch merge-base vs last commit)
@@ -77,14 +98,17 @@ if [[ -n "$CHANGED_PHP" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. No new schema DDL in PHP (manual sql/ only)
-# Heuristic: ignores whole lines that are // comments; may still match keywords in strings.
+# 2. No new schema DDL in PHP diff (manual sql/ only)
+# Only flags DDL introduced in added lines — legacy auto-deploy blocks in touched files are OK.
 # ---------------------------------------------------------------------------
 DDL_PATTERN='(ALTER[[:space:]]+TABLE|CREATE[[:space:]]+TABLE|MODIFY[[:space:]]+COLUMN|DROP[[:space:]]+TABLE|TRUNCATE[[:space:]]+TABLE)'
 
-file_has_ddl() {
+file_has_new_ddl() {
     local file="$1"
-    grep -viE '^\s*//' "$file" | grep -qiE "$DDL_PATTERN"
+    local added
+    added="$(diff_added_lines "$file")"
+    [[ -n "$added" ]] || return 1
+    echo "$added" | grep -viE '^\s*//' | grep -qiE "$DDL_PATTERN"
 }
 
 if [[ -n "$CHANGED_PHP" ]]; then
@@ -92,17 +116,21 @@ if [[ -n "$CHANGED_PHP" ]]; then
     while IFS= read -r file; do
         [[ -f "$file" ]] || continue
         [[ "$file" == sql/* ]] && continue
-        if file_has_ddl "$file"; then
+        if file_has_new_ddl "$file"; then
             DDL_HITS+="${file}"$'\n'
         fi
     done <<< "$CHANGED_PHP"
 
     if [[ -n "$DDL_HITS" ]]; then
-        echo -e "${RED}Schema DDL detected in PHP (use sql/ + phpMyAdmin instead):${NC}"
-        echo "$DDL_HITS" | sed 's/^/  /'
-        fail "Move schema changes to sql/ — do not add runtime DDL in PHP"
+        echo -e "${RED}New schema DDL detected in PHP diff (use sql/ + phpMyAdmin instead):${NC}"
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            echo "  ${f}:"
+            diff_added_lines "$f" | grep -iE "$DDL_PATTERN" | sed 's/^/    /' || true
+        done <<< "$DDL_HITS"
+        fail "Move new schema changes to sql/ — do not add runtime DDL in PHP"
     fi
-    pass "No new schema DDL in changed PHP files (heuristic)"
+    pass "No new schema DDL in changed PHP diffs"
 fi
 
 # ---------------------------------------------------------------------------
@@ -149,9 +177,12 @@ SQL_INTERP_PATTERNS=(
 
 file_has_sql_risk() {
     local file="$1"
+    local added
     local pat
+    added="$(diff_added_lines "$file")"
+    [[ -n "$added" ]] || return 1
     for pat in "${SQL_INTERP_PATTERNS[@]}"; do
-        if grep -nE "$pat" "$file" >/dev/null 2>&1; then
+        if echo "$added" | grep -qE "$pat"; then
             return 0
         fi
     done
@@ -172,12 +203,12 @@ if [[ -n "$CHANGED_PHP" ]]; then
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             for pat in "${SQL_INTERP_PATTERNS[@]}"; do
-                grep -nE "$pat" "$f" 2>/dev/null | sed "s/^/  ${f}:/" || true
+                diff_added_lines "$f" | grep -nE "$pat" 2>/dev/null | sed "s/^/  ${f}:/" || true
             done
         done <<< "$SQL_RISK"
         fail "Use PDO prepared statements — do not interpolate variables into SQL strings"
     fi
-    pass "No obvious SQL interpolation in changed files (heuristic)"
+    pass "No obvious SQL interpolation in changed diffs (heuristic)"
 fi
 
 # ---------------------------------------------------------------------------
