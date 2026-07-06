@@ -1,0 +1,26 @@
+name: Quality
+
+on:
+  pull_request:
+    branches: [staging, main]
+  push:
+    branches: [staging, main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Run quality checks
+        env:
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+        run: bash scripts/ci/quality_checks.sh
