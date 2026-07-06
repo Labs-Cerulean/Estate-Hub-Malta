@@ -744,7 +744,10 @@ require_once 'header.php';
 .timeline-legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
 .timeline-legend-swatch.planned { background: #6366f1; width: 2px; height: 14px; border-radius: 0; }
 .timeline-legend-swatch.forecast { background: #f59e0b; border-radius: 50%; }
-.timeline-legend-swatch.actual { background: #22c55e; border-radius: 50%; border: 2px solid #fff; box-sizing: border-box; }
+.timeline-legend-swatch.actual { background: #14b8a6; width: 9px; height: 9px; border-radius: 2px; transform: rotate(45deg); border: none; }
+.timeline-legend-swatch.slip-ok { background: #22c55e; border-radius: 2px; }
+.timeline-legend-swatch.slip-warn { background: #f59e0b; border-radius: 2px; }
+.timeline-legend-swatch.slip-late { background: #ef4444; border-radius: 2px; }
 
 .timeline-scroll { overflow-x: auto; }
 .timeline-grid { min-width: 720px; }
@@ -765,8 +768,8 @@ require_once 'header.php';
 .timeline-marker { position: absolute; top: 50%; transform: translate(-50%, -50%); z-index: 3; }
 .timeline-marker-planned { width: 2px; height: 22px; background: #6366f1; border-radius: 1px; }
 .timeline-marker-compare { width: 11px; height: 11px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.9); box-sizing: border-box; }
-.timeline-marker-compare.forecast { background: #f59e0b; }
-.timeline-marker-compare.actual { background: #22c55e; }
+.timeline-marker-compare.forecast { background: #f59e0b; border-radius: 50%; }
+.timeline-marker-compare.actual { background: #14b8a6; border-radius: 2px; width: 9px; height: 9px; transform: translate(-50%, -50%) rotate(45deg); border: 1px solid rgba(255,255,255,0.85); }
 .timeline-variance { font-size: 0.75rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .timeline-variance.rag-green { color: #22c55e; }
 .timeline-variance.rag-amber { color: #f59e0b; }
@@ -782,15 +785,16 @@ require_once 'header.php';
 .timeline-project-sub { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
 .timeline-project-worst { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; font-size: 0.68rem; color: var(--text-muted); }
 .timeline-milestone-block { border-top: 1px solid rgba(255,255,255,0.04); }
-.timeline-milestone-title { padding: 0.35rem 0.75rem 0.15rem; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #a5b4fc; }
-.timeline-milestone-title.shell { color: #818cf8; }
-.timeline-milestone-title.finishes { color: #4ade80; }
+.timeline-milestone-title { padding: 0.35rem 0.75rem 0.15rem; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.timeline-milestone-title.shell { color: #a5b4fc; border-left: 3px solid #6366f1; margin-left: 0.5rem; padding-left: 0.5rem; }
+.timeline-milestone-title.finishes { color: #a5b4fc; border-left: 3px solid #06b6d4; margin-left: 0.5rem; padding-left: 0.5rem; }
+.timeline-subrow-label.planned strong { color: #818cf8; }
+.timeline-subrow-label.compare.forecast strong { color: #f59e0b; }
+.timeline-subrow-label.compare.actual strong { color: #2dd4bf; }
 .timeline-subrow { display: grid; grid-template-columns: 220px 1fr 88px; min-height: 34px; align-items: center; }
 .timeline-subrow-label { padding: 0.2rem 0.75rem 0.2rem 1.25rem; font-size: 0.68rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 1px; }
 .timeline-subrow-label strong { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; }
-.timeline-subrow-label.planned strong { color: #818cf8; }
-.timeline-subrow-label.compare strong { color: #f59e0b; }
-.timeline-subrow-label.compare.actual strong { color: #22c55e; }
+#timelineSortWrap { display: none; }
 .timeline-subrow-chart { position: relative; height: 28px; margin: 2px 12px 2px 0; }
 .timeline-subrow-chart .timeline-track { height: 4px; }
 .timeline-subrow-chart .timeline-marker-planned { height: 16px; }
@@ -875,7 +879,7 @@ require_once 'header.php';
         </div>
         <?php if (!$isLegalRep): ?>
         <div class="matrix-view-controls">
-            <div>
+            <div id="timelineSortWrap">
                 <label for="timelineSortMode">Timeline sort</label>
                 <select id="timelineSortMode" aria-label="Timeline sort order">
                     <option value="variance">Variance (worst first)</option>
@@ -918,9 +922,12 @@ require_once 'header.php';
     <div id="timelineView" style="display:none;">
         <div class="timeline-panel">
             <div class="timeline-legend">
-                <span class="timeline-legend-item"><span class="timeline-legend-swatch planned"></span> Planned row (top)</span>
-                <span class="timeline-legend-item"><span class="timeline-legend-swatch forecast"></span> Forecast / Actual row (below)</span>
-                <span class="timeline-legend-item">Construction → Finishes per project · slip bar on forecast row</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch planned"></span> Planned (indigo)</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch forecast"></span> Forecast (amber)</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch actual"></span> Actual (teal diamond)</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch slip-ok"></span> On time / early</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch slip-warn"></span> Slipped vs plan</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch slip-late"></span> Late / overdue</span>
             </div>
             <div class="timeline-scroll">
                 <div class="timeline-grid" id="timelineGrid">
@@ -1075,13 +1082,19 @@ function isShellOnlyProject(finishlevel) {
     return fl === '' || fl === 'Shell' || fl === 'Shell (No Finishes)';
 }
 
-function getScheduleRag(planned, forecast, actual) {
-    if (actual) return 'rag-green';
-    const ref = forecast || planned;
-    if (!ref) return 'rag-neutral';
+function getVarianceRag(planned, forecast, actual) {
+    const compare = actual || forecast;
+    const isActual = !!actual;
+    if (!planned || !compare) return 'rag-neutral';
+    const varianceDays = Math.round((compare - planned) / 86400000);
+    if (isActual) {
+        if (varianceDays > 14) return 'rag-red';
+        if (varianceDays > 0) return 'rag-amber';
+        return 'rag-green';
+    }
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (ref < today) return 'rag-red';
+    if (compare < today) return 'rag-red';
     if (forecast && planned && forecast > planned) return 'rag-amber';
     return 'rag-green';
 }
@@ -1113,8 +1126,21 @@ function buildMilestoneBlock(s, def, shellOnly) {
         compare,
         compareType,
         varianceDays,
-        rag: getScheduleRag(planned, forecast, actual),
+        rag: getVarianceRag(planned, forecast, actual),
     };
+}
+
+function pickWorstVariance(milestones) {
+    let maxVariance = null;
+    let maxVarianceRag = 'rag-neutral';
+    milestones.forEach(m => {
+        if (m.varianceDays === null) return;
+        if (maxVariance === null || m.varianceDays > maxVariance) {
+            maxVariance = m.varianceDays;
+            maxVarianceRag = m.rag;
+        }
+    });
+    return { maxVariance, maxVarianceRag };
 }
 
 function buildProjectTimelineGroup(project) {
@@ -1128,8 +1154,7 @@ function buildProjectTimelineGroup(project) {
     if (shell) milestones.push(shell);
     if (fin) milestones.push(fin);
     if (milestones.length === 0) return null;
-    const variances = milestones.map(m => m.varianceDays).filter(v => v !== null);
-    const maxVariance = variances.length ? Math.max(...variances) : null;
+    const { maxVariance, maxVarianceRag } = pickWorstVariance(milestones);
     const shellPlanned = shell?.planned?.getTime() ?? Infinity;
     return {
         projectId: project.id,
@@ -1140,6 +1165,7 @@ function buildProjectTimelineGroup(project) {
         schedule: s,
         milestones,
         maxVariance,
+        maxVarianceRag,
         shellPlanned,
     };
 }
@@ -1284,7 +1310,7 @@ function renderTimeline() {
         const worstEl = pHeader.querySelector('.timeline-project-worst');
         if (group.maxVariance !== null) {
             const sign = group.maxVariance > 0 ? '+' : '';
-            worstEl.innerHTML = '<span style="font-size:0.58rem;text-transform:uppercase;">Worst slip</span><span class="timeline-variance ' + (group.maxVariance > 0 ? 'rag-amber' : 'rag-green') + '">' + sign + group.maxVariance + 'd</span>';
+            worstEl.innerHTML = '<span style="font-size:0.58rem;text-transform:uppercase;">Worst slip</span><span class="timeline-variance ' + (group.maxVarianceRag || 'rag-neutral') + '">' + sign + group.maxVariance + 'd</span>';
         }
         pHeader.addEventListener('click', () => openTimelineProject(group));
         block.appendChild(pHeader);
@@ -1315,7 +1341,7 @@ function renderTimeline() {
             const cmpRow = document.createElement('div');
             cmpRow.className = 'timeline-subrow';
             const cmpLabel = document.createElement('div');
-            const cmpLabelClass = 'timeline-subrow-label compare' + (milestone.compareType === 'actual' ? ' actual' : '');
+            const cmpLabelClass = 'timeline-subrow-label compare ' + (milestone.compareType === 'actual' ? 'actual' : 'forecast');
             cmpLabel.className = cmpLabelClass;
             const cmpLabelText = milestone.compareType === 'actual' ? 'Actual' : 'Forecast';
             cmpLabel.innerHTML = '<strong>' + cmpLabelText + '</strong><span>' + (milestone.compare ? formatShortDate(milestone.compare) : '—') + '</span>';
@@ -1379,11 +1405,13 @@ function switchMatrixView(view) {
     const timelineView = document.getElementById('timelineView');
     const btnCards = document.getElementById('viewBtnCards');
     const btnTimeline = document.getElementById('viewBtnTimeline');
+    const sortWrap = document.getElementById('timelineSortWrap');
     if (!cardsView || !timelineView) return;
 
     if (view === 'timeline') {
         cardsView.style.display = 'none';
         timelineView.style.display = 'block';
+        if (sortWrap) sortWrap.style.display = '';
         btnCards?.classList.remove('active');
         btnTimeline?.classList.add('active');
         renderTimeline();
@@ -1391,6 +1419,7 @@ function switchMatrixView(view) {
     } else {
         cardsView.style.display = 'block';
         timelineView.style.display = 'none';
+        if (sortWrap) sortWrap.style.display = 'none';
         btnCards?.classList.add('active');
         btnTimeline?.classList.remove('active');
         sessionStorage.setItem('projects_matrix_view', 'cards');
