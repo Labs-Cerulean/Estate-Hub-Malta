@@ -117,6 +117,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'update_user') {
         $userId = $_POST['user_id'];
         $role = $_POST['role'] ?? 'viewer';
+        $username = trim($_POST['username'] ?? '');
+        if ($username === '') {
+            $error = 'Username is required.';
+        } else {
         $architectFirmId = !empty($_POST['architect_firm_id']) ? $_POST['architect_firm_id'] : null;
         $structuralFirmId = !empty($_POST['structural_firm_id']) ? $_POST['structural_firm_id'] : null;
 
@@ -134,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
             $stmt1 = $pdo->prepare("UPDATE users SET username=?, email=?, first_name=?, last_name=?, phone=?, role=?, is_active=?, assigned_architect_firm_id=?, assigned_structural_firm_id=?, doc_bca=?, doc_ohsa=?, doc_drawings=?, doc_engineering=?, doc_commercial=?, doc_sales=?, doc_training=? WHERE id=?");
-            $stmt1->execute([$_POST['username'], $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_engineering, $doc_commercial, $doc_sales, $doc_training, $userId]);
+            $stmt1->execute([$username, $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_engineering, $doc_commercial, $doc_sales, $doc_training, $userId]);
             
             if (!empty($_POST['new_password'])) {
                 $pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
@@ -148,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) { 
             $pdo->rollBack(); 
             $error = 'Update Error: ' . $e->getMessage(); 
+        }
         }
     }
 
@@ -699,7 +704,23 @@ function toggleAccessSections(type) {
 }
 
 function umPrepareSubmit(form) {
-    form.querySelectorAll('.um-panel:not(.active) [required]').forEach(el => el.removeAttribute('required'));
+    if (!form.checkValidity()) {
+        const firstInvalid = form.querySelector(':invalid');
+        if (firstInvalid) {
+            const panel = firstInvalid.closest('.um-panel');
+            if (panel) {
+                const tabName = panel.id.replace('um-panel-', '');
+                const tabButton = document.querySelector('.um-tab[data-tab="' + tabName + '"]');
+                if (tabButton) {
+                    tabButton.click();
+                    setTimeout(() => form.reportValidity(), 50);
+                    return false;
+                }
+            }
+        }
+        form.reportValidity();
+        return false;
+    }
     return true;
 }
 

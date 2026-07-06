@@ -125,7 +125,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                                 <?php foreach ($userHubs as $hubKey): ?>
                                     <?php $meta = $hubMeta[$hubKey]; ?>
                                     <a href="<?= htmlspecialchars($meta['home']) ?>"
-                                       class="hub-tab <?= $meta['class'] ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
+                                       class="hub-tab <?= htmlspecialchars($meta['class'] ?? '') ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
                                         <?= htmlspecialchars($meta['label']) ?>
                                     </a>
                                 <?php endforeach; ?>
@@ -204,7 +204,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                             <?php foreach ($userHubs as $hubKey): ?>
                                 <?php $meta = $hubMeta[$hubKey]; ?>
                                 <a href="<?= htmlspecialchars($meta['home']) ?>"
-                                   class="hub-tab <?= $meta['class'] ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
+                                   class="hub-tab <?= htmlspecialchars($meta['class'] ?? '') ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
                                     <?= htmlspecialchars($meta['label']) ?>
                                 </a>
                             <?php endforeach; ?>
