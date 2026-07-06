@@ -177,7 +177,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $newQuoteId = $pdo->lastInsertId();
             
-            if ($type !== 'Finishes') { 
+            // Finishes and OHSA start empty — Finishes uses calculators; OHSA uses pick-from-catalogue
+            if (!in_array($type, ['Finishes', 'OHSA'], true)) { 
                 $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC");
                 $stmtStd->execute([$type]);
                 $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
@@ -747,36 +748,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Claim deleted securely.";
         }
 
-        // 10. OHSA — reload full service catalogue onto quote
-        elseif ($action === 'reload_ohsa_catalogue') {
-            $qId = (int)$_POST['quote_id'];
-            if (!$access['OHSA']['manage']) throw new Exception("Unauthorized.");
-
-            $qCheck = $pdo->prepare("SELECT quote_type, status FROM sales_quotes WHERE id = ?");
-            $qCheck->execute([$qId]);
-            $qRow = $qCheck->fetch(PDO::FETCH_ASSOC);
-            if (!$qRow) throw new Exception("Quote not found.");
-            if ($qRow['quote_type'] !== 'OHSA') throw new Exception("Not an OHSA quote.");
-            if (!in_array($qRow['status'], ['Draft', 'Rejected'])) throw new Exception("Quote is locked.");
-
-            $pdo->beginTransaction();
-            $pdo->prepare("DELETE FROM sales_quote_items WHERE quote_id = ?")->execute([$qId]);
-            $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = 'OHSA' AND is_active = 1 ORDER BY sort_order ASC, id ASC");
-            $stmtStd->execute();
-            $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
-            if (!empty($stdItems)) {
-                $stmtItem = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
-                foreach ($stdItems as $item) {
-                    $stmtItem->execute([$qId, $item['category'], $item['description'], $item['unit'], $item['default_rate'], $item['sort_order']]);
-                }
-            }
-            $pdo->prepare("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = ?) WHERE id = ?")->execute([$qId, $qId]);
-            $pdo->prepare("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = ?")->execute([$qId]);
-            $pdo->commit();
-            $message = empty($stdItems) ? "No OHSA services found in catalogue — ask admin to seed rates." : "OHSA service catalogue reloaded.";
-        }
-
-        // 11. OHSA — add single service from catalogue
+        // 10. OHSA — add single service from catalogue (with quantity)
         elseif ($action === 'add_catalogue_item') {
             $qId = (int)$_POST['quote_id'];
             if (!$access['OHSA']['manage']) throw new Exception("Unauthorized.");
@@ -794,9 +766,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $std = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$std) throw new Exception("Service not found in catalogue.");
 
+            $qty = (float)($_POST['estimated_qty'] ?? 0);
+            if ($qty <= 0) throw new Exception("Quantity must be greater than zero.");
+
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
-            $stmt->execute([$qId, $std['category'], $std['description'], $std['unit'], $std['default_rate'], $std['sort_order']]);
+            $stmt = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$qId, $std['category'], $std['description'], $std['unit'], $qty, $std['default_rate'], $std['sort_order']]);
             $pdo->prepare("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = ?) WHERE id = ?")->execute([$qId, $qId]);
             $pdo->prepare("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = ?")->execute([$qId]);
             $pdo->commit();
@@ -1362,11 +1337,6 @@ require_once 'header.php';
                                     <button class="btn btn-sm" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid #f59e0b;" onclick="document.getElementById('sfModal').style.display='block'">🔨 Semi-Finishes Quote Only</button>
                                 <?php elseif ($isOhsaQuote): ?>
                                     <button class="btn btn-sm" style="background: rgba(20, 184, 166, 0.1); color: #14b8a6; border: 1px solid #14b8a6;" onclick="document.getElementById('ohsaCatalogueModal').style.display='block'">📋 Add from Rate Catalogue</button>
-                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Replace all line items with the current OHSA rate catalogue?');">
-                                        <input type="hidden" name="action" value="reload_ohsa_catalogue">
-                                        <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
-                                        <button type="submit" class="btn btn-sm btn-secondary">↻ Reload Catalogue</button>
-                                    </form>
                                 <?php endif; ?>
                                 <button class="btn btn-sm btn-primary" onclick="openItemModal()"><?= $isOhsaQuote ? '+ Custom Service' : '+ Add Line Item' ?></button>
                             </div>
@@ -1806,7 +1776,7 @@ require_once 'header.php';
                         <h2 style="margin: 0; color: #14b8a6;">OHSA Rate Catalogue</h2>
                         <span class="close-modal" onclick="document.getElementById('ohsaCatalogueModal').style.display='none'" style="float:none;">&times;</span>
                     </div>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0;">Select a standard service to add to this quote. Quantities start at zero — enter qty on the line item after adding.</p>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0;">Pick services from the rate catalogue and set the quantity before adding. Only selected items appear on the quote and printout.</p>
                     <?php if (empty($ohsaCatalogue)): ?>
                         <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Catalogue empty — seed rates via admin or sql/ohsa_standard_rates.sql</div>
                     <?php else: ?>
@@ -1818,6 +1788,7 @@ require_once 'header.php';
                                     <th>Service</th>
                                     <th>Unit</th>
                                     <th style="text-align: right;">Rate</th>
+                                    <th style="text-align: right; width: 90px;">Qty</th>
                                     <th></th>
                                 </tr>
                             </thead>
@@ -1829,10 +1800,11 @@ require_once 'header.php';
                                     <td><?= displayUnit($catItem['unit']) ?></td>
                                     <td style="text-align: right; font-weight: bold;">€<?= number_format($catItem['default_rate'], 2) ?></td>
                                     <td style="text-align: right;">
-                                        <form method="POST" style="display:inline;">
+                                        <form method="POST" style="display:inline-flex; align-items: center; gap: 6px; justify-content: flex-end;">
                                             <input type="hidden" name="action" value="add_catalogue_item">
                                             <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
                                             <input type="hidden" name="standard_item_id" value="<?= (int)$catItem['id'] ?>">
+                                            <input type="number" name="estimated_qty" min="0.01" step="0.01" value="1" required style="width: 70px; padding: 4px 6px; text-align: right;">
                                             <button type="submit" class="btn btn-sm btn-primary" style="padding: 4px 10px;">Add</button>
                                         </form>
                                     </td>

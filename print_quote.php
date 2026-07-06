@@ -43,6 +43,11 @@ $itemsStmt = $pdo->prepare("SELECT * FROM sales_quote_items WHERE quote_id = ? O
 $itemsStmt->execute([$quoteId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// OHSA quotes only print services with a quantity (avoids legacy full-catalogue dumps at qty 0)
+if ($quote['quote_type'] === 'OHSA') {
+    $items = array_values(array_filter($items, fn($i) => (float)$i['estimated_qty'] > 0));
+}
+
 // Secure Cloudflare R2 Logo retrieval for the CONTRACTOR
 $logoSrc = '';
 if (!empty($quote['contractor_logo'])) {
