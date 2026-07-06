@@ -38,7 +38,7 @@ try {
                drv.first_name, drv.last_name
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id
-        JOIN clients bc ON p.billing_company_id = bc.id
+        LEFT JOIN clients bc ON p.billing_company_id = bc.id
         LEFT JOIN projects prj ON pb.project_id = prj.id
         LEFT JOIN users drv ON pb.driver_id = drv.id
         WHERE pb.id = ?
@@ -56,7 +56,7 @@ try {
                drv.first_name, drv.last_name
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id
-        JOIN clients bc ON p.billing_company_id = bc.id
+        LEFT JOIN clients bc ON p.billing_company_id = bc.id
         LEFT JOIN projects prj ON pb.project_id = prj.id
         LEFT JOIN users drv ON pb.driver_id = drv.id
         WHERE pb.id = ?
@@ -72,6 +72,9 @@ try {
 }
 
 if (!$job) die("Job not found.");
+
+$billingCompanyMissing = empty($job['billing_company_id']) || empty($job['developer_name']);
+$billingCompanyLabel = $job['developer_name'] ?? 'Billing company not assigned';
 
 if (!headers_sent()) {
     header('Content-Type: text/html; charset=UTF-8');
@@ -330,6 +333,13 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
 </head>
 <body>
     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; margin-bottom: 30px; color: #475569;">
+        <?php if ($billingCompanyMissing): ?>
+            <div style="background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:12px 15px; border-radius:8px; margin-bottom:15px;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <b>Billing company not configured</b> on this plant asset.
+                Assign a billing company in Fleet setup before pushing to ERP. You can still view or print this delivery note locally.
+            </div>
+        <?php endif; ?>
         <?php if ($canEdit): ?>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
                 <div><i class="fas fa-edit text-blue-500"></i> <b>Edit Mode:</b> You can adjust the times, quantities, and rates below before pushing the final RFP to the ERP.</div>
@@ -356,7 +366,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                     <input type="hidden" id="edit_discount_pct" value="<?= $savedDiscountPct ?>">
                 <?php endif; ?>
 
-                <button id="printBtn" onclick="saveAndPrint()" style="padding:10px 20px; background:#10b981; color:#fff; border:none; font-weight:bold; cursor:pointer; border-radius: 8px; margin-left: auto;"><i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP</button>
+                <button id="printBtn" onclick="saveAndPrint()" <?= $billingCompanyMissing ? 'disabled title="Assign a billing company on the plant asset first"' : '' ?> style="padding:10px 20px; background:<?= $billingCompanyMissing ? '#94a3b8' : '#10b981' ?>; color:#fff; border:none; font-weight:bold; cursor:<?= $billingCompanyMissing ? 'not-allowed' : 'pointer' ?>; border-radius: 8px; margin-left: auto;"><i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP</button>
             </div>
         <?php else: ?>
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -381,7 +391,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <?php if (!empty($logoPath)): ?>
                 <img src="<?= htmlspecialchars($logoPath) ?>" class="logo">
             <?php else: ?>
-                <h2 style="margin:0;"><?= htmlspecialchars($job['developer_name']) ?></h2>
+                <h2 style="margin:0;"><?= htmlspecialchars($billingCompanyLabel) ?></h2>
             <?php endif; ?>
         </div>
         <div class="text-right">
@@ -507,7 +517,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <?php endif; ?>
             
             <div style="margin-top: 20px; font-size: 0.85rem; color: #475569;">
-                <b>Payment Instructions:</b> Payable to <?= htmlspecialchars($job['developer_name']) ?>.<br>
+                <b>Payment Instructions:</b> Payable to <?= htmlspecialchars($billingCompanyLabel) ?>.<br>
                 Bank: <?= htmlspecialchars($job['bank_name'] ?? 'N/A') ?> | IBAN: <?= htmlspecialchars($job['iban'] ?? 'N/A') ?>
             </div>
         </div>
@@ -751,6 +761,10 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         renderTable();
 
         function saveAndPrint() {
+            <?php if ($billingCompanyMissing): ?>
+            alert('Assign a billing company on this plant asset in Fleet setup before pushing to ERP.');
+            return;
+            <?php endif; ?>
             const btn = document.getElementById('printBtn');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
             btn.disabled = true;
