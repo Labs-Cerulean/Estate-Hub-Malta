@@ -1788,8 +1788,7 @@ require_once 'header.php';
                                     <th>Service</th>
                                     <th>Unit</th>
                                     <th style="text-align: right;">Rate</th>
-                                    <th style="text-align: right; width: 90px;">Qty</th>
-                                    <th></th>
+                                    <th style="text-align: right; width: 160px;">Qty / Add</th>
                                 </tr>
                             </thead>
                             <tbody>
