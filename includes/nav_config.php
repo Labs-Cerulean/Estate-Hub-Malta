@@ -130,7 +130,6 @@ function navPageHubMap(): array {
         'engineering' => 'estate',
         'ohsa' => 'estate',
         'documentation' => 'estate',
-        'drawings' => 'estate',
         'work_sales' => 'estate',
         'works_sales' => 'estate',
         'capital_projects' => 'estate',
@@ -243,11 +242,8 @@ function navEstateItems(): array {
     if (hasPermission('view_documentation') || isAdmin()) {
         $siteChildren[] = ['label' => 'Documentation', 'href' => 'documentation.php', 'pages' => ['documentation']];
     }
-    if (hasPermission('view_drawings') || isAdmin()) {
-        $siteChildren[] = ['label' => 'Drawings', 'href' => 'drawings.php', 'pages' => ['drawings']];
-    }
     if (!empty($siteChildren) && !navIsSalesManagerRole()) {
-        $items[] = ['type' => 'dropdown', 'label' => 'Site & Docs', 'pages' => ['ohsa', 'documentation', 'drawings'], 'children' => $siteChildren];
+        $items[] = ['type' => 'dropdown', 'label' => 'Site & Docs', 'pages' => ['ohsa', 'documentation'], 'children' => $siteChildren];
     }
 
     $commercialChildren = [];
