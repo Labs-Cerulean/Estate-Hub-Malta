@@ -183,26 +183,32 @@ $projectIdsForStage = array_column($projectsRaw, 'id');
 $stagesBatch = getAccurateProjectStagesBatch($pdo, $projectIdsForStage);
 $schedulesBatch = getDeliverySchedulesBatch($pdo, $projectIdsForStage);
 
-$matrixProjects = [];
+$matrixProjectsActive = [];
+$matrixProjectsArchive = [];
 foreach ($projectsRaw as $p) {
-    if (($p['project_status'] ?? 'Active') !== 'Active') continue;
     if ($isLegalRep && ($p['type'] ?? '') !== 'in-house') continue;
     $stage = $stagesBatch[$p['id']] ?? getAccurateProjectStage($pdo, $p['id']);
 
     if (in_array($stage, $hiddenStages, true)) continue;
 
+    $isArchive = pmIsArchiveProject($p, $stage);
+    if (!$isArchive && ($p['project_status'] ?? 'Active') !== 'Active') continue;
+
     $paRecordsEarly = $paData[$p['id']] ?? [];
     $hasEndorsedPa = pmProjectHasEndorsedPa($paRecordsEarly);
     $isHandedOver = ($stage === 'Handed Over');
 
-    if (!$hasEndorsedPa && !$isHandedOver) continue;
-    if (!in_array($stage, $allowedStages, true) && !$isHandedOver) continue;
-
-    if (in_array($stage, $allowedStages, true) || $isHandedOver) {
+    if ($isArchive) {
         if ($filterStage !== 'all' && $stage !== $filterStage) continue;
+    } else {
+        if (!$hasEndorsedPa) continue;
+        if (!in_array($stage, $allowedStages, true)) continue;
+        if ($filterStage !== 'all' && $stage !== $filterStage) continue;
+    }
 
+    if ($isArchive || in_array($stage, $allowedStages, true)) {
         $p['stage'] = $stage;
-        $p['card_mode'] = $isHandedOver ? 'summary' : 'full';
+        $p['card_mode'] = $isArchive ? 'summary' : 'full';
         $p['demo_status'] = $mobData[$p['id']]['demo_status'] ?? 'Pending';
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         $p['safety_status'] = $ohsaData[$p['id']]['safety_status'] ?? 'N/A';
@@ -328,60 +334,73 @@ foreach ($projectsRaw as $p) {
             if ($sub['id'] == $p['sub_construction_id']) $p['sub_const_name'] = $sub['name'];
         }
         
-        $matrixProjects[] = $p;
+        if ($isArchive) {
+            $matrixProjectsArchive[] = $p;
+        } else {
+            $matrixProjectsActive[] = $p;
+        }
     }
 }
 
-foreach ($matrixProjects as &$mp) {
-    $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
-}
-unset($mp);
-
-if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
-if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
-if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['city'] === $filterCity);
-
-if ($filterClient !== 'all') {
-    if ($filterClient === 'group_excel') {
-        $matrixProjects = array_filter($matrixProjects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
-    } elseif ($filterClient === 'group_blue_clay') {
-        $matrixProjects = array_filter($matrixProjects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
-    } else {
-        $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
+$applyMatrixListFilters = function (array $list) use ($filterType, $filterFinish, $filterCity, $filterClient, $filterPm, $filterSub, $filterIsland) {
+    if ($filterType !== 'all') $list = array_filter($list, fn($p) => $p['type'] === $filterType);
+    if ($filterFinish !== 'all') $list = array_filter($list, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
+    if ($filterCity !== 'all') $list = array_filter($list, fn($p) => $p['city'] === $filterCity);
+    if ($filterClient !== 'all') {
+        if ($filterClient === 'group_excel') {
+            $list = array_filter($list, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
+        } elseif ($filterClient === 'group_blue_clay') {
+            $list = array_filter($list, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
+        } else {
+            $list = array_filter($list, fn($p) => $p['clientid'] == $filterClient);
+        }
     }
-}
+    if ($filterPm !== 'all') { $list = array_filter($list, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
+    if ($filterSub !== 'all') { $list = array_filter($list, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
+    if ($filterIsland !== 'all') $list = array_filter($list, fn($p) => $p['island'] === $filterIsland);
+    return array_values($list);
+};
 
-if ($filterPm !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
-if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
-if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
+$sortMatrixList = function (array $list) use ($sortBy, $sortOrder, $stageSortOrder) {
+    usort($list, function($a, $b) use ($sortBy, $sortOrder, $stageSortOrder) {
+        $valA = ''; $valB = '';
+        if ($sortBy === 'client') {
+            $valA = $a['client_name'] ?? '';
+            $valB = $b['client_name'] ?? '';
+        } elseif ($sortBy === 'city') {
+            $valA = $a['city'] ?? '';
+            $valB = $b['city'] ?? '';
+        } elseif ($sortBy === 'stage') {
+            $valA = $stageSortOrder[$a['stage'] ?? ''] ?? 99;
+            $valB = $stageSortOrder[$b['stage'] ?? ''] ?? 99;
+        } elseif ($sortBy === 'progress') {
+            $valA = (int)($a['sort_progress'] ?? 0);
+            $valB = (int)($b['sort_progress'] ?? 0);
+        } else {
+            $valA = $a[$sortBy] ?? '';
+            $valB = $b[$sortBy] ?? '';
+        }
 
-usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageSortOrder) {
-    $valA = ''; $valB = '';
-    if ($sortBy === 'client') {
-        $valA = $a['client_name'] ?? '';
-        $valB = $b['client_name'] ?? '';
-    } elseif ($sortBy === 'city') {
-        $valA = $a['city'] ?? '';
-        $valB = $b['city'] ?? '';
-    } elseif ($sortBy === 'stage') {
-        $valA = $stageSortOrder[$a['stage'] ?? ''] ?? 99;
-        $valB = $stageSortOrder[$b['stage'] ?? ''] ?? 99;
-    } elseif ($sortBy === 'progress') {
-        $valA = (int)($a['sort_progress'] ?? 0);
-        $valB = (int)($b['sort_progress'] ?? 0);
-    } else {
-        $valA = $a[$sortBy] ?? '';
-        $valB = $b[$sortBy] ?? '';
+        if ($valA == $valB) return 0;
+        if (is_numeric($valA) && is_numeric($valB)) { $comp = $valA <=> $valB; }
+        else { $comp = strcasecmp((string)$valA, (string)$valB); }
+
+        return $sortOrder === 'ASC' ? $comp : -$comp;
+    });
+    return array_values($list);
+};
+
+foreach ([&$matrixProjectsActive, &$matrixProjectsArchive] as &$matrixList) {
+    $matrixList = $applyMatrixListFilters($matrixList);
+    foreach ($matrixList as &$mp) {
+        $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
     }
+    unset($mp);
+    $matrixList = $sortMatrixList($matrixList);
+}
+unset($matrixList);
 
-    if ($valA == $valB) return 0;
-    if (is_numeric($valA) && is_numeric($valB)) { $comp = $valA <=> $valB; } 
-    else { $comp = strcasecmp((string)$valA, (string)$valB); }
-    
-    return $sortOrder === 'ASC' ? $comp : -$comp;
-});
-
-$matrixProjects = array_values($matrixProjects);
+$matrixProjects = $matrixProjectsActive;
 
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterStage, $filterType, $filterFinish, $filterCity, $filterClient, $filterIsland, $filterPm, $filterSub;
@@ -527,6 +546,12 @@ require_once 'header.php';
 .project-card.card-summary .card-header { cursor: pointer; }
 .card-summary-row { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem; }
 .card-summary-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 4px; background: rgba(34, 197, 94, 0.12); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.25); font-weight: 700; text-transform: uppercase; }
+.pm-archive-section { margin-top: 2rem; padding: 1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid rgba(107, 114, 128, 0.35); background: rgba(15, 23, 42, 0.35); }
+.pm-archive-section > summary { cursor: pointer; font-weight: 700; color: var(--text-secondary); font-size: 0.95rem; list-style: none; display: flex; align-items: center; gap: 0.5rem; }
+.pm-archive-section > summary::-webkit-details-marker { display: none; }
+.pm-archive-section > summary::before { content: '▸'; display: inline-block; transition: transform 0.2s; color: var(--text-muted); }
+.pm-archive-section[open] > summary::before { transform: rotate(90deg); }
+.pm-archive-section .archive-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0.75rem 0 1rem; }
 
 .info-tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); white-space: nowrap; }
 .info-tag.ohsa-green { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); cursor: pointer; }
@@ -644,11 +669,30 @@ require_once 'header.php';
         <?php endforeach; ?>
     </div>
 
-    <?php if (empty($matrixProjects)): ?>
-        <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
+    <?php if (empty($matrixProjectsActive) && empty($matrixProjectsArchive)): ?>
+        <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No projects found matching your filters.</div>
     <?php else: ?>
+    <?php
+    $matrixCardSections = [
+        ['key' => 'active', 'projects' => $matrixProjectsActive],
+    ];
+    if (!empty($matrixProjectsArchive)) {
+        $matrixCardSections[] = ['key' => 'archive', 'projects' => $matrixProjectsArchive];
+    }
+    foreach ($matrixCardSections as $cardSection):
+        if ($cardSection['key'] === 'archive'): ?>
+    <details class="pm-archive-section">
+        <summary>Handed Over Archive (<?= count($cardSection['projects']) ?>)</summary>
+        <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>.</p>
+        <div class="matrix-cards">
+        <?php else: ?>
+        <?php if (empty($cardSection['projects'])): ?>
+            <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
+        <?php else: ?>
     <div class="matrix-cards">
-        <?php foreach ($matrixProjects as $p):
+        <?php endif; ?>
+        <?php endif; ?>
+        <?php foreach ($cardSection['projects'] as $p):
             $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
             $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
             $ohsaClass = strtolower($p['safety_status'] ?? 'na');
@@ -750,7 +794,11 @@ require_once 'header.php';
             <?php endif; ?>
         </article>
         <?php endforeach; ?>
-    </div>
+    <?php if (!empty($cardSection['projects'])): ?></div><?php endif; ?>
+        <?php if ($cardSection['key'] === 'archive'): ?>
+    </details>
+        <?php endif; ?>
+    <?php endforeach; ?>
     <?php endif; ?>
 </div>
 
