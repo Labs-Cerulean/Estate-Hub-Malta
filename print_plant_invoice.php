@@ -75,6 +75,7 @@ if (!$job) die("Job not found.");
 
 $billingCompanyMissing = empty($job['billing_company_id']) || empty($job['developer_name']);
 $billingCompanyLabel = $job['developer_name'] ?? 'Billing company not assigned';
+$billingCompanyId = !empty($job['billing_company_id']) ? (string)$job['billing_company_id'] : 'default';
 
 if (!headers_sent()) {
     header('Content-Type: text/html; charset=UTF-8');
@@ -89,7 +90,7 @@ $apiKeys = [
     '26' => $praxApiKey ?: '',
     'default' => $praApiKey ?: ''
 ];
-$apiKey = $apiKeys[$job['billing_company_id']] ?? $apiKeys['default'];
+$apiKey = $apiKeys[$billingCompanyId] ?? $apiKeys['default'];
 
 if (!function_exists('getJ2ApiData')) {
     function getJ2ApiData($endpoint, $apiKey) {
@@ -140,7 +141,7 @@ if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
     }
 }
 
-$prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
+$prefix = ($billingCompanyId === '26') ? 'PRAX' : 'PRA';
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("%s-%s-%04d", $prefix, $jobYear, $bookingId);
 
@@ -803,7 +804,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         }
 
         let invoiceErpClients = [];
-        const invCompId = '<?= $job['billing_company_id'] ?>';
+        const invCompId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
         const invBookingId = <?= $bookingId ?>;
 
         function openClientEdit() {
