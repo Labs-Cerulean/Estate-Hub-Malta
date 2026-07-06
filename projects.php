@@ -183,26 +183,32 @@ $projectIdsForStage = array_column($projectsRaw, 'id');
 $stagesBatch = getAccurateProjectStagesBatch($pdo, $projectIdsForStage);
 $schedulesBatch = getDeliverySchedulesBatch($pdo, $projectIdsForStage);
 
-$matrixProjects = [];
+$matrixProjectsActive = [];
+$matrixProjectsArchive = [];
 foreach ($projectsRaw as $p) {
-    if (($p['project_status'] ?? 'Active') !== 'Active') continue;
     if ($isLegalRep && ($p['type'] ?? '') !== 'in-house') continue;
     $stage = $stagesBatch[$p['id']] ?? getAccurateProjectStage($pdo, $p['id']);
 
     if (in_array($stage, $hiddenStages, true)) continue;
 
+    $isArchive = pmIsArchiveProject($p, $stage);
+    if (!$isArchive && ($p['project_status'] ?? 'Active') !== 'Active') continue;
+
     $paRecordsEarly = $paData[$p['id']] ?? [];
     $hasEndorsedPa = pmProjectHasEndorsedPa($paRecordsEarly);
     $isHandedOver = ($stage === 'Handed Over');
 
-    if (!$hasEndorsedPa && !$isHandedOver) continue;
-    if (!in_array($stage, $allowedStages, true) && !$isHandedOver) continue;
-
-    if (in_array($stage, $allowedStages, true) || $isHandedOver) {
+    if ($isArchive) {
         if ($filterStage !== 'all' && $stage !== $filterStage) continue;
+    } else {
+        if (!$hasEndorsedPa) continue;
+        if (!in_array($stage, $allowedStages, true)) continue;
+        if ($filterStage !== 'all' && $stage !== $filterStage) continue;
+    }
 
+    if ($isArchive || in_array($stage, $allowedStages, true)) {
         $p['stage'] = $stage;
-        $p['card_mode'] = $isHandedOver ? 'summary' : 'full';
+        $p['card_mode'] = $isArchive ? 'summary' : 'full';
         $p['demo_status'] = $mobData[$p['id']]['demo_status'] ?? 'Pending';
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         $p['safety_status'] = $ohsaData[$p['id']]['safety_status'] ?? 'N/A';
@@ -328,60 +334,73 @@ foreach ($projectsRaw as $p) {
             if ($sub['id'] == $p['sub_construction_id']) $p['sub_const_name'] = $sub['name'];
         }
         
-        $matrixProjects[] = $p;
+        if ($isArchive) {
+            $matrixProjectsArchive[] = $p;
+        } else {
+            $matrixProjectsActive[] = $p;
+        }
     }
 }
 
-foreach ($matrixProjects as &$mp) {
+$applyMatrixListFilters = function (array $list) use ($filterType, $filterFinish, $filterCity, $filterClient, $filterPm, $filterSub, $filterIsland) {
+    if ($filterType !== 'all') $list = array_filter($list, fn($p) => $p['type'] === $filterType);
+    if ($filterFinish !== 'all') $list = array_filter($list, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
+    if ($filterCity !== 'all') $list = array_filter($list, fn($p) => $p['city'] === $filterCity);
+    if ($filterClient !== 'all') {
+        $list = array_filter($list, fn($p) => pmMatchesClientFilter($p, $filterClient));
+    }
+    if ($filterPm !== 'all') { $list = array_filter($list, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
+    if ($filterSub !== 'all') { $list = array_filter($list, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
+    if ($filterIsland !== 'all') $list = array_filter($list, fn($p) => $p['island'] === $filterIsland);
+    return array_values($list);
+};
+
+$sortMatrixList = function (array $list) use ($sortBy, $sortOrder, $stageSortOrder) {
+    usort($list, function($a, $b) use ($sortBy, $sortOrder, $stageSortOrder) {
+        $valA = ''; $valB = '';
+        if ($sortBy === 'client') {
+            $valA = $a['client_name'] ?? '';
+            $valB = $b['client_name'] ?? '';
+        } elseif ($sortBy === 'city') {
+            $valA = $a['city'] ?? '';
+            $valB = $b['city'] ?? '';
+        } elseif ($sortBy === 'stage') {
+            $valA = $stageSortOrder[$a['stage'] ?? ''] ?? 99;
+            $valB = $stageSortOrder[$b['stage'] ?? ''] ?? 99;
+        } elseif ($sortBy === 'progress') {
+            $valA = (int)($a['sort_progress'] ?? 0);
+            $valB = (int)($b['sort_progress'] ?? 0);
+        } else {
+            $valA = $a[$sortBy] ?? '';
+            $valB = $b[$sortBy] ?? '';
+        }
+
+        if ($valA == $valB) return 0;
+        if (is_numeric($valA) && is_numeric($valB)) { $comp = $valA <=> $valB; }
+        else { $comp = strcasecmp((string)$valA, (string)$valB); }
+
+        return $sortOrder === 'ASC' ? $comp : -$comp;
+    });
+    return array_values($list);
+};
+
+$matrixProjectsActive = $applyMatrixListFilters($matrixProjectsActive);
+$matrixProjectsArchive = $applyMatrixListFilters($matrixProjectsArchive);
+
+foreach ($matrixProjectsActive as &$mp) {
     $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
 }
 unset($mp);
 
-if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
-if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
-if ($filterCity !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['city'] === $filterCity);
-
-if ($filterClient !== 'all') {
-    if ($filterClient === 'group_excel') {
-        $matrixProjects = array_filter($matrixProjects, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
-    } elseif ($filterClient === 'group_blue_clay') {
-        $matrixProjects = array_filter($matrixProjects, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
-    } else {
-        $matrixProjects = array_filter($matrixProjects, fn($p) => $p['clientid'] == $filterClient);
-    }
+foreach ($matrixProjectsArchive as &$mp) {
+    $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
 }
+unset($mp);
 
-if ($filterPm !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
-if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
-if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
+$matrixProjectsActive = $sortMatrixList($matrixProjectsActive);
+$matrixProjectsArchive = $sortMatrixList($matrixProjectsArchive);
 
-usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageSortOrder) {
-    $valA = ''; $valB = '';
-    if ($sortBy === 'client') {
-        $valA = $a['client_name'] ?? '';
-        $valB = $b['client_name'] ?? '';
-    } elseif ($sortBy === 'city') {
-        $valA = $a['city'] ?? '';
-        $valB = $b['city'] ?? '';
-    } elseif ($sortBy === 'stage') {
-        $valA = $stageSortOrder[$a['stage'] ?? ''] ?? 99;
-        $valB = $stageSortOrder[$b['stage'] ?? ''] ?? 99;
-    } elseif ($sortBy === 'progress') {
-        $valA = (int)($a['sort_progress'] ?? 0);
-        $valB = (int)($b['sort_progress'] ?? 0);
-    } else {
-        $valA = $a[$sortBy] ?? '';
-        $valB = $b[$sortBy] ?? '';
-    }
-
-    if ($valA == $valB) return 0;
-    if (is_numeric($valA) && is_numeric($valB)) { $comp = $valA <=> $valB; } 
-    else { $comp = strcasecmp((string)$valA, (string)$valB); }
-    
-    return $sortOrder === 'ASC' ? $comp : -$comp;
-});
-
-$matrixProjects = array_values($matrixProjects);
+$matrixProjects = $matrixProjectsActive;
 
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterStage, $filterType, $filterFinish, $filterCity, $filterClient, $filterIsland, $filterPm, $filterSub;
@@ -435,7 +454,11 @@ function renderStatusBadge($status) {
 
 function renderDemoExcBadge($badgeHtml, $pId, $pName, $type, $status, $canUpdateStatus) {
     if ($canUpdateStatus) {
-        return "<div onclick='openMobModal($pId, \"$pName\", \"$type\", \"$status\")' class='clickable-cell' style='justify-content:center;' title='Click to Update Phase'>$badgeHtml<span class='edit-icon'>✎</span></div>";
+        $pId = (int)$pId;
+        $nameJs = json_encode((string)$pName, JSON_UNESCAPED_UNICODE);
+        $typeJs = json_encode((string)$type, JSON_UNESCAPED_UNICODE);
+        $statusJs = json_encode((string)$status, JSON_UNESCAPED_UNICODE);
+        return "<div onclick='openMobModal($pId, $nameJs, $typeJs, $statusJs)' class='clickable-cell' style='justify-content:center;' title='Click to Update Phase'>$badgeHtml<span class='edit-icon'>✎</span></div>";
     }
     return "<div class='normal-cell' style='justify-content:center;'>$badgeHtml</div>";
 }
@@ -486,6 +509,122 @@ function renderAllSubsCell($demo, $exc, $const, $finIds, $subsArray, $pJson, $ca
     return "<div class='normal-cell' style='align-items:flex-start;'>$content</div>";
 }
 
+function renderMatrixProjectCard(array $p, $pdo, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, array $subs) {
+    $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
+    $ohsaJson = htmlspecialchars(json_encode(['name' => $p['name'], 'status' => $p['safety_status'], 'comments' => $p['safety_comments']]), ENT_QUOTES, 'UTF-8');
+    $ohsaClass = strtolower($p['safety_status'] ?? 'na');
+    $ohsaIcon = match ($p['safety_status'] ?? '') {
+        'Green' => '🟢',
+        'Yellow' => '🟡',
+        'Red' => '🔴',
+        default => '⚪',
+    };
+    $isSummary = ($p['card_mode'] ?? 'full') === 'summary';
+    $sched = $p['schedule'] ?? null;
+    $pNameJs = htmlspecialchars(json_encode($p['name']), ENT_QUOTES, 'UTF-8');
+    ?>
+    <article class="project-card<?= $isSummary ? ' card-summary' : '' ?>">
+        <div class="card-header" onclick="openIframeModal(<?= $p['id'] ?>, <?= $pNameJs ?>, 'mobilisation_detail.php')" title="Open Execution Workspace">
+            <div class="card-title"><?= htmlspecialchars($p['name']) ?></div>
+            <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?><?= !empty($p['city']) ? ' · ' . htmlspecialchars($p['city']) : '' ?></div>
+            <div class="card-meta">
+                <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
+                <?php if (!$isSummary): ?>
+                <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
+                <span class="info-tag"><?= (int)($p['progress_pct'] ?? 0) ?>% built</span>
+                <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments"><?= $ohsaIcon ?> OHSA</span>
+                <?php else: ?>
+                <span class="card-summary-badge">Handed Over</span>
+                <?php endif; ?>
+            </div>
+            <?php if ($isSummary): ?>
+            <div class="card-summary-row">
+                <?php if (!empty($sched['actual_finishes_date'])): ?>
+                    <span>Finishes: <?= formatScheduleDate($sched['actual_finishes_date']) ?></span>
+                <?php elseif (!empty($sched['actual_shell_date'])): ?>
+                    <span>Shell: <?= formatScheduleDate($sched['actual_shell_date']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($p['pa_numbers'])): ?>
+                    <span>PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($isSummary && canEditProjectDetails($pdo, $p['id'])): ?>
+        <div class="card-section card-summary-actions">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openEditProjectModal(<?= (int)$p['id'] ?>, <?= $pNameJs ?>);">Edit Project</button>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!$isSummary): ?>
+        <div class="card-section">
+            <div class="card-section-title">Permit Application</div>
+            <?php if (!empty($p['pa_records'])): ?>
+                <div class="card-pa-list">
+                    <?php foreach ($p['pa_records'] as $pa): ?>
+                        <div class="card-pa-item"><?= pmRenderPaChip($pa) ?></div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="card-empty">No PA number assigned</div>
+            <?php endif; ?>
+        </div>
+
+        <div class="card-section">
+            <div class="card-section-title">Execution Status</div>
+            <div class="card-execution">
+                <div class="exec-item">
+                    <span class="exec-label">Demo</span>
+                    <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], $p['name'], 'demo', $p['demo_status'], $canUpdateStatus) ?>
+                </div>
+                <div class="exec-item">
+                    <span class="exec-label">Exc</span>
+                    <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], $p['name'], 'exc', $p['exc_status'], $canUpdateStatus) ?>
+                </div>
+                <div class="exec-item">
+                    <span class="exec-label">Const</span>
+                    <?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?>
+                </div>
+                <div class="exec-item">
+                    <span class="exec-label">Fin</span>
+                    <?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-section">
+            <div class="card-section-title">Delivery Milestones</div>
+            <div class="card-schedule-grid">
+                <div>
+                    <div style="font-size:0.65rem;color:#6366f1;font-weight:700;margin-bottom:4px;">Construction Complete</div>
+                    <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?>
+                </div>
+                <div>
+                    <div style="font-size:0.65rem;color:#22c55e;font-weight:700;margin-bottom:4px;">Finishes Complete</div>
+                    <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-section">
+            <div class="card-section-title">Team</div>
+            <div class="card-team-grid">
+                <div class="card-team-block">
+                    <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Project Managers</div>
+                    <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
+                </div>
+                <div class="card-team-block">
+                    <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Subcontractors</div>
+                    <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+    </article>
+    <?php
+}
+
 $pageTitle = $isLegalRep ? 'Project Status' : 'Project Execution Matrix';
 require_once 'header.php';
 ?>
@@ -527,6 +666,13 @@ require_once 'header.php';
 .project-card.card-summary .card-header { cursor: pointer; }
 .card-summary-row { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem; }
 .card-summary-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 4px; background: rgba(34, 197, 94, 0.12); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.25); font-weight: 700; text-transform: uppercase; }
+.card-summary-actions { padding: 0.65rem 1rem; border-top: 1px solid rgba(255,255,255,0.04); }
+.pm-archive-section { margin-top: 2rem; padding: 1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid rgba(107, 114, 128, 0.35); background: rgba(15, 23, 42, 0.35); }
+.pm-archive-section > summary { cursor: pointer; font-weight: 700; color: var(--text-secondary); font-size: 0.95rem; list-style: none; display: flex; align-items: center; gap: 0.5rem; }
+.pm-archive-section > summary::-webkit-details-marker { display: none; }
+.pm-archive-section > summary::before { content: '▸'; display: inline-block; transition: transform 0.2s; color: var(--text-muted); }
+.pm-archive-section[open] > summary::before { transform: rotate(90deg); }
+.pm-archive-section .archive-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0.75rem 0 1rem; }
 
 .info-tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); white-space: nowrap; }
 .info-tag.ohsa-green { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); cursor: pointer; }
@@ -644,113 +790,26 @@ require_once 'header.php';
         <?php endforeach; ?>
     </div>
 
-    <?php if (empty($matrixProjects)): ?>
-        <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
+    <?php if (empty($matrixProjectsActive) && empty($matrixProjectsArchive)): ?>
+        <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No projects found matching your filters.</div>
     <?php else: ?>
-    <div class="matrix-cards">
-        <?php foreach ($matrixProjects as $p):
-            $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
-            $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
-            $ohsaClass = strtolower($p['safety_status'] ?? 'na');
-            $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
-            $isSummary = ($p['card_mode'] ?? 'full') === 'summary';
-            $sched = $p['schedule'] ?? null;
-        ?>
-        <article class="project-card<?= $isSummary ? ' card-summary' : '' ?>">
-            <div class="card-header" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
-                <div class="card-title"><?= htmlspecialchars($p['name']) ?></div>
-                <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?><?= !empty($p['city']) ? ' · ' . htmlspecialchars($p['city']) : '' ?></div>
-                <div class="card-meta">
-                    <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
-                    <?php if (!$isSummary): ?>
-                    <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
-                    <span class="info-tag"><?= (int)($p['progress_pct'] ?? 0) ?>% built</span>
-                    <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments"><?= $ohsaIcon ?> OHSA</span>
-                    <?php else: ?>
-                    <span class="card-summary-badge">Handed Over</span>
-                    <?php endif; ?>
-                </div>
-                <?php if ($isSummary): ?>
-                <div class="card-summary-row">
-                    <?php if (!empty($sched['actual_finishes_date'])): ?>
-                        <span>Finishes: <?= formatScheduleDate($sched['actual_finishes_date']) ?></span>
-                    <?php elseif (!empty($sched['actual_shell_date'])): ?>
-                        <span>Shell: <?= formatScheduleDate($sched['actual_shell_date']) ?></span>
-                    <?php endif; ?>
-                    <?php if (!empty($p['pa_numbers'])): ?>
-                        <span>PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
-                    <?php endif; ?>
-                </div>
-                <?php endif; ?>
+        <?php if (empty($matrixProjectsActive)): ?>
+            <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
+        <?php else: ?>
+            <div class="matrix-cards">
+                <?php foreach ($matrixProjectsActive as $p) { renderMatrixProjectCard($p, $pdo, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
             </div>
+        <?php endif; ?>
 
-            <?php if (!$isSummary): ?>
-            <div class="card-section">
-                <div class="card-section-title">Permit Application</div>
-                <?php if (!empty($p['pa_records'])): ?>
-                    <div class="card-pa-list">
-                        <?php foreach ($p['pa_records'] as $pa): ?>
-                            <div class="card-pa-item"><?= pmRenderPaChip($pa) ?></div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php else: ?>
-                    <div class="card-empty">No PA number assigned</div>
-                <?php endif; ?>
-            </div>
-
-            <div class="card-section">
-                <div class="card-section-title">Execution Status</div>
-                <div class="card-execution">
-                    <div class="exec-item">
-                        <span class="exec-label">Demo</span>
-                        <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
-                    </div>
-                    <div class="exec-item">
-                        <span class="exec-label">Exc</span>
-                        <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?>
-                    </div>
-                    <div class="exec-item">
-                        <span class="exec-label">Const</span>
-                        <?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?>
-                    </div>
-                    <div class="exec-item">
-                        <span class="exec-label">Fin</span>
-                        <?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?>
-                    </div>
+        <?php if (!empty($matrixProjectsArchive)): ?>
+            <details class="pm-archive-section">
+                <summary>Handed Over Archive (<?= count($matrixProjectsArchive) ?>)</summary>
+                <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>. To revive a project marked completed in error, use <strong>Edit Project</strong> and set status back to Active.</p>
+                <div class="matrix-cards">
+                    <?php foreach ($matrixProjectsArchive as $p) { renderMatrixProjectCard($p, $pdo, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
                 </div>
-            </div>
-
-            <div class="card-section">
-                <div class="card-section-title">Delivery Milestones</div>
-                <div class="card-schedule-grid">
-                    <div>
-                        <div style="font-size:0.65rem;color:#6366f1;font-weight:700;margin-bottom:4px;">Construction Complete</div>
-                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?>
-                    </div>
-                    <div>
-                        <div style="font-size:0.65rem;color:#22c55e;font-weight:700;margin-bottom:4px;">Finishes Complete</div>
-                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card-section">
-                <div class="card-section-title">Team</div>
-                <div class="card-team-grid">
-                    <div class="card-team-block">
-                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Project Managers</div>
-                        <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
-                    </div>
-                    <div class="card-team-block">
-                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Subcontractors</div>
-                        <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
-                    </div>
-                </div>
-            </div>
-            <?php endif; ?>
-        </article>
-        <?php endforeach; ?>
-    </div>
+            </details>
+        <?php endif; ?>
     <?php endif; ?>
 </div>
 
@@ -904,6 +963,37 @@ function openIframeModal(id, name, targetFile) {
     document.getElementById('iframeModal').style.display = 'block';
     document.body.style.overflow = 'hidden'; 
 }
+
+function openEditProjectModal(id, name) {
+    const url = 'edit-project.php?id=' + id + '&modal=1';
+    document.getElementById('iframeModalTitle').textContent = 'Edit Project: ' + name;
+    document.getElementById('iframeExternalLink').href = 'edit-project.php?id=' + id;
+
+    const iframe = document.getElementById('mainIframe');
+    const loader = document.getElementById('iframeLoader');
+
+    iframe.style.display = 'none';
+    loader.style.display = 'block';
+    iframe.src = url;
+
+    iframe.onload = function() {
+        loader.style.display = 'none';
+        iframe.style.display = 'block';
+    };
+
+    document.getElementById('iframeModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+window.addEventListener('message', function(event) {
+    if (event.data === 'projectUpdated') {
+        closeIframeModal();
+    } else if (event.data === 'closeModal') {
+        document.getElementById('iframeModal').style.display = 'none';
+        document.getElementById('mainIframe').src = '';
+        document.body.style.overflow = 'auto';
+    }
+});
 
 function closeIframeModal() {
     document.getElementById('iframeModal').style.display = 'none';

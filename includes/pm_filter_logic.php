@@ -169,6 +169,16 @@ function pmRenderPaChip(array $pa): string {
     return $paText . $statusHtml;
 }
 
+/**
+ * Handed-over / completed projects shown in the collapsed archive section (not day-to-day active work).
+ */
+function pmIsArchiveProject(array $project, ?string $stage = null): bool {
+    if (($project['project_status'] ?? 'Active') === 'Completed') {
+        return true;
+    }
+    return ($stage ?? ($project['stage'] ?? '')) === 'Handed Over';
+}
+
 function pmProjectHasEndorsedPa(array $paRecords): bool {
     foreach ($paRecords as $pa) {
         $status = strtolower(trim($pa['pa_status'] ?? ''));
