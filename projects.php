@@ -347,13 +347,7 @@ $applyMatrixListFilters = function (array $list) use ($filterType, $filterFinish
     if ($filterFinish !== 'all') $list = array_filter($list, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
     if ($filterCity !== 'all') $list = array_filter($list, fn($p) => $p['city'] === $filterCity);
     if ($filterClient !== 'all') {
-        if ($filterClient === 'group_excel') {
-            $list = array_filter($list, fn($p) => stripos($p['client_name'] ?? '', 'Excel') !== false);
-        } elseif ($filterClient === 'group_blue_clay') {
-            $list = array_filter($list, fn($p) => stripos($p['client_name'] ?? '', 'Blue Clay') !== false || stripos($p['client_name'] ?? '', 'Blueclay') !== false);
-        } else {
-            $list = array_filter($list, fn($p) => $p['clientid'] == $filterClient);
-        }
+        $list = array_filter($list, fn($p) => pmMatchesClientFilter($p, $filterClient));
     }
     if ($filterPm !== 'all') { $list = array_filter($list, fn($p) => ($p['pm_construction_id'] == $filterPm || $p['pm_finishes_id'] == $filterPm)); }
     if ($filterSub !== 'all') { $list = array_filter($list, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
@@ -390,15 +384,21 @@ $sortMatrixList = function (array $list) use ($sortBy, $sortOrder, $stageSortOrd
     return array_values($list);
 };
 
-foreach ([&$matrixProjectsActive, &$matrixProjectsArchive] as &$matrixList) {
-    $matrixList = $applyMatrixListFilters($matrixList);
-    foreach ($matrixList as &$mp) {
-        $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
-    }
-    unset($mp);
-    $matrixList = $sortMatrixList($matrixList);
+$matrixProjectsActive = $applyMatrixListFilters($matrixProjectsActive);
+$matrixProjectsArchive = $applyMatrixListFilters($matrixProjectsArchive);
+
+foreach ($matrixProjectsActive as &$mp) {
+    $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
 }
-unset($matrixList);
+unset($mp);
+
+foreach ($matrixProjectsArchive as &$mp) {
+    $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
+}
+unset($mp);
+
+$matrixProjectsActive = $sortMatrixList($matrixProjectsActive);
+$matrixProjectsArchive = $sortMatrixList($matrixProjectsArchive);
 
 $matrixProjects = $matrixProjectsActive;
 
@@ -503,6 +503,111 @@ function renderAllSubsCell($demo, $exc, $const, $finIds, $subsArray, $pJson, $ca
         return "<div onclick='openAssignModal($pJson)' class='clickable-cell' title='Click to Assign Team' style='align-items:flex-start;'>$content<span class='edit-icon' style='margin-top:2px;'>✎</span></div>";
     }
     return "<div class='normal-cell' style='align-items:flex-start;'>$content</div>";
+}
+
+function renderMatrixProjectCard(array $p, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, array $subs) {
+    $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
+    $ohsaJson = htmlspecialchars(json_encode(['name' => $p['name'], 'status' => $p['safety_status'], 'comments' => $p['safety_comments']]), ENT_QUOTES, 'UTF-8');
+    $ohsaClass = strtolower($p['safety_status'] ?? 'na');
+    $ohsaIcon = ['Green' => '🟢', 'Yellow' => '🟡', 'Red' => '🔴'][$p['safety_status']] ?? '⚪';
+    $isSummary = ($p['card_mode'] ?? 'full') === 'summary';
+    $sched = $p['schedule'] ?? null;
+    $pNameJs = htmlspecialchars(json_encode($p['name']), ENT_QUOTES, 'UTF-8');
+    ?>
+    <article class="project-card<?= $isSummary ? ' card-summary' : '' ?>">
+        <div class="card-header" onclick="openIframeModal(<?= $p['id'] ?>, <?= $pNameJs ?>, 'mobilisation_detail.php')" title="Open Execution Workspace">
+            <div class="card-title"><?= htmlspecialchars($p['name']) ?></div>
+            <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?><?= !empty($p['city']) ? ' · ' . htmlspecialchars($p['city']) : '' ?></div>
+            <div class="card-meta">
+                <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
+                <?php if (!$isSummary): ?>
+                <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
+                <span class="info-tag"><?= (int)($p['progress_pct'] ?? 0) ?>% built</span>
+                <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments"><?= $ohsaIcon ?> OHSA</span>
+                <?php else: ?>
+                <span class="card-summary-badge">Handed Over</span>
+                <?php endif; ?>
+            </div>
+            <?php if ($isSummary): ?>
+            <div class="card-summary-row">
+                <?php if (!empty($sched['actual_finishes_date'])): ?>
+                    <span>Finishes: <?= formatScheduleDate($sched['actual_finishes_date']) ?></span>
+                <?php elseif (!empty($sched['actual_shell_date'])): ?>
+                    <span>Shell: <?= formatScheduleDate($sched['actual_shell_date']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($p['pa_numbers'])): ?>
+                    <span>PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if (!$isSummary): ?>
+        <div class="card-section">
+            <div class="card-section-title">Permit Application</div>
+            <?php if (!empty($p['pa_records'])): ?>
+                <div class="card-pa-list">
+                    <?php foreach ($p['pa_records'] as $pa): ?>
+                        <div class="card-pa-item"><?= pmRenderPaChip($pa) ?></div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="card-empty">No PA number assigned</div>
+            <?php endif; ?>
+        </div>
+
+        <div class="card-section">
+            <div class="card-section-title">Execution Status</div>
+            <div class="card-execution">
+                <div class="exec-item">
+                    <span class="exec-label">Demo</span>
+                    <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
+                </div>
+                <div class="exec-item">
+                    <span class="exec-label">Exc</span>
+                    <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?>
+                </div>
+                <div class="exec-item">
+                    <span class="exec-label">Const</span>
+                    <?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?>
+                </div>
+                <div class="exec-item">
+                    <span class="exec-label">Fin</span>
+                    <?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-section">
+            <div class="card-section-title">Delivery Milestones</div>
+            <div class="card-schedule-grid">
+                <div>
+                    <div style="font-size:0.65rem;color:#6366f1;font-weight:700;margin-bottom:4px;">Construction Complete</div>
+                    <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?>
+                </div>
+                <div>
+                    <div style="font-size:0.65rem;color:#22c55e;font-weight:700;margin-bottom:4px;">Finishes Complete</div>
+                    <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-section">
+            <div class="card-section-title">Team</div>
+            <div class="card-team-grid">
+                <div class="card-team-block">
+                    <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Project Managers</div>
+                    <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
+                </div>
+                <div class="card-team-block">
+                    <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Subcontractors</div>
+                    <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+    </article>
+    <?php
 }
 
 $pageTitle = $isLegalRep ? 'Project Status' : 'Project Execution Matrix';
@@ -672,133 +777,23 @@ require_once 'header.php';
     <?php if (empty($matrixProjectsActive) && empty($matrixProjectsArchive)): ?>
         <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No projects found matching your filters.</div>
     <?php else: ?>
-    <?php
-    $matrixCardSections = [
-        ['key' => 'active', 'projects' => $matrixProjectsActive],
-    ];
-    if (!empty($matrixProjectsArchive)) {
-        $matrixCardSections[] = ['key' => 'archive', 'projects' => $matrixProjectsArchive];
-    }
-    foreach ($matrixCardSections as $cardSection):
-        if ($cardSection['key'] === 'archive'): ?>
-    <details class="pm-archive-section">
-        <summary>Handed Over Archive (<?= count($cardSection['projects']) ?>)</summary>
-        <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>.</p>
-        <div class="matrix-cards">
-        <?php else: ?>
-        <?php if (empty($cardSection['projects'])): ?>
+        <?php if (empty($matrixProjectsActive)): ?>
             <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
         <?php else: ?>
-    <div class="matrix-cards">
+            <div class="matrix-cards">
+                <?php foreach ($matrixProjectsActive as $p) { renderMatrixProjectCard($p, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
+            </div>
         <?php endif; ?>
+
+        <?php if (!empty($matrixProjectsArchive)): ?>
+            <details class="pm-archive-section">
+                <summary>Handed Over Archive (<?= count($matrixProjectsArchive) ?>)</summary>
+                <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>.</p>
+                <div class="matrix-cards">
+                    <?php foreach ($matrixProjectsArchive as $p) { renderMatrixProjectCard($p, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
+                </div>
+            </details>
         <?php endif; ?>
-        <?php foreach ($cardSection['projects'] as $p):
-            $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
-            $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
-            $ohsaClass = strtolower($p['safety_status'] ?? 'na');
-            $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
-            $isSummary = ($p['card_mode'] ?? 'full') === 'summary';
-            $sched = $p['schedule'] ?? null;
-        ?>
-        <article class="project-card<?= $isSummary ? ' card-summary' : '' ?>">
-            <div class="card-header" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
-                <div class="card-title"><?= htmlspecialchars($p['name']) ?></div>
-                <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?><?= !empty($p['city']) ? ' · ' . htmlspecialchars($p['city']) : '' ?></div>
-                <div class="card-meta">
-                    <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
-                    <?php if (!$isSummary): ?>
-                    <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
-                    <span class="info-tag"><?= (int)($p['progress_pct'] ?? 0) ?>% built</span>
-                    <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments"><?= $ohsaIcon ?> OHSA</span>
-                    <?php else: ?>
-                    <span class="card-summary-badge">Handed Over</span>
-                    <?php endif; ?>
-                </div>
-                <?php if ($isSummary): ?>
-                <div class="card-summary-row">
-                    <?php if (!empty($sched['actual_finishes_date'])): ?>
-                        <span>Finishes: <?= formatScheduleDate($sched['actual_finishes_date']) ?></span>
-                    <?php elseif (!empty($sched['actual_shell_date'])): ?>
-                        <span>Shell: <?= formatScheduleDate($sched['actual_shell_date']) ?></span>
-                    <?php endif; ?>
-                    <?php if (!empty($p['pa_numbers'])): ?>
-                        <span>PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
-                    <?php endif; ?>
-                </div>
-                <?php endif; ?>
-            </div>
-
-            <?php if (!$isSummary): ?>
-            <div class="card-section">
-                <div class="card-section-title">Permit Application</div>
-                <?php if (!empty($p['pa_records'])): ?>
-                    <div class="card-pa-list">
-                        <?php foreach ($p['pa_records'] as $pa): ?>
-                            <div class="card-pa-item"><?= pmRenderPaChip($pa) ?></div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php else: ?>
-                    <div class="card-empty">No PA number assigned</div>
-                <?php endif; ?>
-            </div>
-
-            <div class="card-section">
-                <div class="card-section-title">Execution Status</div>
-                <div class="card-execution">
-                    <div class="exec-item">
-                        <span class="exec-label">Demo</span>
-                        <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
-                    </div>
-                    <div class="exec-item">
-                        <span class="exec-label">Exc</span>
-                        <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?>
-                    </div>
-                    <div class="exec-item">
-                        <span class="exec-label">Const</span>
-                        <?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?>
-                    </div>
-                    <div class="exec-item">
-                        <span class="exec-label">Fin</span>
-                        <?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card-section">
-                <div class="card-section-title">Delivery Milestones</div>
-                <div class="card-schedule-grid">
-                    <div>
-                        <div style="font-size:0.65rem;color:#6366f1;font-weight:700;margin-bottom:4px;">Construction Complete</div>
-                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?>
-                    </div>
-                    <div>
-                        <div style="font-size:0.65rem;color:#22c55e;font-weight:700;margin-bottom:4px;">Finishes Complete</div>
-                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card-section">
-                <div class="card-section-title">Team</div>
-                <div class="card-team-grid">
-                    <div class="card-team-block">
-                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Project Managers</div>
-                        <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
-                    </div>
-                    <div class="card-team-block">
-                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Subcontractors</div>
-                        <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
-                    </div>
-                </div>
-            </div>
-            <?php endif; ?>
-        </article>
-        <?php endforeach; ?>
-    <?php if (!empty($cardSection['projects'])): ?></div><?php endif; ?>
-        <?php if ($cardSection['key'] === 'archive'): ?>
-    </details>
-        <?php endif; ?>
-    <?php endforeach; ?>
     <?php endif; ?>
 </div>
 
