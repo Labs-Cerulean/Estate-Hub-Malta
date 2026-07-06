@@ -119,6 +119,24 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                         </div>
                     </a>
 
+                    <div class="header-hub-center">
+                        <?php if ($showHubSwitcher): ?>
+                            <nav class="hub-switcher" aria-label="Hub selector">
+                                <?php foreach ($userHubs as $hubKey): ?>
+                                    <?php $meta = $hubMeta[$hubKey]; ?>
+                                    <a href="<?= htmlspecialchars($meta['home']) ?>"
+                                       class="hub-tab <?= $meta['class'] ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
+                                        <?= htmlspecialchars($meta['label']) ?>
+                                    </a>
+                                <?php endforeach; ?>
+                            </nav>
+                        <?php elseif (count($userHubs) === 1): ?>
+                            <span class="hub-single-label <?= htmlspecialchars($hubMeta[$userHubs[0]]['class']) ?>">
+                                <?= htmlspecialchars($hubMeta[$userHubs[0]]['label']) ?>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+
                     <div class="header-top-actions">
                         <?php if ($showEstateUtilities): ?>
                             <div class="header-utilities">
@@ -167,26 +185,6 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                         </button>
                     </div>
                 </div>
-
-                <?php if ($showHubSwitcher): ?>
-                    <div class="header-hub-row">
-                        <nav class="hub-switcher" aria-label="Hub selector">
-                            <?php foreach ($userHubs as $hubKey): ?>
-                                <?php $meta = $hubMeta[$hubKey]; ?>
-                                <a href="<?= htmlspecialchars($meta['home']) ?>"
-                                   class="hub-tab <?= $meta['class'] ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
-                                    <?= htmlspecialchars($meta['label']) ?>
-                                </a>
-                            <?php endforeach; ?>
-                        </nav>
-                    </div>
-                <?php elseif (count($userHubs) === 1): ?>
-                    <div class="header-hub-row">
-                        <span class="hub-single-label <?= htmlspecialchars($hubMeta[$userHubs[0]]['class']) ?>">
-                            <?= htmlspecialchars($hubMeta[$userHubs[0]]['label']) ?>
-                        </span>
-                    </div>
-                <?php endif; ?>
 
                 <div class="header-nav-row">
                     <nav class="header-nav desktop-nav" aria-label="Main navigation">
