@@ -302,8 +302,27 @@ if ((!empty($accessibleProjectIds) || !empty($accessibleClientIds)) && !empty($a
 }
 
 $pageTitle = 'Document Vault';
+require_once __DIR__ . '/includes/entity_select_helpers.php';
+
+$docFilterClientsJson = json_encode(array_map(static function ($c) {
+    return [
+        'id' => (int)$c['id'],
+        'name' => $c['name'],
+        'subtitle' => entityClientSubtitle($c),
+    ];
+}, $clients), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT);
+
+$docFilterProjectsJson = json_encode(array_map(static function ($p) {
+    return [
+        'id' => (int)$p['id'],
+        'name' => $p['name'],
+        'subtitle' => entityProjectSubtitle($p),
+    ];
+}, $projects), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT);
+
 require_once 'header.php';
 ?>
+<script src="/assets/js/doc-context-filter.js?v=<?= time() ?>" defer></script>
 
 <style>
 .cat-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem; overflow-x: auto; }
@@ -414,24 +433,31 @@ require_once 'header.php';
     <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
     <div class="vault-header-controls">
-        <form method="GET" style="margin: 0; display: flex; gap: 10px; align-items: center;">
-            <strong style="color: var(--primary-color);">Filter Context:</strong>
+        <form method="GET" id="docContextFilter" class="doc-context-filter"
+              data-selected="<?= htmlspecialchars((string)$selectedProjectId) ?>"
+              data-clients="<?= htmlspecialchars($docFilterClientsJson, ENT_QUOTES) ?>"
+              data-projects="<?= htmlspecialchars($docFilterProjectsJson, ENT_QUOTES) ?>">
+            <strong style="color: var(--primary-color); align-self: center;">Filter Context:</strong>
             <input type="hidden" name="category" value="<?= htmlspecialchars($selectedCategory) ?>">
-            <select name="project_id" onchange="this.form.submit()" style="padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-card); color: var(--text-primary);">
-                <option value="all">-- All Folders --</option>
-                
-                <optgroup label="🏢 Company Hubs (Client Level)">
-                    <?php foreach($clients as $c): ?>
-                        <option value="client_<?= $c['id'] ?>" <?= $selectedProjectId === 'client_'.$c['id'] ? 'selected' : '' ?>>🏢 <?= htmlspecialchars($c['name']) ?> Hub</option>
-                    <?php endforeach; ?>
-                </optgroup>
-                
-                <optgroup label="🏗️ Projects">
-                    <?php foreach($projects as $p): ?>
-                        <option value="<?= $p['id'] ?>" <?= (string)$selectedProjectId === (string)$p['id'] ? 'selected' : '' ?>>🏗️ <?= htmlspecialchars($p['name']) ?></option>
-                    <?php endforeach; ?>
-                </optgroup>
-            </select>
+            <input type="hidden" name="project_id" value="<?= htmlspecialchars((string)$selectedProjectId) ?>">
+
+            <div class="filter-step">
+                <label for="docContextType">Show</label>
+                <select name="context_type" id="docContextType" class="entity-select">
+                    <option value="all">All folders</option>
+                    <option value="client">Client hub</option>
+                    <option value="project">Project</option>
+                </select>
+            </div>
+
+            <div class="filter-step">
+                <label for="docContextEntity">Selection</label>
+                <select name="context_entity" id="docContextEntity" class="entity-select entity-select-search" data-recent-kind="doc_context">
+                    <option value="">All folders</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-secondary" style="align-self: flex-end;">Apply</button>
         </form>
         
         <div style="position: relative;">

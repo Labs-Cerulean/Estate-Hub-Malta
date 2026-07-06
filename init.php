@@ -58,6 +58,7 @@ if (isLoggedIn()) {
     $_SESSION['last_activity'] = time();
 }
 
+// Schema is managed manually via sql/*.sql — no runtime DDL in init.php.
 
 // Helper function to check if user is services engineer
 function isServicesEngineer() {

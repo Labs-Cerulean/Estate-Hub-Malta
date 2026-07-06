@@ -2,21 +2,13 @@
 require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
+require_once '../includes/plant_schema_deploy.php';
 
 function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
     try {
         $stmt = $pdo->prepare("INSERT INTO plant_audit_log (user_id, booking_id, action_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$userId, $bookingId, $actionType, $details, $ip]);
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
-        $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        booking_id INT NOT NULL,
-        punch_in DATETIME NOT NULL,
-        punch_out DATETIME NOT NULL,
-        hours DECIMAL(10,2) NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
     } catch(PDOException $e) {
         // Silently fail so a logging error never stops a live billing transaction
     }
@@ -243,17 +235,18 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
 // Force Malta Timezone strictly for all operations in this file
 date_default_timezone_set('Europe/Malta');
 
-// Auto-deploy database updates for Setup Fee and Local Rate Overrides
-try { 
-    $pdo->exec("ALTER TABLE plants ADD COLUMN setup_fee DECIMAL(10,2) DEFAULT 0.00"); 
-    $pdo->exec("ALTER TABLE plants ADD COLUMN nom_code_setup VARCHAR(50) DEFAULT NULL"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN apply_setup_fee TINYINT(1) DEFAULT 0"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_setup_fee DECIMAL(10,2) DEFAULT NULL"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL"); 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
-} catch(PDOException $e) {}
+// Auto-deploy Plant Hub schema (safe to re-run; duplicate column errors are swallowed)
+plantDeploySchema($pdo);
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
+
+if (!canUsePlantHubApi()) {
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Unauthorized access to Plant Hub API.']);
+    exit;
+}
+
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
@@ -267,7 +260,10 @@ $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accoun
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
 
-if (!$praApiKey || !$praxApiKey) {
+$plantErpRequiredActions = ['get_nominals', 'get_company_clients', 'get_client_max_discount', 'finalize_and_invoice', 'retry_erp_sync'];
+
+if (in_array($action, $plantErpRequiredActions, true) && (!$praApiKey || !$praxApiKey)) {
+    header('Content-Type: application/json; charset=utf-8');
     die(json_encode(['error' => 'Critical Error: ERP API keys are missing from environment configuration.']));
 }
 
@@ -403,22 +399,37 @@ if ($action == 'get_fleet' && $canManageFleet) {
 }
 
 if ($action == 'form_data') {
+    header('Content-Type: application/json; charset=utf-8');
     $nominalCache = [];
-    foreach (['24', '26'] as $compId) {
-        $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
-        $indexed = [];
-        if (is_array($noms)) {
-            foreach ($noms as $n) {
-                if (isset($n['NCCode'])) {
-                    $indexed[trim((string)$n['NCCode'])] = true;
+    if ($praApiKey && $praxApiKey) {
+        foreach (['24', '26'] as $compId) {
+            $noms = getJ2ApiData('/nominalcateg', getApiKey($compId));
+            $indexed = [];
+            if (is_array($noms)) {
+                foreach ($noms as $n) {
+                    if (isset($n['NCCode'])) {
+                        $indexed[trim((string)$n['NCCode'])] = true;
+                    }
                 }
             }
+            $nominalCache[$compId] = $indexed;
         }
-        $nominalCache[$compId] = $indexed;
     }
 
-    $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, requires_driver, lifecycle_type, has_configurations, configurations, billing_unit FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
-    $plants = []; 
+    try {
+        $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup, requires_driver, lifecycle_type, has_configurations, configurations, billing_unit FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $plantsRaw = $pdo->query("SELECT id, name, category, registration_plate, billing_company_id, pricing_type, nom_code_fixed, nom_code_variable, setup_fee, nom_code_setup FROM plants WHERE status='Active' ORDER BY category, name")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($plantsRaw as &$row) {
+            $row['requires_driver'] = 1;
+            $row['lifecycle_type'] = 'Standard';
+            $row['has_configurations'] = 0;
+            $row['configurations'] = null;
+            $row['billing_unit'] = 'Hourly';
+        }
+        unset($row);
+    }
+    $plants = [];
     
     foreach($plantsRaw as $p) { 
         $bcId = $p['billing_company_id'] ?? 'default';
@@ -656,19 +667,30 @@ if ($action == 'get_dashboard_stats' && $canViewDashboard) {
 }
 
 if ($action == 'fetch_bookings') {
+    header('Content-Type: application/json; charset=utf-8');
     $events = [];
     $startDate = !empty($_GET['start']) ? date('Y-m-d', strtotime($_GET['start'])) : date('Y-m-d', strtotime('-1 month'));
     $endDate = !empty($_GET['end']) ? date('Y-m-d', strtotime($_GET['end'])) : date('Y-m-d', strtotime('+1 month'));
-    
-    // GLOBAL VISIBILITY: All users pull the full schedule without driver restrictions
-    $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
-              FROM plant_bookings pb 
-              JOIN plants p ON pb.plant_id = p.id 
-              LEFT JOIN projects prj ON pb.project_id = prj.id
-              WHERE pb.booking_date <= ? AND COALESCE(pb.end_date, pb.booking_date) >= ?";
-              
-    $stmt = $pdo->prepare($query);
-    $stmt->execute([$endDate, $startDate]);
+
+    try {
+        $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+                  FROM plant_bookings pb 
+                  JOIN plants p ON pb.plant_id = p.id 
+                  LEFT JOIN projects prj ON pb.project_id = prj.id
+                  WHERE pb.booking_date <= ? AND COALESCE(pb.end_date, pb.booking_date) >= ?";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$endDate, $startDate]);
+        $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $query = "SELECT pb.*, p.name as plant_name, p.category, prj.name as project_name, prj.city as locality 
+                  FROM plant_bookings pb 
+                  JOIN plants p ON pb.plant_id = p.id 
+                  LEFT JOIN projects prj ON pb.project_id = prj.id
+                  WHERE pb.booking_date <= ? AND pb.booking_date >= ?";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$endDate, $startDate]);
+        $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
     
     $catColors = [
         'Cranes' => '#eab308', 'Pumps' => '#3b82f6', 'Booms' => '#f97316', 
@@ -676,7 +698,7 @@ if ($action == 'fetch_bookings') {
         'Rock Saw' => '#10b981', 'Other Trucks' => '#64748b', 'Scarifier' => '#ec4899', 'General' => '#6366f1'
     ];
 
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
+    foreach ($bookings as $b) {
         $cat = $b['category'] ?: 'General';
         $color = $catColors[$cat] ?? '#6366f1';
         
@@ -959,23 +981,58 @@ if ($action == 'cancel_booking' && $isManager) {
 }
 
 if ($action == 'get_job') {
-    $stmt = $pdo->prepare("
-        SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee, 
-               p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
-               prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
-        FROM plant_bookings pb 
-        JOIN plants p ON pb.plant_id = p.id 
-        LEFT JOIN projects prj ON pb.project_id = prj.id 
-        LEFT JOIN users u ON pb.driver_id = u.id 
-        WHERE pb.id = ?
-    "); 
-    
-    $stmt->execute([$_GET['id']]); 
-    $job = $stmt->fetch(PDO::FETCH_ASSOC); 
-    
-    $job['location_text'] = $job['booking_type'] == 'in-house' ? "Project: " . $job['project_name'] : "External: " . $job['client_name']; 
-    
-    echo json_encode($job); 
+    header('Content-Type: application/json; charset=utf-8');
+    $jobId = (int)($_GET['id'] ?? 0);
+    if ($jobId <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid booking ID.']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee, 
+                   p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
+                   prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
+            FROM plant_bookings pb 
+            JOIN plants p ON pb.plant_id = p.id 
+            LEFT JOIN projects prj ON pb.project_id = prj.id 
+            LEFT JOIN users u ON pb.driver_id = u.id 
+            WHERE pb.id = ?
+        ");
+        $stmt->execute([$jobId]);
+        $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $stmt = $pdo->prepare("
+            SELECT pb.*, p.name as plant_name, p.category, p.pricing_type, p.setup_fee,
+                   prj.name as project_name, u.first_name as driver_first, u.last_name as driver_last 
+            FROM plant_bookings pb 
+            JOIN plants p ON pb.plant_id = p.id 
+            LEFT JOIN projects prj ON pb.project_id = prj.id 
+            LEFT JOIN users u ON pb.driver_id = u.id 
+            WHERE pb.id = ?
+        ");
+        $stmt->execute([$jobId]);
+        $job = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($job) {
+            $job['requires_driver'] = 1;
+            $job['lifecycle_type'] = 'Standard';
+            $job['has_configurations'] = 0;
+            $job['configurations'] = null;
+        }
+    }
+
+    if (!$job) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Booking not found.']);
+        exit;
+    }
+
+    $job['location_text'] = $job['booking_type'] == 'in-house'
+        ? 'Project: ' . ($job['project_name'] ?? 'Unknown')
+        : 'External: ' . ($job['client_name'] ?? 'Unknown');
+
+    echo json_encode($job);
     exit;
 }
 

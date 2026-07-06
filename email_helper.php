@@ -24,7 +24,7 @@ function sendSystemEmail($toEmail, $subject, $htmlBody, $attachments = []) {
         $mail->Port       = 587;
 
         // IMPORTANT: Send the email AS the alias
-        $mail->setFrom('no-reply@labscerulean.com', 'Estate Hub Plant & Fleet');
+        $mail->setFrom('no-reply@labscerulean.com', 'Estate Hub Malta');
         $mail->addReplyTo('no-reply@labscerulean.com', 'No Reply'); // Explicitly tells email clients not to reply
 
         // Add Recipients (Can be a string or an array of emails)

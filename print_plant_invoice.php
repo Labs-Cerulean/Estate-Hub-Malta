@@ -12,11 +12,9 @@ if (!$isCron) {
 
 require_once 'user-functions.php';
 require_once 'S3FileManager.php';
+require_once __DIR__ . '/includes/plant_schema_deploy.php';
 
-try { 
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_fixed DECIMAL(10,2) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_rate_var DECIMAL(10,2) DEFAULT NULL"); 
-} catch(PDOException $e) {}
+plantDeploySchema($pdo);
 
 $role = $_SESSION['role'] ?? '';
 $isAdmin = ($role === 'admin');
@@ -29,23 +27,49 @@ if (!$isCron && !$hasPlantAccess && !hasPermission('view_plant_bookings')) {
 
 $bookingId = (int)($_GET['booking_id'] ?? 0);
 
-$stmt = $pdo->prepare("
-    SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
-           p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
-           p.setup_fee, p.nom_code_setup, p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
-           bc.name as developer_name, bc.logo_path as developer_logo, 
-           bc.bank_name, bc.iban, bc.swift_bic, 
-           prj.name as project_name,
-           drv.first_name, drv.last_name
-    FROM plant_bookings pb 
-    JOIN plants p ON pb.plant_id = p.id
-    JOIN clients bc ON p.billing_company_id = bc.id
-    LEFT JOIN projects prj ON pb.project_id = prj.id
-    LEFT JOIN users drv ON pb.driver_id = drv.id
-    WHERE pb.id = ?
-");
-$stmt->execute([$bookingId]);
-$job = $stmt->fetch(PDO::FETCH_ASSOC);
+try {
+    $stmt = $pdo->prepare("
+        SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
+               p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
+               p.setup_fee, p.nom_code_setup, p.requires_driver, p.lifecycle_type, p.has_configurations, p.configurations,
+               bc.name as developer_name, bc.logo_path as developer_logo, 
+               bc.bank_name, bc.iban, bc.swift_bic, 
+               prj.name as project_name,
+               drv.first_name, drv.last_name
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id
+        JOIN clients bc ON p.billing_company_id = bc.id
+        LEFT JOIN projects prj ON pb.project_id = prj.id
+        LEFT JOIN users drv ON pb.driver_id = drv.id
+        WHERE pb.id = ?
+    ");
+    $stmt->execute([$bookingId]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $stmt = $pdo->prepare("
+        SELECT pb.*, p.name as plant_name, p.registration_plate, p.category,
+               p.pricing_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.billing_company_id,
+               p.setup_fee, p.nom_code_setup,
+               bc.name as developer_name, bc.logo_path as developer_logo, 
+               bc.bank_name, bc.iban, bc.swift_bic, 
+               prj.name as project_name,
+               drv.first_name, drv.last_name
+        FROM plant_bookings pb 
+        JOIN plants p ON pb.plant_id = p.id
+        JOIN clients bc ON p.billing_company_id = bc.id
+        LEFT JOIN projects prj ON pb.project_id = prj.id
+        LEFT JOIN users drv ON pb.driver_id = drv.id
+        WHERE pb.id = ?
+    ");
+    $stmt->execute([$bookingId]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($job) {
+        $job['requires_driver'] = 1;
+        $job['lifecycle_type'] = 'Standard';
+        $job['has_configurations'] = 0;
+        $job['configurations'] = null;
+    }
+}
 
 if (!$job) die("Job not found.");
 
@@ -55,15 +79,12 @@ if (!headers_sent()) {
 
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
-
-if (!$praApiKey || !$praxApiKey) {
-    die("Critical Error: ERP API keys are missing from environment configuration.");
-}
+$erpAvailable = !empty($praApiKey) && !empty($praxApiKey);
 
 $apiKeys = [
-    '24' => $praApiKey,  
-    '26' => $praxApiKey, 
-    'default' => $praApiKey 
+    '24' => $praApiKey ?: '',
+    '26' => $praxApiKey ?: '',
+    'default' => $praApiKey ?: ''
 ];
 $apiKey = $apiKeys[$job['billing_company_id']] ?? $apiKeys['default'];
 
@@ -93,7 +114,7 @@ if (!function_exists('getJ2ApiData')) {
     }
 }
 
-$allNominals = getJ2ApiData('/nominalcateg', $apiKey);
+$allNominals = $erpAvailable ? getJ2ApiData('/nominalcateg', $apiKey) : [];
 $fixedNom = null; 
 $varNom = null;
 
@@ -107,18 +128,27 @@ if (!empty($allNominals)) {
 $isInternal = ($job['booking_type'] == 'in-house');
 
 $s3 = new S3FileManager();
-$logoPath = $job['developer_logo'];
+$logoPath = $job['developer_logo'] ?? null;
 if (!empty($logoPath) && strpos($logoPath, 'http') === false) {
-    $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
+    try {
+        $logoPath = $s3->getPresignedUrl($logoPath, '+60 minutes');
+    } catch (Exception $e) {
+        $logoPath = null;
+    }
 }
 
 $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
 $jobYear = date('Y', strtotime($job['booking_date']));
 $jobRef = sprintf("%s-%s-%04d", $prefix, $jobYear, $bookingId);
 
-$sessionsStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
-$sessionsStmt->execute([$bookingId]);
-$sessions = $sessionsStmt->fetchAll(PDO::FETCH_ASSOC);
+$sessions = [];
+try {
+    $sessionsStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
+    $sessionsStmt->execute([$bookingId]);
+    $sessions = $sessionsStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $sessions = [];
+}
 
 $totalSessionHours = 0;
 foreach ($sessions as $s) {
@@ -303,7 +333,11 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         <?php if ($canEdit): ?>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
                 <div><i class="fas fa-edit text-blue-500"></i> <b>Edit Mode:</b> You can adjust the times, quantities, and rates below before pushing the final RFP to the ERP.</div>
+                <?php if ($erpAvailable): ?>
                 <div style="background:#e0e7ff; color:#4f46e5; padding:5px 10px; border-radius:6px; font-weight:bold;"><i class="fas fa-plug"></i> ERP Live Sync</div>
+                <?php else: ?>
+                <div style="background:#fef3c7; color:#b45309; padding:5px 10px; border-radius:6px; font-weight:bold;"><i class="fas fa-exclamation-triangle"></i> ERP Offline — local RFP view only</div>
+                <?php endif; ?>
             </div>
             
             <div style="background: #fff; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">

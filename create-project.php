@@ -101,7 +101,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
 }
 
 // Fetch Dropdown Data
-$clients = $pdo->query("SELECT id, name FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+require_once __DIR__ . '/includes/entity_select_helpers.php';
+$clients = $pdo->query("SELECT id, name, type, city FROM clients ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 $architects = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('architect', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 $engineers = $pdo->query("SELECT id, name FROM professionals WHERE role_type IN ('structural_engineer', 'both') ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -132,11 +133,11 @@ require_once 'header.php';
                 <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
                     <div class="form-group">
                         <label>Developer / Client <span style="color: #ef4444;">*</span></label>
-                        <select name="clientid" required>
-                            <option value="">-- Select Client --</option>
-                            <?php foreach ($clients as $c): ?>
-                                <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
-                            <?php endforeach; ?>
+                        <select name="clientid" class="entity-select entity-select-search" data-recent-kind="client" required>
+                            <?= entitySelectOptionsHtml($clients, [
+                                'placeholder' => '-- Select Client --',
+                                'subtitleFn' => 'entityClientSubtitle',
+                            ]) ?>
                         </select>
                     </div>
                     <div class="form-group">

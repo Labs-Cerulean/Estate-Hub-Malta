@@ -1,6 +1,7 @@
 <?php
 require_once 'init.php';
 require_once 'session-check.php';
+require_once __DIR__ . '/includes/pm_filter_logic.php';
 
 if (!hasPermission('view_projects') && !isAdmin()) {
     header('Location: dashboard.php?error=unauthorized');
@@ -10,6 +11,8 @@ if (!hasPermission('view_projects') && !isAdmin()) {
 $message = ''; $error = '';
 $canAssignTeam = hasPermission('edit_project_details') || isAdmin();
 $canUpdateStatus = hasPermission('update_project_status') || isAdmin();
+$canEditSchedule = hasPermission('edit_project_schedule') || isAdmin();
+$isLegalRep = isLegalRepresentative();
 
 // ==========================================
 // HANDLE POST ACTIONS
@@ -18,7 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
     if ($_POST['action'] === 'assign_team' && $canAssignTeam) {
         try {
-            $pId = $_POST['project_id'];
+            $pId = (int)$_POST['project_id'];
+            if (!hasProjectAccess($pdo, $pId)) { throw new Exception('Access denied to this project.'); }
             $subFinishes = isset($_POST['sub_finishes']) ? implode(',', $_POST['sub_finishes']) : null;
             
             $stmt = $pdo->prepare("UPDATE projects SET pm_construction_id=?, pm_finishes_id=?, sub_demolition_id=?, sub_excavation_id=?, sub_construction_id=?, sub_finishes_ids=? WHERE id=?");
@@ -38,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'update_mobilisation' && $canUpdateStatus) {
         try {
             $pId = (int)$_POST['project_id'];
+            if (!hasProjectAccess($pdo, $pId)) { throw new Exception('Access denied to this project.'); }
             $type = $_POST['mob_type'];
             $status = $_POST['status'];
             $col = ($type === 'demo') ? 'demo_status' : 'excavation_status';
@@ -49,6 +54,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stmt->execute([$status, $pId]);
             $message = "Mobilisation status updated successfully!";
         } catch (PDOException $e) { $error = "Error updating status: " . $e->getMessage(); }
+        catch (Exception $e) { $error = $e->getMessage(); }
+    }
+
+    if ($_POST['action'] === 'update_schedule' && $canEditSchedule) {
+        try {
+            $pId = (int)$_POST['project_id'];
+            if (!hasProjectAccess($pdo, $pId)) { throw new Exception('Access denied to this project.'); }
+            $proj = $pdo->prepare("SELECT type, finishlevel FROM projects WHERE id = ?");
+            $proj->execute([$pId]);
+            $projRow = $proj->fetch(PDO::FETCH_ASSOC);
+            if (!$projRow || ($projRow['type'] ?? '') !== 'in-house') {
+                throw new Exception('Delivery schedule applies to in-house projects only.');
+            }
+            $stmt = $pdo->prepare("
+                INSERT INTO project_delivery_schedule
+                (project_id, planned_shell_date, forecast_shell_date, actual_shell_date,
+                 planned_finishes_date, forecast_finishes_date, actual_finishes_date, finishes_scope, notes, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                planned_shell_date=VALUES(planned_shell_date), forecast_shell_date=VALUES(forecast_shell_date),
+                actual_shell_date=VALUES(actual_shell_date), planned_finishes_date=VALUES(planned_finishes_date),
+                forecast_finishes_date=VALUES(forecast_finishes_date), actual_finishes_date=VALUES(actual_finishes_date),
+                finishes_scope=VALUES(finishes_scope), notes=VALUES(notes), updated_by=VALUES(updated_by)
+            ");
+            $emptyDate = fn($k) => empty($_POST[$k]) ? null : $_POST[$k];
+            $stmt->execute([
+                $pId,
+                $emptyDate('planned_shell_date'), $emptyDate('forecast_shell_date'), $emptyDate('actual_shell_date'),
+                $emptyDate('planned_finishes_date'), $emptyDate('forecast_finishes_date'), $emptyDate('actual_finishes_date'),
+                $_POST['finishes_scope'] ?? $projRow['finishlevel'],
+                trim($_POST['schedule_notes'] ?? ''),
+                getCurrentUserId()
+            ]);
+            $message = 'Delivery schedule updated successfully!';
+        } catch (PDOException $e) { $error = 'Error updating schedule: ' . $e->getMessage(); }
+        catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
 
@@ -56,23 +97,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $pms = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role = 'project_manager' AND is_active = 'Yes' ORDER BY first_name")->fetchAll();
 $subs = $pdo->query("SELECT id, name FROM subcontractors ORDER BY name")->fetchAll();
 
-// 2. Define Allowed Stages
+// 2. Define Allowed Stages (execution matrix — excludes Tracking / Feasibility / Permit)
 $allowedStages = ['Mobilisation', 'Demolition', 'Excavation', 'Construction', 'Finishes', 'Compliance', 'Condominium', 'Handed Over'];
+$hiddenStages = ['Tracking', 'Feasibility', 'Permit'];
 
 // 3. GET FILTERS AND SORTS
-$filterStage = $_GET['filter_stage'] ?? 'all';
-$filterType = $_GET['filter_type'] ?? 'all';
-$filterFinish = $_GET['filter_finish'] ?? 'all';
-$filterCity = $_GET['filter_city'] ?? 'all';
-$filterClient = $_GET['filter_client'] ?? 'all';
-$filterIsland = $_GET['filter_island'] ?? 'all';
-$filterPm = $_GET['filter_pm'] ?? 'all';
-$filterSub = $_GET['filter_sub'] ?? 'all';
+$filterDefaults = ['filter_type' => $isLegalRep ? 'in-house' : 'in-house'];
+$filters = pmGetFilterParams($filterDefaults);
+$filterStage = $filters['filter_stage'];
+$filterType = $isLegalRep ? 'in-house' : $filters['filter_type'];
+$filterFinish = $filters['filter_finish'];
+$filterCity = $filters['filter_city'];
+$filterClient = $filters['filter_client'];
+$filterIsland = $filters['filter_island'];
+$filterPm = $filters['filter_pm'];
+$filterSub = $filters['filter_sub'];
 
 $sortBy = $_GET['sort'] ?? 'name';
 $sortOrder = $_GET['order'] ?? 'ASC';
-$allowedSorts = ['name', 'demo_status', 'exc_status', 'const_status', 'fin_status', 'pm_const'];
+$allowedSorts = ['name', 'city', 'client', 'stage', 'progress'];
 if (!in_array($sortBy, $allowedSorts)) $sortBy = 'name';
+$stageSortOrder = ['Mobilisation' => 1, 'Demolition' => 2, 'Excavation' => 3, 'Construction' => 4, 'Finishes' => 5, 'Compliance' => 6, 'Condominium' => 7, 'Handed Over' => 8];
 $allowedOrders = ['ASC', 'DESC'];
 if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
 
@@ -104,9 +149,17 @@ if (!empty($projectIds)) {
     $ohsaStmt->execute($projectIds);
     foreach ($ohsaStmt->fetchAll() as $row) { $ohsaData[$row['project_id']] = $row; }
 
-    $paStmt = $pdo->prepare("SELECT project_id, pa_number FROM project_pa_numbers WHERE project_id IN ($placeholders)");
+    $paStmt = $pdo->prepare("
+        SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.firm_name AS arch_firm
+        FROM project_pa_numbers pan
+        LEFT JOIN professionals arch ON arch.id = pan.architect_id
+        WHERE pan.project_id IN ($placeholders)
+        ORDER BY pan.pa_number ASC
+    ");
     $paStmt->execute($projectIds);
-    foreach ($paStmt->fetchAll() as $row) { $paData[$row['project_id']][] = $row['pa_number']; }
+    foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $paData[$row['project_id']][] = $row;
+    }
 
     $blockStmt = $pdo->prepare("
         SELECT pb.project_id, pb.id as block_id, pb.block_name, pb.finishes_overall_status, pb.finish_level, pb.progress, bl.id as level_id, bl.level_name, bl.level_number, bl.construction_status, bl.construction_pct
@@ -126,20 +179,38 @@ if (!empty($projectIds)) {
 }
 
 // 5. Build Final Matrix Array
+$projectIdsForStage = array_column($projectsRaw, 'id');
+$stagesBatch = getAccurateProjectStagesBatch($pdo, $projectIdsForStage);
+$schedulesBatch = getDeliverySchedulesBatch($pdo, $projectIdsForStage);
+
 $matrixProjects = [];
 foreach ($projectsRaw as $p) {
     if (($p['project_status'] ?? 'Active') !== 'Active') continue;
-    $stage = getAccurateProjectStage($pdo, $p['id']);
-    
-    if (in_array($stage, $allowedStages)) {
+    if ($isLegalRep && ($p['type'] ?? '') !== 'in-house') continue;
+    $stage = $stagesBatch[$p['id']] ?? getAccurateProjectStage($pdo, $p['id']);
+
+    if (in_array($stage, $hiddenStages, true)) continue;
+
+    $paRecordsEarly = $paData[$p['id']] ?? [];
+    $hasEndorsedPa = pmProjectHasEndorsedPa($paRecordsEarly);
+    $isHandedOver = ($stage === 'Handed Over');
+
+    if (!$hasEndorsedPa && !$isHandedOver) continue;
+    if (!in_array($stage, $allowedStages, true) && !$isHandedOver) continue;
+
+    if (in_array($stage, $allowedStages, true) || $isHandedOver) {
         if ($filterStage !== 'all' && $stage !== $filterStage) continue;
 
         $p['stage'] = $stage;
+        $p['card_mode'] = $isHandedOver ? 'summary' : 'full';
         $p['demo_status'] = $mobData[$p['id']]['demo_status'] ?? 'Pending';
         $p['exc_status'] = $mobData[$p['id']]['excavation_status'] ?? 'Pending';
         $p['safety_status'] = $ohsaData[$p['id']]['safety_status'] ?? 'N/A';
         $p['safety_comments'] = $ohsaData[$p['id']]['safety_comments'] ?? '';
-        $p['pa_numbers'] = isset($paData[$p['id']]) ? implode(', ', $paData[$p['id']]) : null;
+        $p['pa_records'] = $paData[$p['id']] ?? [];
+        $p['pa_numbers'] = !empty($p['pa_records'])
+            ? implode(', ', array_map(fn($pa) => pmFormatPaDisplay($pa['pa_number']), $p['pa_records']))
+            : null;
 
         $projConstStatuses = [];
         $projFinStatuses = [];
@@ -220,6 +291,30 @@ foreach ($projectsRaw as $p) {
             else { $p['fin_status'] = 'Pending'; }
         }
 
+        $levelPcts = [];
+        $hasProgressData = false;
+        if (isset($blockAggData[$p['id']])) {
+            foreach ($blockAggData[$p['id']] as $row) {
+                if (!empty($row['level_id'])) {
+                    $levelPcts[] = (float)($row['construction_pct'] ?? 0);
+                    $hasProgressData = true;
+                } else {
+                    $levelPcts[] = (float)($row['progress'] ?? 0);
+                    $hasProgressData = true;
+                }
+            }
+        }
+        if ($isHandedOver) {
+            $p['progress_pct'] = 100;
+            $p['sort_progress'] = 100;
+        } elseif ($hasProgressData && !empty($levelPcts)) {
+            $p['progress_pct'] = (int)round(array_sum($levelPcts) / count($levelPcts));
+            $p['sort_progress'] = $p['progress_pct'];
+        } else {
+            $p['progress_pct'] = 0;
+            $p['sort_progress'] = $stageSortOrder[$stage] ?? 0;
+        }
+
         $p['pm_const_name'] = 'Unassigned'; $p['pm_fin_name'] = 'Unassigned';
         foreach ($pms as $pm) {
             if ($pm['id'] == $p['pm_construction_id']) $p['pm_const_name'] = $pm['first_name'] . ' ' . $pm['last_name'];
@@ -236,6 +331,11 @@ foreach ($projectsRaw as $p) {
         $matrixProjects[] = $p;
     }
 }
+
+foreach ($matrixProjects as &$mp) {
+    $mp['schedule'] = $schedulesBatch[$mp['id']] ?? null;
+}
+unset($mp);
 
 if ($filterType !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['type'] === $filterType);
 if ($filterFinish !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['finishlevel'] ?? '') === $filterFinish);
@@ -255,18 +355,23 @@ if ($filterPm !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p
 if ($filterSub !== 'all') { $matrixProjects = array_filter($matrixProjects, fn($p) => ($p['sub_demolition_id'] == $filterSub || $p['sub_excavation_id'] == $filterSub || $p['sub_construction_id'] == $filterSub || strpos(','.$p['sub_finishes_ids'].',', ','.$filterSub.',') !== false)); }
 if ($filterIsland !== 'all') $matrixProjects = array_filter($matrixProjects, fn($p) => $p['island'] === $filterIsland);
 
-$statusEnumMap = ['Complete'=>4, 'In Progress'=>3, 'Pending'=>2, 'NA'=>1, 'N/A'=>1];
-
-usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $statusEnumMap) {
+usort($matrixProjects, function($a, $b) use ($sortBy, $sortOrder, $stageSortOrder) {
     $valA = ''; $valB = '';
-    if (in_array($sortBy, ['demo_status', 'exc_status', 'const_status', 'fin_status'])) {
-        $valA = $statusEnumMap[$a[$sortBy]] ?? 0;
-        $valB = $statusEnumMap[$b[$sortBy]] ?? 0;
-    } elseif (in_array($sortBy, ['pm_const', 'pm_fin'])) {
-        $key = $sortBy . '_name';
-        $valA = $a[$key] ?? ''; $valB = $b[$key] ?? '';
+    if ($sortBy === 'client') {
+        $valA = $a['client_name'] ?? '';
+        $valB = $b['client_name'] ?? '';
+    } elseif ($sortBy === 'city') {
+        $valA = $a['city'] ?? '';
+        $valB = $b['city'] ?? '';
+    } elseif ($sortBy === 'stage') {
+        $valA = $stageSortOrder[$a['stage'] ?? ''] ?? 99;
+        $valB = $stageSortOrder[$b['stage'] ?? ''] ?? 99;
+    } elseif ($sortBy === 'progress') {
+        $valA = (int)($a['sort_progress'] ?? 0);
+        $valB = (int)($b['sort_progress'] ?? 0);
     } else {
-        $valA = $a[$sortBy] ?? ''; $valB = $b[$sortBy] ?? '';
+        $valA = $a[$sortBy] ?? '';
+        $valB = $b[$sortBy] ?? '';
     }
 
     if ($valA == $valB) return 0;
@@ -292,6 +397,29 @@ function getSortIndicator($column) {
     global $sortBy, $sortOrder;
     if ($sortBy === $column) return $sortOrder === 'ASC' ? ' ▲' : ' ▼';
     return '';
+}
+
+function renderScheduleColumn($project, $schedule, $column, $canEditSchedule) {
+    if (($project['type'] ?? '') !== 'in-house') {
+        return '<div class="normal-cell schedule-cell" style="justify-content:center;"><span class="rag-neutral">Capital</span></div>';
+    }
+    $s = $schedule ?? [];
+    if ($column === 'finishes' && in_array($project['finishlevel'] ?? '', ['Shell', 'Shell (No Finishes)', null, ''])) {
+        return '<div class="normal-cell schedule-cell" style="justify-content:center;"><span class="rag-neutral">N/A</span></div>';
+    }
+    $keys = $column === 'shell'
+        ? ['planned_shell_date', 'forecast_shell_date', 'actual_shell_date']
+        : ['planned_finishes_date', 'forecast_finishes_date', 'actual_finishes_date'];
+    $rag = getScheduleRagClass($s[$keys[0]] ?? null, $s[$keys[1]] ?? null, $s[$keys[2]] ?? null);
+    $inner = '<div class="schedule-cell"><span class="schedule-rag-dot ' . $rag . '"></span>'
+        . '<div class="sch-row"><span class="sch-label">Plan</span>' . formatScheduleDate($s[$keys[0]] ?? null) . '</div>'
+        . '<div class="sch-row"><span class="sch-label">Fcst</span>' . formatScheduleDate($s[$keys[1]] ?? null) . '</div>'
+        . '<div class="sch-row"><span class="sch-label">Act</span>' . formatScheduleDate($s[$keys[2]] ?? null) . '</div></div>';
+    if ($canEditSchedule) {
+        $payload = htmlspecialchars(json_encode(['id' => $project['id'], 'name' => $project['name'], 'schedule' => $s, 'finishlevel' => $project['finishlevel'] ?? '']), ENT_QUOTES);
+        return '<div class="clickable-cell" onclick=\'openScheduleModal(' . $payload . ')\' style="flex-direction:column;align-items:flex-start;">' . $inner . '<span class="edit-icon">✎</span></div>';
+    }
+    return '<div class="normal-cell" style="align-items:flex-start;">' . $inner . '</div>';
 }
 
 function renderStatusBadge($status) {
@@ -358,35 +486,48 @@ function renderAllSubsCell($demo, $exc, $const, $finIds, $subsArray, $pJson, $ca
     return "<div class='normal-cell' style='align-items:flex-start;'>$content</div>";
 }
 
-$pageTitle = 'Project Execution Matrix';
+$pageTitle = $isLegalRep ? 'Project Status' : 'Project Execution Matrix';
 require_once 'header.php';
 ?>
+<script src="/assets/js/pm-filters.js?v=<?= time() ?>"></script>
 
 <style>
-/* MATRIX WRAPPER & SCROLLBAR */
-.matrix-wrapper { position: relative; width: 100%; max-height: calc(100vh - 180px); overflow: auto; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-glass); box-shadow: var(--shadow-sm); }
-.matrix-wrapper::-webkit-scrollbar { height: 12px; width: 12px; }
-.matrix-wrapper::-webkit-scrollbar-track { background: rgba(0,0,0,0.15); border-radius: 8px; }
-.matrix-wrapper::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.6); border-radius: 8px; border: 2px solid var(--bg-card); cursor: pointer; }
-.matrix-wrapper::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 1); }
+/* CARD GRID LAYOUT */
+.matrix-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1rem; }
+.project-card { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: border-color 0.2s, box-shadow 0.2s; }
+.project-card:hover { border-color: rgba(99, 102, 241, 0.35); box-shadow: var(--shadow-sm); }
+.card-header { padding: 1rem 1rem 0.75rem; border-bottom: 1px solid var(--border-glass); cursor: pointer; }
+.card-header:hover { background: rgba(255,255,255,0.02); }
+.card-title { font-weight: 700; color: var(--primary-color); font-size: 1rem; line-height: 1.3; margin-bottom: 0.25rem; }
+.card-client { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+.card-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-section { padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.card-section:last-child { border-bottom: none; }
+.card-section-title { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; margin-bottom: 0.5rem; }
+.card-pa-list { display: flex; flex-direction: column; gap: 4px; }
+.card-pa-item { font-size: 0.8rem; line-height: 1.4; }
+.pa-link { color: var(--primary-color); text-decoration: none; font-weight: 600; }
+.pa-link:hover { text-decoration: underline; }
+.pa-status-chip { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; background: rgba(139, 92, 246, 0.15); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.25); }
+.card-execution { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+.exec-item { text-align: center; }
+.exec-label { display: block; font-size: 0.6rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+.exec-item .clickable-cell, .exec-item .normal-cell { padding: 0.35rem 0.25rem; justify-content: center; min-height: 36px; }
+.card-schedule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.card-schedule-grid .clickable-cell, .card-schedule-grid .normal-cell { padding: 0.5rem; align-items: flex-start; font-size: 0.72rem; }
+.card-team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.card-team-block { font-size: 0.75rem; line-height: 1.45; }
+.card-team-block .clickable-cell, .card-team-block .normal-cell { padding: 0; align-items: flex-start; }
+.card-empty { color: var(--text-muted); font-size: 0.8rem; font-style: italic; }
+.card-sort-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
+.card-sort-bar span { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
+.card-sort-link { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.75rem; text-decoration: none; color: var(--text-secondary); border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); }
+.card-sort-link.active, .card-sort-link:hover { color: #fff; border-color: var(--primary-color); background: rgba(99, 102, 241, 0.2); }
+.project-card.card-summary { border-color: rgba(107, 114, 128, 0.35); }
+.project-card.card-summary .card-header { cursor: pointer; }
+.card-summary-row { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem; }
+.card-summary-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 4px; background: rgba(34, 197, 94, 0.12); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.25); font-weight: 700; text-transform: uppercase; }
 
-/* TABLE BASE */
-.matrix-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.85rem; }
-.matrix-table th { position: sticky; top: 0; background: #1e1e2d; z-index: 10; padding: 1rem; font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-glass); white-space: nowrap; }
-.matrix-table td { padding: 0; border-bottom: 1px solid var(--border-glass); vertical-align: middle; color: var(--text-secondary); white-space: nowrap; height: 50px; }
-
-/* FORCIBLY UNFREEZE RIGHT COLUMNS */
-.matrix-table th, .matrix-table td { position: static !important; right: auto !important; }
-.matrix-table thead th:first-child { position: sticky !important; left: 0 !important; z-index: 20 !important; border-right: 2px solid var(--border-glass) !important; background: #1e1e2d; }
-.matrix-table tbody tr td:first-child { position: sticky !important; left: 0 !important; background: #1e1e2d !important; z-index: 5 !important; border-right: 2px solid var(--border-glass) !important; }
-.matrix-table tbody tr:hover td:first-child { background: #2a2a3b !important; }
-.matrix-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
-
-/* CONSOLIDATED PROJECT CELL */
-.project-info-cell { display: flex; flex-direction: column; gap: 6px; align-items: flex-start !important; padding: 0.75rem 1rem !important; }
-.project-title { font-weight: 700; color: var(--primary-color); font-size: 0.95rem; white-space: normal; line-height: 1.2; }
-.project-client { font-size: 0.75rem; color: var(--text-muted); font-weight: normal; margin-bottom: 4px; }
-.project-tags { display: flex; flex-wrap: wrap; gap: 6px; max-width: 320px; }
 .info-tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); white-space: nowrap; }
 .info-tag.ohsa-green { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); cursor: pointer; }
 .info-tag.ohsa-yellow { color: #f59e0b; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.1); cursor: pointer; }
@@ -394,9 +535,6 @@ require_once 'header.php';
 .info-tag.ohsa-green:hover, .info-tag.ohsa-yellow:hover, .info-tag.ohsa-red:hover { filter: brightness(1.2); }
 
 /* INTERACTIONS */
-.sort-link { color: inherit; text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.sort-link:hover { color: var(--primary-color); }
-.sort-indicator { font-size: 0.7rem; opacity: 0.7; }
 .normal-cell { padding: 0.75rem 1rem; height: 100%; display: flex; align-items: center; }
 .clickable-cell { cursor: pointer; padding: 0.75rem 1rem; height: 100%; width: 100%; display: flex; align-items: center; gap: 8px; transition: background 0.2s ease; border-radius: 4px; }
 .clickable-cell:hover { background: rgba(99, 102, 241, 0.15); }
@@ -424,34 +562,24 @@ require_once 'header.php';
 .tag-option:hover { background: rgba(99, 102, 241, 0.2); }
 .tag-empty { padding: 10px 12px; font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
 
-/* ==========================================
-   PRINT / PDF EXPORT STYLES
-   ========================================== */
+.schedule-cell { font-size: 0.72rem; line-height: 1.5; }
+.schedule-cell .sch-row { display: flex; justify-content: space-between; gap: 6px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.schedule-cell .sch-label { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.65rem; }
+.rag-green { color: #22c55e; } .rag-amber { color: #f59e0b; } .rag-red { color: #ef4444; } .rag-neutral { color: var(--text-muted); }
+.schedule-rag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.schedule-rag-dot.rag-green { background: #22c55e; } .schedule-rag-dot.rag-amber { background: #f59e0b; }
+.schedule-rag-dot.rag-red { background: #ef4444; } .schedule-rag-dot.rag-neutral { background: #6b7280; }
+
 @media print {
     @page { size: landscape; margin: 1cm; }
     body { background: #fff !important; color: #000 !important; }
-    
-    /* Hide UI Elements */
-    .header, .sidebar, .filters-section, .edit-icon, .close-modal, .sort-indicator, .modal { display: none !important; }
+    .header, .sidebar, .filters-section, .edit-icon, .close-modal, .modal, .card-sort-bar { display: none !important; }
     button, .btn { display: none !important; }
-    
-    /* Adjust Containers for PDF */
     .main-container { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
-    .matrix-wrapper { max-height: none !important; overflow: visible !important; border: none !important; box-shadow: none !important; background: transparent !important; }
-    
-    /* Adjust Table for PDF */
-    .matrix-table { width: 100% !important; border-collapse: collapse !important; page-break-inside: auto; }
-    .matrix-table th { position: static !important; background: #f3f4f6 !important; color: #111827 !important; border: 1px solid #d1d5db !important; padding: 8px !important; font-size: 10pt !important; }
-    .matrix-table td { position: static !important; background: #fff !important; color: #1f2937 !important; border: 1px solid #d1d5db !important; padding: 8px !important; font-size: 9pt !important; }
-    
-    /* Preserve Badge Colors via Webkit extension */
-    .badge, .info-tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; border-color: #d1d5db !important; }
-    
-    /* Reset layout quirks for printing */
-    .normal-cell, .clickable-cell { padding: 4px !important; }
-    a { text-decoration: none !important; color: inherit !important; }
+    .matrix-cards { display: block !important; }
+    .project-card { break-inside: avoid; margin-bottom: 1rem; border: 1px solid #d1d5db !important; box-shadow: none !important; }
+    .badge, .info-tag, .pa-status-chip { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     h1.page-title { color: #000 !important; margin-bottom: 20px !important; }
-    p { color: #4b5563 !important; }
 }
 </style>
 
@@ -459,8 +587,10 @@ require_once 'header.php';
     
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <div>
-            <h1 class="page-title" style="margin-bottom: 0;">Project Execution Matrix</h1>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Live operational dashboard. Click on any project, status, or team member to manage them directly.</p>
+            <h1 class="page-title" style="margin-bottom: 0;"><?= $isLegalRep ? 'In-House Project Status' : 'Project Execution Matrix' ?></h1>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">
+                <?= $isLegalRep ? 'Read-only view of in-house project delivery milestones and execution status.' : 'Active projects with an endorsed permit (full detail) and completed handovers (summary). Tracking and pre-permit projects are hidden.' ?>
+            </p>
         </div>
         <div>
             <button onclick="window.print()" class="btn" style="background: var(--primary-color); color: white; display: flex; align-items: center; gap: 8px;">
@@ -470,13 +600,16 @@ require_once 'header.php';
     </div>
 
     <div class="filters-section" style="margin-bottom: 1.5rem;">
-        <form method="GET" id="matrixFilters">
+        <form method="GET" id="matrixFilters" class="pm-auto-filter">
             <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
             <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
             <div class="filters-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
                 <div class="filter-group"><label>Stage</label><select name="filter_stage"><option value="all">All Stages</option><?php foreach ($allowedStages as $stg): ?><option value="<?= $stg ?>" <?= $filterStage === $stg ? 'selected' : '' ?>><?= $stg ?></option><?php endforeach; ?></select></div>
                 <div class="filter-group"><label>Finish Req</label><select name="filter_finish"><option value="all">All Levels</option><option value="Shell" <?= $filterFinish === 'Shell' ? 'selected' : '' ?>>Shell</option><option value="Common Parts Only" <?= $filterFinish === 'Common Parts Only' ? 'selected' : '' ?>>Common Parts Only</option><option value="Semi Finished" <?= $filterFinish === 'Semi Finished' ? 'selected' : '' ?>>Semi Finished</option><option value="Finished" <?= $filterFinish === 'Finished' ? 'selected' : '' ?>>Finished</option></select></div>
-                <div class="filter-group"><label>Project Type</label><select name="filter_type"><option value="all">All Types</option><option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option><option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party</option></select></div>
+                <?php if (!$isLegalRep): ?>
+                <div class="filter-group"><label>Project Type</label><select name="filter_type"><option value="all">All Types</option><option value="in-house" <?= $filterType === 'in-house' ? 'selected' : '' ?>>In-House</option><option value="3rd-party" <?= $filterType === '3rd-party' ? 'selected' : '' ?>>3rd Party (Capital)</option></select></div>
+                <?php endif; ?>
+                <div class="filter-group"><label>Locality</label><select name="filter_city"><option value="all">All Localities</option><?php foreach ($cities as $city): ?><option value="<?= htmlspecialchars($city) ?>" <?= $filterCity === $city ? 'selected' : '' ?>><?= htmlspecialchars($city) ?></option><?php endforeach; ?></select></div>
                 <div class="filter-group"><label>Client</label><select name="filter_client"><option value="all">All Clients</option><optgroup label="Groups"><option value="group_excel" <?= $filterClient === 'group_excel' ? 'selected' : '' ?>>Excel Group</option><option value="group_blue_clay" <?= $filterClient === 'group_blue_clay' ? 'selected' : '' ?>>Blue Clay</option></optgroup><optgroup label="Individual"><?php foreach ($clients as $client): ?><option value="<?= $client['id'] ?>" <?= $filterClient == $client['id'] ? 'selected' : '' ?>><?= htmlspecialchars($client['name']) ?></option><?php endforeach; ?></optgroup></select></div>
                 
                 <div class="filter-group">
@@ -495,69 +628,160 @@ require_once 'header.php';
         </form>
     </div>
 
-    <div class="matrix-wrapper">
-        <table class="matrix-table">
-            <thead>
-                <tr>
-                    <th><a href="<?= getSortUrl('name') ?>" class="sort-link">Project Detail <span class="sort-indicator"><?= getSortIndicator('name') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass); text-align: center;"><a href="<?= getSortUrl('demo_status') ?>" class="sort-link" style="justify-content:center;">Demolition <span class="sort-indicator"><?= getSortIndicator('demo_status') ?></span></a></th>
-                    <th style="text-align: center;"><a href="<?= getSortUrl('exc_status') ?>" class="sort-link" style="justify-content:center;">Excavation <span class="sort-indicator"><?= getSortIndicator('exc_status') ?></span></a></th>
-                    <th style="text-align: center;"><a href="<?= getSortUrl('const_status') ?>" class="sort-link" style="justify-content:center;">Construction <span class="sort-indicator"><?= getSortIndicator('const_status') ?></span></a></th>
-                    <th style="text-align: center;"><a href="<?= getSortUrl('fin_status') ?>" class="sort-link" style="justify-content:center;">Finishes <span class="sort-indicator"><?= getSortIndicator('fin_status') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass);"><a href="<?= getSortUrl('pm_const') ?>" class="sort-link">Project Managers <span class="sort-indicator"><?= getSortIndicator('pm_const') ?></span></a></th>
-                    <th style="border-left: 2px solid var(--border-glass);">Lead Subcontractors</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if(empty($matrixProjects)): ?>
-                    <tr><td colspan="7" style="text-align: center; padding: 2rem;">No active projects found.</td></tr>
-                <?php else: ?>
-                    <?php foreach($matrixProjects as $p): 
-                        $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
-                        $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
-                        
-                        $ohsaClass = strtolower($p['safety_status'] ?? 'na');
-                        $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
-                    ?>
-                        <tr>
-                            <td style="min-width: 320px; max-width: 380px;">
-                                <div class="clickable-cell project-info-cell" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
-                                    <div class="project-title"><?= htmlspecialchars($p['name']) ?></div>
-                                    <div class="project-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?></div>
-                                    
-                                    <div class="project-tags">
-                                        <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
-                                        <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
-                                        <?php if($p['pa_numbers']): ?>
-                                            <span class="info-tag" style="white-space:normal;">PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
-                                        <?php endif; ?>
-                                        <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments">
-                                            <?= $ohsaIcon ?> OHSA
-                                        </span>
-                                    </div>
-                                </div>
-                            </td>
-                            
-                            <td style="border-left: 2px solid var(--border-glass);">
-                                <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
-                            </td>
-                            <td><?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?></td>
-                            <td><?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?></td>
-                            <td><?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?></td>
+    <?php
+    $sortColumns = [
+        'name' => 'Name',
+        'city' => 'Locality',
+        'client' => 'Client',
+        'stage' => 'Stage',
+        'progress' => 'Progress',
+    ];
+    ?>
+    <div class="card-sort-bar">
+        <span>Sort:</span>
+        <?php foreach ($sortColumns as $col => $label): ?>
+            <a href="<?= getSortUrl($col) ?>" class="card-sort-link<?= $sortBy === $col ? ' active' : '' ?>"><?= $label ?><?= getSortIndicator($col) ?></a>
+        <?php endforeach; ?>
+    </div>
 
-                            <td style="border-left: 2px solid var(--border-glass);">
-                                <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
-                            </td>
-                            <td style="border-left: 2px solid var(--border-glass); min-width: 250px;">
-                                <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
+    <?php if (empty($matrixProjects)): ?>
+        <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
+    <?php else: ?>
+    <div class="matrix-cards">
+        <?php foreach ($matrixProjects as $p):
+            $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
+            $ohsaJson = htmlspecialchars(json_encode(['name'=>$p['name'], 'status'=>$p['safety_status'], 'comments'=>$p['safety_comments']]), ENT_QUOTES, 'UTF-8');
+            $ohsaClass = strtolower($p['safety_status'] ?? 'na');
+            $ohsaIcon = ['Green'=>'🟢', 'Yellow'=>'🟡', 'Red'=>'🔴'][$p['safety_status']] ?? '⚪';
+            $isSummary = ($p['card_mode'] ?? 'full') === 'summary';
+            $sched = $p['schedule'] ?? null;
+        ?>
+        <article class="project-card<?= $isSummary ? ' card-summary' : '' ?>">
+            <div class="card-header" onclick="openIframeModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name'], ENT_QUOTES) ?>', 'mobilisation_detail.php')" title="Open Execution Workspace">
+                <div class="card-title"><?= htmlspecialchars($p['name']) ?></div>
+                <div class="card-client"><?= htmlspecialchars($p['client_name'] ?? 'No Client') ?><?= !empty($p['city']) ? ' · ' . htmlspecialchars($p['city']) : '' ?></div>
+                <div class="card-meta">
+                    <span class="info-tag"><?= htmlspecialchars($p['stage']) ?></span>
+                    <?php if (!$isSummary): ?>
+                    <span class="info-tag">Fin: <?= htmlspecialchars($p['finishlevel'] ?? 'N/A') ?></span>
+                    <span class="info-tag"><?= (int)($p['progress_pct'] ?? 0) ?>% built</span>
+                    <span class="info-tag ohsa-<?= $ohsaClass ?>" onclick="event.stopPropagation(); openOhsaInfoModal(<?= $ohsaJson ?>);" title="View Safety Comments"><?= $ohsaIcon ?> OHSA</span>
+                    <?php else: ?>
+                    <span class="card-summary-badge">Handed Over</span>
+                    <?php endif; ?>
+                </div>
+                <?php if ($isSummary): ?>
+                <div class="card-summary-row">
+                    <?php if (!empty($sched['actual_finishes_date'])): ?>
+                        <span>Finishes: <?= formatScheduleDate($sched['actual_finishes_date']) ?></span>
+                    <?php elseif (!empty($sched['actual_shell_date'])): ?>
+                        <span>Shell: <?= formatScheduleDate($sched['actual_shell_date']) ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($p['pa_numbers'])): ?>
+                        <span>PA: <?= htmlspecialchars($p['pa_numbers']) ?></span>
+                    <?php endif; ?>
+                </div>
                 <?php endif; ?>
-            </tbody>
-        </table>
+            </div>
+
+            <?php if (!$isSummary): ?>
+            <div class="card-section">
+                <div class="card-section-title">Permit Application</div>
+                <?php if (!empty($p['pa_records'])): ?>
+                    <div class="card-pa-list">
+                        <?php foreach ($p['pa_records'] as $pa): ?>
+                            <div class="card-pa-item"><?= pmRenderPaChip($pa) ?></div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="card-empty">No PA number assigned</div>
+                <?php endif; ?>
+            </div>
+
+            <div class="card-section">
+                <div class="card-section-title">Execution Status</div>
+                <div class="card-execution">
+                    <div class="exec-item">
+                        <span class="exec-label">Demo</span>
+                        <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
+                    </div>
+                    <div class="exec-item">
+                        <span class="exec-label">Exc</span>
+                        <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?>
+                    </div>
+                    <div class="exec-item">
+                        <span class="exec-label">Const</span>
+                        <?= renderConstFinBadge(renderStatusBadge($p['const_status']), 'const', $pJson, $canUpdateStatus) ?>
+                    </div>
+                    <div class="exec-item">
+                        <span class="exec-label">Fin</span>
+                        <?= renderConstFinBadge(renderStatusBadge($p['fin_status']), 'fin', $pJson, $canUpdateStatus) ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-section">
+                <div class="card-section-title">Delivery Milestones</div>
+                <div class="card-schedule-grid">
+                    <div>
+                        <div style="font-size:0.65rem;color:#6366f1;font-weight:700;margin-bottom:4px;">Construction Complete</div>
+                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'shell', $canEditSchedule && !$isLegalRep) ?>
+                    </div>
+                    <div>
+                        <div style="font-size:0.65rem;color:#22c55e;font-weight:700;margin-bottom:4px;">Finishes Complete</div>
+                        <?= renderScheduleColumn($p, $p['schedule'] ?? null, 'finishes', $canEditSchedule && !$isLegalRep) ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-section">
+                <div class="card-section-title">Team</div>
+                <div class="card-team-grid">
+                    <div class="card-team-block">
+                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Project Managers</div>
+                        <?= renderPMsCell($p['pm_const_name'], $p['pm_fin_name'], $pJson, $canAssignTeam) ?>
+                    </div>
+                    <div class="card-team-block">
+                        <div style="font-size:0.65rem;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Subcontractors</div>
+                        <?= renderAllSubsCell($p['sub_demo_name'], $p['sub_exc_name'], $p['sub_const_name'], $p['sub_finishes_ids'] ?? '', $subs, $pJson, $canAssignTeam) ?>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+        </article>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+</div>
+
+<?php if ($canEditSchedule && !$isLegalRep): ?>
+<div id="scheduleModal" class="modal">
+    <div class="modal-content" style="max-width: 560px;">
+        <span class="close-modal" onclick="closeModal('scheduleModal')">&times;</span>
+        <h2 id="scheduleModalTitle" style="margin-top:0;color:var(--primary-color);">Delivery Schedule</h2>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1.5rem;">In-house delivery milestones — construction complete triggers legal sale contracts; finishes complete triggers final payment.</p>
+        <form method="POST">
+            <input type="hidden" name="action" value="update_schedule">
+            <input type="hidden" name="project_id" id="schedProjectId">
+            <input type="hidden" name="finishes_scope" id="schedFinishesScope">
+            <h4 style="color:#6366f1;margin:1rem 0 0.5rem;">Construction Complete (Shell)</h4>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
+                <div class="form-group"><label>Planned</label><input type="date" name="planned_shell_date" id="schedPlanShell"></div>
+                <div class="form-group"><label>Forecast</label><input type="date" name="forecast_shell_date" id="schedFcstShell"></div>
+                <div class="form-group"><label>Actual</label><input type="date" name="actual_shell_date" id="schedActShell"></div>
+            </div>
+            <h4 style="color:#22c55e;margin:1rem 0 0.5rem;">Finishes Complete</h4>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
+                <div class="form-group"><label>Planned</label><input type="date" name="planned_finishes_date" id="schedPlanFin"></div>
+                <div class="form-group"><label>Forecast</label><input type="date" name="forecast_finishes_date" id="schedFcstFin"></div>
+                <div class="form-group"><label>Actual</label><input type="date" name="actual_finishes_date" id="schedActFin"></div>
+            </div>
+            <div class="form-group" style="margin-top:1rem;"><label>Notes</label><textarea name="schedule_notes" id="schedNotes" rows="2" style="width:100%;"></textarea></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:1rem;">Save Schedule</button>
+        </form>
     </div>
 </div>
+<?php endif; ?>
 
 <div id="ohsaInfoModal" class="modal">
     <div class="modal-content" style="max-width: 450px;">
@@ -843,6 +1067,21 @@ function openAssignModal(data) {
 }
 
 document.addEventListener('DOMContentLoaded', initTagSelector);
+
+function openScheduleModal(data) {
+    document.getElementById('schedProjectId').value = data.id;
+    document.getElementById('scheduleModalTitle').textContent = 'Delivery Schedule: ' + data.name;
+    document.getElementById('schedFinishesScope').value = data.finishlevel || '';
+    const s = data.schedule || {};
+    document.getElementById('schedPlanShell').value = s.planned_shell_date || '';
+    document.getElementById('schedFcstShell').value = s.forecast_shell_date || '';
+    document.getElementById('schedActShell').value = s.actual_shell_date || '';
+    document.getElementById('schedPlanFin').value = s.planned_finishes_date || '';
+    document.getElementById('schedFcstFin').value = s.forecast_finishes_date || '';
+    document.getElementById('schedActFin').value = s.actual_finishes_date || '';
+    document.getElementById('schedNotes').value = s.notes || '';
+    document.getElementById('scheduleModal').style.display = 'block';
+}
 </script>
 
 <?php require_once 'footer.php'; ?>

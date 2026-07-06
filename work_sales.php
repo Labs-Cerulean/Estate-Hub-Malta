@@ -82,6 +82,33 @@ try {
     
     // 3. Add free-text project reference column
     $pdo->exec("ALTER TABLE sales_quotes ADD COLUMN project_name_free VARCHAR(255) DEFAULT NULL");
+
+    $ohsaCount = (int)$pdo->query("SELECT COUNT(*) FROM sales_standard_items WHERE quote_type = 'OHSA'")->fetchColumn();
+    if ($ohsaCount === 0) {
+        $ohsaItems = [
+            ['1 - Documentation', 'Preparation and submission of initial documentation for construction projects', 'lump_sum', 350.00, 10],
+            ['2 - Site Inspections', 'Site inspection and preparation of report — normal size sites (max 45 min)', 'visit', 50.00, 20],
+            ['2 - Site Inspections', 'Site inspection and preparation of report — large size sites (max 1 hr; extra at €35/hr)', 'visit', 70.00, 21],
+            ['3 - Training', 'General OHS training', 'participant', 45.00, 30],
+            ['3 - Training', 'Policies and procedures training to management/workers', 'participant', 45.00, 31],
+            ['1 - Documentation', 'Preparation of Company policy and procedures for OHSMS (€250–350 per procedure)', 'procedure', 300.00, 11],
+            ['1 - Documentation', 'Preparation of OHSMS documentation — registers, forms, permits, checklists', 'document', 150.00, 12],
+            ['1 - Documentation', 'Preparation of evacuation procedure — small to medium premises', 'procedure', 250.00, 13],
+            ['1 - Documentation', 'Preparation of evacuation procedure — large premises (€350–500)', 'procedure', 425.00, 14],
+            ['4 - Risk Assessments', 'Preparation of a general risk assessment', 'assessment', 250.00, 40],
+            ['4 - Risk Assessments', 'Preparation of specific risk assessment / SWMS / RAMS (€350–450)', 'assessment', 400.00, 41],
+            ['4 - Risk Assessments', 'General risk assessment — small to medium workplaces', 'assessment', 450.00, 42],
+            ['4 - Risk Assessments', 'General risk assessment — large workplaces (€550–850)', 'assessment', 700.00, 43],
+            ['4 - Risk Assessments', 'General risk assessment — small to medium Hotels (€550–750)', 'assessment', 650.00, 44],
+            ['4 - Risk Assessments', 'General risk assessment — large and complex Hotels (€850–1,250)', 'assessment', 1050.00, 45],
+            ['5 - Consultancy', 'General OHS Consultancy', 'hour', 35.00, 50],
+        ];
+        $insOhsa = $pdo->prepare("INSERT INTO sales_standard_items (quote_type, category, description, unit, default_rate, sort_order, is_active) VALUES ('OHSA', ?, ?, ?, ?, ?, 1)");
+        foreach ($ohsaItems as $item) { $insOhsa->execute($item); }
+    }
+    try {
+        $pdo->exec("INSERT IGNORE INTO sales_default_terms (quote_type, terms_text) VALUES ('OHSA', 'All prices quoted are exclusive of VAT. Payment terms: 50% on acceptance, balance on completion unless otherwise agreed.')");
+    } catch (PDOException $e) {}
 } catch(PDOException $e) {}
 
 
@@ -89,12 +116,13 @@ try {
 $access = [
     'Demolition_Excavation' => ['view' => hasPermission('view_sales_demo_exc') || $isAdmin, 'manage' => hasPermission('manage_sales_demo_exc') || $isAdmin],
     'Construction' => ['view' => hasPermission('view_sales_const') || $isAdmin, 'manage' => hasPermission('manage_sales_const') || $isAdmin],
-    'Finishes' => ['view' => hasPermission('view_sales_finishes') || $isAdmin, 'manage' => hasPermission('manage_sales_finishes') || $isAdmin]
+    'Finishes' => ['view' => hasPermission('view_sales_finishes') || $isAdmin, 'manage' => hasPermission('manage_sales_finishes') || $isAdmin],
+    'OHSA' => ['view' => hasPermission('view_sales_ohsa') || $isAdmin, 'manage' => hasPermission('manage_sales_ohsa') || $isAdmin],
 ];
 
 $canApproveQuotes = hasPermission('approve_quotes') || $isAdmin;
 
-if (!$access['Demolition_Excavation']['view'] && !$access['Construction']['view'] && !$access['Finishes']['view']) {
+if (!$access['Demolition_Excavation']['view'] && !$access['Construction']['view'] && !$access['Finishes']['view'] && !$access['OHSA']['view']) {
     header('Location: dashboard.php?error=unauthorized');
     exit;
 }
@@ -129,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $project_id = !empty($_POST['project_id']) ? (int)$_POST['project_id'] : null;
             $project_name_free = !empty($_POST['project_name_free']) ? trim($_POST['project_name_free']) : null;
             
-            if (!$project_id && !$project_name_free && $type !== 'Demolition_Excavation') {
+            if (!$project_id && !$project_name_free && !in_array($type, ['Demolition_Excavation'])) {
                 throw new Exception("You must select an existing project OR enter a free-text project reference.");
             }
             
@@ -149,7 +177,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $newQuoteId = $pdo->lastInsertId();
             
-            if ($type !== 'Finishes') { 
+            // Finishes and OHSA start empty — Finishes uses calculators; OHSA uses pick-from-catalogue
+            if (!in_array($type, ['Finishes', 'OHSA'], true)) { 
                 $stmtStd = $pdo->prepare("SELECT * FROM sales_standard_items WHERE quote_type = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC");
                 $stmtStd->execute([$type]);
                 $stdItems = $stmtStd->fetchAll(PDO::FETCH_ASSOC);
@@ -719,6 +748,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Claim deleted securely.";
         }
 
+        // 10. OHSA — add single service from catalogue (with quantity)
+        elseif ($action === 'add_catalogue_item') {
+            $qId = (int)$_POST['quote_id'];
+            if (!$access['OHSA']['manage']) throw new Exception("Unauthorized.");
+
+            $qCheck = $pdo->prepare("SELECT quote_type, status FROM sales_quotes WHERE id = ?");
+            $qCheck->execute([$qId]);
+            $qRow = $qCheck->fetch(PDO::FETCH_ASSOC);
+            if (!$qRow) throw new Exception("Quote not found.");
+            if ($qRow['quote_type'] !== 'OHSA') throw new Exception("Not an OHSA quote.");
+            if (!in_array($qRow['status'], ['Draft', 'Rejected'])) throw new Exception("Quote is locked.");
+
+            $stdId = (int)$_POST['standard_item_id'];
+            $stmt = $pdo->prepare("SELECT * FROM sales_standard_items WHERE id = ? AND quote_type = 'OHSA' AND is_active = 1");
+            $stmt->execute([$stdId]);
+            $std = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$std) throw new Exception("Service not found in catalogue.");
+
+            $qty = (float)($_POST['estimated_qty'] ?? 0);
+            if ($qty <= 0) throw new Exception("Quantity must be greater than zero.");
+
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$qId, $std['category'], $std['description'], $std['unit'], $qty, $std['default_rate'], $std['sort_order']]);
+            $pdo->prepare("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = ?) WHERE id = ?")->execute([$qId, $qId]);
+            $pdo->prepare("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = ?")->execute([$qId]);
+            $pdo->commit();
+            $message = "Service added from catalogue.";
+        }
+
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         $error = $e->getMessage();
@@ -763,6 +822,12 @@ if ($viewQuoteId) {
     
     $canManageQuote = $access[$quote['quote_type']]['manage'];
     $isQuoteLocked = !in_array($quote['status'], ['Draft', 'Rejected']);
+    $isOhsaQuote = ($quote['quote_type'] === 'OHSA');
+    $ohsaCatalogue = [];
+    if ($isOhsaQuote) {
+        $catStmt = $pdo->query("SELECT * FROM sales_standard_items WHERE quote_type = 'OHSA' AND is_active = 1 ORDER BY sort_order ASC, id ASC");
+        $ohsaCatalogue = $catStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
     $pageTitle = "Quote: " . $quote['reference_number'];
     
 } else {
@@ -821,10 +886,16 @@ if ($viewQuoteId) {
 }
 
 function displayUnit($u) {
-    $m = ['lump_sum'=>'Lump Sum', 'sqm'=>'sq.m', 'lm'=>'lm', 'cum'=>'cu.m', 'cu.yd'=>'cu.yd', 'hrs'=>'Hours', 'qty'=>'Qty / Pcs'];
+    $m = [
+        'lump_sum' => 'Lump Sum', 'sqm' => 'sq.m', 'lm' => 'lm', 'cum' => 'cu.m', 'cu.yd' => 'cu.yd',
+        'hrs' => 'Hours', 'hour' => 'Hour', 'qty' => 'Qty / Pcs',
+        'visit' => 'Visit', 'participant' => 'Participant', 'procedure' => 'Procedure',
+        'document' => 'Document', 'assessment' => 'Assessment',
+    ];
     return $m[$u] ?? $u;
 }
 
+require_once __DIR__ . '/includes/entity_select_helpers.php';
 require_once 'header.php';
 ?>
 
@@ -865,11 +936,11 @@ require_once 'header.php';
         <strong style="color: var(--primary-color);">Account Context (Contractor):</strong>
         <form method="GET" style="margin: 0; display:flex; gap: 10px; align-items:center;">
             <?php if (isset($_GET['tab'])): ?><input type="hidden" name="tab" value="<?= htmlspecialchars($_GET['tab']) ?>"><?php endif; ?>
-            <select name="contractor_id" onchange="this.form.submit()">
-                <option value="">-- Select Issuing Contractor --</option>
-                <?php foreach($allEntities as $c): ?>
-                    <option value="<?= $c['id'] ?>" <?= $selected_contractor_id == $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
-                <?php endforeach; ?>
+            <select name="contractor_id" class="entity-select entity-select-search" data-recent-kind="contractor" onchange="this.form.submit()">
+                <?= entitySelectOptionsHtml($allEntities, [
+                    'placeholder' => '-- Select Issuing Contractor --',
+                    'selected' => $selected_contractor_id,
+                ]) ?>
             </select>
         </form>
     </div>
@@ -903,6 +974,9 @@ require_once 'header.php';
                     <?php if ($access['Finishes']['manage']): ?>
                         <button class="btn btn-primary" style="background: #8b5cf6; border: none;" onclick="openCreateQuoteModal('Finishes')">+ Finishes Quote</button>
                     <?php endif; ?>
+                    <?php if ($access['OHSA']['manage']): ?>
+                        <button class="btn btn-primary" style="background: #14b8a6; border: none;" onclick="openCreateQuoteModal('OHSA')">+ OHSA Quote</button>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -915,6 +989,9 @@ require_once 'header.php';
                 <?php endif; ?>
                 <?php if ($access['Finishes']['view']): ?>
                     <a href="?contractor_id=<?= $selected_contractor_id ?>&tab=Finishes" class="tab-btn <?= $currentTab === 'Finishes' ? 'active' : '' ?>">Turnkey & Finishes</a>
+                <?php endif; ?>
+                <?php if ($access['OHSA']['view']): ?>
+                    <a href="?contractor_id=<?= $selected_contractor_id ?>&tab=OHSA" class="tab-btn <?= $currentTab === 'OHSA' ? 'active' : '' ?>">OHSA / Health & Safety</a>
                 <?php endif; ?>
             </div>
 
@@ -1060,7 +1137,7 @@ require_once 'header.php';
                 </table>
             </div>
 
-            <?php if ($access['Demolition_Excavation']['manage'] || $access['Construction']['manage'] || $access['Finishes']['manage']): ?>
+            <?php if ($access['Demolition_Excavation']['manage'] || $access['Construction']['manage'] || $access['Finishes']['manage'] || $access['OHSA']['manage']): ?>
             <div id="createQuoteModal" class="modal">
                 <div class="modal-content">
                     <span class="close-modal" onclick="document.getElementById('createQuoteModal').style.display='none'">&times;</span>
@@ -1071,14 +1148,17 @@ require_once 'header.php';
                         <input type="hidden" name="contractor_id" value="<?= $selected_contractor_id ?>">
                         <input type="hidden" id="gen_contractor_prefix" value="<?= $contractorPrefix ?>">
                         
+                        <div data-entity-cascade="client-project">
                         <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px;">
                             <label style="color: var(--primary-color);">1. Who is the Client? (Choose ONE option)</label>
                             
                             <div style="margin-top: 10px;">
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option A: Select Existing Client / Internal Company</label>
-                                <select name="client_id" onchange="autoGenRef()">
-                                    <option value="">-- Select Existing Client --</option>
-                                    <?php foreach($allEntities as $c): ?><option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option><?php endforeach; ?>
+                                <select name="client_id" class="entity-select entity-select-search" data-recent-kind="client" data-entity-role="client" onchange="autoGenRef()">
+                                    <?= entitySelectOptionsHtml($allEntities, [
+                                        'placeholder' => '-- Select Existing Client --',
+                                        'subtitleFn' => 'entityClientSubtitle',
+                                    ]) ?>
                                 </select>
                             </div>
                             
@@ -1095,9 +1175,12 @@ require_once 'header.php';
                             
                             <div style="margin-top: 10px;">
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option A: Select Existing Project</label>
-                                <select name="project_id" id="create_project_select" onchange="autoGenRef()">
-                                    <option value="">-- Select Project --</option>
-                                    <?php foreach($projectsDb as $p): ?><option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['client_name']) ?>)</option><?php endforeach; ?>
+                                <select name="project_id" id="create_project_select" class="entity-select entity-select-search" data-recent-kind="project" data-entity-role="project" data-placeholder="-- Select Project --" onchange="autoGenRef()">
+                                    <?= entitySelectOptionsHtml($projectsDb, [
+                                        'placeholder' => '-- Select Project --',
+                                        'subtitleFn' => 'entityProjectSubtitle',
+                                        'dataAttrs' => ['client-id' => 'clientid'],
+                                    ]) ?>
                                 </select>
                             </div>
                             
@@ -1107,6 +1190,7 @@ require_once 'header.php';
                                 <label style="font-size: 0.8rem; color: var(--text-muted);">Option B: Free-Text Project Reference</label>
                                 <input type="text" name="project_name_free" onkeyup="autoGenRef()" placeholder="e.g. Block A Renovation">
                             </div>
+                        </div>
                         </div>
                         <div class="form-grid" style="grid-template-columns: 2fr 1fr; gap: 10px;">
                             <div class="form-group">
@@ -1136,6 +1220,7 @@ require_once 'header.php';
                 } else {
                     if (type === 'Construction') title = 'Create Construction Quote';
                     if (type === 'Finishes') title = 'Create Turnkey & Finishes Quote';
+                    if (type === 'OHSA') title = 'Create OHSA / Health & Safety Quote';
                     projLabel.innerText = '2. Project Reference (Required) *';
                 }
                 
@@ -1244,17 +1329,25 @@ require_once 'header.php';
                 
                 <div class="section-card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
-                        <h2 style="margin: 0;">Bill of Quantities (BoQ)</h2>
+                        <h2 style="margin: 0;"><?= $isOhsaQuote ? 'Services Schedule' : 'Bill of Quantities (BoQ)' ?></h2>
                         <?php if ($canManageQuote && !$isQuoteLocked): ?>
-                            <div style="display: flex; gap: 5px;">
+                            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                                 <?php if ($quote['quote_type'] === 'Finishes'): ?>
                                     <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid #8b5cf6;" onclick="document.getElementById('fcModal').style.display='block'">⚡ Full Finishes Calc</button>
                                     <button class="btn btn-sm" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid #f59e0b;" onclick="document.getElementById('sfModal').style.display='block'">🔨 Semi-Finishes Quote Only</button>
+                                <?php elseif ($isOhsaQuote): ?>
+                                    <button class="btn btn-sm" style="background: rgba(20, 184, 166, 0.1); color: #14b8a6; border: 1px solid #14b8a6;" onclick="document.getElementById('ohsaCatalogueModal').style.display='block'">📋 Add from Rate Catalogue</button>
                                 <?php endif; ?>
-                                <button class="btn btn-sm btn-primary" onclick="openItemModal()">+ Add Line Item</button>
+                                <button class="btn btn-sm btn-primary" onclick="openItemModal()"><?= $isOhsaQuote ? '+ Custom Service' : '+ Add Line Item' ?></button>
                             </div>
                         <?php endif; ?>
                     </div>
+
+                    <?php if ($isOhsaQuote && empty($ohsaCatalogue)): ?>
+                        <div class="alert alert-info" style="margin-bottom: 1rem; font-size: 0.85rem;">
+                            No OHSA services in the rate catalogue yet. An admin should run <code>sql/ohsa_standard_rates.sql</code> in phpMyAdmin, or add services via <a href="admin_standard_rates.php" style="color: var(--primary-color);">Standard Quote Rates</a>.
+                        </div>
+                    <?php endif; ?>
 
                     <table class="boq-table">
                         <thead>
@@ -1676,10 +1769,57 @@ require_once 'header.php';
             <?php endif; ?>
 
             <?php if ($canManageQuote && !$isQuoteLocked): ?>
+            <?php if ($isOhsaQuote): ?>
+            <div id="ohsaCatalogueModal" class="modal">
+                <div class="modal-content" style="max-width: 720px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h2 style="margin: 0; color: #14b8a6;">OHSA Rate Catalogue</h2>
+                        <span class="close-modal" onclick="document.getElementById('ohsaCatalogueModal').style.display='none'" style="float:none;">&times;</span>
+                    </div>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0;">Pick services from the rate catalogue and set the quantity before adding. Only selected items appear on the quote and printout.</p>
+                    <?php if (empty($ohsaCatalogue)): ?>
+                        <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Catalogue empty — seed rates via admin or sql/ohsa_standard_rates.sql</div>
+                    <?php else: ?>
+                    <div class="custom-scrollbar" style="overflow-y: auto; flex: 1;">
+                        <table class="boq-table" style="font-size: 0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Service</th>
+                                    <th>Unit</th>
+                                    <th style="text-align: right;">Rate</th>
+                                    <th style="text-align: right; width: 160px;">Qty / Add</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($ohsaCatalogue as $catItem): ?>
+                                <tr>
+                                    <td style="color: var(--primary-color); font-weight: 600; white-space: nowrap;"><?= htmlspecialchars($catItem['category']) ?></td>
+                                    <td><?= nl2br(htmlspecialchars($catItem['description'])) ?></td>
+                                    <td><?= displayUnit($catItem['unit']) ?></td>
+                                    <td style="text-align: right; font-weight: bold;">€<?= number_format($catItem['default_rate'], 2) ?></td>
+                                    <td style="text-align: right;">
+                                        <form method="POST" style="display:inline-flex; align-items: center; gap: 6px; justify-content: flex-end;">
+                                            <input type="hidden" name="action" value="add_catalogue_item">
+                                            <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
+                                            <input type="hidden" name="standard_item_id" value="<?= (int)$catItem['id'] ?>">
+                                            <input type="number" name="estimated_qty" min="0.01" step="0.01" value="1" required style="width: 70px; padding: 4px 6px; text-align: right;">
+                                            <button type="submit" class="btn btn-sm btn-primary" style="padding: 4px 10px;">Add</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
             <div id="itemModal" class="modal">
                 <div class="modal-content" style="max-width: 500px;">
                     <span class="close-modal" onclick="document.getElementById('itemModal').style.display='none'">&times;</span>
-                    <h2 id="itemModalTitle" style="color: var(--primary-color); margin-top: 0;">Add Line Item</h2>
+                    <h2 id="itemModalTitle" style="color: var(--primary-color); margin-top: 0;"><?= $isOhsaQuote ? 'Add Custom Service' : 'Add Line Item' ?></h2>
                     <form method="POST">
                         <input type="hidden" name="action" value="save_item">
                         <input type="hidden" name="quote_id" value="<?= $quote['id'] ?>">
@@ -1698,6 +1838,16 @@ require_once 'header.php';
                             <div class="form-group">
                                 <label>Unit</label>
                                 <select name="unit" id="mod_item_unit">
+                                    <?php if ($isOhsaQuote): ?>
+                                    <option value="visit">Visit</option>
+                                    <option value="participant">Participant</option>
+                                    <option value="procedure">Procedure</option>
+                                    <option value="document">Document</option>
+                                    <option value="assessment">Assessment</option>
+                                    <option value="hour">Hour</option>
+                                    <option value="lump_sum">Lump Sum</option>
+                                    <option value="qty">Qty / Pcs</option>
+                                    <?php else: ?>
                                     <option value="lump_sum">Lump Sum</option>
                                     <option value="sqm">sq.m (Area)</option>
                                     <option value="lm">lm (Linear)</option>
@@ -1705,6 +1855,7 @@ require_once 'header.php';
                                     <option value="cu.yd">cu.yd (Excavation)</option>
                                     <option value="hrs">Hours</option>
                                     <option value="qty">Qty / Pcs</option>
+                                    <?php endif; ?>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -1779,7 +1930,7 @@ require_once 'header.php';
             <script>
             function openItemModal(data = null) {
                 if(data) {
-                    document.getElementById('itemModalTitle').innerText = 'Edit Line Item';
+                    document.getElementById('itemModalTitle').innerText = <?= $isOhsaQuote ? "'Edit Service'" : "'Edit Line Item'" ?>;
                     document.getElementById('mod_item_id').value = data.id;
                     document.getElementById('mod_item_cat').value = data.category;
                     document.getElementById('mod_item_desc').value = data.description;
@@ -1788,7 +1939,7 @@ require_once 'header.php';
                     document.getElementById('mod_item_rate').value = data.unit_rate;
                     document.getElementById('mod_item_sort').value = data.sort_order;
                 } else {
-                    document.getElementById('itemModalTitle').innerText = 'Add Line Item';
+                    document.getElementById('itemModalTitle').innerText = <?= $isOhsaQuote ? "'Add Custom Service'" : "'Add Line Item'" ?>;
                     document.getElementById('mod_item_id').value = '';
                     document.getElementById('mod_item_desc').value = '';
                     document.getElementById('mod_item_qty').value = '0.00';
@@ -1835,10 +1986,12 @@ require_once 'header.php';
                 let cModal = document.getElementById('claimModal');
                 let fcModal = document.getElementById('fcModal');
                 let sfModal = document.getElementById('sfModal');
+                let ohsaCatModal = document.getElementById('ohsaCatalogueModal');
                 if (iModal && event.target == iModal) iModal.style.display = "none";
                 if (cModal && event.target == cModal) cModal.style.display = "none";
                 if (fcModal && event.target == fcModal) fcModal.style.display = "none";
                 if (sfModal && event.target == sfModal) sfModal.style.display = "none";
+                if (ohsaCatModal && event.target == ohsaCatModal) ohsaCatModal.style.display = "none";
             });
             </script>
 

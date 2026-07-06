@@ -16,6 +16,7 @@ if (!hasProjectAccess($pdo, $projectId)) { header('Location: dashboard.php?error
 
 $project = getProjectWithClient($pdo, $projectId);
 if (!$project) { header('Location: dashboard.php'); exit; }
+$project['stage'] = getAccurateProjectStage($pdo, $projectId);
 
 // CAPITAL PROJECT FLAG
 $isCapital = in_array(strtolower($project['type'] ?? ''), ['3rd-party', 'capital', '3rd party']);
@@ -33,8 +34,17 @@ if ($project['is_tracking'] == 1 && !hasPermission('view_tracking') && !isAdmin(
 
 $canUpdateStatus = canUpdateStatus($pdo, $projectId);
 $canEditServices = hasPermission('edit_services') || isAdmin();
+$canEditSchedule = canEditProjectSchedule($pdo, $projectId);
 $disabledAttr = $canUpdateStatus ? '' : 'disabled';
 $servicesDisabledAttr = $canEditServices ? '' : 'disabled';
+$isInHouse = ($project['type'] ?? '') === 'in-house';
+
+$deliverySchedule = null;
+if ($isInHouse) {
+    $schedStmt = $pdo->prepare("SELECT * FROM project_delivery_schedule WHERE project_id = ?");
+    $schedStmt->execute([$projectId]);
+    $deliverySchedule = $schedStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+}
 
 $message = ''; $error = '';
 
@@ -118,6 +128,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
+    if (($_POST['action'] ?? null) === 'update_schedule' && $canEditSchedule && $isInHouse) {
+        try {
+            $emptyDate = fn($k) => empty($_POST[$k]) ? null : $_POST[$k];
+            $stmt = $pdo->prepare("
+                INSERT INTO project_delivery_schedule
+                (project_id, planned_shell_date, forecast_shell_date, actual_shell_date,
+                 planned_finishes_date, forecast_finishes_date, actual_finishes_date, finishes_scope, notes, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                planned_shell_date=VALUES(planned_shell_date), forecast_shell_date=VALUES(forecast_shell_date),
+                actual_shell_date=VALUES(actual_shell_date), planned_finishes_date=VALUES(planned_finishes_date),
+                forecast_finishes_date=VALUES(forecast_finishes_date), actual_finishes_date=VALUES(actual_finishes_date),
+                finishes_scope=VALUES(finishes_scope), notes=VALUES(notes), updated_by=VALUES(updated_by)
+            ");
+            $stmt->execute([
+                $projectId,
+                $emptyDate('planned_shell_date'), $emptyDate('forecast_shell_date'), $emptyDate('actual_shell_date'),
+                $emptyDate('planned_finishes_date'), $emptyDate('forecast_finishes_date'), $emptyDate('actual_finishes_date'),
+                $_POST['finishes_scope'] ?? $project['finishlevel'],
+                trim($_POST['schedule_notes'] ?? ''),
+                getCurrentUserId()
+            ]);
+            $message = 'Delivery schedule updated successfully!';
+            $schedStmt = $pdo->prepare("SELECT * FROM project_delivery_schedule WHERE project_id = ?");
+            $schedStmt->execute([$projectId]);
+            $deliverySchedule = $schedStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (PDOException $e) { $error = 'Error updating schedule: ' . $e->getMessage(); }
+    }
+
     // --- NEW: EXTRAORDINARY BLOCKER HANDLER ---
     if (($_POST['action'] ?? null) === 'update_blocker' && $canUpdateStatus) {
         $bStatus = $_POST['blocker_status'] ?? 'None';
@@ -359,9 +398,24 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
 <div class="main-container" style="padding-bottom: 100px;">
     
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h1 class="page-title" style="margin: 0;"><?= htmlspecialchars($project['name']) ?></h1>
-        <?php if(!$isModal): ?><a href="projects.php" class="btn btn-secondary">← Back to Projects</a><?php endif; ?>
+        <?php if(!$isModal): ?><a href="projects.php" class="btn btn-secondary" style="margin-left:auto;">← Back to Execution Dashboard</a><?php endif; ?>
     </div>
+
+    <?php if (!$canUpdateStatus): ?>
+    <div style="background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.2rem;">👁️</span>
+        <div>
+            <strong style="color: var(--primary-color);">View Only</strong>
+            <span style="color: var(--text-secondary); font-size: 0.9rem;"> — You can review project status but cannot make changes.</span>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php
+    $headerLinks = [['href' => 'projects.php', 'label' => '← Execution Dashboard']];
+    if (hasPermission('view_ohsa') || isAdmin()) $headerLinks[] = ['href' => 'ohsa.php', 'label' => 'OHSA Matrix'];
+    require __DIR__ . '/includes/project_header.php';
+    ?>
 
     <div class="stage-tracker">
         <div style="flex: 1;">
@@ -373,6 +427,41 @@ details[open].block-accordion > summary { border-bottom: 1px solid var(--border-
             <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Status auto-calculates based on clearance and block progress below.</div>
         </div>
     </div>
+
+    <?php if ($isInHouse): ?>
+    <div class="section-card" style="margin-bottom: 2rem; border-top: 4px solid #6366f1;">
+        <div class="section-header"><h2 style="margin:0;color:#6366f1;">📅 In-House Delivery Schedule</h2></div>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin:0.5rem 0 1rem;">Construction complete → legal sale contracts. Finishes complete → credit control final payment.</p>
+        <form method="POST">
+            <input type="hidden" name="action" value="update_schedule">
+            <input type="hidden" name="finishes_scope" value="<?= htmlspecialchars($project['finishlevel'] ?? '') ?>">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;">
+                <div>
+                    <h4 style="margin:0 0 0.75rem;color:var(--primary-color);">Construction Complete</h4>
+                    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:0.5rem;">
+                        <div class="form-group"><label>Planned</label><input type="date" name="planned_shell_date" value="<?= htmlspecialchars($deliverySchedule['planned_shell_date'] ?? '') ?>" <?= $canEditSchedule ? '' : 'disabled' ?>></div>
+                        <div class="form-group"><label>Forecast</label><input type="date" name="forecast_shell_date" value="<?= htmlspecialchars($deliverySchedule['forecast_shell_date'] ?? '') ?>" <?= $canEditSchedule ? '' : 'disabled' ?>></div>
+                        <div class="form-group"><label>Actual</label><input type="date" name="actual_shell_date" value="<?= htmlspecialchars($deliverySchedule['actual_shell_date'] ?? '') ?>" <?= $canEditSchedule ? '' : 'disabled' ?>></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 style="margin:0 0 0.75rem;color:#22c55e;">Finishes Complete</h4>
+                    <?php if (in_array($project['finishlevel'] ?? '', ['Shell', 'Shell (No Finishes)', null, ''])): ?>
+                        <p style="color:var(--text-muted);font-size:0.9rem;">N/A — project finish level is Shell (no finishes scope).</p>
+                    <?php else: ?>
+                    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:0.5rem;">
+                        <div class="form-group"><label>Planned</label><input type="date" name="planned_finishes_date" value="<?= htmlspecialchars($deliverySchedule['planned_finishes_date'] ?? '') ?>" <?= $canEditSchedule ? '' : 'disabled' ?>></div>
+                        <div class="form-group"><label>Forecast</label><input type="date" name="forecast_finishes_date" value="<?= htmlspecialchars($deliverySchedule['forecast_finishes_date'] ?? '') ?>" <?= $canEditSchedule ? '' : 'disabled' ?>></div>
+                        <div class="form-group"><label>Actual</label><input type="date" name="actual_finishes_date" value="<?= htmlspecialchars($deliverySchedule['actual_finishes_date'] ?? '') ?>" <?= $canEditSchedule ? '' : 'disabled' ?>></div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top:1rem;"><label>Notes</label><textarea name="schedule_notes" rows="2" <?= $canEditSchedule ? '' : 'disabled' ?>><?= htmlspecialchars($deliverySchedule['notes'] ?? '') ?></textarea></div>
+            <?php if ($canEditSchedule): ?><div style="text-align:right;margin-top:1rem;"><button type="submit" class="btn btn-primary">Save Delivery Schedule</button></div><?php endif; ?>
+        </form>
+    </div>
+    <?php endif; ?>
 
     <div class="section-card" style="margin-bottom: 2rem; border-top: 4px solid #dc2626; background: rgba(220,38,38,0.02);">
         <div class="section-header">

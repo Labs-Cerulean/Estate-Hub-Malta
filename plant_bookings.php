@@ -2,12 +2,14 @@
 require_once 'config.php';
 require_once 'session-check.php';
 require_once 'user-functions.php';
+require_once __DIR__ . '/includes/nav_config.php';
 
 $role = $_SESSION['role'];
 $isPlantUser = in_array($role, ['plant_manager', 'plant_driver']);
 $isAccountant = ($role === 'accountant');
+$canAccessPlantDashboard = navCanAccessPlantDashboard();
 
-if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant) { 
+if (!hasPermission('view_plant_bookings') && !$isPlantUser && !$isAccountant && !in_array($role, ['admin', 'director'], true)) { 
     die("Unauthorized Access."); 
 }
 
@@ -77,6 +79,7 @@ $userId = $_SESSION['user_id'];
     <div class="header">
         <h2 onclick="showView('view-calendar')" style="cursor:pointer;"><i class="fas fa-tractor text-teal-400"></i> Plant Hub</h2>
         <div style="display: flex; gap: 10px;">
+            <?php if ($canAccessPlantDashboard): ?><a href="plant_dashboard.php" class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem; text-decoration:none;" title="Fleet Dashboard"><i class="fas fa-chart-line"></i></a><?php endif; ?>
             <?php if ($canViewLedger): ?><button class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="loadLedger()"><i class="fas fa-file-invoice-dollar"></i></button><?php endif; ?>
             <?php if ($canManageFleet): ?><button class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="loadFleetView()"><i class="fas fa-truck-monster"></i></button><?php endif; ?>
             <?php if ($isManager): ?><button class="btn-heavy btn-blue" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="openCreateForm()"><i class="fas fa-plus"></i></button><?php endif; ?>
@@ -702,10 +705,14 @@ $userId = $_SESSION['user_id'];
 
     function loadFormData() {
         fetch('api/plant_actions.php?action=form_data')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(d => {
-            groupedPlants = d.plants;
-            
+            if (d.error) throw new Error(d.error);
+            groupedPlants = d.plants || {};
+
             // Safely check if the booking form elements exist before populating them
             const catDropdown = document.getElementById('plant_category');
             if (catDropdown) {
@@ -713,7 +720,7 @@ $userId = $_SESSION['user_id'];
             }
 
             const driverDropdown = document.getElementById('driver_id');
-            if (driverDropdown) {
+            if (driverDropdown && Array.isArray(d.drivers)) {
                 driverDropdown.innerHTML = '<option value="">-- Unassigned --</option>' + d.drivers.map(drv => `<option value="${drv.id}">${drv.first_name} ${drv.last_name}</option>`).join('');
             }
             
@@ -728,13 +735,13 @@ $userId = $_SESSION['user_id'];
                 }
             }
 
-            window.allProjects = d.projects;
+            window.allProjects = Array.isArray(d.projects) ? d.projects : [];
             
             // Auto-populate ledger filter dropdowns safely
             if(document.getElementById('filter_plant_type')) {
                 document.getElementById('filter_plant_type').innerHTML = '<option value="">All Types</option>' + Object.keys(groupedPlants).map(c => `<option value="${c}">${c}</option>`).join('');
             }
-            if(document.getElementById('filter_project')) {
+            if(document.getElementById('filter_project') && Array.isArray(d.projects)) {
                 document.getElementById('filter_project').innerHTML = '<option value="">All Projects</option>' + d.projects.map(prj => `<option value="${prj.id}">${prj.name}</option>`).join('');
             }
             
@@ -742,6 +749,10 @@ $userId = $_SESSION['user_id'];
             if (catDropdown) {
                 updatePlantDropdown();
             }
+        })
+        .catch(err => {
+            console.error('loadFormData failed:', err);
+            alert('Could not load booking form data. Please refresh the page.');
         });
     }
 
@@ -1485,9 +1496,16 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function loadJob(id) {
-        fetch(`api/plant_actions.php?action=get_job&id=${id}`)
-        .then(r => r.json())
+        fetch(`api/plant_actions.php?action=get_job&id=${encodeURIComponent(id)}`)
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(job => {
+            if (!job || job.error || !job.id) {
+                alert(job && job.error ? job.error : 'Could not load booking details.');
+                return;
+            }
             window.currentActiveJob = job; 
             document.getElementById('job-title').innerHTML = `<i class="fas fa-truck-pickup text-indigo-500"></i> ${job.plant_name}`;
             
@@ -1507,10 +1525,12 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
 
             // Holistic Time Display
             let timeDisplay = '';
+            const startLabel = job.start_time ? job.start_time.substring(0, 5) : 'TBC';
+            const endLabel = job.end_time ? job.end_time.substring(0, 5) : 'TBC';
             if (job.pricing_type === 'daily' || job.lifecycle_type === 'Auto-Scheduled') {
                 timeDisplay = `${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} <span style="color:#64748b; font-size:0.9rem;">(Daily Duration)</span>`;
             } else {
-                timeDisplay = `${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} (${job.start_time.substring(0,5)} - ${job.end_time.substring(0,5)})`;
+                timeDisplay = `${job.booking_date} ${job.end_date && job.end_date !== job.booking_date ? 'to ' + job.end_date : ''} (${startLabel} - ${endLabel})`;
             }
             
             let erpStatusHtml = '';
@@ -1613,6 +1633,10 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
                     new maplibregl.Marker({color: '#f43f5e'}).setLngLat([job.location_lng, job.location_lat]).addTo(pm); 
                 }, 200);
             }
+        })
+        .catch(err => {
+            console.error('loadJob failed:', err);
+            alert('Could not load booking details. Please try again.');
         });
     }
 

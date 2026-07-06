@@ -13,12 +13,16 @@ $projectId = $_GET['project_id'] ?? null;
 $activeTab = $_GET['tab'] ?? 'cashflow'; // Default view for single projects
 
 // Ensure accountants and authorized users can edit
-$canEdit = hasPermission('view_capital_projects') || hasPermission('edit_project_details') || isAdmin();
+$canEdit = hasPermission('edit_project_details') || isAdmin();
 
 // ==========================================
 // HANDLE POST REQUESTS
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit && $projectId) {
+    if (!hasProjectAccess($pdo, (int)$projectId)) {
+        header('Location: capital_projects.php?error=access_denied');
+        exit;
+    }
     try {
         $action = $_POST['action'] ?? '';
         
