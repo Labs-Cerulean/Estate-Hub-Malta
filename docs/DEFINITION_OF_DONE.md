@@ -53,8 +53,19 @@ GitHub Actions workflow **Quality** (`.github/workflows/quality.yml`) runs:
 | PHP syntax | Parse errors in changed `.php` files |
 | No DDL in PHP | New `ALTER`/`CREATE`/`TRUNCATE` in changed PHP (use `sql/`) |
 | API session-check | Changed `api/*.php` missing auth (with known exempt list) |
-| SQL interpolation | `$pdo->exec("...$var...")` in changed files |
+| SQL interpolation | Obvious `$pdo->exec("...$var...")`, concat, and `$sql = "...$var"` patterns |
 | Nested forms | Two `<form>` open before `</form>` in changed templates |
+
+### CI limitations (do not rely on these alone)
+
+These checks are **heuristics** — always combine with human/agent review for Track B work.
+
+| Check | Known gaps |
+|-------|------------|
+| **SQL interpolation** | Line-oriented only. Misses multi-line query strings, variables assigned to `$sql` then passed later, and some concat forms. |
+| **DDL in PHP** | May false-positive if `ALTER TABLE` appears in a `//` comment line (whole-line comments are skipped) or inside a string literal. |
+| **Nested forms** | Counts `<form` tokens in comments or PHP strings; not a real HTML parser. |
+| **Changed files (local)** | Uses merge-base vs `origin/staging` by default (`QUALITY_BASE_REF`). Falls back to last commit only if the remote base is unavailable. |
 
 ### Run locally before push
 
@@ -62,7 +73,11 @@ GitHub Actions workflow **Quality** (`.github/workflows/quality.yml`) runs:
 bash scripts/ci/quality_checks.sh
 ```
 
-Requires PHP 8+ in PATH. On a feature branch, compares against `HEAD~1`; set `GITHUB_BASE_REF=staging` to simulate a PR.
+Requires PHP 8+ in PATH.
+
+- Default: all commits on your branch vs merge-base with `origin/staging`
+- Simulate a PR to main: `QUALITY_BASE_REF=main bash scripts/ci/quality_checks.sh`
+- GitHub Actions sets `GITHUB_BASE_REF` automatically on pull requests
 
 ---
 
@@ -135,7 +150,12 @@ require_once __DIR__ . '/../session-check.php';
 
 header('Content-Type: application/json');
 
-$action = $_POST['action'] ?? $_GET['action'] ?? '';
+// Form POST/GET, or JSON body for fetch(..., { body: JSON.stringify(...) })
+$input = json_decode(file_get_contents('php://input'), true);
+if (!is_array($input)) {
+    $input = [];
+}
+$action = $input['action'] ?? $_POST['action'] ?? $_GET['action'] ?? '';
 $allowed = ['some_action'];
 if (!in_array($action, $allowed, true)) {
     http_response_code(400);
