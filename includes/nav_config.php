@@ -66,8 +66,11 @@ function navCanAccessSalesHub(): bool {
     if (navIsPlantOnlyRole()) {
         return false;
     }
-    return in_array(getCurrentRole(), ['sales_manager', 'sales_agent', 'admin', 'director', 'system_manager'], true)
-        || hasPermission('view_property_sales');
+    // Dedicated sales roles always use Sales Hub; everyone else needs explicit Property Sales cap
+    if (navIsSalesAgentRole() || navIsSalesManagerRole()) {
+        return true;
+    }
+    return isAdmin() || hasPermission('view_property_sales');
 }
 
 function navCanAccessPlantHub(): bool {

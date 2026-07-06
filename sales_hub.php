@@ -1,10 +1,10 @@
 <?php
 require_once 'config.php';
 require_once 'session-check.php';
+require_once __DIR__ . '/includes/nav_config.php';
 
-$allowed_roles = ['sales_manager', 'sales_agent', 'admin', 'director', 'system_manager'];
-if (!in_array($_SESSION['role'], $allowed_roles)) {
-    header("Location: index.php");
+if (!navCanAccessSalesHub()) {
+    header('Location: dashboard.php?error=unauthorized_sales_hub');
     exit;
 }
 
