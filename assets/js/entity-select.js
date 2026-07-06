@@ -192,6 +192,8 @@
 
     function initCascade() {
         document.querySelectorAll('[data-entity-cascade="client-project"]').forEach(function (root) {
+            if (root.dataset.cascadeInitialized === '1') return;
+            root.dataset.cascadeInitialized = '1';
             var clientSelect = root.querySelector('[data-entity-role="client"]');
             var projectSelect = root.querySelector('[data-entity-role="project"]');
             if (!clientSelect || !projectSelect) return;

@@ -13,9 +13,11 @@ $validToken = false;
 $userId = null;
 
 if ($token) {
+    date_default_timezone_set('Europe/Malta');
     $tokenHash = hash('sha256', $token);
-    $stmt = $pdo->prepare("SELECT user_id FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1");
-    $stmt->execute([$tokenHash]);
+    $nowMalta = date('Y-m-d H:i:s');
+    $stmt = $pdo->prepare("SELECT user_id FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? LIMIT 1");
+    $stmt->execute([$tokenHash, $nowMalta]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($row) {
         $validToken = true;

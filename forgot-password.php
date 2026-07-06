@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($user && !empty($user['email'])) {
+                date_default_timezone_set('Europe/Malta');
                 $token = bin2hex(random_bytes(32));
                 $tokenHash = hash('sha256', $token);
                 $expires = date('Y-m-d H:i:s', time() + 3600);

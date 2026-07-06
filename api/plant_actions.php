@@ -9,15 +9,6 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
     try {
         $stmt = $pdo->prepare("INSERT INTO plant_audit_log (user_id, booking_id, action_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$userId, $bookingId, $actionType, $details, $ip]);
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN final_discount_pct DECIMAL(5,2) DEFAULT 0.00");
-        $pdo->exec("CREATE TABLE IF NOT EXISTS plant_job_sessions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        booking_id INT NOT NULL,
-        punch_in DATETIME NOT NULL,
-        punch_out DATETIME NOT NULL,
-        hours DECIMAL(10,2) NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
     } catch(PDOException $e) {
         // Silently fail so a logging error never stops a live billing transaction
     }
@@ -248,6 +239,14 @@ date_default_timezone_set('Europe/Malta');
 plantDeploySchema($pdo);
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
+
+if (!canUsePlantHubApi()) {
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Unauthorized access to Plant Hub API.']);
+    exit;
+}
+
 $userId = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 

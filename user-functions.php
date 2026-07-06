@@ -105,23 +105,15 @@ function validateUploadedImage($tmpPath) {
 // 2. STAGE ENGINE (EXCEL LOGIC MAP APPLIED)
 // ==========================================
 
-function getAccurateProjectStage($pdo, $projectId) {
-    $stmt = $pdo->prepare("SELECT type, finishlevel, project_status, is_tracking FROM projects WHERE id = ?");
-    $stmt->execute([$projectId]);
-    $proj = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$proj) return 'Feasibility';
-
+function computeAccurateProjectStage(array $proj, array $paData, ?array $mob, array $blocks, array $levelsByBlockId) {
+    if (empty($proj)) return 'Feasibility';
     if (($proj['project_status'] ?? '') === 'Completed') return 'Handed Over';
 
     $isCapital = in_array(strtolower($proj['type'] ?? ''), ['3rd-party', 'capital', '3rd party']);
     $finishGoal = trim($proj['finishlevel'] ?? 'Shell');
     $isTracking = (int)($proj['is_tracking'] ?? 0) === 1;
 
-    $paStmt = $pdo->prepare("SELECT pa_number, pa_status FROM project_pa_numbers WHERE project_id = ?");
-    $paStmt->execute([$projectId]);
-    $paData = $paStmt->fetchAll(PDO::FETCH_ASSOC);
     $hasPaNumbers = count($paData) > 0;
-
     $allTracking = true;
     $hasDecidedEndorsed = false;
     if ($hasPaNumbers) {
@@ -136,38 +128,29 @@ function getAccurateProjectStage($pdo, $projectId) {
         $allTracking = false;
     }
 
-    $mobStmt = $pdo->prepare("SELECT demo_status, excavation_status, mob_demolition, mob_excavation, mob_construction FROM project_mobilisation WHERE project_id = ?");
-    $mobStmt->execute([$projectId]);
-    $mob = $mobStmt->fetch(PDO::FETCH_ASSOC);
-    
+    $mob = $mob ?? [];
     $demoClearance = ($mob['mob_demolition'] ?? 'No') === 'Yes';
     $excClearance = ($mob['mob_excavation'] ?? 'No') === 'Yes';
     $constClearance = ($mob['mob_construction'] ?? 'No') === 'Yes';
-    
     $demoStatus = $mob['demo_status'] ?? 'Pending';
     $excStatus = $mob['excavation_status'] ?? 'Pending';
-
     $demoComplete = in_array($demoStatus, ['Complete', 'NA']);
     $excComplete = in_array($excStatus, ['Complete', 'NA']);
 
-    $bStmt = $pdo->prepare("SELECT id, block_type, finish_level, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed, finishes_overall_status, progress FROM project_blocks WHERE project_id = ?");
-    $bStmt->execute([$projectId]);
-    $blocks = $bStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $allConstComplete = true; $anyConstInProgress = false;
-    $allFinComplete = true; 
-    $allCompSubmitted = true; $allCompCertified = true;
-    $allCondoFormed = true; $allCpMeters = true;
+    $allConstComplete = true;
+    $anyConstInProgress = false;
+    $allFinComplete = true;
+    $allCompSubmitted = true;
+    $allCompCertified = true;
+    $allCondoFormed = true;
+    $allCpMeters = true;
     $needsFinishes = false;
 
     if (empty($blocks)) {
         $allConstComplete = false;
     } else {
         foreach ($blocks as $b) {
-            $lStmt = $pdo->prepare("SELECT construction_status FROM block_levels WHERE block_id = ?");
-            $lStmt->execute([$b['id']]);
-            $levels = $lStmt->fetchAll(PDO::FETCH_ASSOC);
-
+            $levels = $levelsByBlockId[(int)$b['id']] ?? [];
             if (empty($levels)) {
                 $allConstComplete = false;
             } else {
@@ -180,7 +163,7 @@ function getAccurateProjectStage($pdo, $projectId) {
             $bFinGoal = trim(!empty($b['finish_level']) ? $b['finish_level'] : $finishGoal);
             if ($bFinGoal === 'Semi-Finished') $bFinGoal = 'Semi Finished';
             $isBlockShell = in_array($bFinGoal, ['Shell', 'Shell (No Finishes)', 'NA', '']);
-            
+
             if (!$isBlockShell) {
                 $needsFinishes = true;
                 $bFinComplete = false;
@@ -200,8 +183,10 @@ function getAccurateProjectStage($pdo, $projectId) {
     }
 
     if ($isCapital) {
-        $allCompSubmitted = true; $allCompCertified = true;
-        $allCondoFormed = true; $allCpMeters = true;
+        $allCompSubmitted = true;
+        $allCompCertified = true;
+        $allCondoFormed = true;
+        $allCpMeters = true;
     }
 
     $hasPhysicalOverride = $anyConstInProgress || (!empty($blocks) && $allConstComplete) || $constClearance ||
@@ -227,6 +212,34 @@ function getAccurateProjectStage($pdo, $projectId) {
     if ($hasDecidedEndorsed) return 'Mobilisation';
 
     return 'Permit';
+}
+
+function getAccurateProjectStage($pdo, $projectId) {
+    $stmt = $pdo->prepare("SELECT type, finishlevel, project_status, is_tracking FROM projects WHERE id = ?");
+    $stmt->execute([$projectId]);
+    $proj = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$proj) return 'Feasibility';
+
+    $paStmt = $pdo->prepare("SELECT pa_number, pa_status FROM project_pa_numbers WHERE project_id = ?");
+    $paStmt->execute([$projectId]);
+    $paData = $paStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $mobStmt = $pdo->prepare("SELECT demo_status, excavation_status, mob_demolition, mob_excavation, mob_construction FROM project_mobilisation WHERE project_id = ?");
+    $mobStmt->execute([$projectId]);
+    $mob = $mobStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    $bStmt = $pdo->prepare("SELECT id, block_type, finish_level, compliance_submitted, compliance_certified, condominium_formed, cp_meters_installed, finishes_overall_status, progress FROM project_blocks WHERE project_id = ?");
+    $bStmt->execute([$projectId]);
+    $blocks = $bStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $levelsByBlockId = [];
+    foreach ($blocks as $b) {
+        $lStmt = $pdo->prepare("SELECT construction_status FROM block_levels WHERE block_id = ?");
+        $lStmt->execute([$b['id']]);
+        $levelsByBlockId[(int)$b['id']] = $lStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    return computeAccurateProjectStage($proj, $paData, $mob, $blocks, $levelsByBlockId);
 }
 
 // ==========================================

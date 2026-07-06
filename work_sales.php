@@ -794,10 +794,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $std = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$std) throw new Exception("Service not found in catalogue.");
 
+            $pdo->beginTransaction();
             $stmt = $pdo->prepare("INSERT INTO sales_quote_items (quote_id, category, description, unit, estimated_qty, unit_rate, sort_order) VALUES (?, ?, ?, ?, 0.00, ?, ?)");
             $stmt->execute([$qId, $std['category'], $std['description'], $std['unit'], $std['default_rate'], $std['sort_order']]);
             $pdo->prepare("UPDATE sales_quotes SET total_exc_vat = (SELECT COALESCE(SUM(estimated_qty * unit_rate), 0) FROM sales_quote_items WHERE quote_id = ?) WHERE id = ?")->execute([$qId, $qId]);
             $pdo->prepare("UPDATE sales_quotes SET total_inc_vat = total_exc_vat + (total_exc_vat * (vat_rate/100)) WHERE id = ?")->execute([$qId]);
+            $pdo->commit();
             $message = "Service added from catalogue.";
         }
 

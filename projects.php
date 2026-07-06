@@ -149,7 +149,13 @@ if (!empty($projectIds)) {
     $ohsaStmt->execute($projectIds);
     foreach ($ohsaStmt->fetchAll() as $row) { $ohsaData[$row['project_id']] = $row; }
 
-    $paStmt = $pdo->prepare("SELECT project_id, pa_number, pa_status FROM project_pa_numbers WHERE project_id IN ($placeholders) ORDER BY pa_number ASC");
+    $paStmt = $pdo->prepare("
+        SELECT pan.project_id, pan.pa_number, pan.pa_status, arch.firm_name AS arch_firm
+        FROM project_pa_numbers pan
+        LEFT JOIN professionals arch ON arch.id = pan.architect_id
+        WHERE pan.project_id IN ($placeholders)
+        ORDER BY pan.pa_number ASC
+    ");
     $paStmt->execute($projectIds);
     foreach ($paStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $paData[$row['project_id']][] = $row;

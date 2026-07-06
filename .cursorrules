@@ -10,7 +10,7 @@ This is a live, production PHP application ("Estate Hub Malta"). It is built usi
 2. **LIVE DATABASE SAFETY**: 
    - Never write scripts that DROP tables or TRUNCATE critical data.
    - All new database interactions MUST use PDO prepared statements. Never interpolate variables directly into SQL strings.
-   - When adding new columns via "auto-deploy" blocks at the top of files, always wrap them in `try { ... } catch(PDOException $e) {}` to prevent fatal crashes if the column already exists.
+   - **Schema changes are manual only.** Deliver all DDL (CREATE/ALTER/MODIFY ENUM) as SQL files under `sql/` for the user to run in phpMyAdmin before deploy. Do **not** add new `ALTER TABLE`, `CREATE TABLE`, or ENUM changes in PHP (`init.php`, page tops, API files, `plantDeploySchema()`, etc.). Legacy auto-deploy blocks must not be extended — remove or neutralise when the user confirms production schema is current.
 
 # Security & Access Control (STRICT)
 1. **Strict Modular Boundaries**: The system is strictly divided into three distinct functional areas:
