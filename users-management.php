@@ -284,8 +284,7 @@ require_once 'header.php';
 .um-sidebar { max-height: calc(100vh - 200px); position: sticky; top: 1rem; }
 .um-main { max-height: calc(100vh - 200px); display: flex; flex-direction: column; }
 .um-main form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.um-main form .um-panel.active { flex: 1; min-height: 0; }
-.um-main > #um-panel-access.active { flex: 1; min-height: 0; }
+.um-form-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
 .um-sidebar-head { padding: 1rem; border-bottom: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); }
 .um-sidebar-head h2 { margin: 0 0 0.75rem; font-size: 1rem; }
@@ -322,7 +321,7 @@ require_once 'header.php';
 .um-tab:hover { color: var(--text-primary); }
 .um-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
 
-.um-panel { display: none; padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; }
+.um-panel { display: none; padding: 1.25rem 1.5rem; }
 .um-panel.active { display: block; }
 
 .um-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 10px; padding: 1rem 1.15rem; margin-bottom: 1rem; }
@@ -353,7 +352,7 @@ require_once 'header.php';
 .um-mini-table th, .um-mini-table td { padding: 0.5rem 0.65rem; text-align: left; border-bottom: 1px solid var(--border-glass); }
 .um-mini-table th { color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; }
 
-.um-save-bar { position: sticky; bottom: 0; padding: 0.85rem 1.5rem; border-top: 1px solid var(--border-glass); background: rgba(30,30,45,0.95); backdrop-filter: blur(8px); display: flex; justify-content: flex-end; gap: 0.75rem; }
+.um-save-bar { flex-shrink: 0; padding: 0.85rem 1.5rem; border-top: 1px solid var(--border-glass); background: var(--bg-card); display: flex; justify-content: flex-end; gap: 0.75rem; }
 
 @media (max-width: 1100px) {
     .um-layout { grid-template-columns: 1fr; }
@@ -434,6 +433,7 @@ require_once 'header.php';
                         <button type="button" class="um-tab" data-tab="access">Data Access</button>
                     </div>
 
+                    <div class="um-form-scroll">
                     <div class="um-panel active" id="um-panel-profile">
                         <div class="um-role-bar">
                             <label style="font-weight:600;font-size:0.85rem;">Role</label>
@@ -519,11 +519,6 @@ require_once 'header.php';
                         </details>
                     </div>
 
-                    <div class="um-save-bar">
-                        <button type="submit" class="btn btn-primary">Save Profile &amp; Permissions</button>
-                    </div>
-                </form>
-
                     <div class="um-panel" id="um-panel-access">
                         <div id="editLevel2Fields" style="display:none;">
                             <div class="um-access-block um-card">
@@ -579,6 +574,12 @@ require_once 'header.php';
                             Data access controls appear here based on the selected role (client-level, firm-level, or project-level).
                         </div>
                     </div>
+                    </div>
+
+                    <div class="um-save-bar" id="umSaveBar">
+                        <button type="submit" class="btn btn-primary">Save Profile &amp; Permissions</button>
+                    </div>
+                </form>
             <?php else: ?>
                 <div class="um-empty-main">
                     <div>
@@ -694,6 +695,10 @@ function toggleAccessSections(type) {
 }
 
 function initUmTabs() {
+    function syncSaveBar(tabName) {
+        const saveBar = document.getElementById('umSaveBar');
+        if (saveBar) saveBar.style.display = tabName === 'access' ? 'none' : 'flex';
+    }
     document.querySelectorAll('.um-tab').forEach(tab => {
         tab.addEventListener('click', function() {
             const target = this.getAttribute('data-tab');
@@ -702,8 +707,11 @@ function initUmTabs() {
             this.classList.add('active');
             const panel = document.getElementById('um-panel-' + target);
             if (panel) panel.classList.add('active');
+            syncSaveBar(target);
         });
     });
+    const activeTab = document.querySelector('.um-tab.active');
+    if (activeTab) syncSaveBar(activeTab.getAttribute('data-tab'));
 }
 
 function filterUmUserList() {
