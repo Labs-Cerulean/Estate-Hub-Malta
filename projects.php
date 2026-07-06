@@ -402,6 +402,19 @@ $matrixProjectsArchive = $sortMatrixList($matrixProjectsArchive);
 
 $matrixProjects = $matrixProjectsActive;
 
+$timelineProjects = [];
+foreach ($matrixProjectsActive as $p) {
+    if (($p['type'] ?? '') !== 'in-house') continue;
+    $timelineProjects[] = [
+        'id' => (int)$p['id'],
+        'name' => $p['name'],
+        'client_name' => $p['client_name'] ?? '',
+        'stage' => $p['stage'] ?? '',
+        'finishlevel' => $p['finishlevel'] ?? '',
+        'schedule' => $p['schedule'],
+    ];
+}
+
 function getSortUrl($column) {
     global $sortBy, $sortOrder, $filterStage, $filterType, $filterFinish, $filterCity, $filterClient, $filterIsland, $filterPm, $filterSub;
     $newOrder = ($sortBy == $column && $sortOrder == 'ASC') ? 'DESC' : 'ASC';
@@ -716,10 +729,67 @@ require_once 'header.php';
 .schedule-rag-dot.rag-green { background: #22c55e; } .schedule-rag-dot.rag-amber { background: #f59e0b; }
 .schedule-rag-dot.rag-red { background: #ef4444; } .schedule-rag-dot.rag-neutral { background: #6b7280; }
 
+/* VIEW TOGGLE + TIMELINE GANTT */
+.matrix-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.matrix-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.matrix-view-controls label { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.matrix-view-controls select { padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-primary); color: var(--text-primary); font-size: 0.8rem; }
+.view-toggle { display: flex; background: var(--bg-secondary); border-radius: 8px; padding: 4px; border: 1px solid var(--border-glass); }
+.view-toggle-btn { padding: 8px 14px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: all 0.2s; font-size: 0.85rem; border: none; background: transparent; }
+.view-toggle-btn.active { background: var(--primary-color); color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35); }
+
+.timeline-panel { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 1.5rem; }
+.timeline-legend { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.65rem 1rem; font-size: 0.72rem; color: var(--text-muted); border-bottom: 1px solid var(--border-glass); background: rgba(0,0,0,0.12); }
+.timeline-legend-item { display: flex; align-items: center; gap: 6px; }
+.timeline-legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.timeline-legend-swatch.planned { background: #6366f1; width: 2px; height: 14px; border-radius: 0; }
+.timeline-legend-swatch.forecast { background: #f59e0b; border-radius: 50%; }
+.timeline-legend-swatch.actual { background: #22c55e; border-radius: 50%; border: 2px solid #fff; box-sizing: border-box; }
+
+.timeline-scroll { overflow-x: auto; }
+.timeline-grid { min-width: 720px; }
+.timeline-header-row { display: grid; grid-template-columns: 220px 1fr 88px; border-bottom: 1px solid var(--border-glass); background: rgba(0,0,0,0.15); }
+.timeline-header-label { padding: 0.5rem 0.75rem; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; }
+.timeline-axis-wrap { position: relative; height: 32px; margin-right: 12px; }
+.timeline-axis-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid rgba(255,255,255,0.06); }
+.timeline-axis-tick span { position: absolute; top: 6px; left: 4px; font-size: 0.62rem; color: var(--text-muted); white-space: nowrap; }
+.timeline-today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(239, 68, 68, 0.55); z-index: 4; pointer-events: none; }
+.timeline-today-line::after { content: 'Today'; position: absolute; top: -1px; left: 4px; font-size: 0.58rem; color: #f87171; font-weight: 700; white-space: nowrap; }
+
+.timeline-body { max-height: min(70vh, 640px); overflow-y: auto; }
+.timeline-row { display: grid; grid-template-columns: 220px 1fr 88px; min-height: 48px; border-bottom: 1px solid rgba(255,255,255,0.04); align-items: stretch; cursor: pointer; transition: background 0.15s; }
+.timeline-row:hover { background: rgba(99, 102, 241, 0.06); }
+.timeline-row-label { padding: 0.45rem 0.75rem; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
+.timeline-row-title { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-row-sub { font-size: 0.68rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-row-milestone { font-size: 0.62rem; color: #818cf8; font-weight: 700; text-transform: uppercase; }
+.timeline-row-chart { position: relative; height: 40px; margin: 4px 12px 4px 0; }
+.timeline-track { position: absolute; top: 50%; left: 0; right: 0; height: 8px; transform: translateY(-50%); background: rgba(255,255,255,0.05); border-radius: 4px; }
+.timeline-connector { position: absolute; top: 50%; height: 4px; transform: translateY(-50%); border-radius: 2px; z-index: 1; min-width: 2px; }
+.timeline-connector.rag-green { background: rgba(34, 197, 94, 0.55); }
+.timeline-connector.rag-amber { background: rgba(245, 158, 11, 0.65); }
+.timeline-connector.rag-red { background: rgba(239, 68, 68, 0.65); }
+.timeline-connector.rag-neutral { background: rgba(107, 114, 128, 0.45); }
+.timeline-marker { position: absolute; top: 50%; transform: translate(-50%, -50%); z-index: 3; }
+.timeline-marker-planned { width: 2px; height: 22px; background: #6366f1; border-radius: 1px; }
+.timeline-marker-planned::before { content: 'P'; position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 0.55rem; color: #a5b4fc; font-weight: 800; }
+.timeline-marker-compare { width: 11px; height: 11px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.9); box-sizing: border-box; }
+.timeline-marker-compare.forecast { background: #f59e0b; }
+.timeline-marker-compare.actual { background: #22c55e; }
+.timeline-marker-compare::after { content: attr(data-label); position: absolute; bottom: -14px; left: 50%; transform: translateX(-50%); font-size: 0.55rem; color: var(--text-muted); font-weight: 700; white-space: nowrap; }
+.timeline-variance-col { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; padding: 0.35rem 0.75rem 0.35rem 0; gap: 2px; }
+.timeline-variance { font-size: 0.75rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.timeline-variance.rag-green { color: #22c55e; }
+.timeline-variance.rag-amber { color: #f59e0b; }
+.timeline-variance.rag-red { color: #ef4444; }
+.timeline-variance.rag-neutral { color: var(--text-muted); }
+.timeline-variance-type { font-size: 0.58rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+.timeline-empty { text-align: center; padding: 3rem 1.5rem; color: var(--text-muted); }
+
 @media print {
     @page { size: landscape; margin: 1cm; }
     body { background: #fff !important; color: #000 !important; }
-    .header, .sidebar, .filters-section, .edit-icon, .close-modal, .modal, .card-sort-bar { display: none !important; }
+    .header, .sidebar, .filters-section, .edit-icon, .close-modal, .modal, .card-sort-bar, .matrix-view-controls, #timelineView { display: none !important; }
     button, .btn { display: none !important; }
     .main-container { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
     .matrix-cards { display: block !important; }
@@ -783,16 +853,44 @@ require_once 'header.php';
         'progress' => 'Progress',
     ];
     ?>
-    <div class="card-sort-bar">
-        <span>Sort:</span>
-        <?php foreach ($sortColumns as $col => $label): ?>
-            <a href="<?= getSortUrl($col) ?>" class="card-sort-link<?= $sortBy === $col ? ' active' : '' ?>"><?= $label ?><?= getSortIndicator($col) ?></a>
-        <?php endforeach; ?>
+    <div class="matrix-toolbar">
+        <div class="card-sort-bar" style="margin-bottom:0;">
+            <span>Sort:</span>
+            <?php foreach ($sortColumns as $col => $label): ?>
+                <a href="<?= getSortUrl($col) ?>" class="card-sort-link<?= $sortBy === $col ? ' active' : '' ?>"><?= $label ?><?= getSortIndicator($col) ?></a>
+            <?php endforeach; ?>
+        </div>
+        <?php if (!$isLegalRep): ?>
+        <div class="matrix-view-controls">
+            <div>
+                <label for="timelineMilestoneMode">Milestone</label>
+                <select id="timelineMilestoneMode" aria-label="Timeline milestone mode">
+                    <option value="primary">Primary (smart)</option>
+                    <option value="shell">Construction (Shell)</option>
+                    <option value="finishes">Finishes</option>
+                    <option value="both">Both</option>
+                </select>
+            </div>
+            <div>
+                <label for="timelineSortMode">Timeline sort</label>
+                <select id="timelineSortMode" aria-label="Timeline sort order">
+                    <option value="variance">Variance (worst first)</option>
+                    <option value="planned">Planned date</option>
+                    <option value="name">Project name</option>
+                </select>
+            </div>
+            <div class="view-toggle" role="group" aria-label="Matrix view mode">
+                <button type="button" class="view-toggle-btn active" id="viewBtnCards" onclick="switchMatrixView('cards')">Cards</button>
+                <button type="button" class="view-toggle-btn" id="viewBtnTimeline" onclick="switchMatrixView('timeline')">Timeline</button>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 
     <?php if (empty($matrixProjectsActive) && empty($matrixProjectsArchive)): ?>
         <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No projects found matching your filters.</div>
     <?php else: ?>
+    <div id="cardsView">
         <?php if (empty($matrixProjectsActive)): ?>
             <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
         <?php else: ?>
@@ -810,6 +908,25 @@ require_once 'header.php';
                 </div>
             </details>
         <?php endif; ?>
+    </div>
+
+    <?php if (!$isLegalRep): ?>
+    <div id="timelineView" style="display:none;">
+        <div class="timeline-panel">
+            <div class="timeline-legend">
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch planned"></span> Planned</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch forecast"></span> Forecast</span>
+                <span class="timeline-legend-item"><span class="timeline-legend-swatch actual"></span> Actual</span>
+                <span class="timeline-legend-item">Bar colour = variance (green on time · amber slipped · red overdue)</span>
+            </div>
+            <div class="timeline-scroll">
+                <div class="timeline-grid" id="timelineGrid">
+                    <div class="timeline-empty">Loading timeline…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
     <?php endif; ?>
 </div>
 
@@ -939,6 +1056,317 @@ require_once 'header.php';
 </div>
 
 <script>
+const timelineProjectsData = <?= json_encode($timelineProjects, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>;
+const timelineCanEditSchedule = <?= ($canEditSchedule && !$isLegalRep) ? 'true' : 'false' ?>;
+
+const SHELL_FINISH_LEVELS = ['Shell', 'Shell (No Finishes)', '', null];
+
+function parseIsoDate(str) {
+    if (!str) return null;
+    const d = new Date(str + 'T00:00:00');
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function isShellOnlyProject(finishlevel) {
+    const fl = (finishlevel || '').trim();
+    return fl === '' || fl === 'Shell' || fl === 'Shell (No Finishes)';
+}
+
+function getScheduleRag(planned, forecast, actual) {
+    if (actual) return 'rag-green';
+    const ref = forecast || planned;
+    if (!ref) return 'rag-neutral';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (ref < today) return 'rag-red';
+    if (forecast && planned && forecast > planned) return 'rag-amber';
+    return 'rag-green';
+}
+
+function formatShortDate(d) {
+    if (!d) return '—';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' });
+}
+
+function buildMilestoneRows(project, mode) {
+    const s = project.schedule || {};
+    const rows = [];
+    const shellKeys = { planned: 'planned_shell_date', forecast: 'forecast_shell_date', actual: 'actual_shell_date', label: 'Construction (Shell)', key: 'shell' };
+    const finKeys = { planned: 'planned_finishes_date', forecast: 'forecast_finishes_date', actual: 'actual_finishes_date', label: 'Finishes', key: 'finishes' };
+    const shellOnly = isShellOnlyProject(project.finishlevel);
+
+    const addRow = (def) => {
+        const planned = parseIsoDate(s[def.planned]);
+        const forecast = parseIsoDate(s[def.forecast]);
+        const actual = parseIsoDate(s[def.actual]);
+        if (!planned && !forecast && !actual) return;
+        const compare = actual || forecast;
+        const compareType = actual ? 'actual' : (forecast ? 'forecast' : null);
+        let varianceDays = null;
+        if (planned && compare) {
+            varianceDays = Math.round((compare - planned) / 86400000);
+        }
+        rows.push({
+            projectId: project.id,
+            projectName: project.name,
+            clientName: project.client_name,
+            stage: project.stage,
+            milestoneLabel: def.label,
+            milestoneKey: def.key,
+            planned,
+            compare,
+            compareType,
+            varianceDays,
+            rag: getScheduleRag(planned, forecast, actual),
+            schedule: s,
+            finishlevel: project.finishlevel,
+        });
+    };
+
+    if (mode === 'shell') {
+        addRow(shellKeys);
+    } else if (mode === 'finishes') {
+        if (!shellOnly) addRow(finKeys);
+    } else if (mode === 'both') {
+        addRow(shellKeys);
+        if (!shellOnly) addRow(finKeys);
+    } else {
+        if (shellOnly) addRow(shellKeys);
+        else addRow(finKeys);
+    }
+    return rows;
+}
+
+function collectTimelineRows() {
+    const mode = document.getElementById('timelineMilestoneMode')?.value || 'primary';
+    const sortMode = document.getElementById('timelineSortMode')?.value || 'variance';
+    let rows = [];
+    timelineProjectsData.forEach(p => {
+        rows = rows.concat(buildMilestoneRows(p, mode));
+    });
+
+    if (sortMode === 'variance') {
+        rows.sort((a, b) => {
+            const va = a.varianceDays ?? -9999;
+            const vb = b.varianceDays ?? -9999;
+            if (vb !== va) return vb - va;
+            return (a.planned || 0) - (b.planned || 0);
+        });
+    } else if (sortMode === 'planned') {
+        rows.sort((a, b) => {
+            const pa = a.planned ? a.planned.getTime() : Infinity;
+            const pb = b.planned ? b.planned.getTime() : Infinity;
+            return pa - pb;
+        });
+    } else {
+        rows.sort((a, b) => a.projectName.localeCompare(b.projectName));
+    }
+    return rows;
+}
+
+function dateToPct(date, minMs, maxMs) {
+    if (!date || maxMs <= minMs) return 0;
+    return Math.max(0, Math.min(100, ((date.getTime() - minMs) / (maxMs - minMs)) * 100));
+}
+
+function renderTimelineAxis(minMs, maxMs) {
+    const wrap = document.createElement('div');
+    wrap.className = 'timeline-axis-wrap';
+    const start = new Date(minMs);
+    const end = new Date(maxMs);
+    let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (cursor.getTime() <= end.getTime()) {
+        const tick = document.createElement('div');
+        tick.className = 'timeline-axis-tick';
+        tick.style.left = dateToPct(cursor, minMs, maxMs) + '%';
+        const label = document.createElement('span');
+        label.textContent = cursor.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+        tick.appendChild(label);
+        wrap.appendChild(tick);
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (today.getTime() >= minMs && today.getTime() <= maxMs) {
+        const todayLine = document.createElement('div');
+        todayLine.className = 'timeline-today-line';
+        todayLine.style.left = dateToPct(today, minMs, maxMs) + '%';
+        wrap.appendChild(todayLine);
+    }
+    return wrap;
+}
+
+function renderTimeline() {
+    const grid = document.getElementById('timelineGrid');
+    if (!grid) return;
+    const rows = collectTimelineRows();
+
+    if (rows.length === 0) {
+        grid.innerHTML = '<div class="timeline-empty">No in-house projects with delivery dates match your filters.<br><span style="font-size:0.8rem;">Add planned and forecast (or actual) dates via the schedule on each project card.</span></div>';
+        return;
+    }
+
+    let minMs = Infinity;
+    let maxMs = -Infinity;
+    rows.forEach(r => {
+        [r.planned, r.compare].forEach(d => {
+            if (d) {
+                const t = d.getTime();
+                if (t < minMs) minMs = t;
+                if (t > maxMs) maxMs = t;
+            }
+        });
+    });
+    const pad = 14 * 86400000;
+    minMs -= pad;
+    maxMs += pad;
+    if (minMs === Infinity) { minMs = Date.now(); maxMs = Date.now() + 86400000; }
+
+    grid.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'timeline-header-row';
+    const hLabel = document.createElement('div');
+    hLabel.className = 'timeline-header-label';
+    hLabel.textContent = 'Project / Milestone';
+    const hAxis = document.createElement('div');
+    hAxis.appendChild(renderTimelineAxis(minMs, maxMs));
+    const hVar = document.createElement('div');
+    hVar.className = 'timeline-header-label';
+    hVar.style.textAlign = 'right';
+    hVar.textContent = 'Variance';
+    header.appendChild(hLabel);
+    header.appendChild(hAxis);
+    header.appendChild(hVar);
+    grid.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'timeline-body';
+
+    rows.forEach(row => {
+        const el = document.createElement('div');
+        el.className = 'timeline-row';
+        el.title = 'Open project workspace';
+
+        const label = document.createElement('div');
+        label.className = 'timeline-row-label';
+        label.innerHTML = '<div class="timeline-row-title"></div><div class="timeline-row-sub"></div><div class="timeline-row-milestone"></div>';
+        label.querySelector('.timeline-row-title').textContent = row.projectName;
+        label.querySelector('.timeline-row-sub').textContent = (row.clientName || 'No client') + (row.stage ? ' · ' + row.stage : '');
+        label.querySelector('.timeline-row-milestone').textContent = row.milestoneLabel;
+
+        const chart = document.createElement('div');
+        chart.className = 'timeline-row-chart';
+        const track = document.createElement('div');
+        track.className = 'timeline-track';
+        chart.appendChild(track);
+
+        if (row.planned) {
+            const pPct = dateToPct(row.planned, minMs, maxMs);
+            const pMark = document.createElement('div');
+            pMark.className = 'timeline-marker timeline-marker-planned';
+            pMark.style.left = pPct + '%';
+            chart.appendChild(pMark);
+        }
+        if (row.planned && row.compare) {
+            const pPct = dateToPct(row.planned, minMs, maxMs);
+            const cPct = dateToPct(row.compare, minMs, maxMs);
+            const conn = document.createElement('div');
+            conn.className = 'timeline-connector ' + row.rag;
+            conn.style.left = Math.min(pPct, cPct) + '%';
+            conn.style.width = Math.abs(cPct - pPct) + '%';
+            chart.appendChild(conn);
+        }
+        if (row.compare) {
+            const cMark = document.createElement('div');
+            cMark.className = 'timeline-marker timeline-marker-compare ' + (row.compareType || 'forecast');
+            cMark.style.left = dateToPct(row.compare, minMs, maxMs) + '%';
+            cMark.setAttribute('data-label', row.compareType === 'actual' ? 'A' : 'F');
+            chart.appendChild(cMark);
+        }
+
+        const varCol = document.createElement('div');
+        varCol.className = 'timeline-variance-col';
+        if (row.varianceDays !== null) {
+            const sign = row.varianceDays > 0 ? '+' : '';
+            const vEl = document.createElement('div');
+            vEl.className = 'timeline-variance ' + row.rag;
+            vEl.textContent = sign + row.varianceDays + 'd';
+            const tEl = document.createElement('div');
+            tEl.className = 'timeline-variance-type';
+            tEl.textContent = row.compareType === 'actual' ? 'vs plan (act)' : 'vs plan (fcst)';
+            varCol.appendChild(vEl);
+            varCol.appendChild(tEl);
+        } else {
+            const vEl = document.createElement('div');
+            vEl.className = 'timeline-variance rag-neutral';
+            vEl.textContent = '—';
+            varCol.appendChild(vEl);
+        }
+
+        el.appendChild(label);
+        el.appendChild(chart);
+        el.appendChild(varCol);
+
+        el.addEventListener('click', () => {
+            const proj = timelineProjectsData.find(p => p.id === row.projectId);
+            if (!proj) return;
+            if (timelineCanEditSchedule && typeof openScheduleModal === 'function') {
+                openScheduleModal({
+                    id: row.projectId,
+                    name: row.projectName,
+                    finishlevel: row.finishlevel,
+                    schedule: row.schedule || {},
+                });
+            } else {
+                openIframeModal(row.projectId, row.projectName, 'mobilisation_detail.php');
+            }
+        });
+
+        body.appendChild(el);
+    });
+
+    grid.appendChild(body);
+}
+
+function switchMatrixView(view) {
+    const cardsView = document.getElementById('cardsView');
+    const timelineView = document.getElementById('timelineView');
+    const btnCards = document.getElementById('viewBtnCards');
+    const btnTimeline = document.getElementById('viewBtnTimeline');
+    if (!cardsView || !timelineView) return;
+
+    if (view === 'timeline') {
+        cardsView.style.display = 'none';
+        timelineView.style.display = 'block';
+        btnCards?.classList.remove('active');
+        btnTimeline?.classList.add('active');
+        renderTimeline();
+        sessionStorage.setItem('projects_matrix_view', 'timeline');
+    } else {
+        cardsView.style.display = 'block';
+        timelineView.style.display = 'none';
+        btnCards?.classList.add('active');
+        btnTimeline?.classList.remove('active');
+        sessionStorage.setItem('projects_matrix_view', 'cards');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const milestoneSel = document.getElementById('timelineMilestoneMode');
+    const sortSel = document.getElementById('timelineSortMode');
+    if (milestoneSel) milestoneSel.addEventListener('change', () => {
+        if (document.getElementById('timelineView')?.style.display !== 'none') renderTimeline();
+    });
+    if (sortSel) sortSel.addEventListener('change', () => {
+        if (document.getElementById('timelineView')?.style.display !== 'none') renderTimeline();
+    });
+    const savedView = sessionStorage.getItem('projects_matrix_view');
+    if (savedView === 'timeline' && document.getElementById('timelineView')) {
+        switchMatrixView('timeline');
+    }
+});
+
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 window.onclick = function(e) { if (e.target.classList.contains('modal')) e.target.style.display = "none"; }
 
