@@ -130,24 +130,11 @@ foreach ($projects as $project) {
 
     if ($isArchive && $showArchiveSection) {
         if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
-            if ($filterStatus !== 'all') {
-                if ($filterStatus === 'group_pre' && !in_array($project['stage'], $preExecStages)) continue;
-                elseif ($filterStatus === 'group_exec' && !in_array($project['stage'], $execStages)) continue;
-                elseif ($filterStatus === 'group_final' && !in_array($project['stage'], $finalStages)) continue;
-                elseif (!in_array($filterStatus, ['group_pre', 'group_exec', 'group_final']) && $project['stage'] !== $filterStatus) continue;
-            }
+            if (!pmMatchesStageFilter($project['stage'], 'all', $filterStatus)) continue;
             if ($filterType !== 'all' && $project['type'] !== $filterType) continue;
             if ($filterCity !== 'all' && $project['city'] !== $filterCity) continue;
             if ($filterIsland !== 'all' && $project['island'] !== $filterIsland) continue;
-            if ($filterClient !== 'all') {
-                if ($filterClient === 'group_excel') {
-                    if (stripos($project['client_name'] ?? '', 'Excel') === false) continue;
-                } elseif ($filterClient === 'group_blue_clay') {
-                    if (stripos($project['client_name'] ?? '', 'Blue Clay') === false && stripos($project['client_name'] ?? '', 'Blueclay') === false) continue;
-                } elseif ($project['clientid'] != $filterClient) {
-                    continue;
-                }
-            }
+            if (!pmMatchesClientFilter($project, $filterClient)) continue;
             if ($filterProf !== 'all') {
                 $frms = $profData[$project['id']] ?? [];
                 if (!in_array($filterProf, $frms)) continue;
@@ -165,27 +152,13 @@ foreach ($projects as $project) {
     if (empty($visibleStages) || in_array($project['stage'], $visibleStages) || $isAdmin || hasPermission('view_all_projects')) {
         
         // Stage Filter (Including Group Handlers)
-        if ($filterStatus !== 'all') {
-            if ($filterStatus === 'group_pre' && !in_array($project['stage'], $preExecStages)) continue;
-            elseif ($filterStatus === 'group_exec' && !in_array($project['stage'], $execStages)) continue;
-            elseif ($filterStatus === 'group_final' && !in_array($project['stage'], $finalStages)) continue;
-            elseif (!in_array($filterStatus, ['group_pre', 'group_exec', 'group_final']) && $project['stage'] !== $filterStatus) continue;
-        }
+        if (!pmMatchesStageFilter($project['stage'], 'all', $filterStatus)) continue;
 
         // Standard Filters
         if ($filterType !== 'all' && $project['type'] !== $filterType) continue;
         if ($filterCity !== 'all' && $project['city'] !== $filterCity) continue;
         if ($filterIsland !== 'all' && $project['island'] !== $filterIsland) continue;
-        
-        if ($filterClient !== 'all') {
-            if ($filterClient === 'group_excel') {
-                if (stripos($project['client_name'] ?? '', 'Excel') === false) continue;
-            } elseif ($filterClient === 'group_blue_clay') {
-                if (stripos($project['client_name'] ?? '', 'Blue Clay') === false && stripos($project['client_name'] ?? '', 'Blueclay') === false) continue;
-            } elseif ($project['clientid'] != $filterClient) {
-                continue;
-            }
-        }
+        if (!pmMatchesClientFilter($project, $filterClient)) continue;
 
         // Professional Filter
         if ($filterProf !== 'all') {
@@ -679,13 +652,13 @@ tr:last-child td { border-bottom: none; }
                                     <td>
                                         <div class="action-buttons-wrapper">
                                             <?php if (hasPermission('view_mobilisation') || $isAdmin): ?>
-                                                <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-primary" style="cursor: pointer;"><?= canUpdateStatus($pdo, $project['id']) ? 'Execution' : 'View Hub' ?></button>
+                                                <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, <?= htmlspecialchars(json_encode($project['name']), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-sm btn-primary" style="cursor: pointer;"><?= canUpdateStatus($pdo, $project['id']) ? 'Execution' : 'View Hub' ?></button>
                                             <?php endif; ?>
                                             <?php if (hasPermission('view_property_sales') || $isAdmin): ?><a href="property_sales.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #10B981; color: white; border: none;">Sales</a><?php endif; ?>
                                             <?php if ((hasPermission('view_capital_projects') || $isAdmin) && $project['type'] === '3rd-party'): ?><a href="capital_projects.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #0ea5e9; color: white; border: none;">Capital</a><?php endif; ?>
                                             
                                             <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
-                                                <button type="button" onclick="openEditModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary" style="cursor: pointer;">Edit</button>
+                                                <button type="button" onclick="openEditModal(<?= $project['id'] ?>, <?= htmlspecialchars(json_encode($project['name']), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-sm btn-secondary" style="cursor: pointer;">Edit</button>
                                             <?php endif; ?>
                                         </div>
                                     </td>
@@ -755,7 +728,7 @@ tr:last-child td { border-bottom: none; }
                                             <a href="engineering.php?project_id=<?= $project['id'] ?>" class="btn btn-sm" style="background: #14b8a6; color: white; border: none;">Engineering</a>
                                         <?php endif; ?>
                                         <?php if (hasPermission('view_mobilisation') || $isAdmin): ?>
-                                            <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, '<?= htmlspecialchars(addslashes($project['name']), ENT_QUOTES) ?>')" class="btn btn-sm btn-secondary" style="cursor: pointer;">View Hub</button>
+                                            <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, <?= htmlspecialchars(json_encode($project['name']), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-sm btn-secondary" style="cursor: pointer;">View Hub</button>
                                         <?php endif; ?>
                                     </div>
                                 </td>
