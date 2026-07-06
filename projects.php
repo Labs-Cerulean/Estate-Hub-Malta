@@ -454,7 +454,11 @@ function renderStatusBadge($status) {
 
 function renderDemoExcBadge($badgeHtml, $pId, $pName, $type, $status, $canUpdateStatus) {
     if ($canUpdateStatus) {
-        return "<div onclick='openMobModal($pId, \"$pName\", \"$type\", \"$status\")' class='clickable-cell' style='justify-content:center;' title='Click to Update Phase'>$badgeHtml<span class='edit-icon'>✎</span></div>";
+        $pId = (int)$pId;
+        $nameJs = json_encode((string)$pName, JSON_UNESCAPED_UNICODE);
+        $typeJs = json_encode((string)$type, JSON_UNESCAPED_UNICODE);
+        $statusJs = json_encode((string)$status, JSON_UNESCAPED_UNICODE);
+        return "<div onclick='openMobModal($pId, $nameJs, $typeJs, $statusJs)' class='clickable-cell' style='justify-content:center;' title='Click to Update Phase'>$badgeHtml<span class='edit-icon'>✎</span></div>";
     }
     return "<div class='normal-cell' style='justify-content:center;'>$badgeHtml</div>";
 }
@@ -509,7 +513,12 @@ function renderMatrixProjectCard(array $p, $pdo, $canUpdateStatus, $canEditSched
     $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
     $ohsaJson = htmlspecialchars(json_encode(['name' => $p['name'], 'status' => $p['safety_status'], 'comments' => $p['safety_comments']]), ENT_QUOTES, 'UTF-8');
     $ohsaClass = strtolower($p['safety_status'] ?? 'na');
-    $ohsaIcon = ['Green' => '🟢', 'Yellow' => '🟡', 'Red' => '🔴'][$p['safety_status']] ?? '⚪';
+    $ohsaIcon = match ($p['safety_status'] ?? '') {
+        'Green' => '🟢',
+        'Yellow' => '🟡',
+        'Red' => '🔴',
+        default => '⚪',
+    };
     $isSummary = ($p['card_mode'] ?? 'full') === 'summary';
     $sched = $p['schedule'] ?? null;
     $pNameJs = htmlspecialchars(json_encode($p['name']), ENT_QUOTES, 'UTF-8');
@@ -567,11 +576,11 @@ function renderMatrixProjectCard(array $p, $pdo, $canUpdateStatus, $canEditSched
             <div class="card-execution">
                 <div class="exec-item">
                     <span class="exec-label">Demo</span>
-                    <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'demo', $p['demo_status'], $canUpdateStatus) ?>
+                    <?= renderDemoExcBadge(renderStatusBadge($p['demo_status']), $p['id'], $p['name'], 'demo', $p['demo_status'], $canUpdateStatus) ?>
                 </div>
                 <div class="exec-item">
                     <span class="exec-label">Exc</span>
-                    <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], htmlspecialchars($p['name'], ENT_QUOTES), 'exc', $p['exc_status'], $canUpdateStatus) ?>
+                    <?= renderDemoExcBadge(renderStatusBadge($p['exc_status']), $p['id'], $p['name'], 'exc', $p['exc_status'], $canUpdateStatus) ?>
                 </div>
                 <div class="exec-item">
                     <span class="exec-label">Const</span>
