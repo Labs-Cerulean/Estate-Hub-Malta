@@ -283,8 +283,10 @@ require_once 'header.php';
 .um-sidebar, .um-main { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; }
 .um-sidebar { max-height: calc(100vh - 200px); position: sticky; top: 1rem; }
 .um-main { max-height: calc(100vh - 200px); display: flex; flex-direction: column; }
+.um-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .um-main form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .um-form-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+#um-panel-access { flex: 1; min-height: 0; overflow-y: auto; }
 
 .um-sidebar-head { padding: 1rem; border-bottom: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); }
 .um-sidebar-head h2 { margin: 0 0 0.75rem; font-size: 1rem; }
@@ -412,10 +414,6 @@ require_once 'header.php';
 
         <section class="um-main">
             <?php if ($selectedUser): ?>
-                <form method="POST" id="editUserForm">
-                    <input type="hidden" name="action" value="update_user">
-                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
-
                     <div class="um-main-head">
                         <div class="um-main-identity">
                             <div class="um-avatar"><?= htmlspecialchars(getUserInitials($selectedUser['first_name'] ?? '', $selectedUser['last_name'] ?? '', $selectedUser['username'])) ?></div>
@@ -432,6 +430,11 @@ require_once 'header.php';
                         <button type="button" class="um-tab" data-tab="permissions">Permissions</button>
                         <button type="button" class="um-tab" data-tab="access">Data Access</button>
                     </div>
+
+                    <div class="um-body">
+                <form method="POST" id="editUserForm" onsubmit="return umPrepareSubmit(this)">
+                    <input type="hidden" name="action" value="update_user">
+                    <input type="hidden" name="user_id" value="<?= $selectedUser['id'] ?>">
 
                     <div class="um-form-scroll">
                     <div class="um-panel active" id="um-panel-profile">
@@ -518,6 +521,12 @@ require_once 'header.php';
                             </div>
                         </details>
                     </div>
+                    </div>
+
+                    <div class="um-save-bar" id="umSaveBar">
+                        <button type="submit" class="btn btn-primary">Save Profile &amp; Permissions</button>
+                    </div>
+                </form>
 
                     <div class="um-panel" id="um-panel-access">
                         <div id="editLevel2Fields" style="display:none;">
@@ -575,11 +584,6 @@ require_once 'header.php';
                         </div>
                     </div>
                     </div>
-
-                    <div class="um-save-bar" id="umSaveBar">
-                        <button type="submit" class="btn btn-primary">Save Profile &amp; Permissions</button>
-                    </div>
-                </form>
             <?php else: ?>
                 <div class="um-empty-main">
                     <div>
@@ -694,10 +698,18 @@ function toggleAccessSections(type) {
     if (placeholder) placeholder.style.display = (showL2 || level3Roles.includes(role)) ? 'none' : 'block';
 }
 
+function umPrepareSubmit(form) {
+    form.querySelectorAll('.um-panel:not(.active) [required]').forEach(el => el.removeAttribute('required'));
+    return true;
+}
+
 function initUmTabs() {
-    function syncSaveBar(tabName) {
+    function syncTabLayout(tabName) {
+        const form = document.getElementById('editUserForm');
         const saveBar = document.getElementById('umSaveBar');
-        if (saveBar) saveBar.style.display = tabName === 'access' ? 'none' : 'flex';
+        const isAccess = tabName === 'access';
+        if (form) form.style.display = isAccess ? 'none' : 'flex';
+        if (saveBar) saveBar.style.display = isAccess ? 'none' : 'flex';
     }
     document.querySelectorAll('.um-tab').forEach(tab => {
         tab.addEventListener('click', function() {
@@ -707,11 +719,11 @@ function initUmTabs() {
             this.classList.add('active');
             const panel = document.getElementById('um-panel-' + target);
             if (panel) panel.classList.add('active');
-            syncSaveBar(target);
+            syncTabLayout(target);
         });
     });
     const activeTab = document.querySelector('.um-tab.active');
-    if (activeTab) syncSaveBar(activeTab.getAttribute('data-tab'));
+    if (activeTab) syncTabLayout(activeTab.getAttribute('data-tab'));
 }
 
 function filterUmUserList() {
