@@ -505,7 +505,7 @@ function renderAllSubsCell($demo, $exc, $const, $finIds, $subsArray, $pJson, $ca
     return "<div class='normal-cell' style='align-items:flex-start;'>$content</div>";
 }
 
-function renderMatrixProjectCard(array $p, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, array $subs) {
+function renderMatrixProjectCard(array $p, $pdo, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, array $subs) {
     $pJson = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8');
     $ohsaJson = htmlspecialchars(json_encode(['name' => $p['name'], 'status' => $p['safety_status'], 'comments' => $p['safety_comments']]), ENT_QUOTES, 'UTF-8');
     $ohsaClass = strtolower($p['safety_status'] ?? 'na');
@@ -541,6 +541,12 @@ function renderMatrixProjectCard(array $p, $canUpdateStatus, $canEditSchedule, $
             </div>
             <?php endif; ?>
         </div>
+
+        <?php if ($isSummary && canEditProjectDetails($pdo, $p['id'])): ?>
+        <div class="card-section card-summary-actions">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openEditProjectModal(<?= (int)$p['id'] ?>, <?= $pNameJs ?>);">Edit Project</button>
+        </div>
+        <?php endif; ?>
 
         <?php if (!$isSummary): ?>
         <div class="card-section">
@@ -651,6 +657,7 @@ require_once 'header.php';
 .project-card.card-summary .card-header { cursor: pointer; }
 .card-summary-row { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem; }
 .card-summary-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 4px; background: rgba(34, 197, 94, 0.12); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.25); font-weight: 700; text-transform: uppercase; }
+.card-summary-actions { padding: 0.65rem 1rem; border-top: 1px solid rgba(255,255,255,0.04); }
 .pm-archive-section { margin-top: 2rem; padding: 1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid rgba(107, 114, 128, 0.35); background: rgba(15, 23, 42, 0.35); }
 .pm-archive-section > summary { cursor: pointer; font-weight: 700; color: var(--text-secondary); font-size: 0.95rem; list-style: none; display: flex; align-items: center; gap: 0.5rem; }
 .pm-archive-section > summary::-webkit-details-marker { display: none; }
@@ -781,16 +788,16 @@ require_once 'header.php';
             <div class="empty-state card" style="text-align:center;padding:2rem;color:var(--text-muted);">No active projects found.</div>
         <?php else: ?>
             <div class="matrix-cards">
-                <?php foreach ($matrixProjectsActive as $p) { renderMatrixProjectCard($p, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
+                <?php foreach ($matrixProjectsActive as $p) { renderMatrixProjectCard($p, $pdo, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
             </div>
         <?php endif; ?>
 
         <?php if (!empty($matrixProjectsArchive)): ?>
             <details class="pm-archive-section">
                 <summary>Handed Over Archive (<?= count($matrixProjectsArchive) ?>)</summary>
-                <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>.</p>
+                <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>. To revive a project marked completed in error, use <strong>Edit Project</strong> and set status back to Active.</p>
                 <div class="matrix-cards">
-                    <?php foreach ($matrixProjectsArchive as $p) { renderMatrixProjectCard($p, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
+                    <?php foreach ($matrixProjectsArchive as $p) { renderMatrixProjectCard($p, $pdo, $canUpdateStatus, $canEditSchedule, $isLegalRep, $canAssignTeam, $subs); } ?>
                 </div>
             </details>
         <?php endif; ?>
@@ -947,6 +954,37 @@ function openIframeModal(id, name, targetFile) {
     document.getElementById('iframeModal').style.display = 'block';
     document.body.style.overflow = 'hidden'; 
 }
+
+function openEditProjectModal(id, name) {
+    const url = 'edit-project.php?id=' + id + '&modal=1';
+    document.getElementById('iframeModalTitle').textContent = 'Edit Project: ' + name;
+    document.getElementById('iframeExternalLink').href = 'edit-project.php?id=' + id;
+
+    const iframe = document.getElementById('mainIframe');
+    const loader = document.getElementById('iframeLoader');
+
+    iframe.style.display = 'none';
+    loader.style.display = 'block';
+    iframe.src = url;
+
+    iframe.onload = function() {
+        loader.style.display = 'none';
+        iframe.style.display = 'block';
+    };
+
+    document.getElementById('iframeModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+window.addEventListener('message', function(event) {
+    if (event.data === 'projectUpdated') {
+        closeIframeModal();
+    } else if (event.data === 'closeModal') {
+        document.getElementById('iframeModal').style.display = 'none';
+        document.getElementById('mainIframe').src = '';
+        document.body.style.overflow = 'auto';
+    }
+});
 
 function closeIframeModal() {
     document.getElementById('iframeModal').style.display = 'none';

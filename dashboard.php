@@ -699,7 +699,7 @@ tr:last-child td { border-bottom: none; }
             <?php if ($showArchiveSection && $archiveProjectCount > 0): ?>
             <details class="pm-archive-section">
                 <summary>Handed Over Archive (<?= $archiveProjectCount ?>)</summary>
-                <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>.</p>
+                <p class="archive-hint">Completed projects are kept here for reference. For meter applications and engineering records, use the <a href="engineering.php">Engineering Hub</a>. To revive a project marked completed in error, use <strong>Edit Project</strong> and set status back to Active.</p>
                 <div class="dashboard-wrapper">
                     <table class="pm-archive-table">
                         <thead>
@@ -729,6 +729,9 @@ tr:last-child td { border-bottom: none; }
                                         <?php endif; ?>
                                         <?php if (hasPermission('view_mobilisation') || $isAdmin): ?>
                                             <button type="button" onclick="openExecutionModal(<?= $project['id'] ?>, <?= htmlspecialchars(json_encode($project['name']), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-sm btn-secondary" style="cursor: pointer;">View Hub</button>
+                                        <?php endif; ?>
+                                        <?php if (canEditProjectDetails($pdo, $project['id'])): ?>
+                                            <button type="button" onclick="openEditModal(<?= $project['id'] ?>, <?= htmlspecialchars(json_encode($project['name']), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-sm btn-secondary" style="cursor: pointer;">Edit</button>
                                         <?php endif; ?>
                                     </div>
                                 </td>
