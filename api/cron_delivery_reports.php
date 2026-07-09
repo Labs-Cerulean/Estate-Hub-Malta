@@ -28,6 +28,9 @@ if (!$isManualRequest && !$isCronRequest) {
 
 session_write_close(); 
 
+date_default_timezone_set('Europe/Malta');
+$todayDate = date('Y-m-d');
+
 $startDate = $_POST['start_date'] ?? $_GET['start_date'] ?? date('Y-m-d');
 $endDate = $_POST['end_date'] ?? $_GET['end_date'] ?? date('Y-m-d');
 
@@ -42,26 +45,89 @@ $stmt = $pdo->prepare("
     LEFT JOIN projects prj ON pb.project_id = prj.id
     LEFT JOIN users u ON pb.driver_id = u.id 
     WHERE pb.booking_date >= ? AND pb.booking_date <= ? 
-    AND pb.status = 'Completed' 
-    AND pb.payment_status IN ('Invoiced', 'Settled')
+    AND pb.status != 'Cancelled'
+    AND p.billing_company_id IN ('24', '26')
 ");
 $stmt->execute([$startDate, $endDate]);
 $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$praJobs = [];
-$praxJobs = [];
+$praBuckets = ['overdue' => [], 'awaiting_invoice' => [], 'invoiced' => []];
+$praxBuckets = ['overdue' => [], 'awaiting_invoice' => [], 'invoiced' => []];
 
 foreach ($jobs as $job) {
-    if ($job['billing_company_id'] == '24') { 
-        $praJobs[] = $job; 
-    } elseif ($job['billing_company_id'] == '26') { 
-        $praxJobs[] = $job; 
+    $bucket = classifyDeliveryReportJob($job, $todayDate);
+    if ($bucket === null) {
+        continue;
+    }
+    if ($job['billing_company_id'] == '24') {
+        $praBuckets[$bucket][] = $job;
+    } elseif ($job['billing_company_id'] == '26') {
+        $praxBuckets[$bucket][] = $job;
     }
 }
 
 $praEmails = ['nicholasv@pramalta.com', 'accounts@pramalta.com', 'marka@agiusgroup.com', 'clydes@pramalta.com', 'jasons@pramalta.com']; 
 
 $praxEmails = ['nicholasv@pramalta.com', 'thomasg@pandamalta.com', 'marka@agiusgroup.com', 'AlessiaA@AgiusGroup.Com', 'GabriellaA@AgiusGroup.Com', 'clydes@pramalta.com'];
+
+function classifyDeliveryReportJob(array $job, string $todayDate): ?string {
+    $status = $job['status'] ?? '';
+    $payment = $job['payment_status'] ?? 'Pending';
+
+    if ($status === 'Completed' && in_array($payment, ['Invoiced', 'Settled'], true)) {
+        return 'invoiced';
+    }
+    if ($status === 'Completed' && $payment === 'Pending') {
+        return 'awaiting_invoice';
+    }
+    if (in_array($status, ['Pending', 'In Progress', 'Paused'], true)) {
+        $endDate = !empty($job['end_date']) ? $job['end_date'] : ($job['booking_date'] ?? '');
+        if ($endDate !== '' && $endDate < $todayDate) {
+            return 'overdue';
+        }
+    }
+    return null;
+}
+
+function getDeliveryJobRef(array $job): string {
+    $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
+    $year = date('Y', strtotime($job['booking_date']));
+    $paddedId = str_pad((string)$job['id'], 4, '0', STR_PAD_LEFT);
+    return $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
+}
+
+function formatDeliveryScheduledWindow(array $job): string {
+    $date = htmlspecialchars($job['booking_date'] ?? '—');
+    $start = !empty($job['start_time']) ? substr($job['start_time'], 0, 5) : '';
+    $end = !empty($job['end_time']) ? substr($job['end_time'], 0, 5) : '';
+    if ($start && $end) {
+        return "{$date}<br><span style='font-size:11px; color:#64748b;'>{$start} – {$end}</span>";
+    }
+    return $date;
+}
+
+function formatDeliveryJobCells(array $job, PDO $pdo): array {
+    $jobRef = htmlspecialchars(getDeliveryJobRef($job));
+    $plantInfo = htmlspecialchars($job['plant_name']) . "<br><span style='font-size:11px; color:#64748b;'>" . htmlspecialchars($job['registration_plate'] ?? '') . "</span>";
+    $driverName = trim(($job['first_name'] ?? '') . ' ' . ($job['last_name'] ?? ''));
+    $driver = !empty($driverName) ? htmlspecialchars($driverName) : 'N/A';
+    $clientName = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
+    $clientCode = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : '—';
+    $clientCell = "{$clientName}<br><span style='font-size:11px; color:#64748b;'>Code: {$clientCode}</span>";
+    $locationCell = htmlspecialchars(getPlantJobLocationLabel($job));
+    $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
+    $shift = htmlspecialchars(getPlantJobTimeLogged($pdo, $job, $sessions));
+
+    return compact('jobRef', 'plantInfo', 'driver', 'clientCell', 'locationCell', 'shift', 'sessions');
+}
+
+function formatDeliveryEstimatedTotal(array $job): string {
+    $subtotal = (float)($job['final_subtotal'] ?? 0);
+    if ($subtotal > 0) {
+        return '<strong>€ ' . number_format($subtotal * 1.18, 2) . '</strong>';
+    }
+    return '<span style="color:#64748b;">Awaiting figures</span>';
+}
 
 function generateJobPdfFile($job, $pdo, $sessions = null) {
     $tempDir = __DIR__ . '/../temp_pdfs/';
@@ -342,95 +408,190 @@ function generateJobPdfFile($job, $pdo, $sessions = null) {
     return $filePath;
 }
 
-function processAndSendCompanyEmails($companyName, $jobsList, $recipients, $start, $end, $pdo) {
-    if (empty($jobsList)) {
+function processAndSendCompanyEmails($companyName, array $buckets, $recipients, $start, $end, $pdo) {
+    $overdue = $buckets['overdue'] ?? [];
+    $awaiting = $buckets['awaiting_invoice'] ?? [];
+    $invoiced = $buckets['invoiced'] ?? [];
+
+    $overdueCount = count($overdue);
+    $awaitingCount = count($awaiting);
+    $invoicedCount = count($invoiced);
+    $totalCount = $overdueCount + $awaitingCount + $invoicedCount;
+
+    if ($totalCount === 0) {
         return "0 jobs found.";
     }
 
     $isSingleDay = ($start === $end);
     $dateLabel = $isSingleDay ? $start : "$start to $end";
-    
-    $subject = "Plant Bookings Hub: $companyName Delivery Notes ($dateLabel)";
-    
-    $htmlBody = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>";
-    $htmlBody .= "<h2>Plant Bookings Hub</h2>";
-    $htmlBody .= "<h3>$companyName - Daily Delivery Notes</h3>";
-    $htmlBody .= "<p>Please find attached the delivery notes for completed plant bookings for <strong>$dateLabel</strong>.</p>";
-    
-    $htmlBody .= "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width:100%; max-width: 1100px; font-family: Arial, sans-serif; font-size: 13px;'>
-                    <tr style='background:#0f172a; color:white; text-align: left;'>
-                        <th>Job Ref</th>
-                        <th>Plant & Reg</th>
-                        <th>Driver</th>
-                        <th>Client</th>
-                        <th>Project / Location</th>
-                        <th>Shift Time</th>
-                        <th>Date</th>
-                        <th>Total (€)</th>
-                    </tr>";
+
+    $subject = "Plant Bookings Hub: $companyName Delivery Report ($dateLabel)";
+    if ($overdueCount || $awaitingCount || $invoicedCount) {
+        $subject .= " — {$overdueCount} overdue · {$awaitingCount} awaiting invoice · {$invoicedCount} invoiced";
+    }
+
+    $tableStyle = "border-collapse: collapse; width:100%; max-width: 1100px; font-family: Arial, sans-serif; font-size: 13px; margin-bottom: 24px;";
+    $thStyle = "background:#0f172a; color:white; text-align:left; padding:8px;";
+    $tdStyle = "padding:8px; border:1px solid #e2e8f0; vertical-align:top;";
+
+    $htmlBody = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body style='font-family:Arial,sans-serif; color:#0f172a;'>";
+    $htmlBody .= "<h2 style='margin-bottom:4px;'>Plant Bookings Hub</h2>";
+    $htmlBody .= "<h3 style='margin-top:0; color:#334155;'>{$companyName} — Weekly Billing &amp; Action Report</h3>";
+    $htmlBody .= "<p style='color:#475569;'>Period: <strong>{$dateLabel}</strong></p>";
+
+    $htmlBody .= "<table cellpadding='0' cellspacing='0' style='border-collapse:collapse; margin: 16px 0 24px; max-width:700px; width:100%;'>
+        <tr>
+            <td style='padding:12px 16px; background:#fef2f2; border:1px solid #fecaca; border-left:4px solid #dc2626; width:33%;'>
+                <div style='font-size:22px; font-weight:800; color:#dc2626;'>{$overdueCount}</div>
+                <div style='font-size:11px; font-weight:700; text-transform:uppercase; color:#991b1b;'>Overdue</div>
+            </td>
+            <td style='padding:12px 16px; background:#fff7ed; border:1px solid #fed7aa; border-left:4px solid #ea580c; width:33%;'>
+                <div style='font-size:22px; font-weight:800; color:#ea580c;'>{$awaitingCount}</div>
+                <div style='font-size:11px; font-weight:700; text-transform:uppercase; color:#9a3412;'>Awaiting invoice</div>
+            </td>
+            <td style='padding:12px 16px; background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; width:33%;'>
+                <div style='font-size:22px; font-weight:800; color:#16a34a;'>{$invoicedCount}</div>
+                <div style='font-size:11px; font-weight:700; text-transform:uppercase; color:#166534;'>Invoiced</div>
+            </td>
+        </tr>
+    </table>";
+    $htmlBody .= "<p style='color:#64748b; font-size:13px; margin-bottom:28px;'>PDF delivery notes are attached <strong>only</strong> for invoiced jobs (Section 3). Orange and red rows require action in Plant Bookings Hub.</p>";
+
+    if ($overdueCount > 0) {
+        $htmlBody .= "<h4 style='color:#dc2626; margin:0 0 6px; text-transform:uppercase; font-size:13px; letter-spacing:0.04em;'>Section 1 — Action required: Overdue open bookings</h4>";
+        $htmlBody .= "<p style='margin:0 0 10px; color:#64748b; font-size:12px;'>These bookings are past their scheduled end date and are still open. Process on site or cancel in Plant Bookings Hub.</p>";
+        $htmlBody .= "<table border='0' cellpadding='8' cellspacing='0' style='{$tableStyle}'>
+            <tr>
+                <th style='{$thStyle} background:#991b1b;'>Action required</th>
+                <th style='{$thStyle}'>Job Ref</th>
+                <th style='{$thStyle}'>Plant &amp; Reg</th>
+                <th style='{$thStyle}'>Driver</th>
+                <th style='{$thStyle}'>Client</th>
+                <th style='{$thStyle}'>Project / Location</th>
+                <th style='{$thStyle}'>Scheduled</th>
+                <th style='{$thStyle}'>Status</th>
+            </tr>";
+
+        foreach ($overdue as $job) {
+            $cells = formatDeliveryJobCells($job, $pdo);
+            $status = htmlspecialchars($job['status'] ?? '—');
+            $htmlBody .= "<tr style='background:#fef2f2;'>
+                <td style='{$tdStyle} border-left:4px solid #dc2626; color:#dc2626; font-weight:700;'>Booking overdue — process or cancel</td>
+                <td style='{$tdStyle}'><strong>{$cells['jobRef']}</strong></td>
+                <td style='{$tdStyle}'>{$cells['plantInfo']}</td>
+                <td style='{$tdStyle}'>{$cells['driver']}</td>
+                <td style='{$tdStyle}'>{$cells['clientCell']}</td>
+                <td style='{$tdStyle}'>{$cells['locationCell']}</td>
+                <td style='{$tdStyle}'>" . formatDeliveryScheduledWindow($job) . "</td>
+                <td style='{$tdStyle}'><strong>{$status}</strong></td>
+            </tr>";
+        }
+        $htmlBody .= "</table>";
+    }
+
+    if ($awaitingCount > 0) {
+        $htmlBody .= "<h4 style='color:#ea580c; margin:0 0 6px; text-transform:uppercase; font-size:13px; letter-spacing:0.04em;'>Section 2 — Action required: Completed jobs awaiting invoice</h4>";
+        $htmlBody .= "<p style='margin:0 0 10px; color:#64748b; font-size:12px;'>Work is done but not yet invoiced. Complete billing figures and push to ERP.</p>";
+        $htmlBody .= "<table border='0' cellpadding='8' cellspacing='0' style='{$tableStyle}'>
+            <tr>
+                <th style='{$thStyle} background:#9a3412;'>Action required</th>
+                <th style='{$thStyle}'>Job Ref</th>
+                <th style='{$thStyle}'>Plant &amp; Reg</th>
+                <th style='{$thStyle}'>Driver</th>
+                <th style='{$thStyle}'>Client</th>
+                <th style='{$thStyle}'>Project / Location</th>
+                <th style='{$thStyle}'>Shift time</th>
+                <th style='{$thStyle}'>Date</th>
+                <th style='{$thStyle}'>Est. total</th>
+            </tr>";
+
+        foreach ($awaiting as $job) {
+            $cells = formatDeliveryJobCells($job, $pdo);
+            $htmlBody .= "<tr style='background:#fff7ed;'>
+                <td style='{$tdStyle} border-left:4px solid #ea580c; color:#ea580c; font-weight:700;'>Job completed — invoice &amp; push to ERP</td>
+                <td style='{$tdStyle}'><strong>{$cells['jobRef']}</strong></td>
+                <td style='{$tdStyle}'>{$cells['plantInfo']}</td>
+                <td style='{$tdStyle}'>{$cells['driver']}</td>
+                <td style='{$tdStyle}'>{$cells['clientCell']}</td>
+                <td style='{$tdStyle}'>{$cells['locationCell']}</td>
+                <td style='{$tdStyle}'>{$cells['shift']}</td>
+                <td style='{$tdStyle}'>" . htmlspecialchars($job['booking_date'] ?? '—') . "</td>
+                <td style='{$tdStyle}'>" . formatDeliveryEstimatedTotal($job) . "</td>
+            </tr>";
+        }
+        $htmlBody .= "</table>";
+    }
 
     $attachments = [];
 
-    foreach($jobsList as $job) {
-        $prefix = ($job['billing_company_id'] == '26') ? 'PRAX' : 'PRA';
-        $year = date('Y', strtotime($job['booking_date']));
-        $paddedId = str_pad($job['id'], 4, '0', STR_PAD_LEFT);
-        $jobRef = $job['job_ref'] ?? "{$prefix}-{$year}-{$paddedId}";
+    if ($invoicedCount > 0) {
+        $htmlBody .= "<h4 style='color:#16a34a; margin:0 0 6px; text-transform:uppercase; font-size:13px; letter-spacing:0.04em;'>Section 3 — Invoiced delivery notes</h4>";
+        $htmlBody .= "<p style='margin:0 0 10px; color:#64748b; font-size:12px;'>Delivery note PDFs for these jobs are attached to this email.</p>";
+        $htmlBody .= "<table border='0' cellpadding='8' cellspacing='0' style='{$tableStyle}'>
+            <tr>
+                <th style='{$thStyle}'>Job Ref</th>
+                <th style='{$thStyle}'>Plant &amp; Reg</th>
+                <th style='{$thStyle}'>Driver</th>
+                <th style='{$thStyle}'>Client</th>
+                <th style='{$thStyle}'>Project / Location</th>
+                <th style='{$thStyle}'>Shift time</th>
+                <th style='{$thStyle}'>Date</th>
+                <th style='{$thStyle}'>Total (€)</th>
+                <th style='{$thStyle}'>Invoice ref</th>
+            </tr>";
 
-        $plantInfo = htmlspecialchars($job['plant_name']) . "<br><span style='font-size:11px; color:#64748b;'>" . htmlspecialchars($job['registration_plate'] ?? '') . "</span>";
-        
-        $driverName = trim(($job['first_name'] ?? '') . ' ' . ($job['last_name'] ?? ''));
-        $driver = !empty($driverName) ? htmlspecialchars($driverName) : 'N/A';
+        foreach ($invoiced as $job) {
+            $cells = formatDeliveryJobCells($job, $pdo);
+            $subtotal = (float)($job['final_subtotal'] ?? 0);
+            $totalDue = $subtotal > 0 ? '€ ' . number_format($subtotal * 1.18, 2) : 'TBC';
+            $invoiceRef = !empty($job['invoice_sysref']) && !in_array($job['invoice_sysref'], ['N/A', 'SUCCESS_NO_REF'], true)
+                ? htmlspecialchars($job['invoice_sysref'])
+                : '—';
 
-        $clientName = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
-        $clientCode = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : '—';
-        $clientCell = "{$clientName}<br><span style='font-size:11px; color:#64748b;'>Code: {$clientCode}</span>";
+            $htmlBody .= "<tr>
+                <td style='{$tdStyle}'><strong>{$cells['jobRef']}</strong></td>
+                <td style='{$tdStyle}'>{$cells['plantInfo']}</td>
+                <td style='{$tdStyle}'>{$cells['driver']}</td>
+                <td style='{$tdStyle}'>{$cells['clientCell']}</td>
+                <td style='{$tdStyle}'>{$cells['locationCell']}</td>
+                <td style='{$tdStyle}'>{$cells['shift']}</td>
+                <td style='{$tdStyle}'>" . htmlspecialchars($job['booking_date'] ?? '—') . "</td>
+                <td style='{$tdStyle}'><strong>{$totalDue}</strong></td>
+                <td style='{$tdStyle}'>{$invoiceRef}</td>
+            </tr>";
 
-        $locationCell = htmlspecialchars(getPlantJobLocationLabel($job));
-        $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
-        $shift = htmlspecialchars(getPlantJobTimeLogged($pdo, $job, $sessions));
-
-        $subtotal = (float)($job['final_subtotal'] ?? 0);
-        $totalDue = $subtotal > 0 ? '€ ' . number_format($subtotal * 1.18, 2) : 'TBC'; 
-
-        $htmlBody .= "<tr>
-                        <td><strong>{$jobRef}</strong></td>
-                        <td>{$plantInfo}</td>
-                        <td>{$driver}</td>
-                        <td>{$clientCell}</td>
-                        <td>{$locationCell}</td>
-                        <td>{$shift}</td>
-                        <td>" . $job['booking_date'] . "</td>
-                        <td><strong>{$totalDue}</strong></td>
-                      </tr>";
-        
-        $pdfPath = generateJobPdfFile($job, $pdo, $sessions);
-        if ($pdfPath) {
-            $attachments[] = $pdfPath;
+            $pdfPath = generateJobPdfFile($job, $pdo, $cells['sessions']);
+            if ($pdfPath) {
+                $attachments[] = $pdfPath;
+            }
         }
+        $htmlBody .= "</table>";
     }
-    
-    $htmlBody .= "</table><br><p><em>Automated by Estate Hub Fleet System</em></p></body></html>";
+
+    $hubUrl = defined('APP_URL') ? rtrim(APP_URL, '/') . '/plant_bookings.php' : 'plant_bookings.php';
+    $htmlBody .= "<p style='margin-top:24px; color:#64748b; font-size:12px;'><a href='{$hubUrl}' style='color:#2563eb;'>Open Plant Bookings Hub</a></p>";
+    $htmlBody .= "<p><em>Automated by Estate Hub Fleet System</em></p></body></html>";
 
     $emailSuccess = sendSystemEmail($recipients, $subject, $htmlBody, $attachments);
 
-    foreach($attachments as $file) {
-        if (file_exists($file)) unlink($file);
+    foreach ($attachments as $file) {
+        if (file_exists($file)) {
+            unlink($file);
+        }
     }
 
     if ($emailSuccess === true) {
-        return count($jobsList) . " delivery notes sent successfully.";
-    } else {
-        return "Failed: " . $emailSuccess;
+        return "{$invoicedCount} delivery note(s) sent; {$overdueCount} overdue, {$awaitingCount} awaiting invoice flagged.";
     }
+    return "Failed: " . $emailSuccess;
 }
 
 $results = [];
-$results['pra'] = processAndSendCompanyEmails('PRA Construction', $praJobs, $praEmails, $startDate, $endDate, $pdo);
+$results['pra'] = processAndSendCompanyEmails('PRA Construction', $praBuckets, $praEmails, $startDate, $endDate, $pdo);
 
 sleep(3); 
 
-$results['prax'] = processAndSendCompanyEmails('PRAX Concrete', $praxJobs, $praxEmails, $startDate, $endDate, $pdo);
+$results['prax'] = processAndSendCompanyEmails('PRAX Concrete', $praxBuckets, $praxEmails, $startDate, $endDate, $pdo);
 
 header('Content-Type: application/json');
 echo json_encode([
