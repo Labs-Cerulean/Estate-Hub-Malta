@@ -811,8 +811,8 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
         function buildBillingOverridesPayload() {
             const payload = { manual_lines: billingState.manual_lines.filter(l => l.description && l.nom_code && l.qty > 0 && l.rate > 0) };
             if (hasConfiguredBilling) {
-                payload.modes = billingState.modes.filter(m => m.name && m.hours > 0);
-                payload.addons = billingState.addons.filter(a => a.name && a.qty_hours > 0);
+                payload.modes = billingState.modes.filter(m => m.name);
+                payload.addons = billingState.addons.filter(a => a.name);
             }
             return payload;
         }
@@ -863,13 +863,15 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 const dTotal = +(totalQty * billingState.rate_fixed).toFixed(2);
                 grossSubtotal += dTotal;
                 html += `<tr><td><b>${rawNomFixed || 'MISSING'}</b></td><td>Daily Flat Rate<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${totalQty} Days</td><td class="text-right">${billingState.rate_fixed.toFixed(4)}</td><td class="text-right"><b>${dTotal.toFixed(2)}</b></td></tr>`;
-            } else if (hasConfiguredBilling && billingState.modes.length) {
+            } else if (hasConfiguredBilling) {
                 billingState.modes.forEach(mode => {
+                    if (!mode.name || mode.hours <= 0) return;
                     const mTotal = +(mode.hours * mode.rate).toFixed(2);
                     grossSubtotal += mTotal;
                     html += `<tr><td><b>${escapeHtml(mode.nom_code || 'MISSING')}</b></td><td>Primary Mode: ${escapeHtml(mode.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${mode.hours.toFixed(2)} Hrs</td><td class="text-right">${mode.rate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
                 });
                 billingState.addons.forEach(addon => {
+                    if (!addon.name || addon.qty_hours <= 0) return;
                     const aTotal = +(addon.qty_hours * addon.rate).toFixed(2);
                     grossSubtotal += aTotal;
                     html += `<tr><td><b>${escapeHtml(addon.nom_code || 'MISSING')}</b></td><td>Extra Add-on Surcharge: ${escapeHtml(addon.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${addon.qty_hours.toFixed(2)} Qty-Hrs</td><td class="text-right">${addon.rate.toFixed(4)}</td><td class="text-right"><b>${aTotal.toFixed(2)}</b></td></tr>`;
@@ -983,7 +985,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 resultsDiv.innerHTML = filtered.length === 0
                     ? '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>'
                     : filtered.map(c => c.status === 1
-                        ? `<div style="padding:12px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold;" onclick="selectEditClient('${c.code}', '${String(c.name).replace(/'/g, "\\'")}')">${escapeHtml(c.name)}<br><span style="color:#64748b; font-weight:normal; font-size:0.8rem;">Code: ${escapeHtml(c.code)}</span></div>`
+                        ? `<div style="padding:12px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold;" onclick="selectEditClient('${c.code}', '${String(c.name).replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">${escapeHtml(c.name)}<br><span style="color:#64748b; font-weight:normal; font-size:0.8rem;">Code: ${escapeHtml(c.code)}</span></div>`
                         : `<div style="padding:12px; background:#f1f5f9; opacity:0.65;"><span style="text-decoration:line-through;">${escapeHtml(c.name)}</span><br><span style="color:#ef4444; font-weight:bold; font-size:0.8rem;">Blocked</span></div>`
                     ).join('');
                 resultsDiv.style.display = 'block';
@@ -1022,6 +1024,9 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             if (setupEl) setupEl.value = billingState.rate_setup.toFixed(4);
 
             renderClientSelected();
+            if (billingState.client_name && billingState.client_code && billingState.client_code !== 'TBC') {
+                document.getElementById('edit_client_search').value = billingState.client_name;
+            }
             renderEditTables();
             updatePreview();
 

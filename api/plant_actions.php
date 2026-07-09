@@ -131,8 +131,32 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                 foreach (($billingOverrides['modes'] ?? []) as $modeRow) {
                     $overrideModeMap[$modeRow['name'] ?? ''] = $modeRow;
                 }
-                foreach (($billingOverrides['addons'] ?? []) as $addonRow) {
-                    $overrideAddonMap[$addonRow['name'] ?? ''] = $addonRow;
+                if (isset($billingOverrides['modes']) && is_array($billingOverrides['modes'])) {
+                    $modeBreakdown = [];
+                    foreach ($billingOverrides['modes'] as $modeRow) {
+                        $name = trim((string)($modeRow['name'] ?? ''));
+                        if ($name !== '') {
+                            $modeBreakdown[$name] = 0;
+                        }
+                    }
+                }
+                if (isset($billingOverrides['addons']) && is_array($billingOverrides['addons'])) {
+                    $addonBreakdown = [];
+                    foreach ($billingOverrides['addons'] as $addonRow) {
+                        $name = trim((string)($addonRow['name'] ?? ''));
+                        if ($name !== '') {
+                            $overrideAddonMap[$name] = $addonRow;
+                            $addonBreakdown[$name] = 0;
+                        }
+                    }
+                } else {
+                    foreach (($billingOverrides['addons'] ?? []) as $addonRow) {
+                        $name = $addonRow['name'] ?? '';
+                        $overrideAddonMap[$name] = $addonRow;
+                        if ($name !== '' && !isset($addonBreakdown[$name])) {
+                            $addonBreakdown[$name] = 0;
+                        }
+                    }
                 }
             }
 
@@ -149,6 +173,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                     }
                     $mPrice = isset($overrideModeMap[$mName]['rate']) ? (float)$overrideModeMap[$mName]['rate'] : ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
                     $qty = isset($overrideModeMap[$mName]['hours']) ? round((float)$overrideModeMap[$mName]['hours'], 2) : round($mHours, 2);
+                    if ($qty <= 0) {
+                        continue;
+                    }
                     $price = round($mPrice, 4);
                     $grossSubtotal += round($qty * $price, 2);
                     
@@ -179,6 +206,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                     $aPrice = isset($overrideAddonMap[$saName]['rate']) ? (float)$overrideAddonMap[$saName]['rate'] : ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
                     
                     $qty = isset($overrideAddonMap[$saName]['qty_hours']) ? round((float)$overrideAddonMap[$saName]['qty_hours'], 2) : round($saQtyHours, 2);
+                    if ($qty <= 0) {
+                        continue;
+                    }
                     $price = round($aPrice, 4);
                     $grossSubtotal += round($qty * $price, 2);
                     
@@ -1191,7 +1221,7 @@ function getNominalDetails($nomCode, $apiKey) {
 }
 
 function applyBillingOverridesToSessions(PDO $pdo, int $bookingId, array $overrides): void {
-    if (empty($overrides['modes']) && empty($overrides['addons'])) {
+    if (!isset($overrides['modes']) && !isset($overrides['addons'])) {
         return;
     }
 
@@ -1203,7 +1233,7 @@ function applyBillingOverridesToSessions(PDO $pdo, int $bookingId, array $overri
     }
 
     $modeTargets = [];
-    if (!empty($overrides['modes']) && is_array($overrides['modes'])) {
+    if (isset($overrides['modes']) && is_array($overrides['modes'])) {
         foreach ($overrides['modes'] as $modeRow) {
             $modeName = trim((string)($modeRow['name'] ?? ''));
             if ($modeName === '') {
@@ -1211,35 +1241,39 @@ function applyBillingOverridesToSessions(PDO $pdo, int $bookingId, array $overri
             }
             $modeTargets[$modeName] = (float)($modeRow['hours'] ?? 0);
         }
+
+        if (count($overrides['modes']) === 0) {
+            $pdo->prepare("UPDATE plant_job_sessions SET hours = 0 WHERE booking_id = ?")->execute([$bookingId]);
+        } elseif (!empty($modeTargets)) {
+            $modeCurrent = [];
+            foreach ($sessions as $session) {
+                $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
+                if (!isset($modeCurrent[$modeName])) {
+                    $modeCurrent[$modeName] = 0.0;
+                }
+                $modeCurrent[$modeName] += (float)$session['hours'];
+            }
+
+            $updateHoursStmt = $pdo->prepare("UPDATE plant_job_sessions SET hours = ? WHERE id = ?");
+            foreach ($sessions as $session) {
+                $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
+                if (!isset($modeTargets[$modeName])) {
+                    $updateHoursStmt->execute([0, $session['id']]);
+                    continue;
+                }
+                $currentTotal = $modeCurrent[$modeName] ?? 0;
+                $targetTotal = $modeTargets[$modeName];
+                if ($currentTotal <= 0) {
+                    $updateHoursStmt->execute([$targetTotal, $session['id']]);
+                    continue;
+                }
+                $scaledHours = round(((float)$session['hours'] / $currentTotal) * $targetTotal, 2);
+                $updateHoursStmt->execute([$scaledHours, $session['id']]);
+            }
+        }
     }
 
-    if (!empty($modeTargets)) {
-        $modeCurrent = [];
-        foreach ($sessions as $session) {
-            $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
-            if (!isset($modeCurrent[$modeName])) {
-                $modeCurrent[$modeName] = 0.0;
-            }
-            $modeCurrent[$modeName] += (float)$session['hours'];
-        }
-
-        $updateHoursStmt = $pdo->prepare("UPDATE plant_job_sessions SET hours = ? WHERE id = ?");
-        foreach ($sessions as $session) {
-            $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
-            if (!isset($modeTargets[$modeName])) {
-                continue;
-            }
-            $currentTotal = $modeCurrent[$modeName] ?? 0;
-            $targetTotal = $modeTargets[$modeName];
-            if ($currentTotal <= 0) {
-                continue;
-            }
-            $scaledHours = round(((float)$session['hours'] / $currentTotal) * $targetTotal, 2);
-            $updateHoursStmt->execute([$scaledHours, $session['id']]);
-        }
-    }
-
-    if (!empty($overrides['addons']) && is_array($overrides['addons'])) {
+    if (isset($overrides['addons']) && is_array($overrides['addons'])) {
         $lastSession = $sessions[count($sessions) - 1];
         $lastHours = max(0.01, (float)$lastSession['hours']);
         $addonPayload = [];
@@ -1287,8 +1321,8 @@ function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syn
         $apiKey = getApiKey($job['billing_company_id']);
         $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
 
-        if (is_array($billingOverrides) && (!empty($billingOverrides['modes']) || !empty($billingOverrides['addons']))) {
-            if (!empty($billingOverrides['modes'])) {
+        if (is_array($billingOverrides) && (isset($billingOverrides['modes']) || isset($billingOverrides['addons']))) {
+            if (isset($billingOverrides['modes']) && is_array($billingOverrides['modes'])) {
                 foreach ($billingOverrides['modes'] as $modeRow) {
                     $modeName = trim((string)($modeRow['name'] ?? ''));
                     $mHours = (float)($modeRow['hours'] ?? 0);
@@ -1315,7 +1349,7 @@ function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syn
                     $backendSubtotal += round(round($mHours, 2) * (float)($mRate ?? $syncPriceVar), 2);
                 }
             }
-            if (!empty($billingOverrides['addons'])) {
+            if (isset($billingOverrides['addons']) && is_array($billingOverrides['addons'])) {
                 foreach ($billingOverrides['addons'] as $addonRow) {
                     $addonName = trim((string)($addonRow['name'] ?? ''));
                     $qtyHours = (float)($addonRow['qty_hours'] ?? 0);
@@ -1429,13 +1463,6 @@ function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syn
 }
 
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
-    try {
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN billing_overrides TEXT DEFAULT NULL");
-    } catch (PDOException $e) {}
-    try {
-        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN billing_note VARCHAR(120) DEFAULT NULL");
-    } catch (PDOException $e) {}
-
     $bookingId = (int)($_POST['booking_id'] ?? 0);
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
     $postedClientCode = trim((string)($_POST['client_code'] ?? ''));
