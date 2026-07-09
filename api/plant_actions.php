@@ -124,6 +124,17 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
 
             $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
             $isInternal = ($job['booking_type'] == 'in-house');
+            $billingOverrides = !empty($job['billing_overrides']) ? json_decode($job['billing_overrides'], true) : null;
+            $overrideModeMap = [];
+            $overrideAddonMap = [];
+            if (is_array($billingOverrides)) {
+                foreach (($billingOverrides['modes'] ?? []) as $modeRow) {
+                    $overrideModeMap[$modeRow['name'] ?? ''] = $modeRow;
+                }
+                foreach (($billingOverrides['addons'] ?? []) as $addonRow) {
+                    $overrideAddonMap[$addonRow['name'] ?? ''] = $addonRow;
+                }
+            }
 
             // 1. Primary Modes Lines
             foreach ($modeBreakdown as $mName => $mHours) {
@@ -136,9 +147,8 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                     if (!empty($allNominals)) {
                         foreach($allNominals as $n) { if (trim($n['NCCode']) === $mCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
                     }
-                    $mPrice = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
-                    
-                    $qty = round($mHours, 2);
+                    $mPrice = isset($overrideModeMap[$mName]['rate']) ? (float)$overrideModeMap[$mName]['rate'] : ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
+                    $qty = isset($overrideModeMap[$mName]['hours']) ? round((float)$overrideModeMap[$mName]['hours'], 2) : round($mHours, 2);
                     $price = round($mPrice, 4);
                     $grossSubtotal += round($qty * $price, 2);
                     
@@ -166,9 +176,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                     if (!empty($allNominals)) {
                         foreach($allNominals as $n) { if (trim($n['NCCode']) === $aCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
                     }
-                    $aPrice = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
+                    $aPrice = isset($overrideAddonMap[$saName]['rate']) ? (float)$overrideAddonMap[$saName]['rate'] : ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
                     
-                    $qty = round($saQtyHours, 2);
+                    $qty = isset($overrideAddonMap[$saName]['qty_hours']) ? round((float)$overrideAddonMap[$saName]['qty_hours'], 2) : round($saQtyHours, 2);
                     $price = round($aPrice, 4);
                     $grossSubtotal += round($qty * $price, 2);
                     
@@ -188,6 +198,24 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         }
     }
 
+    if (!empty($job['billing_overrides'])) {
+        $billingOverrides = json_decode($job['billing_overrides'], true);
+        if (is_array($billingOverrides) && !empty($billingOverrides['manual_lines'])) {
+            foreach ($billingOverrides['manual_lines'] as $manualLine) {
+                $mCode = trim((string)($manualLine['nom_code'] ?? ''));
+                $mDesc = substr(trim((string)($manualLine['description'] ?? 'Manual charge')), 0, 35);
+                $mQty = round((float)($manualLine['qty'] ?? 0), 2);
+                $mPrice = round((float)($manualLine['rate'] ?? 0), 4);
+                if ($mCode === '' || $mQty <= 0 || $mPrice <= 0) {
+                    continue;
+                }
+                $grossSubtotal += round($mQty * $mPrice, 2);
+                $lines[] = [ "Type" => "N", "Code" => $mCode, "Description" => $mDesc, "UOMLevel" => 1, "Location" => "01",
+                             "Qty" => $mQty, "Price" => $mPrice, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+            }
+        }
+    }
+
     $totalDiscount = round($grossSubtotal * ($discountPct / 100), 2);
     $netSubtotal = round($grossSubtotal - $totalDiscount, 2);
     $totalTax = round($netSubtotal * 0.18, 2);
@@ -197,6 +225,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     
     if ((int)($job['requires_driver'] ?? 1) === 0) { $driverName = "Not Required (Static Asset)"; } 
     else { $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? '')); }
+    if (!empty($job['billing_note'])) {
+        $driverName = trim($driverName . ' | ' . trim($job['billing_note']));
+    }
 
     $locationText = ($job['booking_type'] == 'in-house') ? "Project: " . ($job['project_name'] ?? 'N/A') : "Client: " . ($job['client_name'] ?? 'N/A');
 
@@ -1159,82 +1190,178 @@ function getNominalDetails($nomCode, $apiKey) {
     return null;
 }
 
-if ($action == 'finalize_and_invoice' && $canViewLedger) {
-    $bookingId = $_POST['booking_id'];
-    $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
-
-    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, p.setup_fee, p.nom_code_setup FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
-    $stmt->execute([$bookingId]); 
-    $job = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($job['client_code'] === 'TBC' || empty($job['client_code'])) {
-        echo "ERROR: Client details are marked as TBC. You must assign a valid ERP Client before finalising the delivery note."; exit;
+function applyBillingOverridesToSessions(PDO $pdo, int $bookingId, array $overrides): void {
+    if (empty($overrides['modes']) && empty($overrides['addons'])) {
+        return;
     }
 
-    $apiKey = getApiKey($job['billing_company_id']);
-    
-    $punchIn = null; $punchOut = null;
-    if (!empty($_POST['time_in']) && !empty($_POST['time_out'])) {
-        $tInTime = strtotime($_POST['time_in']); $tOutTime = strtotime($_POST['time_out']);
-        $outDate = $job['booking_date'];
-        if ($tOutTime < $tInTime) { $outDate = date('Y-m-d', strtotime($job['booking_date'] . ' +1 day')); }
-        $punchIn = $job['booking_date'] . ' ' . $_POST['time_in'] . ':00';
-        $punchOut = $outDate . ' ' . $_POST['time_out'] . ':00';
-    }
-    if ($punchIn && $punchOut) {
-        $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
+    $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
+    $sessStmt->execute([$bookingId]);
+    $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (count($sessions) === 0) {
+        return;
     }
 
-    $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
-    $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
-    $customSetupFee = isset($_POST['setup_fee']) ? (float)$_POST['setup_fee'] : null;
-    $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
-
-    $isInternal = $job['booking_type'] == 'in-house'; 
-    $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
-    $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
-    
-    $syncPriceFixed = $customRateFixed !== null ? $customRateFixed : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
-    $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
-    
-    $syncSetupPrice = 0;
-    if ((isset($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || $customSetupFee > 0) {
-        $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
+    $modeTargets = [];
+    if (!empty($overrides['modes']) && is_array($overrides['modes'])) {
+        foreach ($overrides['modes'] as $modeRow) {
+            $modeName = trim((string)($modeRow['name'] ?? ''));
+            if ($modeName === '') {
+                continue;
+            }
+            $modeTargets[$modeName] = (float)($modeRow['hours'] ?? 0);
+        }
     }
 
-    // Backend calculation for local database saving
+    if (!empty($modeTargets)) {
+        $modeCurrent = [];
+        foreach ($sessions as $session) {
+            $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
+            if (!isset($modeCurrent[$modeName])) {
+                $modeCurrent[$modeName] = 0.0;
+            }
+            $modeCurrent[$modeName] += (float)$session['hours'];
+        }
+
+        $updateHoursStmt = $pdo->prepare("UPDATE plant_job_sessions SET hours = ? WHERE id = ?");
+        foreach ($sessions as $session) {
+            $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
+            if (!isset($modeTargets[$modeName])) {
+                continue;
+            }
+            $currentTotal = $modeCurrent[$modeName] ?? 0;
+            $targetTotal = $modeTargets[$modeName];
+            if ($currentTotal <= 0) {
+                continue;
+            }
+            $scaledHours = round(((float)$session['hours'] / $currentTotal) * $targetTotal, 2);
+            $updateHoursStmt->execute([$scaledHours, $session['id']]);
+        }
+    }
+
+    if (!empty($overrides['addons']) && is_array($overrides['addons'])) {
+        $lastSession = $sessions[count($sessions) - 1];
+        $lastHours = max(0.01, (float)$lastSession['hours']);
+        $addonPayload = [];
+        foreach ($overrides['addons'] as $addonRow) {
+            $addonName = trim((string)($addonRow['name'] ?? ''));
+            $qtyHours = (float)($addonRow['qty_hours'] ?? 0);
+            if ($addonName === '' || $qtyHours <= 0) {
+                continue;
+            }
+            $addonPayload[] = [
+                'name' => $addonName,
+                'qty' => max(1, (int)round($qtyHours / $lastHours)),
+            ];
+        }
+
+        $pdo->prepare("UPDATE plant_job_sessions SET addons_used = NULL WHERE booking_id = ? AND id != ?")->execute([$bookingId, $lastSession['id']]);
+        $pdo->prepare("UPDATE plant_job_sessions SET addons_used = ? WHERE id = ?")->execute([
+            count($addonPayload) > 0 ? json_encode($addonPayload) : null,
+            $lastSession['id'],
+        ]);
+    }
+}
+
+function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syncPriceFixed, float $syncPriceVar, float $syncSetupPrice, PDO $pdo, ?array $billingOverrides = null): float {
     $backendSubtotal = round($syncSetupPrice, 2);
+
     if ($job['pricing_type'] == 'fixed_then_hourly') {
         $backendSubtotal += round($syncPriceFixed, 2);
         $extraHours = round($finalHours - (float)$job['min_hours'], 2);
-        if ($extraHours > 0) $backendSubtotal += round($extraHours * $syncPriceVar, 2);
+        if ($extraHours > 0) {
+            $backendSubtotal += round($extraHours * $syncPriceVar, 2);
+        }
     } elseif ($job['pricing_type'] == 'per_trip') {
         $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } elseif ($job['pricing_type'] == 'daily') {
-        $qty = round((float)$finalHours > 0 ? (float)$finalHours : 1, 2); 
+        $qty = round($finalHours > 0 ? $finalHours : 1, 2);
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } else {
         $cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
-        
         $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
-        $sessStmt->execute([$bookingId]);
+        $sessStmt->execute([(int)$job['id']]);
         $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
+        $isInternal = ($job['booking_type'] == 'in-house');
+        $apiKey = getApiKey($job['billing_company_id']);
+        $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
 
-        if (is_array($cfgs) && count($sessions) > 0) {
-            $modeBreakdown = []; $addonBreakdown = [];
+        if (is_array($billingOverrides) && (!empty($billingOverrides['modes']) || !empty($billingOverrides['addons']))) {
+            if (!empty($billingOverrides['modes'])) {
+                foreach ($billingOverrides['modes'] as $modeRow) {
+                    $modeName = trim((string)($modeRow['name'] ?? ''));
+                    $mHours = (float)($modeRow['hours'] ?? 0);
+                    $mRate = isset($modeRow['rate']) ? (float)$modeRow['rate'] : null;
+                    if ($modeName === '' || $mHours <= 0) {
+                        continue;
+                    }
+                    if ($mRate === null && is_array($cfgs)) {
+                        foreach ($cfgs as $c) {
+                            if ($c['name'] === $modeName && $c['type'] === 'mode') {
+                                $mCode = trim($c['nom_code']);
+                                $erpRate = 0;
+                                foreach ($allNominals as $n) {
+                                    if (trim($n['NCCode']) === $mCode) {
+                                        $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2'];
+                                        break;
+                                    }
+                                }
+                                $mRate = $erpRate > 0 ? $erpRate : (float)$c['price'];
+                                break;
+                            }
+                        }
+                    }
+                    $backendSubtotal += round(round($mHours, 2) * (float)($mRate ?? $syncPriceVar), 2);
+                }
+            }
+            if (!empty($billingOverrides['addons'])) {
+                foreach ($billingOverrides['addons'] as $addonRow) {
+                    $addonName = trim((string)($addonRow['name'] ?? ''));
+                    $qtyHours = (float)($addonRow['qty_hours'] ?? 0);
+                    $aRate = isset($addonRow['rate']) ? (float)$addonRow['rate'] : null;
+                    if ($addonName === '' || $qtyHours <= 0) {
+                        continue;
+                    }
+                    if ($aRate === null && is_array($cfgs)) {
+                        foreach ($cfgs as $c) {
+                            if ($c['name'] === $addonName && $c['type'] === 'addon') {
+                                $aCode = trim($c['nom_code']);
+                                $erpRate = 0;
+                                foreach ($allNominals as $n) {
+                                    if (trim($n['NCCode']) === $aCode) {
+                                        $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2'];
+                                        break;
+                                    }
+                                }
+                                $aRate = $erpRate > 0 ? $erpRate : (float)$c['price'];
+                                break;
+                            }
+                        }
+                    }
+                    $backendSubtotal += round(round($qtyHours, 2) * (float)($aRate ?? 0), 2);
+                }
+            }
+        } elseif (is_array($cfgs) && count($sessions) > 0) {
+            $modeBreakdown = [];
+            $addonBreakdown = [];
             foreach ($sessions as $s) {
                 $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
-                if (!isset($modeBreakdown[$mName])) $modeBreakdown[$mName] = 0;
+                if (!isset($modeBreakdown[$mName])) {
+                    $modeBreakdown[$mName] = 0;
+                }
                 $modeBreakdown[$mName] += (float)$s['hours'];
-                
+
                 if (!empty($s['addons_used'])) {
                     $sAddons = json_decode($s['addons_used'], true);
                     if (is_array($sAddons)) {
                         foreach ($sAddons as $sa) {
-                            $saName = $sa['name']; $saQty = (int)$sa['qty'];
+                            $saName = $sa['name'];
+                            $saQty = (int)$sa['qty'];
                             if ($saQty > 0) {
-                                if (!isset($addonBreakdown[$saName])) $addonBreakdown[$saName] = 0;
+                                if (!isset($addonBreakdown[$saName])) {
+                                    $addonBreakdown[$saName] = 0;
+                                }
                                 $addonBreakdown[$saName] += ($saQty * (float)$s['hours']);
                             }
                         }
@@ -1243,38 +1370,174 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
             }
             foreach ($modeBreakdown as $mName => $mHours) {
                 $matchedCfg = null;
-                foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
+                foreach ($cfgs as $c) {
+                    if ($c['name'] === $mName && $c['type'] === 'mode') {
+                        $matchedCfg = $c;
+                        break;
+                    }
+                }
                 if ($matchedCfg) {
-                    $mCode = trim($matchedCfg['nom_code']); $erpRate = 0;
-                    if (!empty($allNominals)) {
-                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $mCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
+                    $mCode = trim($matchedCfg['nom_code']);
+                    $erpRate = 0;
+                    foreach ($allNominals as $n) {
+                        if (trim($n['NCCode']) === $mCode) {
+                            $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2'];
+                            break;
+                        }
                     }
                     $backendSubtotal += round(round($mHours, 2) * ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']), 2);
-                } else { $backendSubtotal += round(round($mHours, 2) * $syncPriceVar, 2); }
+                } else {
+                    $backendSubtotal += round(round($mHours, 2) * $syncPriceVar, 2);
+                }
             }
             foreach ($addonBreakdown as $saName => $saQtyHours) {
                 $matchedCfg = null;
-                foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
+                foreach ($cfgs as $c) {
+                    if ($c['name'] === $saName && $c['type'] === 'addon') {
+                        $matchedCfg = $c;
+                        break;
+                    }
+                }
                 if ($matchedCfg) {
-                    $aCode = trim($matchedCfg['nom_code']); $erpRate = 0;
-                    if (!empty($allNominals)) {
-                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $aCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
+                    $aCode = trim($matchedCfg['nom_code']);
+                    $erpRate = 0;
+                    foreach ($allNominals as $n) {
+                        if (trim($n['NCCode']) === $aCode) {
+                            $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2'];
+                            break;
+                        }
                     }
                     $backendSubtotal += round(round($saQtyHours, 2) * ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']), 2);
                 }
             }
-        } else { $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2); }
+        } else {
+            $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2);
+        }
     }
 
-    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, final_discount_pct=?, payment_status='Invoiced' WHERE id=?");
-    $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $customDiscountPct, $bookingId]);
-    
+    if (is_array($billingOverrides) && !empty($billingOverrides['manual_lines'])) {
+        foreach ($billingOverrides['manual_lines'] as $manualLine) {
+            $mQty = round((float)($manualLine['qty'] ?? 0), 2);
+            $mPrice = round((float)($manualLine['rate'] ?? 0), 4);
+            if ($mQty > 0 && $mPrice > 0) {
+                $backendSubtotal += round($mQty * $mPrice, 2);
+            }
+        }
+    }
+
+    return $backendSubtotal;
+}
+
+if ($action == 'finalize_and_invoice' && $canViewLedger) {
+    try {
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN billing_overrides TEXT DEFAULT NULL");
+    } catch (PDOException $e) {}
+    try {
+        $pdo->exec("ALTER TABLE plant_bookings ADD COLUMN billing_note VARCHAR(120) DEFAULT NULL");
+    } catch (PDOException $e) {}
+
+    $bookingId = (int)($_POST['booking_id'] ?? 0);
+    $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
+    $postedClientCode = trim((string)($_POST['client_code'] ?? ''));
+    $postedClientName = trim((string)($_POST['client_name'] ?? ''));
+    $billingNote = trim((string)($_POST['billing_note'] ?? ''));
+    $billingOverrides = null;
+    if (!empty($_POST['billing_overrides'])) {
+        $decodedOverrides = json_decode((string)$_POST['billing_overrides'], true);
+        if (is_array($decodedOverrides)) {
+            $billingOverrides = $decodedOverrides;
+        }
+    }
+
+    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, p.setup_fee, p.nom_code_setup, p.has_configurations, p.configurations FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?");
+    $stmt->execute([$bookingId]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$job) {
+        echo "ERROR: Job not found.";
+        exit;
+    }
+
+    if ($postedClientCode !== '') {
+        $job['client_code'] = $postedClientCode;
+        $job['client_name'] = $postedClientName;
+    }
+
+    if ($job['client_code'] === 'TBC' || empty($job['client_code'])) {
+        echo "ERROR: Client details are marked as TBC. You must assign a valid ERP Client before finalising the delivery note.";
+        exit;
+    }
+
+    $apiKey = getApiKey($job['billing_company_id']);
+
+    $punchIn = null;
+    $punchOut = null;
+    if (!empty($_POST['time_in']) && !empty($_POST['time_out'])) {
+        $tInTime = strtotime($_POST['time_in']);
+        $tOutTime = strtotime($_POST['time_out']);
+        $outDate = $job['booking_date'];
+        if ($tOutTime < $tInTime) {
+            $outDate = date('Y-m-d', strtotime($job['booking_date'] . ' +1 day'));
+        }
+        $punchIn = $job['booking_date'] . ' ' . $_POST['time_in'] . ':00';
+        $punchOut = $outDate . ' ' . $_POST['time_out'] . ':00';
+    }
+
+    $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
+    $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
+    $customSetupFee = isset($_POST['setup_fee']) ? (float)$_POST['setup_fee'] : null;
+    $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
+    $applySetupFee = isset($_POST['apply_setup_fee']) ? (int)$_POST['apply_setup_fee'] : (int)($job['apply_setup_fee'] ?? 0);
+
+    if ($job['pricing_type'] === 'per_trip' && isset($_POST['qty_trips'])) {
+        $pdo->prepare("UPDATE plant_bookings SET qty_trips = ? WHERE id = ?")->execute([(float)$_POST['qty_trips'], $bookingId]);
+        $job['qty_trips'] = (float)$_POST['qty_trips'];
+    }
+
+    $isInternal = $job['booking_type'] == 'in-house';
+    $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
+    $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
+
+    $syncPriceFixed = $customRateFixed !== null ? $customRateFixed : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
+    $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
+
+    $syncSetupPrice = 0;
+    if ($applySetupFee === 1 || $customSetupFee > 0) {
+        $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
+    }
+
+    if (is_array($billingOverrides)) {
+        applyBillingOverridesToSessions($pdo, $bookingId, $billingOverrides);
+    }
+
+    $job['id'] = $bookingId;
+    $backendSubtotal = calculatePlantBookingSubtotal($job, $finalHours, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $pdo, $billingOverrides);
+
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET client_code = ?, client_name = ?, punch_in_time = COALESCE(?, punch_in_time), punch_out_time = COALESCE(?, punch_out_time), apply_setup_fee = ?, final_hours = ?, final_subtotal = ?, final_rate_fixed = ?, final_rate_var = ?, final_setup_fee = ?, final_discount_pct = ?, billing_overrides = ?, billing_note = ?, payment_status = 'Invoiced' WHERE id = ?");
+    $stmtLocal->execute([
+        $job['client_code'],
+        $job['client_name'],
+        $punchIn,
+        $punchOut,
+        $applySetupFee,
+        $finalHours,
+        $backendSubtotal,
+        $syncPriceFixed,
+        $syncPriceVar,
+        $syncSetupPrice,
+        $customDiscountPct,
+        $billingOverrides ? json_encode($billingOverrides) : null,
+        $billingNote !== '' ? $billingNote : null,
+        $bookingId,
+    ]);
+
+    logPlantAction($pdo, $userId, 'RFP_FINALIZED', 'Manager finalized billing adjustments before ERP push.', $bookingId);
+
     $erpResult = pushBookingToERP($pdo, $bookingId, $userId);
-    
+
     if ($erpResult === "OK") {
-        echo "OK"; 
+        echo "OK";
     } else {
-        echo "OK_LOCAL_ONLY"; 
+        echo "OK_LOCAL_ONLY";
     }
     exit;
 }
