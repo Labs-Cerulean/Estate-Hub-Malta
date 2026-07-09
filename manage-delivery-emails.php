@@ -44,7 +44,7 @@ if (!in_array($role, ['admin', 'director', 'system_manager'])) {
 
 <div class="card">
     <h1><i class="fas fa-paper-plane" style="color: #3b82f6;"></i> Delivery Note Mailer</h1>
-    <p>Select a date range to generate and batch-email the PRA and PRAX delivery note PDFs directly to the billing departments.</p>
+    <p>Select a date range to generate and email the PRA and PRAX billing report: overdue bookings, jobs awaiting invoice, and invoiced delivery notes (PDFs attach only to invoiced jobs).</p>
     
     <form id="emailForm" onsubmit="triggerManualEmails(event)">
         <label for="start_date">Start Date</label>
@@ -54,7 +54,7 @@ if (!in_array($role, ['admin', 'director', 'system_manager'])) {
         <input type="date" id="end_date" required value="<?php echo date('Y-m-d'); ?>">
         
         <button type="submit" id="btn-submit" class="btn-submit">
-            <span>Send Delivery Notes</span>
+            <span>Send Billing Report</span>
         </button>
     </form>
 
@@ -105,7 +105,7 @@ function triggerManualEmails(event) {
     })
     .finally(() => {
         btn.disabled = false;
-        btn.innerHTML = 'Send Delivery Notes';
+        btn.innerHTML = 'Send Billing Report';
     });
 }
 </script>
