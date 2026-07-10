@@ -192,7 +192,7 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
         }
         $modeBreakdown[$mName]['hours'] += (float)$s['hours'];
 
-        // 2. Group Simultaneous Extra Add-ons
+        // 2. Group Extra Add-ons (flat quantity — charged once for the whole job, not per hour)
         if (!empty($s['addons_used'])) {
             $sAddons = json_decode($s['addons_used'], true);
             if (is_array($sAddons)) {
@@ -201,9 +201,9 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
                     $saQty = (int)$sa['qty'];
                     if ($saQty > 0) {
                         if (!isset($addonBreakdown[$saName])) {
-                            $addonBreakdown[$saName] = ['qty_hours' => 0, 'nom_code' => '', 'rate' => 0];
+                            $addonBreakdown[$saName] = ['qty' => 0, 'nom_code' => '', 'rate' => 0];
                         }
-                        $addonBreakdown[$saName]['qty_hours'] += ($saQty * (float)$s['hours']);
+                        $addonBreakdown[$saName]['qty'] += $saQty;
                     }
                 }
             }
@@ -697,7 +697,7 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                 </tr>`;
             }
             else {
-                if (Object.keys(modeBreakdown).length > 0 || Object.keys(addonBreakdown).length > 0) {
+                if (Object.keys(modeBreakdown).length > 0) {
                     for (const [modeName, data] of Object.entries(modeBreakdown)) {
                         const mCode = data.nom_code || 'MISSING';
                         let mQty = parseFloat(data.hours).toFixed(2);
@@ -711,22 +711,6 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                             <td class="text-right">${mQty} Hrs</td>
                             <td class="text-right">${mRate.toFixed(4)}</td>
                             <td class="text-right"><b>${mTotal.toFixed(2)}</b></td>
-                        </tr>`;
-                    }
-
-                    for (const [addonName, data] of Object.entries(addonBreakdown)) {
-                        const aCode = data.nom_code || 'MISSING';
-                        let aQtyHours = parseFloat(data.qty_hours).toFixed(2);
-                        let aRate = parseFloat(data.rate);
-                        let aTotal = +(aQtyHours * aRate).toFixed(2);
-                        grossSubtotal += aTotal;
-                        
-                        html += `<tr>
-                            <td><b>${aCode}</b></td>
-                            <td>Extra Add-on Surcharge: ${addonName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                            <td class="text-right">${aQtyHours} Qty-Hrs</td>
-                            <td class="text-right">${aRate.toFixed(4)}</td>
-                            <td class="text-right"><b>${aTotal.toFixed(2)}</b></td>
                         </tr>`;
                     }
                 } else {
@@ -743,6 +727,24 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                         <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
                     </tr>`;
                 }
+            }
+
+            // Universal add-ons: flat quantity, charged on top of the base pricing for any plant type.
+            for (const [addonName, data] of Object.entries(addonBreakdown)) {
+                const aCode = data.nom_code || 'MISSING';
+                let aQty = parseFloat(data.qty) || 0;
+                let aRate = parseFloat(data.rate) || 0;
+                if (aQty <= 0) continue;
+                let aTotal = +(aQty * aRate).toFixed(2);
+                grossSubtotal += aTotal;
+
+                html += `<tr>
+                    <td><b>${aCode}</b></td>
+                    <td>Extra Add-on: ${addonName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                    <td class="text-right">${aQty.toFixed(2)}</td>
+                    <td class="text-right">${aRate.toFixed(4)}</td>
+                    <td class="text-right"><b>${aTotal.toFixed(2)}</b></td>
+                </tr>`;
             }
 
             tbody.innerHTML = html;
