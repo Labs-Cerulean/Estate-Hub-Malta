@@ -295,7 +295,9 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
 $erpRateFixed = $fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0;
 $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0;
 $erpRateSetup = $setupNom ? (float)($isInternal ? $setupNom['NCDefSP1'] : $setupNom['NCDefSP2']) : (float)($job['setup_fee'] ?? 0);
-$hasSetupFeeFlag = (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || ((float)($job['final_setup_fee'] ?? 0) > 0);
+$hasSetupFeeFlag = $canEdit
+    ? (!empty($job['apply_setup_fee']) && (int)$job['apply_setup_fee'] === 1)
+    : (((float)($job['final_setup_fee'] ?? 0) > 0) || (!empty($job['apply_setup_fee']) && (int)$job['apply_setup_fee'] === 1));
 ?>
 
 <!DOCTYPE html>
@@ -608,7 +610,7 @@ $hasSetupFeeFlag = (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] =
         const rateSetup = <?= (float)$erpRateSetup ?>;
         
         let currentDiscountPct = <?= $savedDiscountPct ?>;
-        let maxAllowedDiscount = 0;
+        let maxAllowedDiscount = null;
         let grossSubtotal = 0;
 
         function formatRate(value) {
@@ -622,7 +624,8 @@ $hasSetupFeeFlag = (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] =
                 fetch(`api/plant_actions.php?action=get_client_max_discount&client_code=${clientCode}&company_id=${companyId}`)
                 .then(r => r.json())
                 .then(data => {
-                    maxAllowedDiscount = parseFloat(data.max_discount) || 0;
+                    maxAllowedDiscount = parseFloat(data.max_discount);
+                    if (isNaN(maxAllowedDiscount)) maxAllowedDiscount = 0;
                     document.getElementById('max_disc_label').innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
                     validateAndRenderDiscount(); 
                 });
@@ -640,7 +643,7 @@ $hasSetupFeeFlag = (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] =
                 inputEl.value = 0;
             }
 
-            if (maxAllowedDiscount > 0 && val > maxAllowedDiscount) {
+            if (maxAllowedDiscount !== null && val > maxAllowedDiscount) {
                 val = maxAllowedDiscount;
                 inputEl.value = val;
                 if (warnEl) {

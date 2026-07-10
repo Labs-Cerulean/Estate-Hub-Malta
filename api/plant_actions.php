@@ -1345,9 +1345,17 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
 
     $isInternal = $job['booking_type'] == 'in-house';
-    $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
-    $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
-    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
+    $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
+    $fixedNom = null;
+    $varNom = null;
+    $setupNom = null;
+    if (!empty($allNominals)) {
+        foreach ($allNominals as $n) {
+            if (!empty($job['nom_code_fixed']) && trim($n['NCCode']) == trim($job['nom_code_fixed'])) $fixedNom = $n;
+            if (!empty($job['nom_code_variable']) && trim($n['NCCode']) == trim($job['nom_code_variable'])) $varNom = $n;
+            if (!empty($job['nom_code_setup']) && trim($n['NCCode']) == trim($job['nom_code_setup'])) $setupNom = $n;
+        }
+    }
 
     // Rates are ERP-only — never accept overrides from the RFP edit panel.
     $syncPriceFixed = $fixedNom ? ($isInternal ? (float)$fixedNom['NCDefSP1'] : (float)$fixedNom['NCDefSP2']) : 0;
@@ -1380,7 +1388,6 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (is_array($cfgs) && count($sessions) > 0) {
-            $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
             $modeBreakdown = [];
             foreach ($sessions as $s) {
                 $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
@@ -1403,9 +1410,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $addonSessions = $addonSessStmt->fetchAll(PDO::FETCH_ASSOC);
         $flatAddons = computePlantFlatAddons($addonSessions);
         if (!empty($flatAddons)) {
-            $addonNominals = getJ2ApiData('/nominalcateg', $apiKey);
             foreach ($flatAddons as $saName => $saQty) {
-                $resolved = resolvePlantConfigRate($addonCfgs, $saName, 'addon', $addonNominals, $isInternal);
+                $resolved = resolvePlantConfigRate($addonCfgs, $saName, 'addon', $allNominals, $isInternal);
                 if ($resolved['code'] === '') continue;
                 $backendSubtotal += round(round($saQty, 2) * $resolved['rate'], 2);
             }
