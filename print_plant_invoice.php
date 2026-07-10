@@ -628,6 +628,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
         const invBookingId = <?= $bookingId ?>;
 
         let invoiceErpClients = [];
+        let loadingPromise = null;
         let maxAllowedDiscount = 0;
         let grossSubtotal = 0;
 
@@ -970,9 +971,20 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
 
         function ensureErpClientsLoaded() {
             if (invoiceErpClients.length > 0) return Promise.resolve(invoiceErpClients);
-            return fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
+            if (loadingPromise) return loadingPromise;
+            loadingPromise = fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
                 .then(r => r.json())
-                .then(res => { invoiceErpClients = res; return res; });
+                .then(res => {
+                    invoiceErpClients = Array.isArray(res) ? res : [];
+                    loadingPromise = null;
+                    return invoiceErpClients;
+                })
+                .catch(() => {
+                    loadingPromise = null;
+                    invoiceErpClients = [];
+                    return invoiceErpClients;
+                });
+            return loadingPromise;
         }
 
         function filterEditClients(query) {

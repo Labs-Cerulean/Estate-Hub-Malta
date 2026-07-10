@@ -423,7 +423,9 @@ $userId = $_SESSION['user_id'];
                 timeGridDay: { buttonText: 'Day' }
             },
             slotMinTime: '06:00:00', 
-            slotMaxTime: '20:00:00', 
+            slotMaxTime: '20:00:00',
+            eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+            slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
             allDaySlot: false, 
             contentHeight: 'auto',
             events: 'api/plant_actions.php?action=fetch_bookings', 
@@ -967,7 +969,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>'; 
         } else { 
             resultsDiv.innerHTML = filtered.map(c => {
-                const safeName = (c.name || '').replace(/'/g, "\\'");
+                const safeName = (c.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                 if (c.status === 1) {
                     return `
                     <div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; background:#fff; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="selectClient('${c.code}', '${safeName}')">

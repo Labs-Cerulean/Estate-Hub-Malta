@@ -140,20 +140,14 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                         }
                     }
                 }
+                foreach (($billingOverrides['addons'] ?? []) as $addonRow) {
+                    $overrideAddonMap[$addonRow['name'] ?? ''] = $addonRow;
+                }
                 if (isset($billingOverrides['addons']) && is_array($billingOverrides['addons'])) {
                     $addonBreakdown = [];
                     foreach ($billingOverrides['addons'] as $addonRow) {
                         $name = trim((string)($addonRow['name'] ?? ''));
                         if ($name !== '') {
-                            $overrideAddonMap[$name] = $addonRow;
-                            $addonBreakdown[$name] = 0;
-                        }
-                    }
-                } else {
-                    foreach (($billingOverrides['addons'] ?? []) as $addonRow) {
-                        $name = $addonRow['name'] ?? '';
-                        $overrideAddonMap[$name] = $addonRow;
-                        if ($name !== '' && !isset($addonBreakdown[$name])) {
                             $addonBreakdown[$name] = 0;
                         }
                     }
@@ -316,6 +310,7 @@ session_write_close(); // Prevent browser hanging
 $isManager = in_array($role, ['admin', 'director', 'system_manager', 'plant_manager']);
 $canManageFleet = in_array($role, ['admin', 'system_manager']) || hasPermission('manage_plant_fleet');
 $canViewLedger = in_array($role, ['admin', 'director', 'system_manager', 'accountant']) || hasPermission('view_plant_ledger');
+$canEditPlantClient = $isManager || $canViewLedger;
 
 // Dynamic API Key Mapper
 $praApiKey = getenv('J2_API_KEY_PRA');
@@ -543,7 +538,7 @@ if ($action == 'form_data') {
     exit;
 }
 
-if ($action == 'get_company_clients' && $isManager) {
+if ($action == 'get_company_clients' && $canEditPlantClient) {
     $apiKey = getApiKey($_GET['company_id'] ?? '');
     $apiClients = getJ2ApiData('/clients', $apiKey);
     $results = [];
@@ -1244,31 +1239,41 @@ function applyBillingOverridesToSessions(PDO $pdo, int $bookingId, array $overri
 
         if (count($overrides['modes']) === 0) {
             $pdo->prepare("UPDATE plant_job_sessions SET hours = 0 WHERE booking_id = ?")->execute([$bookingId]);
+            foreach ($sessions as $idx => $session) {
+                $sessions[$idx]['hours'] = 0;
+            }
         } elseif (!empty($modeTargets)) {
             $modeCurrent = [];
+            $modeCount = [];
             foreach ($sessions as $session) {
                 $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
                 if (!isset($modeCurrent[$modeName])) {
                     $modeCurrent[$modeName] = 0.0;
+                    $modeCount[$modeName] = 0;
                 }
                 $modeCurrent[$modeName] += (float)$session['hours'];
+                $modeCount[$modeName]++;
             }
 
             $updateHoursStmt = $pdo->prepare("UPDATE plant_job_sessions SET hours = ? WHERE id = ?");
-            foreach ($sessions as $session) {
+            foreach ($sessions as $idx => $session) {
                 $modeName = !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation';
                 if (!isset($modeTargets[$modeName])) {
                     $updateHoursStmt->execute([0, $session['id']]);
+                    $sessions[$idx]['hours'] = 0;
                     continue;
                 }
                 $currentTotal = $modeCurrent[$modeName] ?? 0;
                 $targetTotal = $modeTargets[$modeName];
                 if ($currentTotal <= 0) {
-                    $updateHoursStmt->execute([$targetTotal, $session['id']]);
+                    $scaledHours = round($targetTotal / ($modeCount[$modeName] ?: 1), 2);
+                    $updateHoursStmt->execute([$scaledHours, $session['id']]);
+                    $sessions[$idx]['hours'] = $scaledHours;
                     continue;
                 }
                 $scaledHours = round(((float)$session['hours'] / $currentTotal) * $targetTotal, 2);
                 $updateHoursStmt->execute([$scaledHours, $session['id']]);
+                $sessions[$idx]['hours'] = $scaledHours;
             }
         }
     }
@@ -1875,7 +1880,7 @@ if ($action == 'resolve_map_url' && $isManager) {
     exit;
 }
 
-if ($action == 'update_job_client' && $isManager) {
+if ($action == 'update_job_client' && $canEditPlantClient) {
     $bookingId = $_POST['booking_id'];
     $clientCode = $_POST['client_code'];
     $clientName = $_POST['client_name'];
