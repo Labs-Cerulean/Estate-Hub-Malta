@@ -14,6 +14,24 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
     }
 }
 
+function calculatePlantSessionHours(string $punchIn, string $punchOut): float {
+    $inTime = new DateTime($punchIn);
+    $outTime = new DateTime($punchOut);
+    $interval = $inTime->diff($outTime);
+    $hours = ($interval->days * 24) + $interval->h + ($interval->i / 60) + ($interval->s / 3600);
+    return round(max(0, $hours), 2);
+}
+
+function accumulatePlantAddonUnits(array &$addonBreakdown, string $addonName, int $addonQty): void {
+    if ($addonQty <= 0) {
+        return;
+    }
+    if (!isset($addonBreakdown[$addonName])) {
+        $addonBreakdown[$addonName] = 0;
+    }
+    $addonBreakdown[$addonName] += $addonQty;
+}
+
 function pushBookingToERP($pdo, $bookingId, $userId) {
     $stmt = $pdo->prepare("
         SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, p.min_hours, 
@@ -34,6 +52,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     }
 
     $apiKey = getApiKey($job['billing_company_id']);
+    $isInternal = ($job['booking_type'] == 'in-house');
     $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
@@ -115,7 +134,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                             $saQty = (int)$sa['qty'];
                             if ($saQty > 0) {
                                 if (!isset($addonBreakdown[$saName])) $addonBreakdown[$saName] = 0;
-                                $addonBreakdown[$saName] += ($saQty * (float)$s['hours']);
+                                accumulatePlantAddonUnits($addonBreakdown, $saName, $saQty);
                             }
                         }
                     }
@@ -165,7 +184,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                     if (!empty($allNominals)) {
                         foreach($allNominals as $n) { if (trim($n['NCCode']) === $mCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
                     }
-                    $mPrice = isset($overrideModeMap[$mName]['rate']) ? (float)$overrideModeMap[$mName]['rate'] : ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
+                    $mPrice = ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
                     $qty = isset($overrideModeMap[$mName]['hours']) ? round((float)$overrideModeMap[$mName]['hours'], 2) : round($mHours, 2);
                     if ($qty <= 0) {
                         continue;
@@ -197,7 +216,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                     if (!empty($allNominals)) {
                         foreach($allNominals as $n) { if (trim($n['NCCode']) === $aCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
                     }
-                    $aPrice = isset($overrideAddonMap[$saName]['rate']) ? (float)$overrideAddonMap[$saName]['rate'] : ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
+                    $aPrice = ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']);
                     
                     $qty = isset($overrideAddonMap[$saName]['qty_hours']) ? round((float)$overrideAddonMap[$saName]['qty_hours'], 2) : round($saQtyHours, 2);
                     if ($qty <= 0) {
@@ -230,7 +249,14 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                 $mDesc = substr(trim((string)($manualLine['description'] ?? 'Manual charge')), 0, 35);
                 $mQty = round((float)($manualLine['qty'] ?? 0), 2);
                 $mPrice = round((float)($manualLine['rate'] ?? 0), 4);
-                if ($mCode === '' || $mQty <= 0 || $mPrice <= 0) {
+                if ($mCode === '' || $mQty <= 0) {
+                    continue;
+                }
+                if ($mPrice <= 0) {
+                    $manualNom = getNominalDetails($mCode, $apiKey);
+                    $mPrice = $manualNom ? round((float)($isInternal ? $manualNom['NCDefSP1'] : $manualNom['NCDefSP2']), 4) : 0;
+                }
+                if ($mPrice <= 0) {
                     continue;
                 }
                 $grossSubtotal += round($mQty * $mPrice, 2);
@@ -1240,7 +1266,7 @@ if ($action == 'pause_job') {
         $inTime = new DateTime($job['punch_in_time']);
         $outTime = new DateTime($punchOut);
         $interval = $inTime->diff($outTime);
-        $hours = round($interval->h + ($interval->i / 60), 2);
+        $hours = calculatePlantSessionHours($job['punch_in_time'], $punchOut);
 
         // FIXED: Replaced undefined $punchOutTime with $punchOut
         $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchOut, $hours, $job['active_mode'], $job['active_addons']]);
@@ -1311,10 +1337,7 @@ if ($action == 'punch_out_complete') {
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!empty($job['punch_in_time'])) {
-        $inTime = new DateTime($job['punch_in_time']);
-        $outTime = new DateTime($punchTime);
-        $interval = $inTime->diff($outTime);
-        $hours = round($interval->h + ($interval->i / 60), 2);
+        $hours = calculatePlantSessionHours($job['punch_in_time'], $punchTime);
 
         $finalMode = $pendingConfirmation['mode_name'] ?? ($job['active_mode'] ?: 'Standard Operation');
         $finalAddons = $pendingConfirmation['addons_used'] ?? $job['active_addons'];
@@ -1425,17 +1448,16 @@ function applyBillingOverridesToSessions(PDO $pdo, int $bookingId, array $overri
 
     if (isset($overrides['addons']) && is_array($overrides['addons'])) {
         $lastSession = $sessions[count($sessions) - 1];
-        $lastHours = max(0.01, (float)$lastSession['hours']);
         $addonPayload = [];
         foreach ($overrides['addons'] as $addonRow) {
             $addonName = trim((string)($addonRow['name'] ?? ''));
-            $qtyHours = (float)($addonRow['qty_hours'] ?? 0);
-            if ($addonName === '' || $qtyHours <= 0) {
+            $qtyUnits = (float)($addonRow['qty_hours'] ?? 0);
+            if ($addonName === '' || $qtyUnits <= 0) {
                 continue;
             }
             $addonPayload[] = [
                 'name' => $addonName,
-                'qty' => max(1, (int)round($qtyHours / $lastHours)),
+                'qty' => max(1, (int)round($qtyUnits)),
             ];
         }
 
@@ -1476,11 +1498,11 @@ function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syn
                 foreach ($billingOverrides['modes'] as $modeRow) {
                     $modeName = trim((string)($modeRow['name'] ?? ''));
                     $mHours = (float)($modeRow['hours'] ?? 0);
-                    $mRate = isset($modeRow['rate']) ? (float)$modeRow['rate'] : null;
                     if ($modeName === '' || $mHours <= 0) {
                         continue;
                     }
-                    if ($mRate === null && is_array($cfgs)) {
+                    $mRate = null;
+                    if (is_array($cfgs)) {
                         foreach ($cfgs as $c) {
                             if ($c['name'] === $modeName && $c['type'] === 'mode') {
                                 $mCode = trim($c['nom_code']);
@@ -1503,11 +1525,11 @@ function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syn
                 foreach ($billingOverrides['addons'] as $addonRow) {
                     $addonName = trim((string)($addonRow['name'] ?? ''));
                     $qtyHours = (float)($addonRow['qty_hours'] ?? 0);
-                    $aRate = isset($addonRow['rate']) ? (float)$addonRow['rate'] : null;
                     if ($addonName === '' || $qtyHours <= 0) {
                         continue;
                     }
-                    if ($aRate === null && is_array($cfgs)) {
+                    $aRate = null;
+                    if (is_array($cfgs)) {
                         foreach ($cfgs as $c) {
                             if ($c['name'] === $addonName && $c['type'] === 'addon') {
                                 $aCode = trim($c['nom_code']);
@@ -1546,7 +1568,7 @@ function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syn
                                 if (!isset($addonBreakdown[$saName])) {
                                     $addonBreakdown[$saName] = 0;
                                 }
-                                $addonBreakdown[$saName] += ($saQty * (float)$s['hours']);
+                                accumulatePlantAddonUnits($addonBreakdown, $saName, $saQty);
                             }
                         }
                     }
@@ -1600,12 +1622,23 @@ function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syn
     }
 
     if (is_array($billingOverrides) && !empty($billingOverrides['manual_lines'])) {
+        $manualApiKey = getApiKey($job['billing_company_id']);
+        $manualIsInternal = ($job['booking_type'] == 'in-house');
         foreach ($billingOverrides['manual_lines'] as $manualLine) {
+            $mCode = trim((string)($manualLine['nom_code'] ?? ''));
             $mQty = round((float)($manualLine['qty'] ?? 0), 2);
-            $mPrice = round((float)($manualLine['rate'] ?? 0), 4);
-            if ($mQty > 0 && $mPrice > 0) {
-                $backendSubtotal += round($mQty * $mPrice, 2);
+            if ($mCode === '' || $mQty <= 0) {
+                continue;
             }
+            $mPrice = round((float)($manualLine['rate'] ?? 0), 4);
+            if ($mPrice <= 0) {
+                $manualNom = getNominalDetails($mCode, $manualApiKey);
+                $mPrice = $manualNom ? round((float)($manualIsInternal ? $manualNom['NCDefSP1'] : $manualNom['NCDefSP2']), 4) : 0;
+            }
+            if ($mPrice <= 0) {
+                continue;
+            }
+            $backendSubtotal += round($mQty * $mPrice, 2);
         }
     }
 
@@ -1660,9 +1693,6 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $punchOut = $outDate . ' ' . $_POST['time_out'] . ':00';
     }
 
-    $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
-    $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
-    $customSetupFee = isset($_POST['setup_fee']) ? (float)$_POST['setup_fee'] : null;
     $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
     $applySetupFee = isset($_POST['apply_setup_fee']) ? (int)$_POST['apply_setup_fee'] : (int)($job['apply_setup_fee'] ?? 0);
 
@@ -1674,13 +1704,14 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $isInternal = $job['booking_type'] == 'in-house';
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
+    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
 
-    $syncPriceFixed = $customRateFixed !== null ? $customRateFixed : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
-    $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
+    $syncPriceFixed = $fixedNom ? ($isInternal ? (float)$fixedNom['NCDefSP1'] : (float)$fixedNom['NCDefSP2']) : 0;
+    $syncPriceVar = $varNom ? ($isInternal ? (float)$varNom['NCDefSP1'] : (float)$varNom['NCDefSP2']) : 0;
 
     $syncSetupPrice = 0;
-    if ($applySetupFee === 1 || $customSetupFee > 0) {
-        $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
+    if ($applySetupFee === 1) {
+        $syncSetupPrice = $setupNom ? ($isInternal ? (float)$setupNom['NCDefSP1'] : (float)$setupNom['NCDefSP2']) : (float)$job['setup_fee'];
     }
 
     if (is_array($billingOverrides)) {

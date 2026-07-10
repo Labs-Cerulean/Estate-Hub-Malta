@@ -129,7 +129,31 @@ if (!empty($allNominals)) {
     }
 }
 
+$setupNom = null;
+if (!empty($allNominals) && !empty($job['nom_code_setup'])) {
+    foreach ($allNominals as $n) {
+        if (trim($n['NCCode']) === trim($job['nom_code_setup'])) {
+            $setupNom = $n;
+            break;
+        }
+    }
+}
+
 $isInternal = ($job['booking_type'] == 'in-house');
+
+$erpNominalMap = [];
+if (!empty($allNominals)) {
+    foreach ($allNominals as $n) {
+        $code = trim((string)($n['NCCode'] ?? ''));
+        if ($code === '') {
+            continue;
+        }
+        $erpNominalMap[$code] = [
+            'rate' => (float)($isInternal ? ($n['NCDefSP1'] ?? 0) : ($n['NCDefSP2'] ?? 0)),
+            'desc' => (string)($n['NCDesc'] ?? ''),
+        ];
+    }
+}
 
 $s3 = new S3FileManager();
 $logoPath = $job['developer_logo'] ?? null;
@@ -164,13 +188,13 @@ if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])) {
     $activeIn = new DateTime($job['punch_in_time']);
     $activeOut = new DateTime(); 
     $activeInterval = $activeIn->diff($activeOut);
-    $activeSessionHours = round($activeInterval->h + ($activeInterval->i / 60), 2);
+    $activeSessionHours = round(($activeInterval->days * 24) + $activeInterval->h + ($activeInterval->i / 60), 2);
 }
 
 $inTime = !empty($job['punch_in_time']) ? new DateTime($job['punch_in_time']) : new DateTime($job['booking_date'] . ' ' . $job['start_time']);
 $outTime = !empty($job['punch_out_time']) ? new DateTime($job['punch_out_time']) : new DateTime($job['booking_date'] . ' ' . $job['end_time']);
 $interval = $inTime->diff($outTime);
-$legacyHoursWorked = round($interval->h + ($interval->i / 60), 2);
+$legacyHoursWorked = round(($interval->days * 24) + $interval->h + ($interval->i / 60), 2);
 
 if (count($sessions) > 0) {
     $hoursWorked = $totalSessionHours + $activeSessionHours;
@@ -203,7 +227,7 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
                         if (!isset($addonBreakdown[$saName])) {
                             $addonBreakdown[$saName] = ['qty_hours' => 0, 'nom_code' => '', 'rate' => 0];
                         }
-                        $addonBreakdown[$saName]['qty_hours'] += ($saQty * (float)$s['hours']);
+                        $addonBreakdown[$saName]['qty_hours'] += $saQty;
                     }
                 }
             }
@@ -301,6 +325,9 @@ $savedDeliveryChitNumber = trim((string)($job['delivery_chit_number'] ?? ''));
 $qtyTripsValue = ($job['qty_trips'] > 0) ? (float)$job['qty_trips'] : 1;
 $hasSetupFeeFlag = (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || ((float)($job['final_setup_fee'] ?? 0) > 0);
 $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdown) > 0 || count($addonBreakdown) > 0));
+$erpSetupRate = $setupNom ? (float)($isInternal ? $setupNom['NCDefSP1'] : $setupNom['NCDefSP2']) : (float)($job['setup_fee'] ?? 0);
+$erpRateFixed = $fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0;
+$erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0;
 ?>
 
 <!DOCTYPE html>
@@ -412,28 +439,18 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                     </div>
                 </div>
 
-                <div class="edit-section" id="section_line_rates">
-                    <h4>Line rates</h4>
-                    <div class="edit-grid">
-                        <div class="edit-field" id="field_setup_fee" style="<?= ($job['setup_fee'] > 0 || $hasSetupFeeFlag) ? '' : 'display:none;' ?>">
-                            <label><input type="checkbox" id="edit_apply_setup_fee" <?= $hasSetupFeeFlag ? 'checked' : '' ?>> Apply setup / mobilisation fee</label>
-                            <input type="number" id="edit_rate_setup" step="0.0001" value="<?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>">
-                        </div>
-                        <div class="edit-field" id="field_rate_fixed" style="<?= in_array($job['pricing_type'], ['fixed_then_hourly', 'per_trip', 'daily']) ? '' : 'display:none;' ?>">
-                            <label><?= $isTripBased ? 'Trip rate (€)' : ($isDailyBased ? 'Daily rate (€)' : 'Fixed rate (€)') ?></label>
-                            <input type="number" id="edit_rate_fixed" step="0.0001">
-                        </div>
-                        <div class="edit-field" id="field_rate_var" style="<?= (!$hasConfiguredBilling && !$isTripBased && !$isDailyBased) ? '' : 'display:none;' ?>">
-                            <label>Variable / hourly rate (€)</label>
-                            <input type="number" id="edit_rate_var" step="0.0001">
-                        </div>
+                <div class="edit-section" id="section_setup_fee" style="<?= ($job['setup_fee'] > 0 || $hasSetupFeeFlag || !empty($job['nom_code_setup'])) ? '' : 'display:none;' ?>">
+                    <h4>Setup / mobilisation</h4>
+                    <div class="edit-field">
+                        <label><input type="checkbox" id="edit_apply_setup_fee" <?= $hasSetupFeeFlag ? 'checked' : '' ?>> Apply setup / mobilisation fee</label>
+                        <div style="font-size:0.85rem; color:#64748b; margin-top:6px;">ERP rate: <b>€ <?= number_format($erpSetupRate, 4) ?></b> <span style="font-weight:400;">(not editable here)</span></div>
                     </div>
                 </div>
 
                 <div class="edit-section" id="section_modes" style="<?= $hasConfiguredBilling ? '' : 'display:none;' ?>">
                     <h4>Operational modes</h4>
                     <table class="edit-row-table">
-                        <thead><tr><th>Mode</th><th>Qty / Hrs</th><th>Rate (€)</th></tr></thead>
+                        <thead><tr><th>Mode</th><th>Qty / Hrs</th><th>ERP rate (€)</th></tr></thead>
                         <tbody id="edit_modes_body"></tbody>
                     </table>
                 </div>
@@ -441,7 +458,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 <div class="edit-section" id="section_addons" style="<?= ($job['has_configurations'] == 1) ? '' : 'display:none;' ?>">
                     <h4>Configured add-ons</h4>
                     <table class="edit-row-table">
-                        <thead><tr><th>Add-on</th><th>Billable qty-hrs</th><th>Rate (€)</th><th></th></tr></thead>
+                        <thead><tr><th>Add-on</th><th>Billable qty</th><th>ERP rate (€)</th><th></th></tr></thead>
                         <tbody id="edit_addons_body"></tbody>
                     </table>
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -455,7 +472,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 <div class="edit-section">
                     <h4>Manual add-on line</h4>
                     <table class="edit-row-table">
-                        <thead><tr><th>Description</th><th>ERP code</th><th>Qty</th><th>Rate (€)</th><th></th></tr></thead>
+                        <thead><tr><th>Description</th><th>ERP code</th><th>Qty</th><th>ERP rate (€)</th><th></th></tr></thead>
                         <tbody id="edit_manual_body"></tbody>
                     </table>
                     <button type="button" onclick="addManualLine()" style="padding:8px 12px; border:none; background:#e2e8f0; border-radius:6px; font-weight:700; cursor:pointer;">+ Add manual line</button>
@@ -633,6 +650,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
         const modeBreakdownSeed = <?= json_encode($modeBreakdown) ?>;
         const addonBreakdownSeed = <?= json_encode($addonBreakdown) ?>;
         const savedOverrides = <?= json_encode($savedBillingOverrides) ?>;
+        const erpNominalMap = <?= json_encode($erpNominalMap) ?>;
         const invCompId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
         const invBookingId = <?= $bookingId ?>;
 
@@ -649,9 +667,9 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             delivery_chit_number: <?= json_encode($savedDeliveryChitNumber) ?>,
             master_qty: <?= $isTripBased ? $qtyTripsValue : $qtyValue ?>,
             apply_setup_fee: <?= $hasSetupFeeFlag ? 'true' : 'false' ?>,
-            rate_setup: <?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>,
-            rate_fixed: <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>,
-            rate_var: <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>,
+            rate_setup: <?= (float)$erpSetupRate ?>,
+            rate_fixed: <?= (float)$erpRateFixed ?>,
+            rate_var: <?= (float)$erpRateVar ?>,
             modes: [],
             addons: [],
             manual_lines: [],
@@ -659,7 +677,15 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
 
         function initBillingState() {
             if (savedOverrides && Array.isArray(savedOverrides.modes) && savedOverrides.modes.length) {
-                billingState.modes = savedOverrides.modes;
+                billingState.modes = savedOverrides.modes.map(row => {
+                    const seed = modeBreakdownSeed[row.name] || {};
+                    return {
+                        name: row.name,
+                        hours: parseFloat(row.hours) || 0,
+                        rate: parseFloat(seed.rate) || 0,
+                        nom_code: seed.nom_code || '',
+                    };
+                });
             } else {
                 billingState.modes = Object.entries(modeBreakdownSeed).map(([name, data]) => ({
                     name,
@@ -669,7 +695,17 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 }));
             }
             if (savedOverrides && Array.isArray(savedOverrides.addons) && savedOverrides.addons.length) {
-                billingState.addons = savedOverrides.addons;
+                billingState.addons = savedOverrides.addons.map(row => {
+                    const seed = addonBreakdownSeed[row.name] || {};
+                    const cfg = plantConfigurations.find(c => c.name === row.name && c.type === 'addon');
+                    const nomCode = seed.nom_code || cfg?.nom_code || '';
+                    return {
+                        name: row.name,
+                        qty_hours: parseFloat(row.qty_hours) || 0,
+                        rate: parseFloat(seed.rate) || lookupErpRate(nomCode) || parseFloat(cfg?.price) || 0,
+                        nom_code: nomCode,
+                    };
+                });
             } else {
                 billingState.addons = Object.entries(addonBreakdownSeed).map(([name, data]) => ({
                     name,
@@ -679,7 +715,12 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 }));
             }
             if (savedOverrides && Array.isArray(savedOverrides.manual_lines)) {
-                billingState.manual_lines = savedOverrides.manual_lines;
+                billingState.manual_lines = savedOverrides.manual_lines.map(line => ({
+                    description: line.description || '',
+                    nom_code: line.nom_code || '',
+                    qty: parseFloat(line.qty) || 0,
+                    rate: lookupErpRate(line.nom_code),
+                }));
             }
         }
 
@@ -697,6 +738,12 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             }
         }
 
+        function lookupErpRate(nomCode) {
+            const code = String(nomCode || '').trim();
+            if (!code || !erpNominalMap[code]) return 0;
+            return parseFloat(erpNominalMap[code].rate) || 0;
+        }
+
         function renderEditTables() {
             const modesBody = document.getElementById('edit_modes_body');
             if (modesBody) {
@@ -704,7 +751,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                     <tr>
                         <td><strong>${escapeHtml(mode.name)}</strong></td>
                         <td><input type="number" step="0.25" value="${mode.hours}" onchange="billingState.modes[${idx}].hours = parseFloat(this.value) || 0"></td>
-                        <td><input type="number" step="0.0001" value="${mode.rate}" onchange="billingState.modes[${idx}].rate = parseFloat(this.value) || 0"></td>
+                        <td style="font-weight:700;">${(parseFloat(mode.rate) || 0).toFixed(4)}</td>
                     </tr>
                 `).join('');
             }
@@ -714,8 +761,8 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 addonsBody.innerHTML = billingState.addons.map((addon, idx) => `
                     <tr>
                         <td><strong>${escapeHtml(addon.name)}</strong></td>
-                        <td><input type="number" step="0.25" value="${addon.qty_hours}" onchange="billingState.addons[${idx}].qty_hours = parseFloat(this.value) || 0"></td>
-                        <td><input type="number" step="0.0001" value="${addon.rate}" onchange="billingState.addons[${idx}].rate = parseFloat(this.value) || 0"></td>
+                        <td><input type="number" step="1" min="0" value="${addon.qty_hours}" onchange="billingState.addons[${idx}].qty_hours = parseFloat(this.value) || 0"></td>
+                        <td style="font-weight:700;">${(parseFloat(addon.rate) || 0).toFixed(4)}</td>
                         <td><button type="button" onclick="removeAddon(${idx})" style="border:none;background:#fee2e2;color:#b91c1c;padding:6px 10px;border-radius:6px;cursor:pointer;">Remove</button></td>
                     </tr>
                 `).join('');
@@ -726,9 +773,9 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 manualBody.innerHTML = billingState.manual_lines.map((line, idx) => `
                     <tr>
                         <td><input type="text" value="${escapeHtml(line.description)}" onchange="billingState.manual_lines[${idx}].description = this.value"></td>
-                        <td><input type="text" value="${escapeHtml(line.nom_code)}" onchange="billingState.manual_lines[${idx}].nom_code = this.value"></td>
+                        <td><input type="text" value="${escapeHtml(line.nom_code)}" onchange="billingState.manual_lines[${idx}].nom_code = this.value; billingState.manual_lines[${idx}].rate = lookupErpRate(this.value); renderEditTables();"></td>
                         <td><input type="number" step="0.25" value="${line.qty}" onchange="billingState.manual_lines[${idx}].qty = parseFloat(this.value) || 0"></td>
-                        <td><input type="number" step="0.0001" value="${line.rate}" onchange="billingState.manual_lines[${idx}].rate = parseFloat(this.value) || 0"></td>
+                        <td style="font-weight:700;">${(parseFloat(line.rate) || 0).toFixed(4)}</td>
                         <td><button type="button" onclick="removeManualLine(${idx})" style="border:none;background:#fee2e2;color:#b91c1c;padding:6px 10px;border-radius:6px;cursor:pointer;">Remove</button></td>
                     </tr>
                 `).join('');
@@ -758,7 +805,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             billingState.addons.push({
                 name: cfg.name,
                 qty_hours: 0,
-                rate: parseFloat(cfg.price) || 0,
+                rate: lookupErpRate(cfg.nom_code) || parseFloat(cfg.price) || 0,
                 nom_code: cfg.nom_code || '',
             });
             renderEditTables();
@@ -801,14 +848,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             if (chitEl) billingState.delivery_chit_number = chitEl.value.trim();
 
             const setupApplyEl = document.getElementById('edit_apply_setup_fee');
-            const setupRateEl = document.getElementById('edit_rate_setup');
             if (setupApplyEl) billingState.apply_setup_fee = setupApplyEl.checked;
-            if (setupRateEl) billingState.rate_setup = parseFloat(setupRateEl.value) || 0;
-
-            const fixedEl = document.getElementById('edit_rate_fixed');
-            const varEl = document.getElementById('edit_rate_var');
-            if (fixedEl) billingState.rate_fixed = parseFloat(fixedEl.value) || 0;
-            if (varEl) billingState.rate_var = parseFloat(varEl.value) || 0;
 
             const timeInEl = document.getElementById('edit_time_in');
             const timeOutEl = document.getElementById('edit_time_out');
@@ -823,10 +863,18 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
         }
 
         function buildBillingOverridesPayload() {
-            const payload = { manual_lines: billingState.manual_lines.filter(l => l.description && l.nom_code && l.qty > 0 && l.rate > 0) };
+            const payload = {
+                manual_lines: billingState.manual_lines
+                    .filter(l => l.description && l.nom_code && l.qty > 0)
+                    .map(l => ({ description: l.description, nom_code: l.nom_code, qty: l.qty })),
+            };
             if (hasConfiguredBilling) {
-                payload.modes = billingState.modes.filter(m => m.name);
-                payload.addons = billingState.addons.filter(a => a.name);
+                payload.modes = billingState.modes
+                    .filter(m => m.name && m.hours > 0)
+                    .map(m => ({ name: m.name, hours: m.hours }));
+                payload.addons = billingState.addons
+                    .filter(a => a.name && a.qty_hours > 0)
+                    .map(a => ({ name: a.name, qty_hours: a.qty_hours }));
             }
             return payload;
         }
@@ -900,7 +948,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                     if (!addon.name || addon.qty_hours <= 0) return;
                     const aTotal = +(addon.qty_hours * addon.rate).toFixed(2);
                     grossSubtotal += aTotal;
-                    html += `<tr><td><b>${escapeHtml(addon.nom_code || 'MISSING')}</b></td><td>Extra Add-on Surcharge: ${escapeHtml(addon.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${addon.qty_hours.toFixed(2)} Qty-Hrs</td><td class="text-right">${addon.rate.toFixed(4)}</td><td class="text-right"><b>${aTotal.toFixed(2)}</b></td></tr>`;
+                    html += `<tr><td><b>${escapeHtml(addon.nom_code || 'MISSING')}</b></td><td>Extra Add-on Surcharge: ${escapeHtml(addon.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${addon.qty_hours.toFixed(2)} Units</td><td class="text-right">${addon.rate.toFixed(4)}</td><td class="text-right"><b>${aTotal.toFixed(2)}</b></td></tr>`;
                 });
             } else {
                 const hTotal = +(totalQty * billingState.rate_var).toFixed(2);
@@ -909,10 +957,11 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             }
 
             billingState.manual_lines.forEach(line => {
-                if (!line.description || !line.nom_code || line.qty <= 0 || line.rate <= 0) return;
-                const mTotal = +(line.qty * line.rate).toFixed(2);
+                const lineRate = lookupErpRate(line.nom_code) || parseFloat(line.rate) || 0;
+                if (!line.description || !line.nom_code || line.qty <= 0 || lineRate <= 0) return;
+                const mTotal = +(line.qty * lineRate).toFixed(2);
                 grossSubtotal += mTotal;
-                html += `<tr><td><b>${escapeHtml(line.nom_code)}</b></td><td>${escapeHtml(line.description)}<br><i style="font-size:0.8rem; color:#64748b;">(Manual line)</i></td><td class="text-right">${line.qty.toFixed(2)}</td><td class="text-right">${line.rate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
+                html += `<tr><td><b>${escapeHtml(line.nom_code)}</b></td><td>${escapeHtml(line.description)}<br><i style="font-size:0.8rem; color:#64748b;">(Manual line)</i></td><td class="text-right">${line.qty.toFixed(2)}</td><td class="text-right">${lineRate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
             });
 
             tbody.innerHTML = html;
@@ -961,17 +1010,12 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             fd.append('client_code', billingState.client_code);
             fd.append('client_name', billingState.client_name);
             fd.append('hours', billingState.master_qty);
-            fd.append('rate_fixed', billingState.rate_fixed);
-            fd.append('rate_var', billingState.rate_var);
             fd.append('discount_pct', billingState.discount_pct);
             fd.append('billing_note', billingState.billing_note);
             fd.append('delivery_chit_number', billingState.delivery_chit_number);
             fd.append('apply_setup_fee', billingState.apply_setup_fee ? '1' : '0');
             fd.append('billing_overrides', JSON.stringify(buildBillingOverridesPayload()));
 
-            if (billingState.apply_setup_fee) {
-                fd.append('setup_fee', billingState.rate_setup);
-            }
             if (pricingType === 'per_trip') {
                 fd.append('qty_trips', billingState.master_qty);
             }
@@ -1054,12 +1098,6 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                 renderPreviewTable();
                 return;
             }
-            const fixedEl = document.getElementById('edit_rate_fixed');
-            const varEl = document.getElementById('edit_rate_var');
-            const setupEl = document.getElementById('edit_rate_setup');
-            if (fixedEl) fixedEl.value = billingState.rate_fixed.toFixed(4);
-            if (varEl) varEl.value = billingState.rate_var.toFixed(4);
-            if (setupEl) setupEl.value = billingState.rate_setup.toFixed(4);
 
             renderClientSelected();
             if (billingState.client_name && billingState.client_code && billingState.client_code !== 'TBC') {
