@@ -349,6 +349,12 @@ $userId = $_SESSION['user_id'];
                     <p style="font-size:0.8rem; color:#3b82f6; margin-top:5px;">This vehicle uses Per Trip billing. Ensure the client verifies this quantity.</p>
                 </div>
 
+                <div id="shift-confirm-box" style="display:none; background:#f0fdf4; padding:18px; border-radius:12px; margin-bottom:18px; border:1px solid #86efac;">
+                    <h4 style="margin:0 0 6px; color:#166534; font-size:1.05rem;"><i class="fas fa-clipboard-check"></i> Confirm Shifts</h4>
+                    <p style="margin:0 0 14px; color:#4b5563; font-size:0.85rem;">Check the mode and add-on quantities used for each shift. Adjust if needed before the client signs off.</p>
+                    <div id="shift-confirm-list"></div>
+                </div>
+
                 <label>Delivery Chit Number <span style="font-weight:400; color:#64748b;">(optional)</span></label>
                 <input type="text" id="delivery_chit_number" class="input-heavy" maxlength="40" placeholder="Leave blank if not available">
                 <label>Client Representative Name</label><input type="text" id="rep_name" class="input-heavy" required>
@@ -1770,7 +1776,131 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const tBox = document.getElementById('trip-qty-box');
         if(pricingType === 'per_trip') { tBox.style.display = 'block'; document.getElementById('qty_trips').required = true; } 
         else { tBox.style.display = 'none'; document.getElementById('qty_trips').required = false; }
+
+        const job = window.currentActiveJob;
+        const shiftBox = document.getElementById('shift-confirm-box');
+        const shiftList = document.getElementById('shift-confirm-list');
+
+        if (job && Number(job.has_configurations) === 1 && job.configurations) {
+            shiftBox.style.display = 'block';
+            shiftList.innerHTML = '<p style="text-align:center;color:#64748b;margin:0;"><i class="fas fa-spinner fa-spin"></i> Loading shifts...</p>';
+            setPunchOutSubmitEnabled(false);
+            showView('view-punch-out');
+
+            fetch(`api/plant_actions.php?action=get_job_sessions&booking_id=${encodeURIComponent(id)}`)
+                .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(data => {
+                    if (!data || data.error) throw new Error(data && data.error ? data.error : 'Could not load shifts');
+                    renderShiftConfirmationUI(data);
+                    setPunchOutSubmitEnabled(true);
+                })
+                .catch(err => {
+                    console.warn('Shift confirmation load failed:', err);
+                    shiftBox.style.display = 'none';
+                    shiftList.innerHTML = '';
+                    setPunchOutSubmitEnabled(true);
+                });
+            return;
+        }
+
+        shiftBox.style.display = 'none';
+        shiftList.innerHTML = '';
+        setPunchOutSubmitEnabled(true);
         showView('view-punch-out'); 
+    }
+
+    function setPunchOutSubmitEnabled(enabled) {
+        const btn = document.querySelector('#view-punch-out button.btn-red');
+        if (btn) {
+            btn.disabled = !enabled;
+            if (enabled) btn.innerHTML = '<i class="fas fa-check-circle"></i> Complete & Finalize Job';
+        }
+    }
+
+    function escapeShiftHtml(value) {
+        return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeShiftAttr(value) {
+        return escapeShiftHtml(value).replace(/'/g, '&#39;');
+    }
+
+    function formatShiftWindow(shift) {
+        const fmt = (dt) => {
+            if (!dt) return '';
+            const normalized = String(dt).includes('T') ? String(dt) : String(dt).replace(' ', 'T');
+            const d = new Date(normalized);
+            if (isNaN(d.getTime())) return String(dt);
+            return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ', ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+        };
+        if (shift.is_current) return `Since ${fmt(shift.punch_in)}`;
+        return `${fmt(shift.punch_in)} → ${fmt(shift.punch_out)}`;
+    }
+
+    function renderShiftConfirmationUI(data) {
+        const shiftBox = document.getElementById('shift-confirm-box');
+        const shiftList = document.getElementById('shift-confirm-list');
+
+        if (!data.has_configurations || !Array.isArray(data.shifts) || data.shifts.length === 0) {
+            shiftBox.style.display = 'none';
+            shiftList.innerHTML = '';
+            return;
+        }
+
+        const cfgs = Array.isArray(data.configurations) ? data.configurations : [];
+        const modes = cfgs.filter(c => c.type === 'mode');
+        const addons = cfgs.filter(c => c.type === 'addon');
+        const hasModes = modes.length > 0;
+
+        shiftBox.style.display = 'block';
+        shiftList.innerHTML = data.shifts.map((shift, idx) => {
+            const addonMap = {};
+            (shift.addons || []).forEach(a => { addonMap[a.name] = parseInt(a.qty, 10) || 0; });
+
+            const modeHtml = hasModes
+                ? `<select class="shift-mode-select input-heavy" style="margin-bottom:0;">${modes.map(m => `<option value="${escapeShiftAttr(m.name)}" ${shift.mode_name === m.name ? 'selected' : ''}>${escapeShiftHtml(m.name)}</option>`).join('')}</select>`
+                : `<input type="hidden" class="shift-mode-select" value="${escapeShiftAttr(shift.mode_name || 'Standard Operation')}"><span style="font-weight:700;">${escapeShiftHtml(shift.mode_name || 'Standard Operation')}</span>`;
+
+            const addonHtml = addons.length > 0
+                ? addons.map(a => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+                        <span>${escapeShiftHtml(a.name)}</span>
+                        <input type="number" class="shift-addon-input" data-addon-name="${escapeShiftAttr(a.name)}" min="0" value="${addonMap[a.name] || 0}" style="width:70px; padding:6px; border:1px solid #cbd5e1; border-radius:6px; text-align:center; font-weight:bold;">
+                    </div>`).join('')
+                : '';
+
+            const hoursLabel = shift.hours != null ? ` · <b>${Number(shift.hours).toFixed(2)} hrs</b>` : '';
+            const currentBadge = shift.is_current ? ' <span style="color:#2563eb; font-size:0.82rem;">(current shift)</span>' : '';
+
+            return `
+                <div class="shift-confirm-card" data-session-id="${shift.id == null ? '' : shift.id}" style="background:#fff; border:1px solid #d1d5db; border-radius:12px; padding:14px; margin-bottom:10px;">
+                    <div style="font-weight:800; color:#0f172a; margin-bottom:6px;">Shift ${idx + 1}${currentBadge}</div>
+                    <div style="font-size:0.88rem; color:#64748b; margin-bottom:12px;">${formatShiftWindow(shift)}${hoursLabel}</div>
+                    ${hasModes ? '<label style="display:block; font-size:0.72rem; font-weight:700; text-transform:uppercase; color:#64748b; margin-bottom:4px;">Mode</label>' : ''}
+                    ${modeHtml}
+                    ${addonHtml ? `<div style="margin-top:12px; border-top:1px dashed #e5e7eb; padding-top:10px;"><div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:#64748b; margin-bottom:6px;">Add-ons (quantity)</div>${addonHtml}</div>` : ''}
+                </div>`;
+        }).join('');
+    }
+
+    function collectShiftConfirmations() {
+        const confirmations = [];
+        document.querySelectorAll('.shift-confirm-card').forEach(card => {
+            const sessionIdRaw = card.getAttribute('data-session-id');
+            const modeEl = card.querySelector('.shift-mode-select');
+            const modeName = modeEl ? modeEl.value : 'Standard Operation';
+            const addons = [];
+            card.querySelectorAll('.shift-addon-input').forEach(input => {
+                const qty = parseInt(input.value, 10) || 0;
+                if (qty > 0) addons.push({ name: input.getAttribute('data-addon-name'), qty });
+            });
+            confirmations.push({
+                id: (sessionIdRaw === '' || sessionIdRaw == null) ? null : parseInt(sessionIdRaw, 10),
+                mode_name: modeName,
+                addons
+            });
+        });
+        return confirmations;
     }
 
     function submitPunchOut() {
@@ -1782,10 +1912,15 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         if (chitVal) fd.append('delivery_chit_number', chitVal);
         fd.append('qty_trips', document.getElementById('qty_trips').value); fd.append('rep_name', document.getElementById('rep_name').value);
         fd.append('rep_id', document.getElementById('rep_id').value); fd.append('signature', signaturePad.toDataURL());
+
+        const shiftBox = document.getElementById('shift-confirm-box');
+        if (shiftBox && shiftBox.style.display !== 'none' && document.querySelectorAll('.shift-confirm-card').length > 0) {
+            fd.append('session_confirmations', JSON.stringify(collectShiftConfirmations()));
+        }
         
         fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
             if (res === 'OK') { alert("Completed!"); calendar.refetchEvents(); showView('view-calendar'); } 
-            else { alert("Error: " + res); btn.disabled = false; }
+            else { alert("Error: " + res); btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Complete & Finalize Job'; }
         });
     }
 

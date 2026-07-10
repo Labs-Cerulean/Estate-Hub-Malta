@@ -1039,6 +1039,88 @@ if ($action == 'get_job') {
     exit;
 }
 
+if ($action == 'get_job_sessions') {
+    header('Content-Type: application/json; charset=utf-8');
+    $bookingId = (int)($_GET['booking_id'] ?? $_POST['booking_id'] ?? 0);
+    if ($bookingId <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid booking ID.']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT pb.id, pb.status, pb.punch_in_time, pb.active_mode, pb.active_addons,
+                   p.has_configurations, p.configurations
+            FROM plant_bookings pb
+            JOIN plants p ON pb.plant_id = p.id
+            WHERE pb.id = ?
+        ");
+        $stmt->execute([$bookingId]);
+        $booking = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $booking = null;
+    }
+
+    if (!$booking) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Booking not found.']);
+        exit;
+    }
+
+    $configurations = [];
+    if ((int)($booking['has_configurations'] ?? 0) === 1 && !empty($booking['configurations'])) {
+        $decodedConfigs = json_decode($booking['configurations'], true);
+        $configurations = is_array($decodedConfigs) ? $decodedConfigs : [];
+    }
+
+    $parseSessionAddons = static function (?string $addonsUsed): array {
+        if ($addonsUsed === null || $addonsUsed === '') {
+            return [];
+        }
+        $decoded = json_decode($addonsUsed, true);
+        return is_array($decoded) ? $decoded : [];
+    };
+
+    $shifts = [];
+    try {
+        $sessStmt = $pdo->prepare("SELECT id, punch_in, punch_out, hours, mode_name, addons_used FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC");
+        $sessStmt->execute([$bookingId]);
+        foreach ($sessStmt->fetchAll(PDO::FETCH_ASSOC) as $session) {
+            $shifts[] = [
+                'id' => (int)$session['id'],
+                'punch_in' => $session['punch_in'],
+                'punch_out' => $session['punch_out'],
+                'hours' => (float)$session['hours'],
+                'mode_name' => !empty($session['mode_name']) ? $session['mode_name'] : 'Standard Operation',
+                'addons' => $parseSessionAddons($session['addons_used'] ?? null),
+                'is_current' => false,
+            ];
+        }
+    } catch (PDOException $e) {
+        $shifts = [];
+    }
+
+    if ($booking['status'] === 'In Progress' && !empty($booking['punch_in_time'])) {
+        $shifts[] = [
+            'id' => null,
+            'punch_in' => $booking['punch_in_time'],
+            'punch_out' => null,
+            'hours' => null,
+            'mode_name' => !empty($booking['active_mode']) ? $booking['active_mode'] : 'Standard Operation',
+            'addons' => $parseSessionAddons($booking['active_addons'] ?? null),
+            'is_current' => true,
+        ];
+    }
+
+    echo json_encode([
+        'has_configurations' => (int)($booking['has_configurations'] ?? 0),
+        'configurations' => $configurations,
+        'shifts' => $shifts,
+    ]);
+    exit;
+}
+
 if ($action == 'claim_job') {
     $bookingId = $_POST['id'];
     
@@ -1110,7 +1192,55 @@ if ($action == 'pause_job') {
 
 if ($action == 'punch_out_complete') {
     $punchTime = date('Y-m-d H:i:s');
-    $bookingId = $_POST['id'];
+    $bookingId = (int)($_POST['id'] ?? 0);
+
+    // Driver-confirmed per-shift modes / add-ons (captured on the completion screen).
+    $sessionConfirmations = [];
+    if (!empty($_POST['session_confirmations'])) {
+        $decodedConfirmations = json_decode((string)$_POST['session_confirmations'], true);
+        if (is_array($decodedConfirmations)) {
+            $sessionConfirmations = $decodedConfirmations;
+        }
+    }
+
+    // Encode add-ons as a flat quantity list: [{name, qty}] (qty is the whole-job quantity, not per hour).
+    $encodeSessionAddons = static function (array $addons): ?string {
+        $payload = [];
+        foreach ($addons as $addonRow) {
+            if (!is_array($addonRow)) {
+                continue;
+            }
+            $name = trim((string)($addonRow['name'] ?? ''));
+            $qty = (int)($addonRow['qty'] ?? 0);
+            if ($name !== '' && $qty > 0) {
+                $payload[] = ['name' => $name, 'qty' => $qty];
+            }
+        }
+        return count($payload) > 0 ? json_encode($payload) : null;
+    };
+
+    // Apply confirmations to existing saved sessions; hold the one for the still-open shift.
+    $pendingConfirmation = null;
+    $updateSessionStmt = $pdo->prepare("UPDATE plant_job_sessions SET mode_name = ?, addons_used = ? WHERE id = ? AND booking_id = ?");
+    foreach ($sessionConfirmations as $confirmation) {
+        if (!is_array($confirmation)) {
+            continue;
+        }
+        $modeName = trim((string)($confirmation['mode_name'] ?? 'Standard Operation'));
+        if ($modeName === '') {
+            $modeName = 'Standard Operation';
+        }
+        $addonsJson = $encodeSessionAddons(is_array($confirmation['addons'] ?? null) ? $confirmation['addons'] : []);
+
+        if (empty($confirmation['id'])) {
+            $pendingConfirmation = ['mode_name' => $modeName, 'addons_used' => $addonsJson];
+            continue;
+        }
+        $sessionId = (int)$confirmation['id'];
+        if ($sessionId > 0) {
+            $updateSessionStmt->execute([$modeName, $addonsJson, $sessionId, $bookingId]);
+        }
+    }
     
     // Log the final session - FIXED: Now pulling active_mode and active_addons
     $stmt = $pdo->prepare("SELECT punch_in_time, active_mode, active_addons FROM plant_bookings WHERE id = ?");
@@ -1123,8 +1253,11 @@ if ($action == 'punch_out_complete') {
         $interval = $inTime->diff($outTime);
         $hours = round($interval->h + ($interval->i / 60), 2);
 
-        // FIXED: Replaced $punchOutTime with $punchTime to eliminate log crashes
-        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours, $job['active_mode'], $job['active_addons']]);
+        // Use the driver's confirmed values for the final (still-open) shift when provided.
+        $finalMode = $pendingConfirmation['mode_name'] ?? ($job['active_mode'] ?: 'Standard Operation');
+        $finalAddons = array_key_exists('addons_used', (array)$pendingConfirmation) ? $pendingConfirmation['addons_used'] : $job['active_addons'];
+
+        $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours, $finalMode, $finalAddons]);
     }
 
     $deliveryChit = trim((string)($_POST['delivery_chit_number'] ?? ''));
