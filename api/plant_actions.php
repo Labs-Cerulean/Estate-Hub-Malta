@@ -14,6 +14,54 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
     }
 }
 
+/**
+ * Sum configured add-on quantities across all sessions as a FLAT quantity
+ * (charged once for the whole job, not multiplied by hours).
+ * Returns [addonName => totalFlatQty].
+ */
+function computePlantFlatAddons(array $sessions): array {
+    $addons = [];
+    foreach ($sessions as $s) {
+        if (empty($s['addons_used'])) continue;
+        $decoded = json_decode($s['addons_used'], true);
+        if (!is_array($decoded)) continue;
+        foreach ($decoded as $sa) {
+            if (!is_array($sa)) continue;
+            $name = trim((string)($sa['name'] ?? ''));
+            $qty = (int)($sa['qty'] ?? 0);
+            if ($name !== '' && $qty > 0) {
+                if (!isset($addons[$name])) $addons[$name] = 0;
+                $addons[$name] += $qty;
+            }
+        }
+    }
+    return $addons;
+}
+
+/**
+ * Resolve a configured mode/add-on's ERP nominal code + rate.
+ * Rate comes from the live ERP nominal when available, else the stored config price.
+ * Returns ['code' => string, 'rate' => float].
+ */
+function resolvePlantConfigRate(?array $cfgs, string $name, string $type, array $allNominals, bool $isInternal): array {
+    if (is_array($cfgs)) {
+        foreach ($cfgs as $c) {
+            if (($c['name'] ?? null) === $name && ($c['type'] ?? null) === $type) {
+                $code = trim((string)($c['nom_code'] ?? ''));
+                $erpRate = 0;
+                foreach ($allNominals as $n) {
+                    if (trim((string)$n['NCCode']) === $code) {
+                        $erpRate = $isInternal ? (float)$n['NCDefSP1'] : (float)$n['NCDefSP2'];
+                        break;
+                    }
+                }
+                return ['code' => $code, 'rate' => $erpRate > 0 ? $erpRate : (float)($c['price'] ?? 0)];
+            }
+        }
+    }
+    return ['code' => '', 'rate' => 0];
+}
+
 function pushBookingToERP($pdo, $bookingId, $userId) {
     $stmt = $pdo->prepare("
         SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.nom_code_setup, p.min_hours, 
@@ -51,6 +99,18 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         
         $lines[] = [ "Type" => "N", "Code" => $setupCode, "Description" => $setupDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+    }
+
+    // Load configuration + sessions once (needed for mode-based hourly billing and universal add-ons).
+    $isInternal = ($job['booking_type'] == 'in-house');
+    $cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
+    $sessions = [];
+    $allNominals = [];
+    if (is_array($cfgs)) {
+        $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
+        $sessStmt->execute([$bookingId]);
+        $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
+        $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
     }
     
     if ($job['pricing_type'] == 'fixed_then_hourly') {
@@ -92,89 +152,32 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         $lines[] = [ "Type" => "N", "Code" => $dCode, "Description" => $dDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
     } else {
-        // --- INTELLIGENT MULTI-MODE & ADD-ON SYNC LOGIC ---
-        $cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
-        
-        $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
-        $sessStmt->execute([$bookingId]);
-        $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
-
+        // --- HOURLY: mode-based rates per session, else standard hourly ---
         if (is_array($cfgs) && count($sessions) > 0) {
             $modeBreakdown = [];
-            $addonBreakdown = [];
             foreach ($sessions as $s) {
                 $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
                 if (!isset($modeBreakdown[$mName])) $modeBreakdown[$mName] = 0;
                 $modeBreakdown[$mName] += (float)$s['hours'];
-                
-                if (!empty($s['addons_used'])) {
-                    $sAddons = json_decode($s['addons_used'], true);
-                    if (is_array($sAddons)) {
-                        foreach ($sAddons as $sa) {
-                            $saName = $sa['name'];
-                            $saQty = (int)$sa['qty'];
-                            if ($saQty > 0) {
-                                if (!isset($addonBreakdown[$saName])) $addonBreakdown[$saName] = 0;
-                                $addonBreakdown[$saName] += ($saQty * (float)$s['hours']);
-                            }
-                        }
-                    }
-                }
             }
 
-            $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
-            $isInternal = ($job['booking_type'] == 'in-house');
-
-            // 1. Primary Modes Lines
             foreach ($modeBreakdown as $mName => $mHours) {
-                $matchedCfg = null;
-                foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
-                
-                if ($matchedCfg) {
-                    $mCode = trim($matchedCfg['nom_code']);
-                    $erpRate = 0;
-                    if (!empty($allNominals)) {
-                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $mCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
-                    }
-                    $mPrice = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
-                    
-                    $qty = round($mHours, 2);
-                    $price = round($mPrice, 4);
-                    $grossSubtotal += round($qty * $price, 2);
-                    
-                    $lines[] = [ "Type" => "N", "Code" => $mCode, "Description" => substr("Mode: ".$mName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
-                                 "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+                $resolved = resolvePlantConfigRate($cfgs, $mName, 'mode', $allNominals, $isInternal);
+                if ($resolved['code'] !== '') {
+                    $mCode = $resolved['code'];
+                    $mPrice = $resolved['rate'];
+                    $mDesc = substr("Mode: ".$mName, 0, 35);
                 } else {
-                    $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
-                    $qty = round($mHours, 2);
-                    $price = round((float)$job['final_rate_var'], 4);
-                    $grossSubtotal += round($qty * $price, 2);
-                    
-                    $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => substr($mName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
-                                 "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+                    $mCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000');
+                    $mPrice = (float)$job['final_rate_var'];
+                    $mDesc = substr($mName, 0, 35);
                 }
-            }
+                $qty = round($mHours, 2);
+                $price = round($mPrice, 4);
+                $grossSubtotal += round($qty * $price, 2);
 
-            // 2. Extra Add-ons Lines
-            foreach ($addonBreakdown as $saName => $saQtyHours) {
-                $matchedCfg = null;
-                foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
-                
-                if ($matchedCfg) {
-                    $aCode = trim($matchedCfg['nom_code']);
-                    $erpRate = 0;
-                    if (!empty($allNominals)) {
-                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $aCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
-                    }
-                    $aPrice = $erpRate > 0 ? $erpRate : (float)$matchedCfg['price'];
-                    
-                    $qty = round($saQtyHours, 2);
-                    $price = round($aPrice, 4);
-                    $grossSubtotal += round($qty * $price, 2);
-                    
-                    $lines[] = [ "Type" => "N", "Code" => $aCode, "Description" => substr("Addon: ".$saName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
-                                 "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
-                }
+                $lines[] = [ "Type" => "N", "Code" => $mCode, "Description" => $mDesc, "UOMLevel" => 1, "Location" => "01", 
+                             "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
             }
         } else {
             $hCode = $varNom ? trim($varNom['NCCode']) : (!empty($job['nom_code_variable']) ? trim($job['nom_code_variable']) : '0000'); 
@@ -184,6 +187,21 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
             $grossSubtotal += round($qty * $price, 2);
             
             $lines[] = [ "Type" => "N", "Code" => $hCode, "Description" => $hDesc, "UOMLevel" => 1, "Location" => "01", 
+                         "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
+        }
+    }
+
+    // --- UNIVERSAL ADD-ONS: flat quantity, charged on top of the base pricing for any plant type ---
+    if (is_array($cfgs) && count($sessions) > 0) {
+        foreach (computePlantFlatAddons($sessions) as $saName => $saQty) {
+            $resolved = resolvePlantConfigRate($cfgs, $saName, 'addon', $allNominals, $isInternal);
+            if ($resolved['code'] === '') continue;
+            $qty = round($saQty, 2);
+            $price = round($resolved['rate'], 4);
+            if ($qty <= 0) continue;
+            $grossSubtotal += round($qty * $price, 2);
+
+            $lines[] = [ "Type" => "N", "Code" => $resolved['code'], "Description" => substr("Addon: ".$saName, 0, 35), "UOMLevel" => 1, "Location" => "01", 
                          "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
         }
     }
@@ -1361,48 +1379,36 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (is_array($cfgs) && count($sessions) > 0) {
-            $modeBreakdown = []; $addonBreakdown = [];
+            $allNominals = getJ2ApiData('/nominalcateg', $apiKey);
+            $modeBreakdown = [];
             foreach ($sessions as $s) {
                 $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
                 if (!isset($modeBreakdown[$mName])) $modeBreakdown[$mName] = 0;
                 $modeBreakdown[$mName] += (float)$s['hours'];
-                
-                if (!empty($s['addons_used'])) {
-                    $sAddons = json_decode($s['addons_used'], true);
-                    if (is_array($sAddons)) {
-                        foreach ($sAddons as $sa) {
-                            $saName = $sa['name']; $saQty = (int)$sa['qty'];
-                            if ($saQty > 0) {
-                                if (!isset($addonBreakdown[$saName])) $addonBreakdown[$saName] = 0;
-                                $addonBreakdown[$saName] += ($saQty * (float)$s['hours']);
-                            }
-                        }
-                    }
-                }
             }
             foreach ($modeBreakdown as $mName => $mHours) {
-                $matchedCfg = null;
-                foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
-                if ($matchedCfg) {
-                    $mCode = trim($matchedCfg['nom_code']); $erpRate = 0;
-                    if (!empty($allNominals)) {
-                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $mCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
-                    }
-                    $backendSubtotal += round(round($mHours, 2) * ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']), 2);
-                } else { $backendSubtotal += round(round($mHours, 2) * $syncPriceVar, 2); }
-            }
-            foreach ($addonBreakdown as $saName => $saQtyHours) {
-                $matchedCfg = null;
-                foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
-                if ($matchedCfg) {
-                    $aCode = trim($matchedCfg['nom_code']); $erpRate = 0;
-                    if (!empty($allNominals)) {
-                        foreach($allNominals as $n) { if (trim($n['NCCode']) === $aCode) { $erpRate = $isInternal ? $n['NCDefSP1'] : $n['NCDefSP2']; break; } }
-                    }
-                    $backendSubtotal += round(round($saQtyHours, 2) * ($erpRate > 0 ? $erpRate : (float)$matchedCfg['price']), 2);
-                }
+                $resolved = resolvePlantConfigRate($cfgs, $mName, 'mode', $allNominals, $isInternal);
+                $rate = $resolved['code'] !== '' ? $resolved['rate'] : $syncPriceVar;
+                $backendSubtotal += round(round($mHours, 2) * $rate, 2);
             }
         } else { $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2); }
+    }
+
+    // Universal add-ons: flat quantity on top of the base pricing (any plant type).
+    $addonCfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
+    if (is_array($addonCfgs)) {
+        $addonSessStmt = $pdo->prepare("SELECT addons_used FROM plant_job_sessions WHERE booking_id = ?");
+        $addonSessStmt->execute([$bookingId]);
+        $addonSessions = $addonSessStmt->fetchAll(PDO::FETCH_ASSOC);
+        $flatAddons = computePlantFlatAddons($addonSessions);
+        if (!empty($flatAddons)) {
+            $addonNominals = getJ2ApiData('/nominalcateg', $apiKey);
+            foreach ($flatAddons as $saName => $saQty) {
+                $resolved = resolvePlantConfigRate($addonCfgs, $saName, 'addon', $addonNominals, $isInternal);
+                if ($resolved['code'] === '') continue;
+                $backendSubtotal += round(round($saQty, 2) * $resolved['rate'], 2);
+            }
+        }
     }
 
     $deliveryChitNumber = trim((string)($_POST['delivery_chit_number'] ?? ''));
