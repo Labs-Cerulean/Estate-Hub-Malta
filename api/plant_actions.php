@@ -197,6 +197,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     
     if ((int)($job['requires_driver'] ?? 1) === 0) { $driverName = "Not Required (Static Asset)"; } 
     else { $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? '')); }
+    if (!empty($job['delivery_chit_number'])) {
+        $driverName = trim($driverName . ' | Chit: ' . trim($job['delivery_chit_number']));
+    }
 
     $locationText = ($job['booking_type'] == 'in-house') ? "Project: " . ($job['project_name'] ?? 'N/A') : "Client: " . ($job['client_name'] ?? 'N/A');
 
@@ -1124,15 +1127,18 @@ if ($action == 'punch_out_complete') {
         $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours, $job['active_mode'], $job['active_addons']]);
     }
 
+    $deliveryChit = trim((string)($_POST['delivery_chit_number'] ?? ''));
+
     $stmt = $pdo->prepare("
         UPDATE plant_bookings 
-        SET status='Completed', punch_out_time=?, qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=?, punch_in_time=NULL 
+        SET status='Completed', punch_out_time=?, qty_trips=?, delivery_chit_number=?, client_rep_name=?, client_rep_id_card=?, signature_data=?, punch_in_time=NULL 
         WHERE id=?
     ");
     
     $stmt->execute([
         $punchTime,
         empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], 
+        $deliveryChit !== '' ? $deliveryChit : null,
         $_POST['rep_name'], 
         $_POST['rep_id'], 
         $_POST['signature'], 
@@ -1266,8 +1272,9 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         } else { $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2); }
     }
 
-    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, final_discount_pct=?, payment_status='Invoiced' WHERE id=?");
-    $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $customDiscountPct, $bookingId]);
+    $deliveryChitNumber = trim((string)($_POST['delivery_chit_number'] ?? ''));
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, final_discount_pct=?, delivery_chit_number=?, payment_status='Invoiced' WHERE id=?");
+    $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $customDiscountPct, $deliveryChitNumber !== '' ? $deliveryChitNumber : null, $bookingId]);
     
     $erpResult = pushBookingToERP($pdo, $bookingId, $userId);
     

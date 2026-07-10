@@ -367,6 +367,11 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                     <input type="hidden" id="edit_discount_pct" value="<?= $savedDiscountPct ?>">
                 <?php endif; ?>
 
+                <div style="border-left: 2px solid #e2e8f0; padding-left: 15px; display: flex; align-items: center; gap: 10px;">
+                    <label style="font-weight:bold; margin:0;"><i class="fas fa-receipt"></i> Chit #:</label>
+                    <input type="text" id="edit_delivery_chit_number" class="live-calc" style="width:120px; text-align:left;" maxlength="40" value="<?= htmlspecialchars($job['delivery_chit_number'] ?? '') ?>" placeholder="optional">
+                </div>
+
                 <button id="printBtn" onclick="saveAndPrint()" <?= $billingCompanyMissing ? 'disabled title="Assign a billing company on the plant asset first"' : '' ?> style="padding:10px 20px; background:<?= $billingCompanyMissing ? '#94a3b8' : '#10b981' ?>; color:#fff; border:none; font-weight:bold; cursor:<?= $billingCompanyMissing ? 'not-allowed' : 'pointer' ?>; border-radius: 8px; margin-left: auto;"><i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP</button>
             </div>
         <?php else: ?>
@@ -435,6 +440,9 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <div class="data-row"><span class="data-label">Machinery</span><span class="data-val"><?= htmlspecialchars($job['plant_name']) ?> (<?= htmlspecialchars($job['category']) ?>)</span></div>
             <div class="data-row"><span class="data-label">Reg Plate</span><span class="data-val"><?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?></span></div>
             <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= $driverName ?></span></div>
+            <?php if (!empty($job['delivery_chit_number'])): ?>
+            <div class="data-row"><span class="data-label">Delivery Chit</span><span class="data-val"><?= htmlspecialchars($job['delivery_chit_number']) ?></span></div>
+            <?php endif; ?>
             
             <div class="data-row" style="align-items: flex-start;">
                 <span class="data-label">Time Logged</span>
@@ -779,6 +787,9 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             fd.append('rate_fixed', rateFixed);
             fd.append('rate_var', rateVar);
             fd.append('discount_pct', currentDiscountPct);
+
+            const chitEl = document.getElementById('edit_delivery_chit_number');
+            if (chitEl) fd.append('delivery_chit_number', chitEl.value.trim());
             
             if (hasSetupFee) {
                 fd.append('setup_fee', rateSetup);
