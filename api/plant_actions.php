@@ -1342,21 +1342,22 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
     }
 
-    $customRateFixed = isset($_POST['rate_fixed']) ? (float)$_POST['rate_fixed'] : null;
-    $customRateVar = isset($_POST['rate_var']) ? (float)$_POST['rate_var'] : null;
-    $customSetupFee = isset($_POST['setup_fee']) ? (float)$_POST['setup_fee'] : null;
     $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
 
-    $isInternal = $job['booking_type'] == 'in-house'; 
+    $isInternal = $job['booking_type'] == 'in-house';
     $fixedNom = getNominalDetails($job['nom_code_fixed'], $apiKey);
     $varNom = getNominalDetails($job['nom_code_variable'], $apiKey);
-    
-    $syncPriceFixed = $customRateFixed !== null ? $customRateFixed : ($fixedNom ? ($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0);
-    $syncPriceVar = $customRateVar !== null ? $customRateVar : ($varNom ? ($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0);
-    
+    $setupNom = getNominalDetails($job['nom_code_setup'], $apiKey);
+
+    // Rates are ERP-only — never accept overrides from the RFP edit panel.
+    $syncPriceFixed = $fixedNom ? ($isInternal ? (float)$fixedNom['NCDefSP1'] : (float)$fixedNom['NCDefSP2']) : 0;
+    $syncPriceVar = $varNom ? ($isInternal ? (float)$varNom['NCDefSP1'] : (float)$varNom['NCDefSP2']) : 0;
+
     $syncSetupPrice = 0;
-    if ((isset($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || $customSetupFee > 0) {
-        $syncSetupPrice = $customSetupFee !== null ? $customSetupFee : (float)$job['setup_fee'];
+    if (!empty($job['apply_setup_fee']) && (int)$job['apply_setup_fee'] === 1) {
+        $syncSetupPrice = $setupNom
+            ? ($isInternal ? (float)$setupNom['NCDefSP1'] : (float)$setupNom['NCDefSP2'])
+            : (float)$job['setup_fee'];
     }
 
     // Backend calculation for local database saving
