@@ -249,6 +249,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     
     if ((int)($job['requires_driver'] ?? 1) === 0) { $driverName = "Not Required (Static Asset)"; } 
     else { $driverName = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? '')); }
+    if (!empty($job['delivery_chit_number'])) {
+        $driverName = trim($driverName . ' | Chit: ' . trim($job['delivery_chit_number']));
+    }
     if (!empty($job['billing_note'])) {
         $driverName = trim($driverName . ' | ' . trim($job['billing_note']));
     }
@@ -1180,15 +1183,18 @@ if ($action == 'punch_out_complete') {
         $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours, $job['active_mode'], $job['active_addons']]);
     }
 
+    $deliveryChit = trim((string)($_POST['delivery_chit_number'] ?? ''));
+
     $stmt = $pdo->prepare("
         UPDATE plant_bookings 
-        SET status='Completed', punch_out_time=?, qty_trips=?, client_rep_name=?, client_rep_id_card=?, signature_data=?, punch_in_time=NULL 
+        SET status='Completed', punch_out_time=?, qty_trips=?, delivery_chit_number=?, client_rep_name=?, client_rep_id_card=?, signature_data=?, punch_in_time=NULL 
         WHERE id=?
     ");
     
     $stmt->execute([
         $punchTime,
-        empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], 
+        empty($_POST['qty_trips']) ? null : $_POST['qty_trips'],
+        $deliveryChit !== '' ? $deliveryChit : null,
         $_POST['rep_name'], 
         $_POST['rep_id'], 
         $_POST['signature'], 
@@ -1473,6 +1479,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $postedClientCode = trim((string)($_POST['client_code'] ?? ''));
     $postedClientName = trim((string)($_POST['client_name'] ?? ''));
     $billingNote = trim((string)($_POST['billing_note'] ?? ''));
+    $deliveryChitNumber = trim((string)($_POST['delivery_chit_number'] ?? ''));
     $billingOverrides = null;
     if (!empty($_POST['billing_overrides'])) {
         $decodedOverrides = json_decode((string)$_POST['billing_overrides'], true);
@@ -1544,7 +1551,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $job['id'] = $bookingId;
     $backendSubtotal = calculatePlantBookingSubtotal($job, $finalHours, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $pdo, $billingOverrides);
 
-    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET client_code = ?, client_name = ?, punch_in_time = COALESCE(?, punch_in_time), punch_out_time = COALESCE(?, punch_out_time), apply_setup_fee = ?, final_hours = ?, final_subtotal = ?, final_rate_fixed = ?, final_rate_var = ?, final_setup_fee = ?, final_discount_pct = ?, billing_overrides = ?, billing_note = ?, payment_status = 'Invoiced' WHERE id = ?");
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET client_code = ?, client_name = ?, punch_in_time = COALESCE(?, punch_in_time), punch_out_time = COALESCE(?, punch_out_time), apply_setup_fee = ?, final_hours = ?, final_subtotal = ?, final_rate_fixed = ?, final_rate_var = ?, final_setup_fee = ?, final_discount_pct = ?, billing_overrides = ?, billing_note = ?, delivery_chit_number = ?, payment_status = 'Invoiced' WHERE id = ?");
     $stmtLocal->execute([
         $job['client_code'],
         $job['client_name'],
@@ -1559,6 +1566,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $customDiscountPct,
         $billingOverrides ? json_encode($billingOverrides) : null,
         $billingNote !== '' ? $billingNote : null,
+        $deliveryChitNumber !== '' ? $deliveryChitNumber : null,
         $bookingId,
     ]);
 

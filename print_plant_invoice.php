@@ -297,6 +297,7 @@ if (!empty($job['configurations'])) {
 }
 $savedBillingOverrides = !empty($job['billing_overrides']) ? json_decode($job['billing_overrides'], true) : null;
 $savedBillingNote = trim((string)($job['billing_note'] ?? ''));
+$savedDeliveryChitNumber = trim((string)($job['delivery_chit_number'] ?? ''));
 $qtyTripsValue = ($job['qty_trips'] > 0) ? (float)$job['qty_trips'] : 1;
 $hasSetupFeeFlag = (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || ((float)($job['final_setup_fee'] ?? 0) > 0);
 $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdown) > 0 || count($addonBreakdown) > 0));
@@ -402,8 +403,12 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                         <input type="hidden" id="edit_discount_pct" value="<?= $savedDiscountPct ?>">
                     <?php endif; ?>
                     <div class="edit-field">
-                        <label>Billing note (e.g. chit no.)</label>
-                        <input type="text" id="edit_billing_note" maxlength="80" value="<?= htmlspecialchars($savedBillingNote) ?>" placeholder="Appended to driver line in ERP">
+                        <label>Delivery chit number</label>
+                        <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($savedDeliveryChitNumber) ?>" placeholder="Optional — from driver or enter manually">
+                    </div>
+                    <div class="edit-field">
+                        <label>Billing note</label>
+                        <input type="text" id="edit_billing_note" maxlength="80" value="<?= htmlspecialchars($savedBillingNote) ?>" placeholder="Optional note appended to driver line in ERP">
                     </div>
                 </div>
 
@@ -524,6 +529,10 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             <div class="data-row"><span class="data-label">Machinery</span><span class="data-val"><?= htmlspecialchars($job['plant_name']) ?> (<?= htmlspecialchars($job['category']) ?>)</span></div>
             <div class="data-row"><span class="data-label">Reg Plate</span><span class="data-val"><?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?></span></div>
             <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= $driverName ?></span></div>
+            <div class="data-row" id="row_delivery_chit" style="<?= $savedDeliveryChitNumber === '' ? 'display:none;' : '' ?>">
+                <span class="data-label">Delivery chit</span>
+                <span class="data-val" id="disp_delivery_chit"><?= htmlspecialchars($savedDeliveryChitNumber) ?></span>
+            </div>
             
             <div class="data-row" style="align-items: flex-start;">
                 <span class="data-label">Time Logged</span>
@@ -637,6 +646,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             client_name: <?= json_encode($job['client_name'] ?? '') ?>,
             discount_pct: <?= $savedDiscountPct ?>,
             billing_note: <?= json_encode($savedBillingNote) ?>,
+            delivery_chit_number: <?= json_encode($savedDeliveryChitNumber) ?>,
             master_qty: <?= $isTripBased ? $qtyTripsValue : $qtyValue ?>,
             apply_setup_fee: <?= $hasSetupFeeFlag ? 'true' : 'false' ?>,
             rate_setup: <?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>,
@@ -787,6 +797,9 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             const noteEl = document.getElementById('edit_billing_note');
             if (noteEl) billingState.billing_note = noteEl.value.trim();
 
+            const chitEl = document.getElementById('edit_delivery_chit_number');
+            if (chitEl) billingState.delivery_chit_number = chitEl.value.trim();
+
             const setupApplyEl = document.getElementById('edit_apply_setup_fee');
             const setupRateEl = document.getElementById('edit_rate_setup');
             if (setupApplyEl) billingState.apply_setup_fee = setupApplyEl.checked;
@@ -828,6 +841,18 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
                     codeEl.innerHTML = '<span style="background:#fef08a; color:#854d0e; padding:2px 6px; border-radius:4px; font-size:0.8rem;">TBC - Must Update</span>';
                 } else {
                     codeEl.textContent = billingState.client_code;
+                }
+            }
+
+            const chitRow = document.getElementById('row_delivery_chit');
+            const chitDisp = document.getElementById('disp_delivery_chit');
+            if (chitRow && chitDisp) {
+                if (billingState.delivery_chit_number) {
+                    chitRow.style.display = '';
+                    chitDisp.textContent = billingState.delivery_chit_number;
+                } else {
+                    chitRow.style.display = 'none';
+                    chitDisp.textContent = '';
                 }
             }
 
@@ -940,6 +965,7 @@ $hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdow
             fd.append('rate_var', billingState.rate_var);
             fd.append('discount_pct', billingState.discount_pct);
             fd.append('billing_note', billingState.billing_note);
+            fd.append('delivery_chit_number', billingState.delivery_chit_number);
             fd.append('apply_setup_fee', billingState.apply_setup_fee ? '1' : '0');
             fd.append('billing_overrides', JSON.stringify(buildBillingOverridesPayload()));
 
