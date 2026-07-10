@@ -370,11 +370,30 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
         .edit-section { border-top: 1px dashed #d6d3d1; padding-top: 14px; margin-top: 14px; }
         .edit-section h4 { margin: 0 0 10px; font-size: 0.8rem; color: #44403c; text-transform: uppercase; }
         .edit-row-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 10px; }
-        .edit-row-table th, .edit-row-table td { border: 1px solid #e7e5e4; padding: 8px; text-align: left; }
+        .edit-row-table th, .edit-row-table td { border: 1px solid #e7e5e4; padding: 8px; text-align: left; vertical-align: middle; }
         .edit-row-table th { background: #fafaf9; font-size: 0.72rem; text-transform: uppercase; color: #57534e; }
-        .edit-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 16px; }
+        .edit-row-table td input, .edit-row-table td select { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid #d6d3d1; border-radius: 6px; font: inherit; }
+        .edit-row-table .col-num { width: 90px; }
+        .edit-row-table .col-rate { width: 90px; }
+        .edit-row-table .col-amt { width: 100px; }
+        .edit-row-table .col-act { width: 44px; text-align: center; }
+        .cell-rate { font-weight: 700; color: #0f172a; text-align: right; white-space: nowrap; }
+        .cell-amt { font-weight: 800; color: #0f172a; text-align: right; white-space: nowrap; }
+        .cell-rate.missing, .cell-amt.missing { color: #b91c1c; }
+        .row-warning td { background: #fef2f2; }
+        .btn-row-remove { border: none; background: #fee2e2; color: #b91c1c; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+        .btn-row-remove:hover { background: #fecaca; }
+        .btn-add-line { padding: 9px 14px; border: 1px dashed #a8a29e; background: #fff; border-radius: 8px; font-weight: 700; cursor: pointer; color: #44403c; font-size: 0.85rem; }
+        .btn-add-line:hover { background: #f5f5f4; }
+        .edit-total-bar { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 6px; padding: 12px 16px; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 10px; }
+        .edit-total-bar .lbl { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: #047857; }
+        .edit-total-bar .val { font-size: 1.35rem; font-weight: 900; color: #065f46; }
+        .live-badge { display:inline-flex; align-items:center; gap:6px; background:#dcfce7; color:#166534; padding:4px 10px; border-radius:999px; font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; }
+        .warn-inline { color:#b45309; font-size:0.78rem; font-weight:600; margin-top:6px; display:none; }
+        .edit-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: flex-end; margin-top: 16px; }
         .btn-preview { padding: 10px 18px; background: #0f172a; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
-        .btn-final { padding: 10px 18px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .btn-final { padding: 12px 22px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 1rem; }
+        .btn-final:hover { background: #059669; }
         .preview-wrap { border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; background: #fff; }
         .preview-label { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 12px; letter-spacing: 0.05em; }
         .client-results { display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:2px solid #6366f1; z-index:100; max-height:200px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2); border-radius:8px; }
@@ -399,10 +418,15 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
         <?php endif; ?>
         <?php if ($canEdit): ?>
             <div class="edit-panel no-print">
-                <h3><i class="fas fa-sliders-h"></i> Billing adjustments</h3>
-                <p>Edit all billable values here, update the preview below, then submit when ready. Nothing is saved until you push the final RFP.</p>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                    <div>
+                        <h3><i class="fas fa-sliders-h"></i> Billing adjustments</h3>
+                        <p style="margin-bottom:0;">Adjust quantities and lines below. The preview and totals update live. Rates always come from the ERP. Nothing is saved until you push the RFP.</p>
+                    </div>
+                    <span class="live-badge"><i class="fas fa-bolt"></i> Live preview</span>
+                </div>
 
-                <div class="edit-grid">
+                <div class="edit-grid" style="margin-top:16px;">
                     <div class="edit-field" style="position:relative;">
                         <label>ERP client</label>
                         <input type="text" id="edit_client_search" placeholder="Search ERP client..." autocomplete="off" onkeyup="filterEditClients(this.value)">
@@ -411,46 +435,48 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                     </div>
                     <div class="edit-field" id="field_master_qty" style="<?= $hasConfiguredBilling ? 'display:none;' : '' ?>">
                         <label id="label_master_qty"><?= htmlspecialchars($qtyLabel) ?></label>
-                        <input type="number" id="edit_master_qty" step="0.25" value="<?= $isTripBased ? $qtyTripsValue : $qtyValue ?>">
+                        <input type="number" id="edit_master_qty" step="0.25" value="<?= $isTripBased ? $qtyTripsValue : $qtyValue ?>" oninput="updatePreview()">
                     </div>
                     <div class="edit-field" id="field_time_window" style="<?= ($isDailyBased || $job['lifecycle_type'] === 'Auto-Scheduled' || count($sessions) > 0 || $isTripBased) ? 'display:none;' : '' ?>">
                         <label>Time window</label>
                         <div style="display:flex; gap:8px; align-items:center;">
-                            <input type="time" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
+                            <input type="time" id="edit_time_in" value="<?= $inTime->format('H:i') ?>" oninput="updatePreview()">
                             <span>to</span>
-                            <input type="time" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                            <input type="time" id="edit_time_out" value="<?= $outTime->format('H:i') ?>" oninput="updatePreview()">
                         </div>
                     </div>
                     <?php if ($canDiscount): ?>
                     <div class="edit-field">
                         <label>Discount % <span id="max_disc_label" style="font-weight:400; text-transform:none;">(Max: loading...)</span></label>
-                        <input type="number" id="edit_discount_pct" step="0.1" min="0" value="<?= $savedDiscountPct ?>">
+                        <input type="number" id="edit_discount_pct" step="0.1" min="0" value="<?= $savedDiscountPct ?>" oninput="updatePreview()">
+                        <div class="warn-inline" id="discount_warn"></div>
                     </div>
                     <?php else: ?>
                         <input type="hidden" id="edit_discount_pct" value="<?= $savedDiscountPct ?>">
                     <?php endif; ?>
                     <div class="edit-field">
                         <label>Delivery chit number</label>
-                        <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($savedDeliveryChitNumber) ?>" placeholder="Optional — from driver or enter manually">
+                        <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($savedDeliveryChitNumber) ?>" placeholder="Optional — from driver or enter manually" oninput="updatePreview()">
                     </div>
                     <div class="edit-field">
                         <label>Billing note</label>
-                        <input type="text" id="edit_billing_note" maxlength="80" value="<?= htmlspecialchars($savedBillingNote) ?>" placeholder="Optional note appended to driver line in ERP">
+                        <input type="text" id="edit_billing_note" maxlength="80" value="<?= htmlspecialchars($savedBillingNote) ?>" placeholder="Optional note appended to driver line in ERP" oninput="updatePreview()">
                     </div>
                 </div>
 
                 <div class="edit-section" id="section_setup_fee" style="<?= ($job['setup_fee'] > 0 || $hasSetupFeeFlag || !empty($job['nom_code_setup'])) ? '' : 'display:none;' ?>">
                     <h4>Setup / mobilisation</h4>
-                    <div class="edit-field">
-                        <label><input type="checkbox" id="edit_apply_setup_fee" <?= $hasSetupFeeFlag ? 'checked' : '' ?>> Apply setup / mobilisation fee</label>
-                        <div style="font-size:0.85rem; color:#64748b; margin-top:6px;">ERP rate: <b>€ <?= number_format($erpSetupRate, 4) ?></b> <span style="font-weight:400;">(not editable here)</span></div>
-                    </div>
+                    <label style="display:flex; align-items:center; gap:10px; font-size:0.9rem; color:#44403c; cursor:pointer;">
+                        <input type="checkbox" id="edit_apply_setup_fee" style="width:auto;" <?= $hasSetupFeeFlag ? 'checked' : '' ?> onchange="updatePreview()">
+                        Apply setup / mobilisation fee
+                        <span style="color:#64748b; font-weight:400;">— ERP rate € <?= number_format($erpSetupRate, 4) ?></span>
+                    </label>
                 </div>
 
                 <div class="edit-section" id="section_modes" style="<?= $hasConfiguredBilling ? '' : 'display:none;' ?>">
                     <h4>Operational modes</h4>
                     <table class="edit-row-table">
-                        <thead><tr><th>Mode</th><th>Qty / Hrs</th><th>ERP rate (€)</th></tr></thead>
+                        <thead><tr><th>Mode</th><th class="col-num">Hours</th><th class="col-rate text-right">ERP rate</th><th class="col-amt text-right">Amount</th></tr></thead>
                         <tbody id="edit_modes_body"></tbody>
                     </table>
                 </div>
@@ -458,33 +484,39 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                 <div class="edit-section" id="section_addons" style="<?= ($job['has_configurations'] == 1) ? '' : 'display:none;' ?>">
                     <h4>Configured add-ons</h4>
                     <table class="edit-row-table">
-                        <thead><tr><th>Add-on</th><th>Billable qty</th><th>ERP rate (€)</th><th></th></tr></thead>
+                        <thead><tr><th>Add-on</th><th class="col-num">Qty</th><th class="col-rate text-right">ERP rate</th><th class="col-amt text-right">Amount</th><th class="col-act"></th></tr></thead>
                         <tbody id="edit_addons_body"></tbody>
                     </table>
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <select id="addon_picker" style="min-width:220px; padding:8px; border-radius:6px; border:1px solid #d6d3d1;">
                             <option value="">Add configured add-on...</option>
                         </select>
-                        <button type="button" onclick="addConfiguredAddon()" style="padding:8px 12px; border:none; background:#e2e8f0; border-radius:6px; font-weight:700; cursor:pointer;">+ Add</button>
+                        <button type="button" class="btn-add-line" onclick="addConfiguredAddon()"><i class="fas fa-plus"></i> Add add-on</button>
                     </div>
                 </div>
 
                 <div class="edit-section">
-                    <h4>Manual add-on line</h4>
+                    <h4>Manual lines</h4>
+                    <p style="margin-top:-4px;">Add ad-hoc charges. Pick the ERP nominal so the rate resolves automatically.</p>
                     <table class="edit-row-table">
-                        <thead><tr><th>Description</th><th>ERP code</th><th>Qty</th><th>ERP rate (€)</th><th></th></tr></thead>
+                        <thead><tr><th>Description</th><th>ERP nominal</th><th class="col-num">Qty</th><th class="col-rate text-right">ERP rate</th><th class="col-amt text-right">Amount</th><th class="col-act"></th></tr></thead>
                         <tbody id="edit_manual_body"></tbody>
                     </table>
-                    <button type="button" onclick="addManualLine()" style="padding:8px 12px; border:none; background:#e2e8f0; border-radius:6px; font-weight:700; cursor:pointer;">+ Add manual line</button>
+                    <button type="button" class="btn-add-line" onclick="addManualLine()"><i class="fas fa-plus"></i> Add manual line</button>
+                </div>
+
+                <div class="edit-total-bar">
+                    <span class="lbl">Total due (incl. VAT)</span>
+                    <span class="val" id="edit_live_total">€ 0.00</span>
                 </div>
 
                 <div class="edit-actions">
                     <?php if ($erpAvailable): ?>
-                        <span style="align-self:center; background:#e0e7ff; color:#4f46e5; padding:5px 10px; border-radius:6px; font-weight:bold; font-size:0.8rem;"><i class="fas fa-plug"></i> ERP Live Sync</span>
+                        <span style="margin-right:auto; background:#e0e7ff; color:#4f46e5; padding:6px 12px; border-radius:6px; font-weight:bold; font-size:0.8rem;"><i class="fas fa-plug"></i> ERP Live Sync</span>
                     <?php else: ?>
-                        <span style="align-self:center; background:#fef3c7; color:#b45309; padding:5px 10px; border-radius:6px; font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> ERP Offline</span>
+                        <span style="margin-right:auto; background:#fef3c7; color:#b45309; padding:6px 12px; border-radius:6px; font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> ERP Offline — rates resolve on submit</span>
                     <?php endif; ?>
-                    <button type="button" class="btn-preview" onclick="updatePreview()"><i class="fas fa-eye"></i> Update preview</button>
+                    <button type="button" class="btn-preview" onclick="document.getElementById('preview-document').scrollIntoView({behavior:'smooth'});"><i class="fas fa-eye"></i> Jump to preview</button>
                     <button type="button" id="printBtn" class="btn-final" onclick="submitFinalRfp()" <?= $billingCompanyMissing ? 'disabled title="Assign a billing company on the plant asset first"' : '' ?>><i class="fas fa-cloud-upload-alt"></i> Save RFP &amp; push to ERP</button>
                 </div>
             </div>
@@ -646,6 +678,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
         const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
         const canDiscount = <?= $canDiscount ? 'true' : 'false' ?>;
         const hasConfiguredBilling = <?= $hasConfiguredBilling ? 'true' : 'false' ?>;
+        const plantHasConfigurations = <?= $job['has_configurations'] == 1 ? 'true' : 'false' ?>;
         const plantConfigurations = <?= json_encode($plantConfigurations) ?>;
         const modeBreakdownSeed = <?= json_encode($modeBreakdown) ?>;
         const addonBreakdownSeed = <?= json_encode($addonBreakdown) ?>;
@@ -740,47 +773,87 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             }
         }
 
+        const erpOffline = Object.keys(erpNominalMap).length === 0;
+
         function lookupErpRate(nomCode) {
             const code = String(nomCode || '').trim();
             if (!code || !erpNominalMap[code]) return 0;
             return parseFloat(erpNominalMap[code].rate) || 0;
         }
 
+        function lookupErpDesc(nomCode) {
+            const code = String(nomCode || '').trim();
+            if (!code || !erpNominalMap[code]) return '';
+            return erpNominalMap[code].desc || '';
+        }
+
+        function erpNominalOptions(selectedCode) {
+            const codes = Object.keys(erpNominalMap).sort();
+            let opts = '<option value="">— Select ERP nominal —</option>';
+            opts += codes.map(code => {
+                const desc = erpNominalMap[code].desc || '';
+                const label = desc ? `${code} — ${desc}` : code;
+                return `<option value="${escapeHtml(code)}" ${code === selectedCode ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+            }).join('');
+            return opts;
+        }
+
+        function money(n) { return '€ ' + (parseFloat(n) || 0).toFixed(2); }
+
         function renderEditTables() {
             const modesBody = document.getElementById('edit_modes_body');
             if (modesBody) {
-                modesBody.innerHTML = billingState.modes.map((mode, idx) => `
+                modesBody.innerHTML = billingState.modes.map((mode, idx) => {
+                    const rate = parseFloat(mode.rate) || 0;
+                    const amt = (parseFloat(mode.hours) || 0) * rate;
+                    return `
                     <tr>
                         <td><strong>${escapeHtml(mode.name)}</strong></td>
-                        <td><input type="number" step="0.25" value="${mode.hours}" onchange="billingState.modes[${idx}].hours = parseFloat(this.value) || 0"></td>
-                        <td style="font-weight:700;">${(parseFloat(mode.rate) || 0).toFixed(4)}</td>
-                    </tr>
-                `).join('');
+                        <td class="col-num"><input type="number" step="0.25" min="0" value="${mode.hours}" oninput="onModeInput(${idx}, this.value)"></td>
+                        <td class="cell-rate">${rate.toFixed(4)}</td>
+                        <td class="cell-amt" id="mode_amt_${idx}">${money(amt)}</td>
+                    </tr>`;
+                }).join('') || `<tr><td colspan="4" style="text-align:center; color:#94a3b8;">No modes recorded.</td></tr>`;
             }
 
             const addonsBody = document.getElementById('edit_addons_body');
             if (addonsBody) {
-                addonsBody.innerHTML = billingState.addons.map((addon, idx) => `
+                addonsBody.innerHTML = billingState.addons.map((addon, idx) => {
+                    const rate = parseFloat(addon.rate) || 0;
+                    const amt = (parseFloat(addon.qty_hours) || 0) * rate;
+                    return `
                     <tr>
                         <td><strong>${escapeHtml(addon.name)}</strong></td>
-                        <td><input type="number" step="1" min="0" value="${addon.qty_hours}" onchange="billingState.addons[${idx}].qty_hours = parseFloat(this.value) || 0"></td>
-                        <td style="font-weight:700;">${(parseFloat(addon.rate) || 0).toFixed(4)}</td>
-                        <td><button type="button" onclick="removeAddon(${idx})" style="border:none;background:#fee2e2;color:#b91c1c;padding:6px 10px;border-radius:6px;cursor:pointer;">Remove</button></td>
-                    </tr>
-                `).join('');
+                        <td class="col-num"><input type="number" step="1" min="0" value="${addon.qty_hours}" oninput="onAddonInput(${idx}, this.value)"></td>
+                        <td class="cell-rate">${rate.toFixed(4)}</td>
+                        <td class="cell-amt" id="addon_amt_${idx}">${money(amt)}</td>
+                        <td class="col-act"><button type="button" class="btn-row-remove" title="Remove" onclick="removeAddon(${idx})"><i class="fas fa-times"></i></button></td>
+                    </tr>`;
+                }).join('') || `<tr><td colspan="5" style="text-align:center; color:#94a3b8;">No add-ons. Use the picker below to add one.</td></tr>`;
             }
 
             const manualBody = document.getElementById('edit_manual_body');
             if (manualBody) {
-                manualBody.innerHTML = billingState.manual_lines.map((line, idx) => `
-                    <tr>
-                        <td><input type="text" value="${escapeHtml(line.description)}" onchange="billingState.manual_lines[${idx}].description = this.value"></td>
-                        <td><input type="text" value="${escapeHtml(line.nom_code)}" onchange="billingState.manual_lines[${idx}].nom_code = this.value; billingState.manual_lines[${idx}].rate = lookupErpRate(this.value); renderEditTables();"></td>
-                        <td><input type="number" step="0.25" value="${line.qty}" onchange="billingState.manual_lines[${idx}].qty = parseFloat(this.value) || 0"></td>
-                        <td style="font-weight:700;">${(parseFloat(line.rate) || 0).toFixed(4)}</td>
-                        <td><button type="button" onclick="removeManualLine(${idx})" style="border:none;background:#fee2e2;color:#b91c1c;padding:6px 10px;border-radius:6px;cursor:pointer;">Remove</button></td>
-                    </tr>
-                `).join('');
+                manualBody.innerHTML = billingState.manual_lines.map((line, idx) => {
+                    const rate = parseFloat(line.rate) || 0;
+                    const amt = (parseFloat(line.qty) || 0) * rate;
+                    const codeMissing = line.nom_code && rate <= 0 && !erpOffline;
+                    const nominalCell = erpOffline
+                        ? `<input type="text" value="${escapeHtml(line.nom_code)}" placeholder="ERP code" oninput="onManualCode(${idx}, this.value)">`
+                        : `<select onchange="onManualNominal(${idx}, this.value)">${erpNominalOptions(line.nom_code)}</select>`;
+                    const rateCell = erpOffline
+                        ? `<span class="cell-rate">resolve on submit</span>`
+                        : `<span class="cell-rate ${codeMissing ? 'missing' : ''}" id="manual_rate_${idx}">${codeMissing ? 'unknown' : rate.toFixed(4)}</span>`;
+                    return `
+                    <tr class="${codeMissing ? 'row-warning' : ''}">
+                        <td><input type="text" value="${escapeHtml(line.description)}" placeholder="Line description" oninput="billingState.manual_lines[${idx}].description = this.value; updatePreview();"></td>
+                        <td>${nominalCell}</td>
+                        <td class="col-num"><input type="number" step="0.25" min="0" value="${line.qty}" oninput="onManualQty(${idx}, this.value)"></td>
+                        <td>${rateCell}</td>
+                        <td class="cell-amt" id="manual_amt_${idx}">${money(amt)}</td>
+                        <td class="col-act"><button type="button" class="btn-row-remove" title="Remove" onclick="removeManualLine(${idx})"><i class="fas fa-times"></i></button></td>
+                    </tr>`;
+                }).join('') || `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">No manual lines added.</td></tr>`;
             }
 
             const picker = document.getElementById('addon_picker');
@@ -793,9 +866,49 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             }
         }
 
+        function onModeInput(idx, val) {
+            billingState.modes[idx].hours = parseFloat(val) || 0;
+            const rate = parseFloat(billingState.modes[idx].rate) || 0;
+            const cell = document.getElementById(`mode_amt_${idx}`);
+            if (cell) cell.textContent = money(billingState.modes[idx].hours * rate);
+            updatePreview();
+        }
+
+        function onAddonInput(idx, val) {
+            billingState.addons[idx].qty_hours = parseFloat(val) || 0;
+            const rate = parseFloat(billingState.addons[idx].rate) || 0;
+            const cell = document.getElementById(`addon_amt_${idx}`);
+            if (cell) cell.textContent = money(billingState.addons[idx].qty_hours * rate);
+            updatePreview();
+        }
+
+        function onManualQty(idx, val) {
+            billingState.manual_lines[idx].qty = parseFloat(val) || 0;
+            const rate = parseFloat(billingState.manual_lines[idx].rate) || 0;
+            const cell = document.getElementById(`manual_amt_${idx}`);
+            if (cell) cell.textContent = money(billingState.manual_lines[idx].qty * rate);
+            updatePreview();
+        }
+
+        function onManualNominal(idx, code) {
+            const line = billingState.manual_lines[idx];
+            line.nom_code = code;
+            line.rate = lookupErpRate(code);
+            if (!line.description) line.description = lookupErpDesc(code);
+            renderEditTables();
+            updatePreview();
+        }
+
+        function onManualCode(idx, code) {
+            billingState.manual_lines[idx].nom_code = code.trim();
+            billingState.manual_lines[idx].rate = lookupErpRate(code);
+            updatePreview();
+        }
+
         function removeAddon(index) {
             billingState.addons.splice(index, 1);
             renderEditTables();
+            updatePreview();
         }
 
         function addConfiguredAddon() {
@@ -806,26 +919,29 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             if (!cfg) return;
             billingState.addons.push({
                 name: cfg.name,
-                qty_hours: 0,
+                qty_hours: 1,
                 rate: lookupErpRate(cfg.nom_code) || parseFloat(cfg.price) || 0,
                 nom_code: cfg.nom_code || '',
             });
             renderEditTables();
+            updatePreview();
         }
 
         function addManualLine() {
             billingState.manual_lines.push({
                 description: '',
-                nom_code: rawNomVar || rawNomFixed || '',
+                nom_code: '',
                 qty: 1,
                 rate: 0,
             });
             renderEditTables();
+            updatePreview();
         }
 
         function removeManualLine(index) {
             billingState.manual_lines.splice(index, 1);
             renderEditTables();
+            updatePreview();
         }
 
         function syncBillingStateFromForm() {
@@ -833,12 +949,16 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             if (qtyEl) billingState.master_qty = parseFloat(qtyEl.value) || 0;
 
             const discountEl = document.getElementById('edit_discount_pct');
+            const discountWarn = document.getElementById('discount_warn');
             if (discountEl) {
                 let val = parseFloat(discountEl.value) || 0;
                 if (canDiscount && val > maxAllowedDiscount) {
-                    alert(`The ERP system restricts discounts for this client to a maximum of ${maxAllowedDiscount}%.`);
-                    val = maxAllowedDiscount;
-                    discountEl.value = val;
+                    if (discountWarn) {
+                        discountWarn.style.display = 'block';
+                        discountWarn.textContent = `Max allowed for this client is ${maxAllowedDiscount}% — will be capped on submit.`;
+                    }
+                } else if (discountWarn) {
+                    discountWarn.style.display = 'none';
                 }
                 billingState.discount_pct = val;
             }
@@ -870,7 +990,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                     .filter(l => l.description && l.nom_code && l.qty > 0)
                     .map(l => ({ description: l.description, nom_code: l.nom_code, qty: l.qty })),
             };
-            if (hasConfiguredBilling) {
+            if (plantHasConfigurations) {
                 payload.modes = billingState.modes
                     .filter(m => m.name && m.hours > 0)
                     .map(m => ({ name: m.name, hours: m.hours }));
@@ -939,7 +1059,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                 const dTotal = +(totalQty * billingState.rate_fixed).toFixed(2);
                 grossSubtotal += dTotal;
                 html += `<tr><td><b>${rawNomFixed || 'MISSING'}</b></td><td>Daily Flat Rate<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${totalQty} Days</td><td class="text-right">${billingState.rate_fixed.toFixed(4)}</td><td class="text-right"><b>${dTotal.toFixed(2)}</b></td></tr>`;
-            } else if (hasConfiguredBilling) {
+            } else if (hasConfiguredBilling || (plantHasConfigurations && (billingState.modes.some(m => m.hours > 0) || billingState.addons.some(a => a.qty_hours > 0)))) {
                 billingState.modes.forEach(mode => {
                     if (!mode.name || mode.hours <= 0) return;
                     const mTotal = +(mode.hours * mode.rate).toFixed(2);
@@ -959,14 +1079,21 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             }
 
             billingState.manual_lines.forEach(line => {
+                const qty = parseFloat(line.qty) || 0;
+                if (!line.description || !line.nom_code || qty <= 0) return;
                 const lineRate = lookupErpRate(line.nom_code) || parseFloat(line.rate) || 0;
-                if (!line.description || !line.nom_code || line.qty <= 0 || lineRate <= 0) return;
-                const mTotal = +(line.qty * lineRate).toFixed(2);
-                grossSubtotal += mTotal;
-                html += `<tr><td><b>${escapeHtml(line.nom_code)}</b></td><td>${escapeHtml(line.description)}<br><i style="font-size:0.8rem; color:#64748b;">(Manual line)</i></td><td class="text-right">${line.qty.toFixed(2)}</td><td class="text-right">${lineRate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
+                if (lineRate > 0) {
+                    const mTotal = +(qty * lineRate).toFixed(2);
+                    grossSubtotal += mTotal;
+                    html += `<tr><td><b>${escapeHtml(line.nom_code)}</b></td><td>${escapeHtml(line.description)}<br><i style="font-size:0.8rem; color:#64748b;">(Manual line)</i></td><td class="text-right">${qty.toFixed(2)}</td><td class="text-right">${lineRate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
+                } else if (erpOffline) {
+                    html += `<tr><td><b>${escapeHtml(line.nom_code)}</b></td><td>${escapeHtml(line.description)}<br><i style="font-size:0.8rem; color:#64748b;">(Manual line — rate resolved on submit)</i></td><td class="text-right">${qty.toFixed(2)}</td><td class="text-right">TBC</td><td class="text-right"><b>TBC</b></td></tr>`;
+                } else {
+                    html += `<tr style="background:#fef2f2;"><td><b>${escapeHtml(line.nom_code)}</b></td><td>${escapeHtml(line.description)}<br><i style="font-size:0.8rem; color:#b91c1c;">Unknown ERP code — not billed</i></td><td class="text-right">${qty.toFixed(2)}</td><td class="text-right">0.0000</td><td class="text-right"><b>0.00</b></td></tr>`;
+                }
             });
 
-            tbody.innerHTML = html;
+            tbody.innerHTML = html || '<tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:20px;">No billable lines yet.</td></tr>';
 
             const totalDiscount = +(grossSubtotal * (billingState.discount_pct / 100)).toFixed(2);
             const netSubtotal = +(grossSubtotal - totalDiscount).toFixed(2);
@@ -977,6 +1104,9 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             document.getElementById('tot_net').innerText = '€ ' + netSubtotal.toFixed(2);
             document.getElementById('tot_vat').innerText = '€ ' + vat.toFixed(2);
             document.getElementById('tot_final').innerText = finalTotal.toFixed(2);
+
+            const liveTotal = document.getElementById('edit_live_total');
+            if (liveTotal) liveTotal.innerText = '€ ' + finalTotal.toFixed(2);
 
             const discRow = document.getElementById('discount_row');
             if (totalDiscount > 0) {
@@ -1000,6 +1130,23 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             if (!billingState.client_code || billingState.client_code === 'TBC') {
                 alert('Select a valid ERP client before finalising.');
                 return;
+            }
+
+            if (canDiscount && billingState.discount_pct > maxAllowedDiscount) {
+                if (!confirm(`Discount ${billingState.discount_pct}% exceeds the ERP maximum of ${maxAllowedDiscount}% for this client. It will be capped to ${maxAllowedDiscount}%. Continue?`)) {
+                    return;
+                }
+                billingState.discount_pct = maxAllowedDiscount;
+                const discEl = document.getElementById('edit_discount_pct');
+                if (discEl) discEl.value = maxAllowedDiscount;
+                updatePreview();
+            }
+
+            const unknownManual = billingState.manual_lines.filter(l => l.description && l.nom_code && (parseFloat(l.qty) || 0) > 0 && lookupErpRate(l.nom_code) <= 0 && !erpOffline);
+            if (unknownManual.length > 0) {
+                if (!confirm(`${unknownManual.length} manual line(s) have an ERP code that isn't recognised and will NOT be billed. Continue anyway?`)) {
+                    return;
+                }
             }
 
             const btn = document.getElementById('printBtn');
