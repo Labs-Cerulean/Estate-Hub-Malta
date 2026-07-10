@@ -75,7 +75,9 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ];
     }
     
-    if ($job['pricing_type'] == 'fixed_then_hourly') {
+    $isConfigured = ((int)($job['has_configurations'] ?? 0) === 1);
+
+    if (!$isConfigured && $job['pricing_type'] == 'fixed_then_hourly') {
         $fCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $fDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Fixed Callout Charge";
         $price = round((float)$job['final_rate_fixed'], 4);
@@ -95,7 +97,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
             $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", 
                          "Qty" => $extraHours, "Price" => $vPrice, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
         }
-    } elseif ($job['pricing_type'] == 'per_trip') {
+    } elseif (!$isConfigured && $job['pricing_type'] == 'per_trip') {
         $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
         $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
@@ -104,7 +106,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
         
         $lines[] = [ "Type" => "N", "Code" => $tCode, "Description" => $tDesc, "UOMLevel" => 1, "Location" => "01", 
                      "Qty" => $qty, "Price" => $price, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
-    } elseif ($job['pricing_type'] == 'daily') {
+    } elseif (!$isConfigured && $job['pricing_type'] == 'daily') {
         $dCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $dDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Daily Flat Rate";
         $qty = round((float)$job['final_hours'] > 0 ? (float)$job['final_hours'] : 1, 2);
@@ -1488,17 +1490,18 @@ function applyBillingOverridesToSessions(PDO $pdo, int $bookingId, array $overri
 
 function calculatePlantBookingSubtotal(array $job, float $finalHours, float $syncPriceFixed, float $syncPriceVar, float $syncSetupPrice, PDO $pdo, ?array $billingOverrides = null): float {
     $backendSubtotal = round($syncSetupPrice, 2);
+    $isConfigured = ((int)($job['has_configurations'] ?? 0) === 1);
 
-    if ($job['pricing_type'] == 'fixed_then_hourly') {
+    if (!$isConfigured && $job['pricing_type'] == 'fixed_then_hourly') {
         $backendSubtotal += round($syncPriceFixed, 2);
         $extraHours = round($finalHours - (float)$job['min_hours'], 2);
         if ($extraHours > 0) {
             $backendSubtotal += round($extraHours * $syncPriceVar, 2);
         }
-    } elseif ($job['pricing_type'] == 'per_trip') {
+    } elseif (!$isConfigured && $job['pricing_type'] == 'per_trip') {
         $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
-    } elseif ($job['pricing_type'] == 'daily') {
+    } elseif (!$isConfigured && $job['pricing_type'] == 'daily') {
         $qty = round($finalHours > 0 ? $finalHours : 1, 2);
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } else {

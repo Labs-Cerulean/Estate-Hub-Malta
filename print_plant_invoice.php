@@ -433,7 +433,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                         <div id="edit_client_results" class="client-results"></div>
                         <div id="edit_client_selected" style="margin-top:6px; font-size:0.82rem; color:#334155; font-weight:700;"></div>
                     </div>
-                    <div class="edit-field" id="field_master_qty" style="<?= $hasConfiguredBilling ? 'display:none;' : '' ?>">
+                    <div class="edit-field" id="field_master_qty" style="<?= ($job['has_configurations'] == 1) ? 'display:none;' : '' ?>">
                         <label id="label_master_qty"><?= htmlspecialchars($qtyLabel) ?></label>
                         <input type="number" id="edit_master_qty" step="0.25" value="<?= $isTripBased ? $qtyTripsValue : $qtyValue ?>" oninput="updatePreview()">
                     </div>
@@ -473,7 +473,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                     </label>
                 </div>
 
-                <div class="edit-section" id="section_modes" style="<?= $hasConfiguredBilling ? '' : 'display:none;' ?>">
+                <div class="edit-section" id="section_modes" style="<?= ($job['has_configurations'] == 1) ? '' : 'display:none;' ?>">
                     <h4>Operational modes</h4>
                     <table class="edit-row-table">
                         <thead><tr><th>Mode</th><th class="col-num">Hours</th><th class="col-rate text-right">ERP rate</th><th class="col-amt text-right">Amount</th></tr></thead>
@@ -952,11 +952,15 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             const discountWarn = document.getElementById('discount_warn');
             if (discountEl) {
                 let val = parseFloat(discountEl.value) || 0;
+                if (val < 0) val = 0;
                 if (canDiscount && val > maxAllowedDiscount) {
+                    val = maxAllowedDiscount;
+                    discountEl.value = Number.isInteger(maxAllowedDiscount) ? maxAllowedDiscount : +maxAllowedDiscount.toFixed(2);
                     if (discountWarn) {
                         discountWarn.style.display = 'block';
-                        discountWarn.textContent = `Max allowed for this client is ${maxAllowedDiscount}% — will be capped on submit.`;
+                        discountWarn.textContent = `Maximum discount for this client is ${maxAllowedDiscount}%.`;
                     }
+                    setTimeout(() => { if (discountWarn) discountWarn.style.display = 'none'; }, 3000);
                 } else if (discountWarn) {
                     discountWarn.style.display = 'none';
                 }
@@ -1041,7 +1045,20 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                 html += `<tr><td><b>${rawNomSetup}</b></td><td>Setup / Mobilisation Fee<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">1.00</td><td class="text-right">${billingState.rate_setup.toFixed(4)}</td><td class="text-right"><b>${sTotal.toFixed(2)}</b></td></tr>`;
             }
 
-            if (pricingType === 'fixed_then_hourly') {
+            if (plantHasConfigurations) {
+                billingState.modes.forEach(mode => {
+                    if (!mode.name || mode.hours <= 0) return;
+                    const mTotal = +(mode.hours * mode.rate).toFixed(2);
+                    grossSubtotal += mTotal;
+                    html += `<tr><td><b>${escapeHtml(mode.nom_code || 'MISSING')}</b></td><td>Primary Mode: ${escapeHtml(mode.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${mode.hours.toFixed(2)} Hrs</td><td class="text-right">${mode.rate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
+                });
+                billingState.addons.forEach(addon => {
+                    if (!addon.name || addon.qty_hours <= 0) return;
+                    const aTotal = +(addon.qty_hours * addon.rate).toFixed(2);
+                    grossSubtotal += aTotal;
+                    html += `<tr><td><b>${escapeHtml(addon.nom_code || 'MISSING')}</b></td><td>Extra Add-on Surcharge: ${escapeHtml(addon.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${addon.qty_hours.toFixed(2)} Units</td><td class="text-right">${addon.rate.toFixed(4)}</td><td class="text-right"><b>${aTotal.toFixed(2)}</b></td></tr>`;
+                });
+            } else if (pricingType === 'fixed_then_hourly') {
                 const fTotal = +(1 * billingState.rate_fixed).toFixed(2);
                 grossSubtotal += fTotal;
                 html += `<tr><td><b>${rawNomFixed || 'MISSING'}</b></td><td>Fixed Callout Charge<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">1.00</td><td class="text-right">${billingState.rate_fixed.toFixed(4)}</td><td class="text-right"><b>${fTotal.toFixed(2)}</b></td></tr>`;
@@ -1059,19 +1076,6 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                 const dTotal = +(totalQty * billingState.rate_fixed).toFixed(2);
                 grossSubtotal += dTotal;
                 html += `<tr><td><b>${rawNomFixed || 'MISSING'}</b></td><td>Daily Flat Rate<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${totalQty} Days</td><td class="text-right">${billingState.rate_fixed.toFixed(4)}</td><td class="text-right"><b>${dTotal.toFixed(2)}</b></td></tr>`;
-            } else if (hasConfiguredBilling || (plantHasConfigurations && (billingState.modes.some(m => m.hours > 0) || billingState.addons.some(a => a.qty_hours > 0)))) {
-                billingState.modes.forEach(mode => {
-                    if (!mode.name || mode.hours <= 0) return;
-                    const mTotal = +(mode.hours * mode.rate).toFixed(2);
-                    grossSubtotal += mTotal;
-                    html += `<tr><td><b>${escapeHtml(mode.nom_code || 'MISSING')}</b></td><td>Primary Mode: ${escapeHtml(mode.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${mode.hours.toFixed(2)} Hrs</td><td class="text-right">${mode.rate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
-                });
-                billingState.addons.forEach(addon => {
-                    if (!addon.name || addon.qty_hours <= 0) return;
-                    const aTotal = +(addon.qty_hours * addon.rate).toFixed(2);
-                    grossSubtotal += aTotal;
-                    html += `<tr><td><b>${escapeHtml(addon.nom_code || 'MISSING')}</b></td><td>Extra Add-on Surcharge: ${escapeHtml(addon.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${addon.qty_hours.toFixed(2)} Units</td><td class="text-right">${addon.rate.toFixed(4)}</td><td class="text-right"><b>${aTotal.toFixed(2)}</b></td></tr>`;
-                });
             } else {
                 const hTotal = +(totalQty * billingState.rate_var).toFixed(2);
                 grossSubtotal += hTotal;
@@ -1130,16 +1134,6 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             if (!billingState.client_code || billingState.client_code === 'TBC') {
                 alert('Select a valid ERP client before finalising.');
                 return;
-            }
-
-            if (canDiscount && billingState.discount_pct > maxAllowedDiscount) {
-                if (!confirm(`Discount ${billingState.discount_pct}% exceeds the ERP maximum of ${maxAllowedDiscount}% for this client. It will be capped to ${maxAllowedDiscount}%. Continue?`)) {
-                    return;
-                }
-                billingState.discount_pct = maxAllowedDiscount;
-                const discEl = document.getElementById('edit_discount_pct');
-                if (discEl) discEl.value = maxAllowedDiscount;
-                updatePreview();
             }
 
             const unknownManual = billingState.manual_lines.filter(l => l.description && l.nom_code && (parseFloat(l.qty) || 0) > 0 && lookupErpRate(l.nom_code) <= 0 && !erpOffline);
@@ -1236,6 +1230,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                         maxAllowedDiscount = parseFloat(data.max_discount) || 0;
                         const label = document.getElementById('max_disc_label');
                         if (label) label.innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
+                        updatePreview();
                     });
             }
         }
@@ -1262,6 +1257,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                         maxAllowedDiscount = parseFloat(data.max_discount) || 0;
                         const label = document.getElementById('max_disc_label');
                         if (label) label.innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
+                        updatePreview();
                     });
             }
         });
