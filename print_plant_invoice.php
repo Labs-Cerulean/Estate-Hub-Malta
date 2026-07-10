@@ -290,6 +290,17 @@ $sysRef = $job['invoice_sysref'] ?? '';
 $isSynced = !empty($sysRef) && !in_array($sysRef, ['N/A', 'SUCCESS_NO_REF']);
 $canEdit = (isset($_GET['readonly']) && $_GET['readonly'] == '1') ? false : (($job['payment_status'] === 'Pending') || ($isAdmin && !$isSynced));
 $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_discount_pct'] : 0.00;
+$plantConfigurations = [];
+if (!empty($job['configurations'])) {
+    $decodedConfigs = json_decode($job['configurations'], true);
+    $plantConfigurations = is_array($decodedConfigs) ? $decodedConfigs : [];
+}
+$savedBillingOverrides = !empty($job['billing_overrides']) ? json_decode($job['billing_overrides'], true) : null;
+$savedBillingNote = trim((string)($job['billing_note'] ?? ''));
+$savedDeliveryChitNumber = trim((string)($job['delivery_chit_number'] ?? ''));
+$qtyTripsValue = ($job['qty_trips'] > 0) ? (float)$job['qty_trips'] : 1;
+$hasSetupFeeFlag = (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || ((float)($job['final_setup_fee'] ?? 0) > 0);
+$hasConfiguredBilling = ($job['has_configurations'] == 1 && (count($modeBreakdown) > 0 || count($addonBreakdown) > 0));
 ?>
 
 <!DOCTYPE html>
@@ -322,6 +333,24 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         
         .live-calc { border: 1px solid #cbd5e1; padding: 3px 5px; font-size: 1rem; font-family: inherit; border-radius: 6px; width: 80px; font-weight: bold; text-align: center; }
         .live-calc:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .edit-panel { background: #fffbeb; border: 2px solid #f59e0b; border-radius: 12px; padding: 18px; margin-bottom: 24px; }
+        .edit-panel h3 { margin: 0 0 6px; color: #92400e; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        .edit-panel p { margin: 0 0 16px; color: #78716c; font-size: 0.85rem; }
+        .edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 16px; }
+        .edit-field label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: #57534e; margin-bottom: 4px; }
+        .edit-field input, .edit-field select { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #d6d3d1; border-radius: 6px; font: inherit; background: #fff; }
+        .edit-field input[type="checkbox"] { width: auto; }
+        .edit-section { border-top: 1px dashed #d6d3d1; padding-top: 14px; margin-top: 14px; }
+        .edit-section h4 { margin: 0 0 10px; font-size: 0.8rem; color: #44403c; text-transform: uppercase; }
+        .edit-row-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 10px; }
+        .edit-row-table th, .edit-row-table td { border: 1px solid #e7e5e4; padding: 8px; text-align: left; }
+        .edit-row-table th { background: #fafaf9; font-size: 0.72rem; text-transform: uppercase; color: #57534e; }
+        .edit-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 16px; }
+        .btn-preview { padding: 10px 18px; background: #0f172a; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .btn-final { padding: 10px 18px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .preview-wrap { border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; background: #fff; }
+        .preview-label { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 12px; letter-spacing: 0.05em; }
+        .client-results { display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:2px solid #6366f1; z-index:100; max-height:200px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2); border-radius:8px; }
         
         @media print { 
             .no-print { display: none; } 
@@ -342,32 +371,105 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             </div>
         <?php endif; ?>
         <?php if ($canEdit): ?>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
-                <div><i class="fas fa-edit text-blue-500"></i> <b>Edit Mode:</b> You can adjust the times, quantities, and rates below before pushing the final RFP to the ERP.</div>
-                <?php if ($erpAvailable): ?>
-                <div style="background:#e0e7ff; color:#4f46e5; padding:5px 10px; border-radius:6px; font-weight:bold;"><i class="fas fa-plug"></i> ERP Live Sync</div>
-                <?php else: ?>
-                <div style="background:#fef3c7; color:#b45309; padding:5px 10px; border-radius:6px; font-weight:bold;"><i class="fas fa-exclamation-triangle"></i> ERP Offline — local RFP view only</div>
-                <?php endif; ?>
-            </div>
-            
-            <div style="background: #fff; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <label style="font-weight:bold; margin:0;">Final <?= $qtyLabel ?>:</label>
-                    <input type="number" id="calc_master_qty" class="live-calc" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()">
-                </div>
-                
-                <?php if ($canDiscount): ?>
-                <div style="border-left: 2px solid #e2e8f0; padding-left: 15px; display: flex; align-items: center; gap: 10px;">
-                    <label style="font-weight:bold; color:#ef4444; margin:0;"><i class="fas fa-tag"></i> Discount %:</label>
-                    <input type="number" id="edit_discount_pct" class="live-calc" value="<?= $savedDiscountPct ?>" step="0.1" min="0" style="border-color:#fca5a5; color:#ef4444;" onchange="validateAndRenderDiscount()">
-                    <span id="max_disc_label" style="font-size:0.8rem; color:#94a3b8;">(Max: Loading ERP...)</span>
-                </div>
-                <?php else: ?>
-                    <input type="hidden" id="edit_discount_pct" value="<?= $savedDiscountPct ?>">
-                <?php endif; ?>
+            <div class="edit-panel no-print">
+                <h3><i class="fas fa-sliders-h"></i> Billing adjustments</h3>
+                <p>Edit all billable values here, update the preview below, then submit when ready. Nothing is saved until you push the final RFP.</p>
 
-                <button id="printBtn" onclick="saveAndPrint()" <?= $billingCompanyMissing ? 'disabled title="Assign a billing company on the plant asset first"' : '' ?> style="padding:10px 20px; background:<?= $billingCompanyMissing ? '#94a3b8' : '#10b981' ?>; color:#fff; border:none; font-weight:bold; cursor:<?= $billingCompanyMissing ? 'not-allowed' : 'pointer' ?>; border-radius: 8px; margin-left: auto;"><i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP</button>
+                <div class="edit-grid">
+                    <div class="edit-field" style="position:relative;">
+                        <label>ERP client</label>
+                        <input type="text" id="edit_client_search" placeholder="Search ERP client..." autocomplete="off" onkeyup="filterEditClients(this.value)">
+                        <div id="edit_client_results" class="client-results"></div>
+                        <div id="edit_client_selected" style="margin-top:6px; font-size:0.82rem; color:#334155; font-weight:700;"></div>
+                    </div>
+                    <div class="edit-field" id="field_master_qty" style="<?= $hasConfiguredBilling ? 'display:none;' : '' ?>">
+                        <label id="label_master_qty"><?= htmlspecialchars($qtyLabel) ?></label>
+                        <input type="number" id="edit_master_qty" step="0.25" value="<?= $isTripBased ? $qtyTripsValue : $qtyValue ?>">
+                    </div>
+                    <div class="edit-field" id="field_time_window" style="<?= ($isDailyBased || $job['lifecycle_type'] === 'Auto-Scheduled' || count($sessions) > 0 || $isTripBased) ? 'display:none;' : '' ?>">
+                        <label>Time window</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input type="time" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
+                            <span>to</span>
+                            <input type="time" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                        </div>
+                    </div>
+                    <?php if ($canDiscount): ?>
+                    <div class="edit-field">
+                        <label>Discount % <span id="max_disc_label" style="font-weight:400; text-transform:none;">(Max: loading...)</span></label>
+                        <input type="number" id="edit_discount_pct" step="0.1" min="0" value="<?= $savedDiscountPct ?>">
+                    </div>
+                    <?php else: ?>
+                        <input type="hidden" id="edit_discount_pct" value="<?= $savedDiscountPct ?>">
+                    <?php endif; ?>
+                    <div class="edit-field">
+                        <label>Delivery chit number</label>
+                        <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($savedDeliveryChitNumber) ?>" placeholder="Optional — from driver or enter manually">
+                    </div>
+                    <div class="edit-field">
+                        <label>Billing note</label>
+                        <input type="text" id="edit_billing_note" maxlength="80" value="<?= htmlspecialchars($savedBillingNote) ?>" placeholder="Optional note appended to driver line in ERP">
+                    </div>
+                </div>
+
+                <div class="edit-section" id="section_line_rates">
+                    <h4>Line rates</h4>
+                    <div class="edit-grid">
+                        <div class="edit-field" id="field_setup_fee" style="<?= ($job['setup_fee'] > 0 || $hasSetupFeeFlag) ? '' : 'display:none;' ?>">
+                            <label><input type="checkbox" id="edit_apply_setup_fee" <?= $hasSetupFeeFlag ? 'checked' : '' ?>> Apply setup / mobilisation fee</label>
+                            <input type="number" id="edit_rate_setup" step="0.0001" value="<?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>">
+                        </div>
+                        <div class="edit-field" id="field_rate_fixed" style="<?= in_array($job['pricing_type'], ['fixed_then_hourly', 'per_trip', 'daily']) ? '' : 'display:none;' ?>">
+                            <label><?= $isTripBased ? 'Trip rate (€)' : ($isDailyBased ? 'Daily rate (€)' : 'Fixed rate (€)') ?></label>
+                            <input type="number" id="edit_rate_fixed" step="0.0001">
+                        </div>
+                        <div class="edit-field" id="field_rate_var" style="<?= (!$hasConfiguredBilling && !$isTripBased && !$isDailyBased) ? '' : 'display:none;' ?>">
+                            <label>Variable / hourly rate (€)</label>
+                            <input type="number" id="edit_rate_var" step="0.0001">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="edit-section" id="section_modes" style="<?= $hasConfiguredBilling ? '' : 'display:none;' ?>">
+                    <h4>Operational modes</h4>
+                    <table class="edit-row-table">
+                        <thead><tr><th>Mode</th><th>Qty / Hrs</th><th>Rate (€)</th></tr></thead>
+                        <tbody id="edit_modes_body"></tbody>
+                    </table>
+                </div>
+
+                <div class="edit-section" id="section_addons" style="<?= ($job['has_configurations'] == 1) ? '' : 'display:none;' ?>">
+                    <h4>Configured add-ons</h4>
+                    <table class="edit-row-table">
+                        <thead><tr><th>Add-on</th><th>Billable qty-hrs</th><th>Rate (€)</th><th></th></tr></thead>
+                        <tbody id="edit_addons_body"></tbody>
+                    </table>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <select id="addon_picker" style="min-width:220px; padding:8px; border-radius:6px; border:1px solid #d6d3d1;">
+                            <option value="">Add configured add-on...</option>
+                        </select>
+                        <button type="button" onclick="addConfiguredAddon()" style="padding:8px 12px; border:none; background:#e2e8f0; border-radius:6px; font-weight:700; cursor:pointer;">+ Add</button>
+                    </div>
+                </div>
+
+                <div class="edit-section">
+                    <h4>Manual add-on line</h4>
+                    <table class="edit-row-table">
+                        <thead><tr><th>Description</th><th>ERP code</th><th>Qty</th><th>Rate (€)</th><th></th></tr></thead>
+                        <tbody id="edit_manual_body"></tbody>
+                    </table>
+                    <button type="button" onclick="addManualLine()" style="padding:8px 12px; border:none; background:#e2e8f0; border-radius:6px; font-weight:700; cursor:pointer;">+ Add manual line</button>
+                </div>
+
+                <div class="edit-actions">
+                    <?php if ($erpAvailable): ?>
+                        <span style="align-self:center; background:#e0e7ff; color:#4f46e5; padding:5px 10px; border-radius:6px; font-weight:bold; font-size:0.8rem;"><i class="fas fa-plug"></i> ERP Live Sync</span>
+                    <?php else: ?>
+                        <span style="align-self:center; background:#fef3c7; color:#b45309; padding:5px 10px; border-radius:6px; font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> ERP Offline</span>
+                    <?php endif; ?>
+                    <button type="button" class="btn-preview" onclick="updatePreview()"><i class="fas fa-eye"></i> Update preview</button>
+                    <button type="button" id="printBtn" class="btn-final" onclick="submitFinalRfp()" <?= $billingCompanyMissing ? 'disabled title="Assign a billing company on the plant asset first"' : '' ?>><i class="fas fa-cloud-upload-alt"></i> Save RFP &amp; push to ERP</button>
+                </div>
             </div>
         <?php else: ?>
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -387,6 +489,9 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
         <?php endif; ?>
     </div>
 
+    <div class="<?= $canEdit ? 'preview-wrap' : '' ?>" id="preview-document">
+    <?php if ($canEdit): ?><div class="preview-label no-print">Preview — delivery note / RFP</div><?php endif; ?>
+
     <div class="header">
         <div>
             <?php if (!empty($logoPath)): ?>
@@ -404,15 +509,11 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
 
     <div class="grid">
         <div class="box">
-            <h4>Billed To (Client Details)
-                <?php if ($canEdit): ?>
-                    <button class="no-print" onclick="openClientEdit()" style="float:right; font-size:0.75rem; background:#e2e8f0; color:#0f172a; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold;"><i class="fas fa-edit"></i> Edit</button>
-                <?php endif; ?>
-            </h4>
+            <h4>Billed To (Client Details)</h4>
             
             <div id="client-display-block">
                 <div class="data-row"><span class="data-label">ERP Account Name</span><span class="data-val" id="disp_client_name"><?= $clientDisplay ?></span></div>
-                <div class="data-row"><span class="data-label">ERP Account Code</span><span class="data-val">
+                <div class="data-row"><span class="data-label">ERP Account Code</span><span class="data-val" id="disp_client_code">
                     <?php if ($clientCodeDisplay === 'TBC'): ?>
                         <span style="background:#fef08a; color:#854d0e; padding:2px 6px; border-radius:4px; font-size:0.8rem;">TBC - Must Update</span>
                     <?php else: ?>
@@ -422,58 +523,40 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
                 <div class="data-row"><span class="data-label">Project / Location</span><span class="data-val"><?= $projectDisplay ?></span></div>
                 <div class="data-row"><span class="data-label">Booking Type</span><span class="data-val" style="text-transform:uppercase;"><?= $job['booking_type'] ?></span></div>
             </div>
-
-            <div id="client-edit-block" class="no-print" style="display:none; position:relative; margin-top:10px; border-top:1px dashed #cbd5e1; padding-top:10px;">
-                <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:block; margin-bottom:5px;">Search ERP Client</label>
-                <input type="text" id="inv_client_search" class="live-calc" style="width:100%; text-align:left; padding:8px; border:1px solid #cbd5e1;" placeholder="Loading clients..." onkeyup="filterInvClients(this.value)" disabled autocomplete="off">
-                <div id="inv_client_results" style="display:none; position:absolute; top:65px; left:0; right:0; background:#fff; border:2px solid #6366f1; z-index:100; max-height:200px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2); border-radius:8px;"></div>
-                <button onclick="cancelClientEdit()" style="margin-top:10px; font-size:0.8rem; padding:6px 12px; background:#64748b; color:#fff; border:none; border-radius:4px; cursor:pointer;">Cancel</button>
-            </div>
         </div>
         <div class="box">
             <h4>Job Report (Execution Details)</h4>
             <div class="data-row"><span class="data-label">Machinery</span><span class="data-val"><?= htmlspecialchars($job['plant_name']) ?> (<?= htmlspecialchars($job['category']) ?>)</span></div>
             <div class="data-row"><span class="data-label">Reg Plate</span><span class="data-val"><?= htmlspecialchars($job['registration_plate'] ?? 'N/A') ?></span></div>
             <div class="data-row"><span class="data-label">Driver</span><span class="data-val"><?= $driverName ?></span></div>
+            <div class="data-row" id="row_delivery_chit" style="<?= $savedDeliveryChitNumber === '' ? 'display:none;' : '' ?>">
+                <span class="data-label">Delivery chit</span>
+                <span class="data-val" id="disp_delivery_chit"><?= htmlspecialchars($savedDeliveryChitNumber) ?></span>
+            </div>
             
             <div class="data-row" style="align-items: flex-start;">
                 <span class="data-label">Time Logged</span>
-                <span class="data-val">
+                <span class="data-val" id="preview_time_logged">
                     <?php if ($isDailyBased || $job['lifecycle_type'] === 'Auto-Scheduled'): ?>
                         <div style="font-weight: bold; color: #0f172a;">
                             <?= date('d M Y', strtotime($job['booking_date'])) ?> to <?= !empty($job['end_date']) ? date('d M Y', strtotime($job['end_date'])) : date('d M Y', strtotime($job['booking_date'])) ?>
                         </div>
-                        <input type="hidden" id="edit_time_in" value="">
-                        <input type="hidden" id="edit_time_out" value="">
-                    <?php else: ?>
-                        <?php if (count($sessions) > 0): ?>
-                            <div style="text-align: right; font-size: 0.85rem; color: #475569;">
-                                <?php foreach($sessions as $idx => $s): ?>
-                                    <div style="margin-bottom: 3px;">
-                                        <b>Day <?= $idx+1 ?>:</b> <?= date('d M, H:i', strtotime($s['punch_in'])) ?> to <?= date('H:i', strtotime($s['punch_out'])) ?> 
-                                        <span style="color:#000; font-weight:bold;">(<?= $s['hours'] ?> hrs)</span>
-                                    </div>
-                                <?php endforeach; ?>
-                                
-                                <?php if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])): ?>
-                                    <div style="color:#3b82f6; margin-top: 5px;">
-                                        <b><i class="fas fa-clock fa-spin"></i> Active Now:</b> Since <?= date('d M, H:i', strtotime($job['punch_in_time'])) ?>
-                                    </div>
-                                <?php endif; ?>
-                                
-                                <input type="hidden" id="edit_time_in" value="">
-                                <input type="hidden" id="edit_time_out" value="">
-                            </div>
-                        <?php else: ?>
-                            <?php if ($canEdit && !$isTripBased): ?>
-                                <input type="time" id="edit_time_in" class="live-calc" value="<?= $inTime->format('H:i') ?>" onchange="recalcHours()"> to 
-                                <input type="time" id="edit_time_out" class="live-calc" value="<?= $outTime->format('H:i') ?>" onchange="recalcHours()">
-                            <?php else: ?>
-                                <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
-                                <input type="hidden" id="edit_time_in" value="<?= $inTime->format('H:i') ?>">
-                                <input type="hidden" id="edit_time_out" value="<?= $outTime->format('H:i') ?>">
+                    <?php elseif (count($sessions) > 0): ?>
+                        <div style="text-align: right; font-size: 0.85rem; color: #475569;">
+                            <?php foreach($sessions as $idx => $s): ?>
+                                <div style="margin-bottom: 3px;">
+                                    <b>Day <?= $idx+1 ?>:</b> <?= date('d M, H:i', strtotime($s['punch_in'])) ?> to <?= date('H:i', strtotime($s['punch_out'])) ?>
+                                    <span style="color:#000; font-weight:bold;">(<?= $s['hours'] ?> hrs)</span>
+                                </div>
+                            <?php endforeach; ?>
+                            <?php if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])): ?>
+                                <div style="color:#3b82f6; margin-top: 5px;">
+                                    <b><i class="fas fa-clock fa-spin"></i> Active Now:</b> Since <?= date('d M, H:i', strtotime($job['punch_in_time'])) ?>
+                                </div>
                             <?php endif; ?>
-                        <?php endif; ?>
+                        </div>
+                    <?php else: ?>
+                        <?= $inTime->format('H:i') ?> to <?= $outTime->format('H:i') ?>
                     <?php endif; ?>
                 </span>
             </div>
@@ -534,215 +617,310 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             <div class="totals-row totals-final"><span class="data-label" style="color:#000;">Total Due</span><span class="data-val">€ <span id="tot_final">0.00</span></span></div>
         </div>
     </div>
+    </div>
 
     <script>
         const pricingType = '<?= $job['pricing_type'] ?>';
         const minHours = <?= (float)$job['min_hours'] ?>;
-        const isInternal = <?= $isInternal ? 'true' : 'false' ?>;
         const jobRef = '<?= $jobRef ?>';
-        
         const rawNomFixed = '<?= htmlspecialchars($job['nom_code_fixed'] ?? '') ?>';
         const rawNomVar = '<?= htmlspecialchars($job['nom_code_variable'] ?? '') ?>';
         const rawNomSetup = '<?= htmlspecialchars($job['nom_code_setup'] ?? '0000') ?>';
         const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
         const canDiscount = <?= $canDiscount ? 'true' : 'false' ?>;
-        
-        const savedHours = <?= $job['final_hours'] ?? 0 ?>;
-        const hasSetupFee = <?= (!empty($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) ? 'true' : 'false' ?>;
-        const modeBreakdown = <?= json_encode($modeBreakdown) ?>;
-        const addonBreakdown = <?= json_encode($addonBreakdown) ?>;
+        const hasConfiguredBilling = <?= $hasConfiguredBilling ? 'true' : 'false' ?>;
+        const plantConfigurations = <?= json_encode($plantConfigurations) ?>;
+        const modeBreakdownSeed = <?= json_encode($modeBreakdown) ?>;
+        const addonBreakdownSeed = <?= json_encode($addonBreakdown) ?>;
+        const savedOverrides = <?= json_encode($savedBillingOverrides) ?>;
+        const invCompId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
+        const invBookingId = <?= $bookingId ?>;
 
-        let rateFixed = <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>;
-        let rateVar = <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>;
-        let rateSetup = <?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>;
-        
-        let currentDiscountPct = <?= $savedDiscountPct ?>;
+        let invoiceErpClients = [];
+        let loadingPromise = null;
         let maxAllowedDiscount = 0;
         let grossSubtotal = 0;
 
-        if (canEdit && canDiscount) {
-            const clientCode = '<?= addslashes($job['client_code'] ?? '') ?>';
-            const companyId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
-            if (clientCode && clientCode !== 'TBC') {
-                fetch(`api/plant_actions.php?action=get_client_max_discount&client_code=${clientCode}&company_id=${companyId}`)
-                .then(r => r.json())
-                .then(data => {
-                    maxAllowedDiscount = parseFloat(data.max_discount) || 0;
-                    document.getElementById('max_disc_label').innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
-                    validateAndRenderDiscount(); 
-                });
+        const billingState = {
+            client_code: '<?= addslashes($job['client_code'] ?? '') ?>',
+            client_name: <?= json_encode($job['client_name'] ?? '') ?>,
+            discount_pct: <?= $savedDiscountPct ?>,
+            billing_note: <?= json_encode($savedBillingNote) ?>,
+            delivery_chit_number: <?= json_encode($savedDeliveryChitNumber) ?>,
+            master_qty: <?= $isTripBased ? $qtyTripsValue : $qtyValue ?>,
+            apply_setup_fee: <?= $hasSetupFeeFlag ? 'true' : 'false' ?>,
+            rate_setup: <?= isset($job['final_setup_fee']) && $job['final_setup_fee'] !== null ? (float)$job['final_setup_fee'] : (float)($job['setup_fee'] ?? 0) ?>,
+            rate_fixed: <?= isset($job['final_rate_fixed']) && $job['final_rate_fixed'] !== null ? (float)$job['final_rate_fixed'] : ($fixedNom ? (float)($isInternal ? $fixedNom['NCDefSP1'] : $fixedNom['NCDefSP2']) : 0) ?>,
+            rate_var: <?= isset($job['final_rate_var']) && $job['final_rate_var'] !== null ? (float)$job['final_rate_var'] : ($varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCDefSP2']) : 0) ?>,
+            modes: [],
+            addons: [],
+            manual_lines: [],
+        };
+
+        function initBillingState() {
+            if (savedOverrides && Array.isArray(savedOverrides.modes) && savedOverrides.modes.length) {
+                billingState.modes = savedOverrides.modes;
+            } else {
+                billingState.modes = Object.entries(modeBreakdownSeed).map(([name, data]) => ({
+                    name,
+                    hours: parseFloat(data.hours) || 0,
+                    rate: parseFloat(data.rate) || 0,
+                    nom_code: data.nom_code || '',
+                }));
+            }
+            if (savedOverrides && Array.isArray(savedOverrides.addons) && savedOverrides.addons.length) {
+                billingState.addons = savedOverrides.addons;
+            } else {
+                billingState.addons = Object.entries(addonBreakdownSeed).map(([name, data]) => ({
+                    name,
+                    qty_hours: parseFloat(data.qty_hours) || 0,
+                    rate: parseFloat(data.rate) || 0,
+                    nom_code: data.nom_code || '',
+                }));
+            }
+            if (savedOverrides && Array.isArray(savedOverrides.manual_lines)) {
+                billingState.manual_lines = savedOverrides.manual_lines;
             }
         }
 
-        function validateAndRenderDiscount() {
-            if (!canDiscount) return;
-            const inputEl = document.getElementById('edit_discount_pct');
-            let val = parseFloat(inputEl.value) || 0;
-            
-            if (val > maxAllowedDiscount) {
-                alert(`The ERP system restricts discounts for this client to a maximum of ${maxAllowedDiscount}%.`);
-                val = maxAllowedDiscount;
-                inputEl.value = val;
-            }
-            if (val < 0) { val = 0; inputEl.value = 0; }
-            
-            currentDiscountPct = val;
-            renderTable();
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        function recalcHours() {
-            const tIn = document.getElementById('edit_time_in').value;
-            const tOut = document.getElementById('edit_time_out').value;
-            if (tIn && tOut) {
-                const [hIn, mIn] = tIn.split(':').map(Number);
-                const [hOut, mOut] = tOut.split(':').map(Number);
-                let diff = (hOut + mOut/60) - (hIn + mIn/60);
-                if (diff < 0) diff += 24; 
-                
-                const qtyInput = document.getElementById('calc_master_qty');
-                if (qtyInput) qtyInput.value = diff.toFixed(2);
-                renderTable();
+        function renderClientSelected() {
+            const el = document.getElementById('edit_client_selected');
+            if (!el) return;
+            if (!billingState.client_code || billingState.client_code === 'TBC') {
+                el.innerHTML = '<span style="color:#b45309;">No ERP client selected yet</span>';
+            } else {
+                el.textContent = `${billingState.client_name} (Code: ${billingState.client_code})`;
             }
         }
 
-        function renderTable() {
-            const qtyInput = document.getElementById('calc_master_qty');
-            let totalQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : <?= $qtyValue ?>).toFixed(2);
-            
+        function renderEditTables() {
+            const modesBody = document.getElementById('edit_modes_body');
+            if (modesBody) {
+                modesBody.innerHTML = billingState.modes.map((mode, idx) => `
+                    <tr>
+                        <td><strong>${escapeHtml(mode.name)}</strong></td>
+                        <td><input type="number" step="0.25" value="${mode.hours}" onchange="billingState.modes[${idx}].hours = parseFloat(this.value) || 0"></td>
+                        <td><input type="number" step="0.0001" value="${mode.rate}" onchange="billingState.modes[${idx}].rate = parseFloat(this.value) || 0"></td>
+                    </tr>
+                `).join('');
+            }
+
+            const addonsBody = document.getElementById('edit_addons_body');
+            if (addonsBody) {
+                addonsBody.innerHTML = billingState.addons.map((addon, idx) => `
+                    <tr>
+                        <td><strong>${escapeHtml(addon.name)}</strong></td>
+                        <td><input type="number" step="0.25" value="${addon.qty_hours}" onchange="billingState.addons[${idx}].qty_hours = parseFloat(this.value) || 0"></td>
+                        <td><input type="number" step="0.0001" value="${addon.rate}" onchange="billingState.addons[${idx}].rate = parseFloat(this.value) || 0"></td>
+                        <td><button type="button" onclick="removeAddon(${idx})" style="border:none;background:#fee2e2;color:#b91c1c;padding:6px 10px;border-radius:6px;cursor:pointer;">Remove</button></td>
+                    </tr>
+                `).join('');
+            }
+
+            const manualBody = document.getElementById('edit_manual_body');
+            if (manualBody) {
+                manualBody.innerHTML = billingState.manual_lines.map((line, idx) => `
+                    <tr>
+                        <td><input type="text" value="${escapeHtml(line.description)}" onchange="billingState.manual_lines[${idx}].description = this.value"></td>
+                        <td><input type="text" value="${escapeHtml(line.nom_code)}" onchange="billingState.manual_lines[${idx}].nom_code = this.value"></td>
+                        <td><input type="number" step="0.25" value="${line.qty}" onchange="billingState.manual_lines[${idx}].qty = parseFloat(this.value) || 0"></td>
+                        <td><input type="number" step="0.0001" value="${line.rate}" onchange="billingState.manual_lines[${idx}].rate = parseFloat(this.value) || 0"></td>
+                        <td><button type="button" onclick="removeManualLine(${idx})" style="border:none;background:#fee2e2;color:#b91c1c;padding:6px 10px;border-radius:6px;cursor:pointer;">Remove</button></td>
+                    </tr>
+                `).join('');
+            }
+
+            const picker = document.getElementById('addon_picker');
+            if (picker) {
+                const existing = new Set(billingState.addons.map(a => a.name));
+                picker.innerHTML = '<option value="">Add configured add-on...</option>' + plantConfigurations
+                    .filter(cfg => cfg.type === 'addon' && !existing.has(cfg.name))
+                    .map(cfg => `<option value="${escapeHtml(cfg.name)}">${escapeHtml(cfg.name)}</option>`)
+                    .join('');
+            }
+        }
+
+        function removeAddon(index) {
+            billingState.addons.splice(index, 1);
+            renderEditTables();
+        }
+
+        function addConfiguredAddon() {
+            const picker = document.getElementById('addon_picker');
+            const selectedName = picker ? picker.value : '';
+            if (!selectedName) return;
+            const cfg = plantConfigurations.find(c => c.name === selectedName && c.type === 'addon');
+            if (!cfg) return;
+            billingState.addons.push({
+                name: cfg.name,
+                qty_hours: 0,
+                rate: parseFloat(cfg.price) || 0,
+                nom_code: cfg.nom_code || '',
+            });
+            renderEditTables();
+        }
+
+        function addManualLine() {
+            billingState.manual_lines.push({
+                description: '',
+                nom_code: rawNomVar || rawNomFixed || '',
+                qty: 1,
+                rate: 0,
+            });
+            renderEditTables();
+        }
+
+        function removeManualLine(index) {
+            billingState.manual_lines.splice(index, 1);
+            renderEditTables();
+        }
+
+        function syncBillingStateFromForm() {
+            const qtyEl = document.getElementById('edit_master_qty');
+            if (qtyEl) billingState.master_qty = parseFloat(qtyEl.value) || 0;
+
+            const discountEl = document.getElementById('edit_discount_pct');
+            if (discountEl) {
+                let val = parseFloat(discountEl.value) || 0;
+                if (canDiscount && val > maxAllowedDiscount) {
+                    alert(`The ERP system restricts discounts for this client to a maximum of ${maxAllowedDiscount}%.`);
+                    val = maxAllowedDiscount;
+                    discountEl.value = val;
+                }
+                billingState.discount_pct = val;
+            }
+
+            const noteEl = document.getElementById('edit_billing_note');
+            if (noteEl) billingState.billing_note = noteEl.value.trim();
+
+            const chitEl = document.getElementById('edit_delivery_chit_number');
+            if (chitEl) billingState.delivery_chit_number = chitEl.value.trim();
+
+            const setupApplyEl = document.getElementById('edit_apply_setup_fee');
+            const setupRateEl = document.getElementById('edit_rate_setup');
+            if (setupApplyEl) billingState.apply_setup_fee = setupApplyEl.checked;
+            if (setupRateEl) billingState.rate_setup = parseFloat(setupRateEl.value) || 0;
+
+            const fixedEl = document.getElementById('edit_rate_fixed');
+            const varEl = document.getElementById('edit_rate_var');
+            if (fixedEl) billingState.rate_fixed = parseFloat(fixedEl.value) || 0;
+            if (varEl) billingState.rate_var = parseFloat(varEl.value) || 0;
+
+            const timeInEl = document.getElementById('edit_time_in');
+            const timeOutEl = document.getElementById('edit_time_out');
+            if (timeInEl && timeOutEl && timeInEl.value && timeOutEl.value) {
+                const [hIn, mIn] = timeInEl.value.split(':').map(Number);
+                const [hOut, mOut] = timeOutEl.value.split(':').map(Number);
+                let diff = (hOut + mOut / 60) - (hIn + mIn / 60);
+                if (diff < 0) diff += 24;
+                billingState.master_qty = parseFloat(diff.toFixed(2));
+                if (qtyEl) qtyEl.value = billingState.master_qty.toFixed(2);
+            }
+        }
+
+        function buildBillingOverridesPayload() {
+            const payload = { manual_lines: billingState.manual_lines.filter(l => l.description && l.nom_code && l.qty > 0 && l.rate > 0) };
+            if (hasConfiguredBilling) {
+                payload.modes = billingState.modes.filter(m => m.name);
+                payload.addons = billingState.addons.filter(a => a.name);
+            }
+            return payload;
+        }
+
+        function updatePreview() {
+            syncBillingStateFromForm();
+
+            document.getElementById('disp_client_name').textContent = billingState.client_name || 'N/A';
+            const codeEl = document.getElementById('disp_client_code');
+            if (codeEl) {
+                if (!billingState.client_code || billingState.client_code === 'TBC') {
+                    codeEl.innerHTML = '<span style="background:#fef08a; color:#854d0e; padding:2px 6px; border-radius:4px; font-size:0.8rem;">TBC - Must Update</span>';
+                } else {
+                    codeEl.textContent = billingState.client_code;
+                }
+            }
+
+            const chitRow = document.getElementById('row_delivery_chit');
+            const chitDisp = document.getElementById('disp_delivery_chit');
+            if (chitRow && chitDisp) {
+                if (billingState.delivery_chit_number) {
+                    chitRow.style.display = '';
+                    chitDisp.textContent = billingState.delivery_chit_number;
+                } else {
+                    chitRow.style.display = 'none';
+                    chitDisp.textContent = '';
+                }
+            }
+
+            renderPreviewTable();
+        }
+
+        function renderPreviewTable() {
             const tbody = document.getElementById('lines-body');
             let html = '';
             grossSubtotal = 0;
+            const totalQty = parseFloat(billingState.master_qty || 0).toFixed(2);
 
-            const fRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateFixed.toFixed(4)}" onchange="rateFixed = parseFloat(this.value) || 0; renderTable();">` : rateFixed.toFixed(4);
-            const vRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateVar.toFixed(4)}" onchange="rateVar = parseFloat(this.value) || 0; renderTable();">` : rateVar.toFixed(4);
-            
-            if (hasSetupFee) {
-                const sRateInput = canEdit ? `<input type="number" class="live-calc text-right" style="width:75px;" value="${rateSetup.toFixed(4)}" onchange="rateSetup = parseFloat(this.value) || 0; renderTable();">` : rateSetup.toFixed(4);
-                let sTotal = +(1 * rateSetup).toFixed(2);
+            if (billingState.apply_setup_fee) {
+                const sTotal = +(1 * billingState.rate_setup).toFixed(2);
                 grossSubtotal += sTotal;
-                
-                html += `<tr>
-                    <td><b>${rawNomSetup}</b></td>
-                    <td>Setup / Mobilisation Fee<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">1.00</td>
-                    <td class="text-right">${sRateInput}</td>
-                    <td class="text-right"><b>${sTotal.toFixed(2)}</b></td>
-                </tr>`;
+                html += `<tr><td><b>${rawNomSetup}</b></td><td>Setup / Mobilisation Fee<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">1.00</td><td class="text-right">${billingState.rate_setup.toFixed(4)}</td><td class="text-right"><b>${sTotal.toFixed(2)}</b></td></tr>`;
             }
 
             if (pricingType === 'fixed_then_hourly') {
-                const fCode = rawNomFixed || 'MISSING';
-                const fDesc = 'Fixed Callout Charge';
-                let fTotal = +(1 * rateFixed).toFixed(2);
+                const fTotal = +(1 * billingState.rate_fixed).toFixed(2);
                 grossSubtotal += fTotal;
-                
-                html += `<tr>
-                    <td><b>${fCode}</b></td>
-                    <td>${fDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">1.00</td>
-                    <td class="text-right">${fRateInput}</td>
-                    <td class="text-right"><b>${fTotal.toFixed(2)}</b></td>
-                </tr>`;
-
+                html += `<tr><td><b>${rawNomFixed || 'MISSING'}</b></td><td>Fixed Callout Charge<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">1.00</td><td class="text-right">${billingState.rate_fixed.toFixed(4)}</td><td class="text-right"><b>${fTotal.toFixed(2)}</b></td></tr>`;
                 const extraHours = Math.max(0, totalQty - minHours);
                 if (extraHours > 0) {
-                    const vCode = rawNomVar || 'MISSING';
-                    const vDesc = 'Additional Hourly Rate';
-                    let vTotal = +(extraHours * rateVar).toFixed(2);
+                    const vTotal = +(extraHours * billingState.rate_var).toFixed(2);
                     grossSubtotal += vTotal;
-                    
-                    html += `<tr>
-                        <td><b>${vCode}</b></td>
-                        <td>${vDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Extra Hours > ${minHours})</i></td>
-                        <td class="text-right">${extraHours.toFixed(2)}</td>
-                        <td class="text-right">${vRateInput}</td>
-                        <td class="text-right"><b>${vTotal.toFixed(2)}</b></td>
-                    </tr>`;
+                    html += `<tr><td><b>${rawNomVar || 'MISSING'}</b></td><td>Additional Hourly Rate<br><i style="font-size:0.8rem; color:#64748b;">(Extra Hours > ${minHours})</i></td><td class="text-right">${extraHours.toFixed(2)}</td><td class="text-right">${billingState.rate_var.toFixed(4)}</td><td class="text-right"><b>${vTotal.toFixed(2)}</b></td></tr>`;
                 }
-            } 
-            else if (pricingType === 'per_trip') {
-                const tCode = rawNomFixed || 'MISSING';
-                const tDesc = 'Trip Execution Charge';
-                let tTotal = +(totalQty * rateFixed).toFixed(2);
+            } else if (pricingType === 'per_trip') {
+                const tTotal = +(totalQty * billingState.rate_fixed).toFixed(2);
                 grossSubtotal += tTotal;
-
-                html += `<tr>
-                    <td><b>${tCode}</b></td>
-                    <td>${tDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">${totalQty} Trips</td>
-                    <td class="text-right">${fRateInput}</td>
-                    <td class="text-right"><b>${tTotal.toFixed(2)}</b></td>
-                </tr>`;
-            } 
-            else if (pricingType === 'daily') {
-                const dCode = rawNomFixed || 'MISSING';
-                const dDesc = 'Daily Flat Rate';
-                let dTotal = +(totalQty * rateFixed).toFixed(2);
+                html += `<tr><td><b>${rawNomFixed || 'MISSING'}</b></td><td>Trip Execution Charge<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${totalQty} Trips</td><td class="text-right">${billingState.rate_fixed.toFixed(4)}</td><td class="text-right"><b>${tTotal.toFixed(2)}</b></td></tr>`;
+            } else if (pricingType === 'daily') {
+                const dTotal = +(totalQty * billingState.rate_fixed).toFixed(2);
                 grossSubtotal += dTotal;
-
-                html += `<tr>
-                    <td><b>${dCode}</b></td>
-                    <td>${dDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                    <td class="text-right">${totalQty} Days</td>
-                    <td class="text-right">${fRateInput}</td>
-                    <td class="text-right"><b>${dTotal.toFixed(2)}</b></td>
-                </tr>`;
+                html += `<tr><td><b>${rawNomFixed || 'MISSING'}</b></td><td>Daily Flat Rate<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${totalQty} Days</td><td class="text-right">${billingState.rate_fixed.toFixed(4)}</td><td class="text-right"><b>${dTotal.toFixed(2)}</b></td></tr>`;
+            } else if (hasConfiguredBilling) {
+                billingState.modes.forEach(mode => {
+                    if (!mode.name || mode.hours <= 0) return;
+                    const mTotal = +(mode.hours * mode.rate).toFixed(2);
+                    grossSubtotal += mTotal;
+                    html += `<tr><td><b>${escapeHtml(mode.nom_code || 'MISSING')}</b></td><td>Primary Mode: ${escapeHtml(mode.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${mode.hours.toFixed(2)} Hrs</td><td class="text-right">${mode.rate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
+                });
+                billingState.addons.forEach(addon => {
+                    if (!addon.name || addon.qty_hours <= 0) return;
+                    const aTotal = +(addon.qty_hours * addon.rate).toFixed(2);
+                    grossSubtotal += aTotal;
+                    html += `<tr><td><b>${escapeHtml(addon.nom_code || 'MISSING')}</b></td><td>Extra Add-on Surcharge: ${escapeHtml(addon.name)}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${addon.qty_hours.toFixed(2)} Qty-Hrs</td><td class="text-right">${addon.rate.toFixed(4)}</td><td class="text-right"><b>${aTotal.toFixed(2)}</b></td></tr>`;
+                });
+            } else {
+                const hTotal = +(totalQty * billingState.rate_var).toFixed(2);
+                grossSubtotal += hTotal;
+                html += `<tr><td><b>${rawNomVar || 'MISSING'}</b></td><td>Standard Hourly Operation<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td><td class="text-right">${totalQty} Hrs</td><td class="text-right">${billingState.rate_var.toFixed(4)}</td><td class="text-right"><b>${hTotal.toFixed(2)}</b></td></tr>`;
             }
-            else {
-                if (Object.keys(modeBreakdown).length > 0 || Object.keys(addonBreakdown).length > 0) {
-                    for (const [modeName, data] of Object.entries(modeBreakdown)) {
-                        const mCode = data.nom_code || 'MISSING';
-                        let mQty = parseFloat(data.hours).toFixed(2);
-                        let mRate = parseFloat(data.rate);
-                        let mTotal = +(mQty * mRate).toFixed(2);
-                        grossSubtotal += mTotal;
-                        
-                        html += `<tr>
-                            <td><b>${mCode}</b></td>
-                            <td>Primary Mode: ${modeName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                            <td class="text-right">${mQty} Hrs</td>
-                            <td class="text-right">${mRate.toFixed(4)}</td>
-                            <td class="text-right"><b>${mTotal.toFixed(2)}</b></td>
-                        </tr>`;
-                    }
 
-                    for (const [addonName, data] of Object.entries(addonBreakdown)) {
-                        const aCode = data.nom_code || 'MISSING';
-                        let aQtyHours = parseFloat(data.qty_hours).toFixed(2);
-                        let aRate = parseFloat(data.rate);
-                        let aTotal = +(aQtyHours * aRate).toFixed(2);
-                        grossSubtotal += aTotal;
-                        
-                        html += `<tr>
-                            <td><b>${aCode}</b></td>
-                            <td>Extra Add-on Surcharge: ${addonName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                            <td class="text-right">${aQtyHours} Qty-Hrs</td>
-                            <td class="text-right">${aRate.toFixed(4)}</td>
-                            <td class="text-right"><b>${aTotal.toFixed(2)}</b></td>
-                        </tr>`;
-                    }
-                } else {
-                    const hCode = rawNomVar || 'MISSING';
-                    const hDesc = 'Standard Hourly Operation';
-                    let hTotal = +(totalQty * rateVar).toFixed(2);
-                    grossSubtotal += hTotal;
-
-                    html += `<tr>
-                        <td><b>${hCode}</b></td>
-                        <td>${hDesc}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                        <td class="text-right">${totalQty} Hrs</td>
-                        <td class="text-right">${vRateInput}</td>
-                        <td class="text-right"><b>${hTotal.toFixed(2)}</b></td>
-                    </tr>`;
-                }
-            }
+            billingState.manual_lines.forEach(line => {
+                if (!line.description || !line.nom_code || line.qty <= 0 || line.rate <= 0) return;
+                const mTotal = +(line.qty * line.rate).toFixed(2);
+                grossSubtotal += mTotal;
+                html += `<tr><td><b>${escapeHtml(line.nom_code)}</b></td><td>${escapeHtml(line.description)}<br><i style="font-size:0.8rem; color:#64748b;">(Manual line)</i></td><td class="text-right">${line.qty.toFixed(2)}</td><td class="text-right">${line.rate.toFixed(4)}</td><td class="text-right"><b>${mTotal.toFixed(2)}</b></td></tr>`;
+            });
 
             tbody.innerHTML = html;
 
-            let totalDiscount = +(grossSubtotal * (currentDiscountPct / 100)).toFixed(2);
-            let netSubtotal = +(grossSubtotal - totalDiscount).toFixed(2);
-            let vat = +(netSubtotal * 0.18).toFixed(2);
-            let finalTotal = +(netSubtotal + vat).toFixed(2);
+            const totalDiscount = +(grossSubtotal * (billingState.discount_pct / 100)).toFixed(2);
+            const netSubtotal = +(grossSubtotal - totalDiscount).toFixed(2);
+            const vat = +(netSubtotal * 0.18).toFixed(2);
+            const finalTotal = +(netSubtotal + vat).toFixed(2);
 
             document.getElementById('tot_gross').innerText = '€ ' + grossSubtotal.toFixed(2);
             document.getElementById('tot_net').innerText = '€ ' + netSubtotal.toFixed(2);
@@ -752,129 +930,154 @@ $savedDiscountPct = isset($job['final_discount_pct']) ? (float)$job['final_disco
             const discRow = document.getElementById('discount_row');
             if (totalDiscount > 0) {
                 discRow.style.display = 'flex';
-                document.getElementById('disp_disc_pct').innerText = currentDiscountPct;
+                document.getElementById('disp_disc_pct').innerText = billingState.discount_pct;
                 document.getElementById('tot_discount').innerText = totalDiscount.toFixed(2);
             } else {
                 discRow.style.display = 'none';
             }
         }
 
-        renderTable();
-
-        function saveAndPrint() {
+        function submitFinalRfp() {
             <?php if ($billingCompanyMissing): ?>
             alert('Assign a billing company on this plant asset in Fleet setup before pushing to ERP.');
             return;
             <?php endif; ?>
+
+            syncBillingStateFromForm();
+            updatePreview();
+
+            if (!billingState.client_code || billingState.client_code === 'TBC') {
+                alert('Select a valid ERP client before finalising.');
+                return;
+            }
+
             const btn = document.getElementById('printBtn');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
             btn.disabled = true;
 
-            const finalQty = document.getElementById('calc_master_qty').value;
-
             const fd = new FormData();
             fd.append('action', 'finalize_and_invoice');
-            fd.append('booking_id', <?= $bookingId ?>);
-            fd.append('hours', finalQty); 
-            fd.append('rate_fixed', rateFixed);
-            fd.append('rate_var', rateVar);
-            fd.append('discount_pct', currentDiscountPct);
-            
-            if (hasSetupFee) {
-                fd.append('setup_fee', rateSetup);
+            fd.append('booking_id', invBookingId);
+            fd.append('client_code', billingState.client_code);
+            fd.append('client_name', billingState.client_name);
+            fd.append('hours', billingState.master_qty);
+            fd.append('rate_fixed', billingState.rate_fixed);
+            fd.append('rate_var', billingState.rate_var);
+            fd.append('discount_pct', billingState.discount_pct);
+            fd.append('billing_note', billingState.billing_note);
+            fd.append('delivery_chit_number', billingState.delivery_chit_number);
+            fd.append('apply_setup_fee', billingState.apply_setup_fee ? '1' : '0');
+            fd.append('billing_overrides', JSON.stringify(buildBillingOverridesPayload()));
+
+            if (billingState.apply_setup_fee) {
+                fd.append('setup_fee', billingState.rate_setup);
             }
-            
-            const timeIn = document.getElementById('edit_time_in');
-            const timeOut = document.getElementById('edit_time_out');
-            if (timeIn && timeOut) {
-                fd.append('time_in', timeIn.value);
-                fd.append('time_out', timeOut.value);
+            if (pricingType === 'per_trip') {
+                fd.append('qty_trips', billingState.master_qty);
+            }
+
+            const timeInEl = document.getElementById('edit_time_in');
+            const timeOutEl = document.getElementById('edit_time_out');
+            if (timeInEl && timeOutEl && timeInEl.value && timeOutEl.value) {
+                fd.append('time_in', timeInEl.value);
+                fd.append('time_out', timeOutEl.value);
             }
 
             fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
                 if (res.includes('OK')) {
                     btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
                     setTimeout(() => { location.reload(); }, 1200);
-                } else { 
-                    alert(res); 
-                    btn.disabled = false; 
-                    btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP';
+                } else {
+                    alert(res);
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Save RFP & push to ERP';
                 }
             });
         }
 
-        let invoiceErpClients = [];
-        const invCompId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
-        const invBookingId = <?= $bookingId ?>;
-
-        function openClientEdit() {
-            document.getElementById('client-display-block').style.display = 'none';
-            document.getElementById('client-edit-block').style.display = 'block';
-            const input = document.getElementById('inv_client_search');
-            
-            if (invoiceErpClients.length === 0) {
-                input.disabled = true;
-                input.placeholder = "Loading ERP clients...";
-                fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
+        function ensureErpClientsLoaded() {
+            if (invoiceErpClients.length > 0) return Promise.resolve(invoiceErpClients);
+            if (loadingPromise) return loadingPromise;
+            loadingPromise = fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
                 .then(r => r.json())
                 .then(res => {
-                    invoiceErpClients = res;
-                    input.disabled = false;
-                    input.placeholder = "Start typing client name...";
-                    input.focus();
+                    invoiceErpClients = Array.isArray(res) ? res : [];
+                    loadingPromise = null;
+                    return invoiceErpClients;
+                })
+                .catch(() => {
+                    loadingPromise = null;
+                    invoiceErpClients = [];
+                    return invoiceErpClients;
                 });
-            } else {
-                input.focus();
-            }
+            return loadingPromise;
         }
 
-        function filterInvClients(query) {
-            const resultsDiv = document.getElementById('inv_client_results');
-            if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
-            
-            const q = query.toLowerCase().trim();
-            const filtered = invoiceErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 15);
-            
-            if(filtered.length === 0) {
-                resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>';
-            } else {
-                resultsDiv.innerHTML = filtered.map(c => {
-                    if (c.status === 1) {
-                        return `<div style="padding:12px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="saveNewClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${c.name} <br><span style="color:#64748b; font-weight:normal; font-size:0.8rem;">Code: ${c.code}</span></div>`;
-                    } else {
-                        return `<div style="padding:12px; cursor:not-allowed; background:#f1f5f9; opacity: 0.65;"><span style="font-weight:bold; color:#64748b; text-decoration: line-through;">${c.name}</span><br><span style="color:#ef4444; font-weight:bold; font-size:0.8rem;"><i class="fas fa-lock"></i> Blocked</span></div>`;
-                    }
-                }).join('');
-            }
-            resultsDiv.style.display = 'block';
-        }
-
-        function saveNewClient(code, name) {
-            if(!confirm(`Update this RFP to bill to ${name}?`)) return;
-            
-            document.getElementById('inv_client_results').style.display = 'none';
-            document.getElementById('inv_client_search').value = 'Saving...';
-            document.getElementById('inv_client_search').disabled = true;
-            
-            const fd = new FormData();
-            fd.append('action', 'update_job_client');
-            fd.append('booking_id', invBookingId);
-            fd.append('client_code', code);
-            fd.append('client_name', name);
-            
-            fetch('api/plant_actions.php', { method: 'POST', body: fd })
-            .then(r => r.text())
-            .then(res => {
-                if(res === 'OK') { location.reload(); } else { alert(res); cancelClientEdit(); }
+        function filterEditClients(query) {
+            const resultsDiv = document.getElementById('edit_client_results');
+            if (!resultsDiv) return;
+            if (query.length < 2) { resultsDiv.style.display = 'none'; return; }
+            ensureErpClientsLoaded().then(() => {
+                const q = query.toLowerCase().trim();
+                const filtered = invoiceErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 15);
+                resultsDiv.innerHTML = filtered.length === 0
+                    ? '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>'
+                    : filtered.map(c => c.status === 1
+                        ? `<div style="padding:12px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold;" onclick="selectEditClient('${c.code}', '${String(c.name).replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">${escapeHtml(c.name)}<br><span style="color:#64748b; font-weight:normal; font-size:0.8rem;">Code: ${escapeHtml(c.code)}</span></div>`
+                        : `<div style="padding:12px; background:#f1f5f9; opacity:0.65;"><span style="text-decoration:line-through;">${escapeHtml(c.name)}</span><br><span style="color:#ef4444; font-weight:bold; font-size:0.8rem;">Blocked</span></div>`
+                    ).join('');
+                resultsDiv.style.display = 'block';
             });
         }
 
-        function cancelClientEdit() {
-            document.getElementById('client-edit-block').style.display = 'none';
-            document.getElementById('client-display-block').style.display = 'block';
-            document.getElementById('inv_client_results').style.display = 'none';
-            document.getElementById('inv_client_search').value = '';
+        function selectEditClient(code, name) {
+            billingState.client_code = code;
+            billingState.client_name = name;
+            document.getElementById('edit_client_search').value = name;
+            document.getElementById('edit_client_results').style.display = 'none';
+            renderClientSelected();
+            if (canDiscount) {
+                fetch(`api/plant_actions.php?action=get_client_max_discount&client_code=${encodeURIComponent(code)}&company_id=${encodeURIComponent(invCompId)}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        maxAllowedDiscount = parseFloat(data.max_discount) || 0;
+                        const label = document.getElementById('max_disc_label');
+                        if (label) label.innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
+                    });
+            }
         }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initBillingState();
+
+            if (!canEdit) {
+                renderPreviewTable();
+                return;
+            }
+            const fixedEl = document.getElementById('edit_rate_fixed');
+            const varEl = document.getElementById('edit_rate_var');
+            const setupEl = document.getElementById('edit_rate_setup');
+            if (fixedEl) fixedEl.value = billingState.rate_fixed.toFixed(4);
+            if (varEl) varEl.value = billingState.rate_var.toFixed(4);
+            if (setupEl) setupEl.value = billingState.rate_setup.toFixed(4);
+
+            renderClientSelected();
+            if (billingState.client_name && billingState.client_code && billingState.client_code !== 'TBC') {
+                document.getElementById('edit_client_search').value = billingState.client_name;
+            }
+            renderEditTables();
+            updatePreview();
+
+            if (canDiscount && billingState.client_code && billingState.client_code !== 'TBC') {
+                fetch(`api/plant_actions.php?action=get_client_max_discount&client_code=${encodeURIComponent(billingState.client_code)}&company_id=${encodeURIComponent(invCompId)}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        maxAllowedDiscount = parseFloat(data.max_discount) || 0;
+                        const label = document.getElementById('max_disc_label');
+                        if (label) label.innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
+                    });
+            }
+        });
     </script>
 </body>
 </html>

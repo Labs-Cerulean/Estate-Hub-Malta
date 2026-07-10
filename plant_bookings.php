@@ -349,6 +349,8 @@ $userId = $_SESSION['user_id'];
                     <p style="font-size:0.8rem; color:#3b82f6; margin-top:5px;">This vehicle uses Per Trip billing. Ensure the client verifies this quantity.</p>
                 </div>
 
+                <label>Delivery chit number <span style="font-weight:400; color:#64748b;">(optional)</span></label>
+                <input type="text" id="delivery_chit_number" class="input-heavy" maxlength="40" placeholder="Leave blank if not available">
                 <label>Client Representative Name</label><input type="text" id="rep_name" class="input-heavy" required>
                 <label>Client ID Card Number</label><input type="text" id="rep_id" class="input-heavy" required>
                 <label>Client Signature</label><canvas id="signature-pad"></canvas>
@@ -423,7 +425,9 @@ $userId = $_SESSION['user_id'];
                 timeGridDay: { buttonText: 'Day' }
             },
             slotMinTime: '06:00:00', 
-            slotMaxTime: '20:00:00', 
+            slotMaxTime: '20:00:00',
+            eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+            slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
             allDaySlot: false, 
             contentHeight: 'auto',
             events: 'api/plant_actions.php?action=fetch_bookings', 
@@ -967,7 +971,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>'; 
         } else { 
             resultsDiv.innerHTML = filtered.map(c => {
-                const safeName = (c.name || '').replace(/'/g, "\\'");
+                const safeName = (c.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                 if (c.status === 1) {
                     return `
                     <div style="padding:15px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; background:#fff; transition: background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'" onclick="selectClient('${c.code}', '${safeName}')">
@@ -1762,7 +1766,8 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function startPunchOut(id, pricingType) { 
-        document.getElementById('punchout_booking_id').value = id; 
+        document.getElementById('punchout_booking_id').value = id;
+        document.getElementById('delivery_chit_number').value = '';
         const tBox = document.getElementById('trip-qty-box');
         if(pricingType === 'per_trip') { tBox.style.display = 'block'; document.getElementById('qty_trips').required = true; } 
         else { tBox.style.display = 'none'; document.getElementById('qty_trips').required = false; }
@@ -1774,6 +1779,8 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const btn = event.target.closest('button'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
         
         const fd = new FormData(); fd.append('action', 'punch_out_complete'); fd.append('id', document.getElementById('punchout_booking_id').value);
+        const chitVal = document.getElementById('delivery_chit_number').value.trim();
+        if (chitVal) fd.append('delivery_chit_number', chitVal);
         fd.append('qty_trips', document.getElementById('qty_trips').value); fd.append('rep_name', document.getElementById('rep_name').value);
         fd.append('rep_id', document.getElementById('rep_id').value); fd.append('signature', signaturePad.toDataURL());
         

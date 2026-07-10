@@ -30,6 +30,9 @@ ALTER TABLE `plant_bookings` ADD COLUMN `final_discount_pct` DECIMAL(5,2) DEFAUL
 ALTER TABLE `plant_bookings` ADD COLUMN `end_date` DATE DEFAULT NULL;
 ALTER TABLE `plant_bookings` ADD COLUMN `active_mode` VARCHAR(100) DEFAULT NULL;
 ALTER TABLE `plant_bookings` ADD COLUMN `active_addons` TEXT DEFAULT NULL;
+ALTER TABLE `plant_bookings` ADD COLUMN `billing_overrides` TEXT DEFAULT NULL;
+ALTER TABLE `plant_bookings` ADD COLUMN `billing_note` VARCHAR(120) DEFAULT NULL;
+ALTER TABLE `plant_bookings` ADD COLUMN `delivery_chit_number` VARCHAR(40) DEFAULT NULL;
 
 ALTER TABLE `plant_job_sessions` ADD COLUMN `mode_name` VARCHAR(100) DEFAULT NULL;
 ALTER TABLE `plant_job_sessions` ADD COLUMN `addons_used` TEXT DEFAULT NULL;
