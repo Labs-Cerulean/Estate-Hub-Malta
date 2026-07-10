@@ -188,13 +188,13 @@ if ($job['status'] === 'In Progress' && !empty($job['punch_in_time'])) {
     $activeIn = new DateTime($job['punch_in_time']);
     $activeOut = new DateTime(); 
     $activeInterval = $activeIn->diff($activeOut);
-    $activeSessionHours = round(($activeInterval->days * 24) + $activeInterval->h + ($activeInterval->i / 60), 2);
+    $activeSessionHours = $activeIn > $activeOut ? 0.0 : round(($activeInterval->days * 24) + $activeInterval->h + ($activeInterval->i / 60), 2);
 }
 
 $inTime = !empty($job['punch_in_time']) ? new DateTime($job['punch_in_time']) : new DateTime($job['booking_date'] . ' ' . $job['start_time']);
 $outTime = !empty($job['punch_out_time']) ? new DateTime($job['punch_out_time']) : new DateTime($job['booking_date'] . ' ' . $job['end_time']);
 $interval = $inTime->diff($outTime);
-$legacyHoursWorked = round(($interval->days * 24) + $interval->h + ($interval->i / 60), 2);
+$legacyHoursWorked = $inTime > $outTime ? 0.0 : round(($interval->days * 24) + $interval->h + ($interval->i / 60), 2);
 
 if (count($sessions) > 0) {
     $hoursWorked = $totalSessionHours + $activeSessionHours;
@@ -679,11 +679,13 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
             if (savedOverrides && Array.isArray(savedOverrides.modes) && savedOverrides.modes.length) {
                 billingState.modes = savedOverrides.modes.map(row => {
                     const seed = modeBreakdownSeed[row.name] || {};
+                    const cfg = plantConfigurations.find(c => c.name === row.name && c.type === 'mode');
+                    const nomCode = seed.nom_code || cfg?.nom_code || '';
                     return {
                         name: row.name,
                         hours: parseFloat(row.hours) || 0,
-                        rate: parseFloat(seed.rate) || 0,
-                        nom_code: seed.nom_code || '',
+                        rate: parseFloat(seed.rate) || lookupErpRate(nomCode) || parseFloat(cfg?.price) || 0,
+                        nom_code: nomCode,
                     };
                 });
             } else {
@@ -719,7 +721,7 @@ $erpRateVar = $varNom ? (float)($isInternal ? $varNom['NCDefSP1'] : $varNom['NCD
                     description: line.description || '',
                     nom_code: line.nom_code || '',
                     qty: parseFloat(line.qty) || 0,
-                    rate: lookupErpRate(line.nom_code),
+                    rate: lookupErpRate(line.nom_code) || parseFloat(line.rate) || 0,
                 }));
             }
         }

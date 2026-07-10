@@ -17,9 +17,12 @@ function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null)
 function calculatePlantSessionHours(string $punchIn, string $punchOut): float {
     $inTime = new DateTime($punchIn);
     $outTime = new DateTime($punchOut);
+    if ($inTime > $outTime) {
+        return 0.0;
+    }
     $interval = $inTime->diff($outTime);
     $hours = ($interval->days * 24) + $interval->h + ($interval->i / 60) + ($interval->s / 3600);
-    return round(max(0, $hours), 2);
+    return round($hours, 2);
 }
 
 function accumulatePlantAddonUnits(array &$addonBreakdown, string $addonName, int $addonQty): void {
@@ -1369,17 +1372,31 @@ if ($action == 'punch_out_complete') {
 }
 
 function getNominalDetails($nomCode, $apiKey) {
-    if(empty($nomCode)) {
-        return null; 
+    if (empty($nomCode)) {
+        return null;
     }
-    
-    $nominals = getJ2ApiData('/nominalcateg', $apiKey);
-    
-    foreach($nominals as $n) { 
-        if(trim($n['NCCode']) == $nomCode) {
-            return $n; 
+
+    static $nominalsCache = [];
+    static $detailsCache = [];
+
+    $code = trim($nomCode);
+    $detailsKey = $apiKey . '|' . $code;
+    if (array_key_exists($detailsKey, $detailsCache)) {
+        return $detailsCache[$detailsKey];
+    }
+
+    if (!isset($nominalsCache[$apiKey])) {
+        $nominalsCache[$apiKey] = getJ2ApiData('/nominalcateg', $apiKey);
+    }
+
+    foreach ($nominalsCache[$apiKey] as $n) {
+        if (trim($n['NCCode']) == $code) {
+            $detailsCache[$detailsKey] = $n;
+            return $n;
         }
-    } 
+    }
+
+    $detailsCache[$detailsKey] = null;
     return null;
 }
 
