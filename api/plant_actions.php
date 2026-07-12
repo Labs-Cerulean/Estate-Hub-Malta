@@ -3,6 +3,7 @@ require_once '../config.php';
 require_once '../session-check.php';
 require_once '../user-functions.php';
 require_once '../includes/plant_schema_deploy.php';
+require_once '../includes/j2_erp_health.php';
 
 function logPlantAction($pdo, $userId, $actionType, $details, $bookingId = null) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
@@ -394,6 +395,10 @@ function isDriverAvailable($pdo, $driverId, $date, $startTime, $endTime, $exclud
 }
 
 if ($action == 'get_nominals' && $canManageFleet) {
+    if (!j2ErpIsAvailable()) {
+        echo json_encode(j2ErpUnavailablePayload(['nominals' => []]));
+        exit;
+    }
     $apiKey = getApiKey($_GET['company_id'] ?? '');
     $data = getJ2ApiData('/nominalcateg', $apiKey);
     echo json_encode($data ?: []); 
@@ -499,11 +504,28 @@ if ($action == 'form_data') {
         }
     }
     
-    echo json_encode(['plants' => $plants, 'drivers' => $drivers, 'projects' => $projects]); 
+    echo json_encode([
+        'plants' => $plants,
+        'drivers' => $drivers,
+        'projects' => $projects,
+        'erp_health' => j2ErpGetHealth(),
+        'erp_available' => j2ErpIsAvailable(),
+    ]);
+    exit;
+}
+
+if ($action == 'erp_status') {
+    header('Content-Type: application/json; charset=utf-8');
+    $force = isset($_GET['refresh']) && $_GET['refresh'] === '1';
+    echo json_encode(j2ErpGetHealth($force));
     exit;
 }
 
 if ($action == 'get_company_clients' && $isManager) {
+    if (!j2ErpIsAvailable()) {
+        echo json_encode(j2ErpUnavailablePayload(['clients' => []]));
+        exit;
+    }
     $apiKey = getApiKey($_GET['company_id'] ?? '');
     $apiClients = getJ2ApiData('/clients', $apiKey);
     $results = [];
@@ -817,6 +839,7 @@ if ($action == 'fetch_bookings') {
 }
 
 if ($action == 'save_plant' && $canManageFleet) {
+    j2ErpGate('text');
     $pricingType = $_POST['pricing_type'];
     $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
     
@@ -857,6 +880,7 @@ if ($action == 'save_plant' && $canManageFleet) {
 }
 
 if ($action == 'update_plant' && $canManageFleet) {
+    j2ErpGate('text');
     $pricingType = $_POST['pricing_type'];
     $minHours = ($pricingType === 'fixed_then_hourly') ? max(1, (float)$_POST['min_hours']) : 0;
     
@@ -904,6 +928,7 @@ if ($action == 'get_drivers' && $canManageFleet) {
 }
 
 if ($action == 'create_booking' && $isManager) {
+    j2ErpGate('text');
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $applySetupFee = isset($_POST['apply_setup_fee']) && $_POST['apply_setup_fee'] == '1' ? 1 : 0;
     
@@ -942,6 +967,7 @@ if ($action == 'create_booking' && $isManager) {
 }
 
 if ($action == 'update_booking' && $isManager) {
+    j2ErpGate('text');
     $driverId = empty($_POST['driver_id']) ? null : $_POST['driver_id'];
     $editId = $_POST['edit_id'];
     
@@ -1317,6 +1343,7 @@ function getNominalDetails($nomCode, $apiKey) {
 }
 
 if ($action == 'finalize_and_invoice' && $canViewLedger) {
+    j2ErpGate('text');
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
 
@@ -1419,20 +1446,22 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     }
 
     $deliveryChitNumber = trim((string)($_POST['delivery_chit_number'] ?? ''));
-    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, final_discount_pct=?, delivery_chit_number=?, payment_status='Invoiced' WHERE id=?");
+    $stmtLocal = $pdo->prepare("UPDATE plant_bookings SET final_hours=?, final_subtotal=?, final_rate_fixed=?, final_rate_var=?, final_setup_fee=?, final_discount_pct=?, delivery_chit_number=? WHERE id=?");
     $stmtLocal->execute([$finalHours, $backendSubtotal, $syncPriceFixed, $syncPriceVar, $syncSetupPrice, $customDiscountPct, $deliveryChitNumber !== '' ? $deliveryChitNumber : null, $bookingId]);
     
     $erpResult = pushBookingToERP($pdo, $bookingId, $userId);
     
     if ($erpResult === "OK") {
+        $pdo->prepare("UPDATE plant_bookings SET payment_status='Invoiced' WHERE id=?")->execute([$bookingId]);
         echo "OK"; 
     } else {
-        echo "OK_LOCAL_ONLY"; 
+        echo "ERROR: ERP sync failed — " . (is_string($erpResult) ? $erpResult : 'Unknown error');
     }
     exit;
 }
 
 if ($action == 'retry_erp_sync' && $canViewLedger) {
+    j2ErpGate('text');
     $erpResult = pushBookingToERP($pdo, $_POST['booking_id'], $userId);
     if ($erpResult === "OK") {
         echo "OK";
@@ -1739,6 +1768,7 @@ if ($action == 'resolve_map_url' && $isManager) {
 }
 
 if ($action == 'update_job_client' && $isManager) {
+    j2ErpGate('text');
     $bookingId = $_POST['booking_id'];
     $clientCode = $_POST['client_code'];
     $clientName = $_POST['client_name'];
@@ -1761,6 +1791,10 @@ if ($action == 'update_job_client' && $isManager) {
 }
 
 if ($action == 'get_client_max_discount') {
+    if (!j2ErpIsAvailable()) {
+        echo json_encode(j2ErpUnavailablePayload(['max_discount' => 0]));
+        exit;
+    }
     $clientCode = $_GET['client_code'] ?? '';
     $companyId = $_GET['company_id'] ?? '';
     

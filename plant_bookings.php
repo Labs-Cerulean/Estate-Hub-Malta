@@ -71,6 +71,12 @@ $userId = $_SESSION['user_id'];
 
         .step-disabled { opacity: 0.4; pointer-events: none; transition: all 0.3s ease; }
         .step-active { opacity: 1; pointer-events: auto; transition: all 0.3s ease; }
+
+        #erp-status-banner { display: none; background: #fef2f2; border-bottom: 2px solid #fecaca; color: #991b1b; padding: 12px 16px; font-size: 0.88rem; line-height: 1.45; }
+        #erp-status-banner b { display: block; font-size: 0.92rem; margin-bottom: 4px; }
+        #erp-status-banner .erp-banner-meta { font-size: 0.78rem; color: #b91c1c; margin-top: 6px; opacity: 0.9; }
+        #erp-status-banner a { color: #991b1b; font-weight: 700; }
+        .erp-inline-notice { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 0.88rem; display: none; }
     </style>
 </head>
 <body>
@@ -82,9 +88,15 @@ $userId = $_SESSION['user_id'];
             <?php if ($canAccessPlantDashboard): ?><a href="plant_dashboard.php" class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem; text-decoration:none;" title="Fleet Dashboard"><i class="fas fa-chart-line"></i></a><?php endif; ?>
             <?php if ($canViewLedger): ?><button class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="loadLedger()"><i class="fas fa-file-invoice-dollar"></i></button><?php endif; ?>
             <?php if ($canManageFleet): ?><button class="btn-heavy btn-gray" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="loadFleetView()"><i class="fas fa-truck-monster"></i></button><?php endif; ?>
-            <?php if ($isManager): ?><button class="btn-heavy btn-blue" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="openCreateForm()"><i class="fas fa-plus"></i></button><?php endif; ?>
+            <?php if ($isManager): ?><button id="btn_new_booking" class="btn-heavy btn-blue" style="padding:10px 15px; margin:0; font-size:1rem;" onclick="openCreateForm()"><i class="fas fa-plus"></i></button><?php endif; ?>
             <?php if (!in_array($_SESSION['role'], ['admin', 'director', 'system_manager'])): ?><a href="api/logout.php" class="btn-heavy btn-red" style="padding:10px 15px; margin:0; font-size:1rem; text-decoration:none;"><i class="fas fa-sign-out-alt"></i></a><?php endif; ?>
         </div>
+    </div>
+
+    <div id="erp-status-banner" class="no-print" role="alert">
+        <b><i class="fas fa-plug-circle-xmark"></i> ERP connection unavailable — system functionality is limited</b>
+        <span id="erp-banner-message">Billing and booking actions are disabled until the ERP link is restored.</span>
+        <div class="erp-banner-meta"><span id="erp-banner-meta"></span> · <a href="#" onclick="refreshErpHealth(true); return false;">Check again</a></div>
     </div>
 
     <div class="content">
@@ -97,6 +109,9 @@ $userId = $_SESSION['user_id'];
 
         <?php if ($canManageFleet): ?>
         <div id="view-fleet" class="view">
+            <div id="erp-fleet-notice" class="erp-inline-notice">
+                <i class="fas fa-exclamation-triangle"></i> ERP offline — fleet registration and updates are disabled until the link is restored.
+            </div>
             <h3 style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-truck-monster text-indigo-500"></i> ERP Fleet Setup</h3>
             
             <form id="fleetForm" style="background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 30px; border: 1px solid #e2e8f0;">
@@ -229,6 +244,9 @@ $userId = $_SESSION['user_id'];
 
         <?php if ($isManager): ?>
         <div id="view-create" class="view">
+            <div id="erp-booking-notice" class="erp-inline-notice">
+                <i class="fas fa-exclamation-triangle"></i> ERP offline — you cannot create or edit bookings until the link is restored.
+            </div>
             <h3 id="booking-form-title" style="margin-top:0; font-weight:900; font-size: 1.6rem; color: #0f172a;"><i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking</h3>
             <form id="createBookingForm" style="background: #fff; padding: 20px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
                 <input type="hidden" id="edit_booking_id" value="">
@@ -396,10 +414,68 @@ $userId = $_SESSION['user_id'];
     document.addEventListener('DOMContentLoaded', () => {
         initCalendar(); 
         signaturePad = new SignaturePad(document.getElementById('signature-pad'), { penColor: "rgb(15, 23, 42)" });
+        refreshErpHealth(false);
+        setInterval(() => refreshErpHealth(false), 60000);
         if (isManager || canViewLedger) {
             loadFormData();
         }
     });
+
+    window.erpHealth = { available: true };
+    window.erpAvailable = true;
+
+    function refreshErpHealth(forceRefresh) {
+        const qs = forceRefresh ? '&refresh=1' : '';
+        return fetch(`api/plant_actions.php?action=erp_status${qs}`)
+            .then(r => r.json())
+            .then(health => { applyErpDownState(health); return health; })
+            .catch(() => {
+                applyErpDownState({ available: false, message: 'Could not verify ERP connection. Billing actions are disabled.' });
+            });
+    }
+
+    function applyErpDownState(health) {
+        window.erpHealth = health || {};
+        window.erpAvailable = !!(health && health.available);
+
+        const banner = document.getElementById('erp-status-banner');
+        if (banner) {
+            banner.style.display = window.erpAvailable ? 'none' : 'block';
+            const msgEl = document.getElementById('erp-banner-message');
+            if (msgEl) msgEl.textContent = health.message || 'Billing and booking actions are disabled until the ERP link is restored.';
+            const metaEl = document.getElementById('erp-banner-meta');
+            if (metaEl && health.checked_at) {
+                metaEl.textContent = 'Last checked: ' + new Date(health.checked_at * 1000).toLocaleTimeString();
+            }
+        }
+
+        ['erp-booking-notice', 'erp-fleet-notice'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = window.erpAvailable ? 'none' : 'block';
+        });
+
+        applyErpUiLocks();
+    }
+
+    function applyErpUiLocks() {
+        const down = !window.erpAvailable;
+        ['btn_new_booking', 'submit_booking_btn', 'save_fleet_btn'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.disabled = down;
+            el.style.opacity = down ? '0.55' : '';
+            el.style.cursor = down ? 'not-allowed' : '';
+        });
+        document.querySelectorAll('.retry-sync-btn').forEach(btn => {
+            btn.disabled = down;
+            btn.style.opacity = down ? '0.55' : '';
+            btn.style.cursor = down ? 'not-allowed' : '';
+        });
+    }
+
+    function erpBlockedAlert() {
+        alert(window.erpHealth?.message || 'ERP is offline. This action is disabled until the link is restored.');
+    }
 
     function showView(id) {
         document.querySelectorAll('.view').forEach(el => el.classList.remove('active')); 
@@ -719,6 +795,7 @@ $userId = $_SESSION['user_id'];
         })
         .then(d => {
             if (d.error) throw new Error(d.error);
+            if (d.erp_health) applyErpDownState(d.erp_health);
             groupedPlants = d.plants || {};
 
             // Safely check if the booking form elements exist before populating them
@@ -942,6 +1019,15 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const compId = opt.getAttribute('data-company-id');
         const clientInput = document.getElementById('client_name');
         
+        if (!window.erpAvailable) {
+            if (!keepClientData) {
+                clientInput.placeholder = 'ERP offline — cannot load clients';
+                clientInput.disabled = true;
+                currentErpClients = [];
+            }
+            return;
+        }
+
         if (!keepClientData) {
             clientInput.placeholder = "Loading clients from ERP...";
             clientInput.disabled = true;
@@ -950,7 +1036,14 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fetch(`api/plant_actions.php?action=get_company_clients&company_id=${compId}`)
         .then(r => r.json())
         .then(res => {
-            currentErpClients = res; 
+            if (res && res.error === 'ERP_UNAVAILABLE') {
+                applyErpDownState(res.reason ? res : { available: false, message: res.message });
+                clientInput.placeholder = 'ERP offline — cannot load clients';
+                clientInput.disabled = true;
+                currentErpClients = [];
+                return;
+            }
+            currentErpClients = Array.isArray(res) ? res : (res.clients || []);
             clientInput.placeholder = "start writing client here"; 
             clientInput.disabled = false; 
         }).catch(err => { clientInput.placeholder = "Error loading clients"; });
@@ -966,6 +1059,11 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
 
     function filterLocalClients(query) {
         const resultsDiv = document.getElementById('client_search_results'); 
+        if (!window.erpAvailable) {
+            resultsDiv.innerHTML = '<div style="padding:15px; color:#b45309; font-weight:bold;"><i class="fas fa-plug-circle-xmark"></i> ERP offline — cannot load clients.</div>';
+            resultsDiv.style.display = 'block';
+            return;
+        }
         if(query.length < 2) { resultsDiv.style.display = 'none'; return; }
         
         const q = query.toLowerCase().trim();
@@ -1090,6 +1188,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         checkStep5();
     }
     function openCreateForm() {
+        if (!window.erpAvailable) { erpBlockedAlert(); return; }
         document.getElementById('booking-form-title').innerHTML = '<i class="fas fa-calendar-alt text-blue-500"></i> Manage Booking';
         document.getElementById('edit_booking_id').value = ''; 
         document.getElementById('submit_booking_btn').innerHTML = '<i class="fas fa-check"></i> Save Booking';
@@ -1106,6 +1205,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function initiateBookingEdit() {
+        if (!window.erpAvailable) { erpBlockedAlert(); return; }
         const j = window.currentActiveJob;
         ['seq-step-2', 'seq-step-3', 'seq-step-4', 'seq-step-5'].forEach(id => setStepState(id, true));
         
@@ -1173,6 +1273,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function submitBooking() {
+        if (!window.erpAvailable) { erpBlockedAlert(); return; }
         document.querySelectorAll('#createBookingForm .input-heavy').forEach(el => el.style.borderColor = '#e2e8f0');
         document.getElementById('map').style.borderColor = '#e2e8f0';
 
@@ -1236,6 +1337,8 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         .then(res => {
             if (res === 'OK') { 
                 alert("Saved!"); calendar.refetchEvents(); showView('view-calendar'); 
+            } else if (res.includes('ERP_UNAVAILABLE')) {
+                alert(window.erpHealth?.message || 'ERP is offline. Booking was not saved.');
             } else if (res === 'ERROR_OVERLAP') {
                 alert("Cannot save: The assigned driver already has another job scheduled during these hours.");
             } else { 
@@ -1301,7 +1404,16 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fetch(`api/plant_actions.php?action=get_nominals&company_id=${companyId}`)
         .then(r => r.json())
         .then(res => {
-            window.erpNominals = Array.isArray(res) ? res : [];
+            if (res && res.error === 'ERP_UNAVAILABLE') {
+                applyErpDownState({ available: false, message: res.message });
+                window.erpNominals = [];
+                document.getElementById('new_nom_fixed').innerHTML = '<option value="">-- ERP offline --</option>';
+                document.getElementById('new_nom_var').innerHTML = '<option value="">-- ERP offline --</option>';
+                document.getElementById('new_nom_setup').innerHTML = '<option value="">-- ERP offline --</option>';
+                if (onReady) onReady();
+                return;
+            }
+            window.erpNominals = Array.isArray(res) ? res : (res.nominals || []);
             const opts = '<option value="">-- Select Nominal Code --</option>' + window.erpNominals.map(n => `<option value="${n.NCCode.trim()}" data-in="${n.NCDefSP1}" data-ext="${n.NCDefSP2}">${n.NCCode.trim()} - ${n.NCDesc.trim()}</option>`).join('');
             
             document.getElementById('new_nom_fixed').innerHTML = opts;
@@ -1461,6 +1573,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function saveNewPlant() {
+        if (!window.erpAvailable) { erpBlockedAlert(); return; }
         if(!document.getElementById('new_plant_cat').value) return alert("Category is required.");
         if(!document.getElementById('new_plant_name').value) return alert("Plant Name is required.");
         if(!document.getElementById('new_plant_comp').value) return alert("Billing Company is required.");
@@ -1498,7 +1611,8 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         fetch('api/plant_actions.php', { method: 'POST', body: fd })
         .then(r => r.text())
         .then(res => { 
-            if (res === 'OK') { alert(editId ? "Machinery Updated!" : "Machinery Added!"); resetFleetForm(); loadFormData(); loadFleetView(); } 
+            if (res === 'OK') { alert(editId ? "Machinery Updated!" : "Machinery Added!"); resetFleetForm(); loadFormData(); loadFleetView(); }
+            else if (String(res).includes('ERP_UNAVAILABLE')) { alert(window.erpHealth?.message || 'ERP is offline. Fleet was not saved.'); }
             else { alert("Error: " + res); }
         });
     }
@@ -2085,6 +2199,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
     }
 
     function retryErpSync(bookingId) {
+        if (!window.erpAvailable) { erpBlockedAlert(); return; }
         if (!confirm("Attempt to push this invoice to the ERP again?")) return;
         
         // Disable ALL retry buttons on the page to prevent ERP spamming

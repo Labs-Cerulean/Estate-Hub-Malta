@@ -13,6 +13,7 @@ if (!$isCron) {
 require_once 'user-functions.php';
 require_once 'S3FileManager.php';
 require_once __DIR__ . '/includes/plant_schema_deploy.php';
+require_once __DIR__ . '/includes/j2_erp_health.php';
 
 plantDeploySchema($pdo);
 
@@ -83,7 +84,8 @@ if (!headers_sent()) {
 
 $praApiKey = getenv('J2_API_KEY_PRA');
 $praxApiKey = getenv('J2_API_KEY_PRAX');
-$erpAvailable = !empty($praApiKey) && !empty($praxApiKey);
+$erpHealth = j2ErpGetHealth();
+$erpAvailable = $erpHealth['available'] === true;
 
 $apiKeys = [
     '24' => $praApiKey ?: '',
@@ -348,6 +350,8 @@ $hasSetupFeeFlag = $canEdit
         .preview-wrap { border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; background: #fff; margin-top: 24px; }
         .preview-label { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 12px; letter-spacing: 0.05em; }
         .rate-readonly { font-weight: 700; color: #0f172a; }
+        #erp-status-banner { background: #fef2f2; border: 2px solid #fecaca; color: #991b1b; padding: 14px 18px; border-radius: 10px; margin-bottom: 18px; font-size: 0.9rem; line-height: 1.5; }
+        #erp-status-banner b { display: block; margin-bottom: 4px; }
         
         @media print { 
             .no-print { display: none; } 
@@ -365,6 +369,12 @@ $hasSetupFeeFlag = $canEdit
                 <i class="fas fa-exclamation-triangle"></i>
                 <b>Billing company not configured</b> on this plant asset.
                 Assign a billing company in Fleet setup before pushing to ERP. You can still view or print this delivery note locally.
+            </div>
+        <?php endif; ?>
+        <?php if ($canEdit && !$erpAvailable): ?>
+            <div id="erp-status-banner" class="no-print" role="alert">
+                <b><i class="fas fa-plug-circle-xmark"></i> ERP connection unavailable</b>
+                <?= htmlspecialchars($erpHealth['message'] ?? 'This RFP cannot be pushed or edited for billing until the ERP link is restored. You can view and print locally only.') ?>
             </div>
         <?php endif; ?>
         <?php if ($canEdit): ?>
@@ -387,13 +397,13 @@ $hasSetupFeeFlag = $canEdit
                 <div class="edit-grid">
                     <div class="edit-field">
                         <label>Final <?= htmlspecialchars($qtyLabel) ?></label>
-                        <input type="number" id="calc_master_qty" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()">
+                        <input type="number" id="calc_master_qty" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()" <?= !$erpAvailable ? 'disabled' : '' ?>>
                     </div>
 
                     <?php if ($canDiscount): ?>
                     <div class="edit-field">
                         <label>Discount % <span id="max_disc_label" style="font-weight:400; text-transform:none;">(Max: loading...)</span></label>
-                        <input type="number" id="edit_discount_pct" value="<?= $savedDiscountPct ?>" step="0.1" min="0" oninput="validateAndRenderDiscount()">
+                        <input type="number" id="edit_discount_pct" value="<?= $savedDiscountPct ?>" step="0.1" min="0" oninput="validateAndRenderDiscount()" <?= !$erpAvailable ? 'disabled' : '' ?>>
                         <div class="warn-inline" id="discount_warn"></div>
                     </div>
                     <?php else: ?>
@@ -402,7 +412,7 @@ $hasSetupFeeFlag = $canEdit
 
                     <div class="edit-field">
                         <label>Delivery chit #</label>
-                        <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($job['delivery_chit_number'] ?? '') ?>" placeholder="Optional">
+                        <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($job['delivery_chit_number'] ?? '') ?>" placeholder="Optional" <?= !$erpAvailable ? 'disabled' : '' ?>>
                     </div>
                 </div>
 
@@ -412,7 +422,7 @@ $hasSetupFeeFlag = $canEdit
                         <div class="erp-rate-note"><i class="fas fa-lock"></i> All line rates sourced from ERP nominal codes</div>
                     </div>
                     <div class="val">€ <span id="edit_panel_total">0.00</span></div>
-                    <button id="printBtn" class="btn-final" onclick="saveAndPrint()" <?= $billingCompanyMissing ? 'disabled title="Assign a billing company on the plant asset first"' : '' ?>><i class="fas fa-cloud-upload-alt"></i> Save RFP &amp; Push to ERP</button>
+                    <button id="printBtn" class="btn-final" onclick="saveAndPrint()" <?= ($billingCompanyMissing || !$erpAvailable) ? 'disabled title="' . htmlspecialchars($billingCompanyMissing ? 'Assign a billing company on the plant asset first' : ($erpHealth['message'] ?? 'ERP offline')) . '"' : '' ?>><i class="fas fa-cloud-upload-alt"></i> Save RFP &amp; Push to ERP</button>
                 </div>
             </div>
         <?php else: ?>
@@ -454,7 +464,7 @@ $hasSetupFeeFlag = $canEdit
     <div class="grid">
         <div class="box">
             <h4>Billed To (Client Details)
-                <?php if ($canEdit): ?>
+                <?php if ($canEdit && $erpAvailable): ?>
                     <button class="no-print" onclick="openClientEdit()" style="float:right; font-size:0.75rem; background:#e2e8f0; color:#0f172a; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold;"><i class="fas fa-edit"></i> Edit</button>
                 <?php endif; ?>
             </h4>
@@ -599,6 +609,8 @@ $hasSetupFeeFlag = $canEdit
         const rawNomSetup = '<?= htmlspecialchars($job['nom_code_setup'] ?? '0000') ?>';
         const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
         const canDiscount = <?= $canDiscount ? 'true' : 'false' ?>;
+        const erpAvailable = <?= $erpAvailable ? 'true' : 'false' ?>;
+        const erpDownMessage = <?= json_encode($erpHealth['message'] ?? 'ERP is offline.') ?>;
         
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
         const hasSetupFee = <?= $hasSetupFeeFlag ? 'true' : 'false' ?>;
@@ -836,6 +848,10 @@ $hasSetupFeeFlag = $canEdit
             alert('Assign a billing company on this plant asset in Fleet setup before pushing to ERP.');
             return;
             <?php endif; ?>
+            if (!erpAvailable) {
+                alert(erpDownMessage);
+                return;
+            }
             const btn = document.getElementById('printBtn');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
             btn.disabled = true;
@@ -859,11 +875,11 @@ $hasSetupFeeFlag = $canEdit
             }
 
             fetch('api/plant_actions.php', { method: 'POST', body: fd }).then(r => r.text()).then(res => {
-                if (res.includes('OK')) {
+                if (res.trim() === 'OK') {
                     btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
                     setTimeout(() => { location.reload(); }, 1200);
                 } else { 
-                    alert(res); 
+                    alert(res.includes('ERP') ? res : ('Could not push to ERP: ' + res)); 
                     btn.disabled = false; 
                     btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Save RFP & Push to ERP';
                 }
@@ -875,6 +891,7 @@ $hasSetupFeeFlag = $canEdit
         const invBookingId = <?= $bookingId ?>;
 
         function openClientEdit() {
+            if (!erpAvailable) { alert(erpDownMessage); return; }
             document.getElementById('client-display-block').style.display = 'none';
             document.getElementById('client-edit-block').style.display = 'block';
             const input = document.getElementById('inv_client_search');
@@ -885,7 +902,13 @@ $hasSetupFeeFlag = $canEdit
                 fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
                 .then(r => r.json())
                 .then(res => {
-                    invoiceErpClients = res;
+                    if (res && res.error === 'ERP_UNAVAILABLE') {
+                        invoiceErpClients = [];
+                        input.placeholder = 'ERP offline — cannot load clients';
+                        input.disabled = true;
+                        return;
+                    }
+                    invoiceErpClients = Array.isArray(res) ? res : (res.clients || []);
                     input.disabled = false;
                     input.placeholder = "Start typing client name...";
                     input.focus();
