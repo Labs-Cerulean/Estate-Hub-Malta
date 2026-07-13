@@ -547,13 +547,14 @@ tr:last-child td { border-bottom: none; }
                         <div class="filter-group">
                             <label>Island</label>
                             <div class="checkbox-group">
-                                <div class="checkbox-item"><input type="checkbox" name="island_malta" id="island_malta" value="Malta" <?= ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : '' ?>><label for="island_malta">Malta</label></div>
-                                <div class="checkbox-item"><input type="checkbox" name="island_gozo" id="island_gozo" value="Gozo" <?= ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : '' ?>><label for="island_gozo">Gozo</label></div>
+                                <div class="checkbox-item"><input type="checkbox" id="island_malta" value="Malta" <?= ($filterIsland === 'all' || $filterIsland === 'Malta') ? 'checked' : '' ?>><label for="island_malta">Malta</label></div>
+                                <div class="checkbox-item"><input type="checkbox" id="island_gozo" value="Gozo" <?= ($filterIsland === 'all' || $filterIsland === 'Gozo') ? 'checked' : '' ?>><label for="island_gozo">Gozo</label></div>
                             </div>
                         </div>
                     </div>
                     <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
                     <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
+                    <input type="hidden" name="filter_island" id="filter_island_input" value="<?= htmlspecialchars($filterIsland) ?>">
                     <div class="filter-buttons">
                         <button type="submit" class="btn">Apply Filters</button>
                         <a href="dashboard.php" class="reset-btn">Reset</a>
@@ -793,23 +794,50 @@ window.addEventListener('message', function(event) {
     }
 });
 
+window.syncIslandFilter = function() {
+    const form = document.getElementById('dashboardFilters');
+    if (!form) return;
+
+    const maltaCheckbox = document.getElementById('island_malta');
+    const gozoCheckbox = document.getElementById('island_gozo');
+    const islandInput = document.getElementById('filter_island_input');
+    if (!maltaCheckbox || !gozoCheckbox || !islandInput) return;
+
+    if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
+        maltaCheckbox.checked = true;
+    }
+
+    let filterValue = 'all';
+    if (maltaCheckbox.checked && !gozoCheckbox.checked) {
+        filterValue = 'Malta';
+    } else if (gozoCheckbox.checked && !maltaCheckbox.checked) {
+        filterValue = 'Gozo';
+    }
+
+    islandInput.value = filterValue;
+};
+
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('dashboardFilters');
     if (!form) return;
+
     const maltaCheckbox = document.getElementById('island_malta');
     const gozoCheckbox = document.getElementById('island_gozo');
-    function validateIslands(e) { if (!maltaCheckbox.checked && !gozoCheckbox.checked) { e.preventDefault(); this.checked = true; alert('At least one island must be selected'); } }
-    if(maltaCheckbox) maltaCheckbox.addEventListener('change', validateIslands);
-    if(gozoCheckbox) gozoCheckbox.addEventListener('change', validateIslands);
-    form.addEventListener('submit', function(e) {
-        const existingInput = form.querySelector('input[name="filter_island"]');
-        if (existingInput) existingInput.remove();
-        let filterValue = 'all';
-        if (maltaCheckbox && maltaCheckbox.checked && (!gozoCheckbox || !gozoCheckbox.checked)) filterValue = 'Malta';
-        else if (gozoCheckbox && gozoCheckbox.checked && (!maltaCheckbox || !maltaCheckbox.checked)) filterValue = 'Gozo';
-        const input = document.createElement('input'); input.type = 'hidden'; input.name = 'filter_island'; input.value = filterValue;
-        form.appendChild(input);
-    });
+
+    function validateIslands(e) {
+        if (!maltaCheckbox.checked && !gozoCheckbox.checked) {
+            e.preventDefault();
+            this.checked = true;
+            alert('At least one island must be selected');
+        }
+        syncIslandFilter();
+    }
+
+    if (maltaCheckbox) maltaCheckbox.addEventListener('change', validateIslands);
+    if (gozoCheckbox) gozoCheckbox.addEventListener('change', validateIslands);
+
+    syncIslandFilter();
+    form.addEventListener('submit', syncIslandFilter);
 });
 
 let mapInitialized = false;
