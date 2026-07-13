@@ -36,7 +36,7 @@ try {
                bc.name as developer_name, bc.logo_path as developer_logo, 
                bc.bank_name, bc.iban, bc.swift_bic, 
                prj.name as project_name,
-               drv.first_name, drv.last_name
+               drv.first_name AS driver_first, drv.last_name AS driver_last
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id
         LEFT JOIN clients bc ON p.billing_company_id = bc.id
@@ -54,7 +54,7 @@ try {
                bc.name as developer_name, bc.logo_path as developer_logo, 
                bc.bank_name, bc.iban, bc.swift_bic, 
                prj.name as project_name,
-               drv.first_name, drv.last_name
+               drv.first_name AS driver_first, drv.last_name AS driver_last
         FROM plant_bookings pb 
         JOIN plants p ON pb.plant_id = p.id
         LEFT JOIN clients bc ON p.billing_company_id = bc.id
@@ -380,7 +380,10 @@ $reqDriver = (int)($job['requires_driver'] ?? 1);
 if ($reqDriver === 0) {
     $driverName = "<span style='color:#64748b; font-style:italic;'><i class='fas fa-robot'></i> Not Required (Static)</span>";
 } else {
-    $driverRaw = trim(($job['driver_first'] ?? 'Unassigned') . ' ' . ($job['driver_last'] ?? ''));
+    $driverRaw = trim(($job['driver_first'] ?? '') . ' ' . ($job['driver_last'] ?? ''));
+    if ($driverRaw === '') {
+        $driverRaw = 'Unassigned';
+    }
     $driverName = htmlspecialchars($driverRaw);
 }
 
