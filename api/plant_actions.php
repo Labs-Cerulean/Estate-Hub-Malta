@@ -1590,6 +1590,13 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         }
     }
 
+    if (isset($_POST['apply_setup_fee'])) {
+        $plantHasSetupFee = ((float)($job['setup_fee'] ?? 0) > 0) || trim((string)($job['nom_code_setup'] ?? '')) !== '';
+        $applySetupFee = ($plantHasSetupFee && (string)$_POST['apply_setup_fee'] === '1') ? 1 : 0;
+        $pdo->prepare("UPDATE plant_bookings SET apply_setup_fee = ? WHERE id = ?")->execute([$applySetupFee, $bookingId]);
+        $job['apply_setup_fee'] = $applySetupFee;
+    }
+
     $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
 
     $isInternal = $job['booking_type'] == 'in-house';

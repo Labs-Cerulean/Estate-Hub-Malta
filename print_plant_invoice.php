@@ -185,9 +185,20 @@ if (count($sessions) > 0) {
 // --- MULTI-MODE & ADD-ON BILLING BREAKDOWN ---
 $modeBreakdown = [];
 $addonBreakdown = [];
-if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($sessions) > 0) {
-    $cfgs = json_decode($job['configurations'], true);
-    
+$cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
+$hasConfiguredModeTypes = false;
+$modeEditorOrder = [];
+
+if ($job['has_configurations'] == 1 && is_array($cfgs)) {
+    foreach ($cfgs as $cfg) {
+        if (($cfg['type'] ?? '') === 'mode' && !empty($cfg['name'])) {
+            $hasConfiguredModeTypes = true;
+            break;
+        }
+    }
+}
+
+if ($job['has_configurations'] == 1 && is_array($cfgs) && count($sessions) > 0) {
     foreach ($sessions as $s) {
         // 1. Group Primary Operational Modes
         $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
@@ -216,9 +227,7 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
     
     foreach ($modeBreakdown as $mName => &$data) {
         $matchedCfg = null;
-        if (is_array($cfgs)) {
-            foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
-        }
+        foreach ($cfgs as $c) { if ($c['name'] === $mName && $c['type'] === 'mode') { $matchedCfg = $c; break; } }
         if ($matchedCfg) {
             $data['nom_code'] = $matchedCfg['nom_code'];
             $nCodeTrim = trim($matchedCfg['nom_code']); $erpRate = 0;
@@ -235,9 +244,7 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
 
     foreach ($addonBreakdown as $saName => &$data) {
         $matchedCfg = null;
-        if (is_array($cfgs)) {
-            foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
-        }
+        foreach ($cfgs as $c) { if ($c['name'] === $saName && $c['type'] === 'addon') { $matchedCfg = $c; break; } }
         if ($matchedCfg) {
             $data['nom_code'] = $matchedCfg['nom_code'];
             $nCodeTrim = trim($matchedCfg['nom_code']); $erpRate = 0;
@@ -248,6 +255,51 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
         }
     }
     unset($data);
+}
+
+// Always seed base + configured modes for the RFP editor, even when sessions omitted a mode.
+if ($hasConfiguredModeTypes && is_array($cfgs)) {
+    $baseModeName = 'Standard Operation';
+    $baseVarRate = $varNom ? ($isInternal ? (float)$varNom['NCDefSP1'] : (float)$varNom['NCDefSP2']) : 0;
+    if (!isset($modeBreakdown[$baseModeName])) {
+        $modeBreakdown[$baseModeName] = [
+            'hours' => 0,
+            'nom_code' => (string)($job['nom_code_variable'] ?? ''),
+            'rate' => $baseVarRate,
+        ];
+    } else {
+        if (empty($modeBreakdown[$baseModeName]['nom_code'])) {
+            $modeBreakdown[$baseModeName]['nom_code'] = (string)($job['nom_code_variable'] ?? '');
+        }
+        if ((float)$modeBreakdown[$baseModeName]['rate'] <= 0) {
+            $modeBreakdown[$baseModeName]['rate'] = $baseVarRate;
+        }
+    }
+
+    foreach ($cfgs as $cfg) {
+        if (($cfg['type'] ?? '') !== 'mode' || empty($cfg['name'])) {
+            continue;
+        }
+        $modeName = (string)$cfg['name'];
+        if (isset($modeBreakdown[$modeName])) {
+            continue;
+        }
+        $nCodeTrim = trim((string)($cfg['nom_code'] ?? ''));
+        $erpRate = 0;
+        if ($nCodeTrim !== '' && !empty($allNominals)) {
+            foreach ($allNominals as $n) {
+                if (trim((string)$n['NCCode']) === $nCodeTrim) {
+                    $erpRate = $isInternal ? (float)$n['NCDefSP1'] : (float)$n['NCDefSP2'];
+                    break;
+                }
+            }
+        }
+        $modeBreakdown[$modeName] = [
+            'hours' => 0,
+            'nom_code' => (string)($cfg['nom_code'] ?? ''),
+            'rate' => $erpRate > 0 ? $erpRate : (float)($cfg['price'] ?? 0),
+        ];
+    }
 }
 
 $plantAddonConfigs = [];
@@ -278,17 +330,16 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations'])) {
 }
 $hasAddonConfigs = count($plantAddonConfigs) > 0;
 
-$hasConfiguredModes = count($modeBreakdown) > 0;
+$hasConfiguredModes = $hasConfiguredModeTypes;
 $modeDisplayLabels = [
     'Standard Operation' => trim($job['plant_name'] ?? '') !== '' ? trim($job['plant_name']) . ' (Base)' : 'Base Operation',
 ];
-if ($job['has_configurations'] == 1 && !empty($job['configurations'])) {
-    $modeCfgDecoded = json_decode($job['configurations'], true);
-    if (is_array($modeCfgDecoded)) {
-        foreach ($modeCfgDecoded as $cfg) {
-            if (($cfg['type'] ?? '') === 'mode' && !empty($cfg['name'])) {
-                $modeDisplayLabels[(string)$cfg['name']] = (string)$cfg['name'];
-            }
+if ($hasConfiguredModeTypes && is_array($cfgs)) {
+    $modeEditorOrder[] = 'Standard Operation';
+    foreach ($cfgs as $cfg) {
+        if (($cfg['type'] ?? '') === 'mode' && !empty($cfg['name'])) {
+            $modeDisplayLabels[(string)$cfg['name']] = (string)$cfg['name'];
+            $modeEditorOrder[] = (string)$cfg['name'];
         }
     }
 }
@@ -343,6 +394,9 @@ $erpRateSetup = $setupNom ? (float)($isInternal ? $setupNom['NCDefSP1'] : $setup
 $hasSetupFeeFlag = $canEdit
     ? (!empty($job['apply_setup_fee']) && (int)$job['apply_setup_fee'] === 1)
     : (((float)($job['final_setup_fee'] ?? 0) > 0) || (!empty($job['apply_setup_fee']) && (int)$job['apply_setup_fee'] === 1));
+$canToggleSetupFee = $canEdit && (
+    (float)($job['setup_fee'] ?? 0) > 0 || trim((string)($job['nom_code_setup'] ?? '')) !== ''
+);
 ?>
 
 <!DOCTYPE html>
@@ -473,6 +527,15 @@ $hasSetupFeeFlag = $canEdit
                         <label>Delivery chit #</label>
                         <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($job['delivery_chit_number'] ?? '') ?>" placeholder="Optional" <?= !$erpAvailable ? 'disabled' : '' ?>>
                     </div>
+
+                    <?php if ($canToggleSetupFee): ?>
+                    <div class="edit-field" style="display:flex; align-items:center; gap:10px; padding-top:22px;">
+                        <input type="checkbox" id="edit_apply_setup_fee" value="1" style="width:20px; height:20px; cursor:pointer;" <?= $hasSetupFeeFlag ? 'checked' : '' ?> onchange="toggleSetupFee(this.checked)" <?= !$erpAvailable ? 'disabled' : '' ?>>
+                        <label for="edit_apply_setup_fee" style="margin:0; cursor:pointer; text-transform:none; font-size:0.85rem;">
+                            Apply one-time setup fee (<span id="setup_fee_display_amount">€<?= number_format((float)$erpRateSetup, 2) ?></span>)
+                        </label>
+                    </div>
+                    <?php endif; ?>
                 </div>
 
                 <?php if ($hasConfiguredModes): ?>
@@ -713,9 +776,10 @@ $hasSetupFeeFlag = $canEdit
         const erpDownMessage = <?= json_encode($erpHealth['message'] ?? 'ERP is offline.') ?>;
         
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
-        const hasSetupFee = <?= $hasSetupFeeFlag ? 'true' : 'false' ?>;
+        let applySetupFee = <?= $hasSetupFeeFlag ? 'true' : 'false' ?>;
         const hasConfiguredModes = <?= $hasConfiguredModes ? 'true' : 'false' ?>;
         const modeDisplayLabels = <?= json_encode($modeDisplayLabels, JSON_HEX_APOS | JSON_HEX_TAG) ?>;
+        const modeEditorOrder = <?= json_encode($modeEditorOrder, JSON_HEX_APOS | JSON_HEX_TAG) ?>;
         const plantAddonConfigs = <?= json_encode($plantAddonConfigs, JSON_HEX_APOS | JSON_HEX_TAG) ?>;
         const hasAddonConfigs = <?= $hasAddonConfigs ? 'true' : 'false' ?>;
 
@@ -842,17 +906,36 @@ $hasSetupFeeFlag = $canEdit
             return modeDisplayLabels[name] || name;
         }
 
+        function orderedModeNames() {
+            const names = [];
+            modeEditorOrder.forEach(name => {
+                if (modeState[name]) names.push(name);
+            });
+            Object.keys(modeState).forEach(name => {
+                if (!names.includes(name)) names.push(name);
+            });
+            return names;
+        }
+
+        function toggleSetupFee(checked) {
+            applySetupFee = !!checked;
+            renderTable();
+        }
+
         function renderModeEditTable() {
             const modesBody = document.getElementById('edit_modes_body');
             if (!modesBody) return;
 
-            modesBody.innerHTML = Object.entries(modeState).map(([name, data]) => `
+            modesBody.innerHTML = orderedModeNames().map(name => {
+                const data = modeState[name];
+                return `
                 <tr>
                     <td><strong>${escapeHtml(modeDisplayName(name))}</strong></td>
                     <td><input type="number" step="0.25" min="0" value="${(parseFloat(data.hours) || 0).toFixed(2)}" data-mode="${escapeHtml(name)}" onchange="setModeHours(this.getAttribute('data-mode'), this.value)"></td>
                     <td><span class="rate-readonly">${(parseFloat(data.rate) || 0).toFixed(4)}</span></td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
         }
 
         function setModeHours(name, value) {
@@ -936,7 +1019,7 @@ $hasSetupFeeFlag = $canEdit
             let html = '';
             grossSubtotal = 0;
 
-            if (hasSetupFee) {
+            if (applySetupFee) {
                 let sTotal = +(1 * rateSetup).toFixed(2);
                 grossSubtotal += sTotal;
                 
@@ -1143,6 +1226,7 @@ $hasSetupFeeFlag = $canEdit
             if (hasAddonConfigs) {
                 fd.append('addon_overrides', JSON.stringify(buildAddonOverridesPayload()));
             }
+            fd.append('apply_setup_fee', applySetupFee ? '1' : '0');
             
             const timeIn = document.getElementById('edit_time_in');
             const timeOut = document.getElementById('edit_time_out');
