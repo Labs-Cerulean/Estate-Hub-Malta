@@ -250,6 +250,34 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
     unset($data);
 }
 
+$plantAddonConfigs = [];
+if ($job['has_configurations'] == 1 && !empty($job['configurations'])) {
+    $decodedCfgs = json_decode($job['configurations'], true);
+    if (is_array($decodedCfgs)) {
+        foreach ($decodedCfgs as $cfg) {
+            if (($cfg['type'] ?? '') !== 'addon' || empty($cfg['name'])) {
+                continue;
+            }
+            $nCodeTrim = trim((string)($cfg['nom_code'] ?? ''));
+            $erpRate = 0;
+            if ($nCodeTrim !== '' && !empty($allNominals)) {
+                foreach ($allNominals as $n) {
+                    if (trim((string)$n['NCCode']) === $nCodeTrim) {
+                        $erpRate = $isInternal ? (float)$n['NCDefSP1'] : (float)$n['NCDefSP2'];
+                        break;
+                    }
+                }
+            }
+            $plantAddonConfigs[] = [
+                'name' => (string)$cfg['name'],
+                'nom_code' => (string)($cfg['nom_code'] ?? ''),
+                'rate' => $erpRate > 0 ? $erpRate : (float)($cfg['price'] ?? 0),
+            ];
+        }
+    }
+}
+$hasAddonConfigs = count($plantAddonConfigs) > 0;
+
 $jobStart = new DateTime($job['booking_date']);
 $jobEnd = !empty($job['end_date']) ? new DateTime($job['end_date']) : clone $jobStart;
 $diffDays = $jobStart->diff($jobEnd)->days + 1;
@@ -344,6 +372,15 @@ $hasSetupFeeFlag = $canEdit
         .live-badge { display: inline-flex; align-items: center; gap: 6px; background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
         .warn-inline { color: #b45309; font-size: 0.78rem; font-weight: 600; margin-top: 6px; display: none; }
         .erp-rate-note { font-size: 0.78rem; color: #64748b; margin-top: 4px; }
+        .edit-section { border-top: 1px dashed #d6d3d1; padding-top: 14px; margin-top: 14px; }
+        .edit-section h4 { margin: 0 0 10px; font-size: 0.8rem; color: #44403c; text-transform: uppercase; }
+        .edit-row-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 10px; }
+        .edit-row-table th, .edit-row-table td { border: 1px solid #e7e5e4; padding: 8px; text-align: left; }
+        .edit-row-table th { background: #fafaf9; font-size: 0.72rem; text-transform: uppercase; color: #57534e; }
+        .edit-row-table input[type="number"] { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d6d3d1; border-radius: 6px; font: inherit; }
+        .client-results { display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: #fff; border: 2px solid #6366f1; z-index: 100; max-height: 200px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.2); border-radius: 8px; }
+        .btn-secondary { padding: 8px 12px; border: none; background: #e2e8f0; border-radius: 6px; font-weight: 700; cursor: pointer; }
+        .btn-danger-soft { border: none; background: #fee2e2; color: #b91c1c; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-weight: 700; }
         .btn-final { padding: 12px 22px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 1rem; }
         .btn-final:hover { background: #059669; }
         .btn-final:disabled { background: #94a3b8; cursor: not-allowed; }
@@ -395,6 +432,13 @@ $hasSetupFeeFlag = $canEdit
                 </div>
 
                 <div class="edit-grid">
+                    <div class="edit-field" style="position:relative;">
+                        <label>ERP Client</label>
+                        <input type="text" id="panel_client_search" placeholder="Search ERP client..." autocomplete="off" onkeyup="filterPanelClients(this.value)" <?= !$erpAvailable ? 'disabled' : '' ?>>
+                        <div id="panel_client_results" class="client-results"></div>
+                        <div id="panel_client_selected" class="erp-rate-note" style="margin-top:6px; font-weight:700; color:#334155;"></div>
+                    </div>
+
                     <div class="edit-field">
                         <label>Final <?= htmlspecialchars($qtyLabel) ?></label>
                         <input type="number" id="calc_master_qty" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()" <?= !$erpAvailable ? 'disabled' : '' ?>>
@@ -415,6 +459,30 @@ $hasSetupFeeFlag = $canEdit
                         <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($job['delivery_chit_number'] ?? '') ?>" placeholder="Optional" <?= !$erpAvailable ? 'disabled' : '' ?>>
                     </div>
                 </div>
+
+                <?php if ($hasAddonConfigs): ?>
+                <div class="edit-section" id="section_addons">
+                    <h4><i class="fas fa-puzzle-piece"></i> Extra add-ons (flat quantity)</h4>
+                    <p class="erp-rate-note" style="margin-bottom:10px;">Adjust quantities below. Rates are sourced from ERP and cannot be edited here.</p>
+                    <table class="edit-row-table">
+                        <thead>
+                            <tr>
+                                <th>Add-on</th>
+                                <th style="width:120px;">Qty</th>
+                                <th style="width:120px;">Rate (€)</th>
+                                <th style="width:90px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="edit_addons_body"></tbody>
+                    </table>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                        <select id="addon_picker" style="min-width:220px; padding:8px; border-radius:6px; border:1px solid #d6d3d1;" <?= !$erpAvailable ? 'disabled' : '' ?>>
+                            <option value="">Add configured add-on...</option>
+                        </select>
+                        <button type="button" class="btn-secondary" onclick="addConfiguredAddon()" <?= !$erpAvailable ? 'disabled' : '' ?>>+ Add</button>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 <div class="edit-total-bar">
                     <div>
@@ -615,7 +683,20 @@ $hasSetupFeeFlag = $canEdit
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
         const hasSetupFee = <?= $hasSetupFeeFlag ? 'true' : 'false' ?>;
         const modeBreakdown = <?= json_encode($modeBreakdown) ?>;
-        const addonBreakdown = <?= json_encode($addonBreakdown) ?>;
+        const plantAddonConfigs = <?= json_encode($plantAddonConfigs, JSON_HEX_APOS | JSON_HEX_TAG) ?>;
+        const hasAddonConfigs = <?= $hasAddonConfigs ? 'true' : 'false' ?>;
+
+        let addonState = {};
+        (function initAddonState() {
+            const seed = <?= json_encode($addonBreakdown, JSON_HEX_APOS | JSON_HEX_TAG) ?>;
+            Object.entries(seed).forEach(([name, data]) => {
+                addonState[name] = {
+                    qty: parseFloat(data.qty) || 0,
+                    rate: parseFloat(data.rate) || 0,
+                    nom_code: data.nom_code || '',
+                };
+            });
+        })();
 
         const rateFixed = <?= (float)$erpRateFixed ?>;
         const rateVar = <?= (float)$erpRateVar ?>;
@@ -624,6 +705,80 @@ $hasSetupFeeFlag = $canEdit
         let currentDiscountPct = <?= $savedDiscountPct ?>;
         let maxAllowedDiscount = null;
         let grossSubtotal = 0;
+        let panelClientCode = <?= json_encode($job['client_code'] ?? '') ?>;
+        let panelClientName = <?= json_encode($job['client_name'] ?? '') ?>;
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderPanelClientSelected() {
+            const el = document.getElementById('panel_client_selected');
+            if (!el) return;
+            if (!panelClientCode || panelClientCode === 'TBC') {
+                el.innerHTML = '<span style="color:#b45309;">No ERP client selected — search above before pushing</span>';
+            } else {
+                el.textContent = `${panelClientName} (Code: ${panelClientCode})`;
+            }
+        }
+
+        function renderAddonEditTable() {
+            const addonsBody = document.getElementById('edit_addons_body');
+            if (!addonsBody) return;
+
+            const rows = Object.entries(addonState);
+            addonsBody.innerHTML = rows.map(([name, data]) => `
+                <tr>
+                    <td><strong>${escapeHtml(name)}</strong></td>
+                    <td><input type="number" step="1" min="0" value="${data.qty}" onchange="setAddonQty('${name.replace(/'/g, "\\'")}', this.value)"></td>
+                    <td><span class="rate-readonly">${(parseFloat(data.rate) || 0).toFixed(4)}</span></td>
+                    <td><button type="button" class="btn-danger-soft" onclick="removeAddon('${name.replace(/'/g, "\\'")}')">Remove</button></td>
+                </tr>
+            `).join('');
+
+            const picker = document.getElementById('addon_picker');
+            if (picker) {
+                const existing = new Set(Object.keys(addonState));
+                picker.innerHTML = '<option value="">Add configured add-on...</option>' + plantAddonConfigs
+                    .filter(cfg => !existing.has(cfg.name))
+                    .map(cfg => `<option value="${escapeHtml(cfg.name)}">${escapeHtml(cfg.name)}</option>`)
+                    .join('');
+            }
+        }
+
+        function setAddonQty(name, value) {
+            if (!addonState[name]) return;
+            addonState[name].qty = Math.max(0, parseInt(value, 10) || 0);
+            renderAddonEditTable();
+            renderTable();
+        }
+
+        function removeAddon(name) {
+            delete addonState[name];
+            renderAddonEditTable();
+            renderTable();
+        }
+
+        function addConfiguredAddon() {
+            const picker = document.getElementById('addon_picker');
+            const selectedName = picker ? picker.value : '';
+            if (!selectedName) return;
+            const cfg = plantAddonConfigs.find(c => c.name === selectedName);
+            if (!cfg) return;
+            addonState[cfg.name] = {
+                qty: 1,
+                rate: parseFloat(cfg.rate) || 0,
+                nom_code: cfg.nom_code || '',
+            };
+            renderAddonEditTable();
+            renderTable();
+        }
+
+        function buildAddonOverridesPayload() {
+            return Object.entries(addonState)
+                .filter(([, data]) => (parseInt(data.qty, 10) || 0) > 0)
+                .map(([name, data]) => ({ name, qty: parseInt(data.qty, 10) || 0 }));
+        }
 
         function formatRate(value) {
             return `<span class="rate-readonly">${(parseFloat(value) || 0).toFixed(4)}</span>`;
@@ -799,7 +954,7 @@ $hasSetupFeeFlag = $canEdit
             }
 
             // Universal add-ons: flat quantity, charged on top of the base pricing for any plant type.
-            for (const [addonName, data] of Object.entries(addonBreakdown)) {
+            for (const [addonName, data] of Object.entries(addonState)) {
                 const aCode = data.nom_code || 'MISSING';
                 let aQty = parseFloat(data.qty) || 0;
                 let aRate = parseFloat(data.rate) || 0;
@@ -842,6 +997,8 @@ $hasSetupFeeFlag = $canEdit
         }
 
         renderTable();
+        renderPanelClientSelected();
+        if (hasAddonConfigs) renderAddonEditTable();
 
         function saveAndPrint() {
             <?php if ($billingCompanyMissing): ?>
@@ -850,6 +1007,10 @@ $hasSetupFeeFlag = $canEdit
             <?php endif; ?>
             if (!erpAvailable) {
                 alert(erpDownMessage);
+                return;
+            }
+            if (!panelClientCode || panelClientCode === 'TBC') {
+                alert('Assign a valid ERP client before pushing this RFP.');
                 return;
             }
             const btn = document.getElementById('printBtn');
@@ -866,6 +1027,10 @@ $hasSetupFeeFlag = $canEdit
 
             const chitEl = document.getElementById('edit_delivery_chit_number');
             if (chitEl) fd.append('delivery_chit_number', chitEl.value.trim());
+
+            if (hasAddonConfigs) {
+                fd.append('addon_overrides', JSON.stringify(buildAddonOverridesPayload()));
+            }
             
             const timeIn = document.getElementById('edit_time_in');
             const timeOut = document.getElementById('edit_time_out');
@@ -890,30 +1055,65 @@ $hasSetupFeeFlag = $canEdit
         const invCompId = '<?= addslashes($job['billing_company_id'] ?? '') ?>';
         const invBookingId = <?= $bookingId ?>;
 
+        function loadInvoiceClients(callback) {
+            if (!erpAvailable) return;
+            fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
+            .then(r => r.json())
+            .then(res => {
+                if (res && res.error === 'ERP_UNAVAILABLE') {
+                    invoiceErpClients = [];
+                } else {
+                    invoiceErpClients = Array.isArray(res) ? res : (res.clients || []);
+                }
+                if (typeof callback === 'function') callback();
+            })
+            .catch(() => { invoiceErpClients = []; });
+        }
+
+        if (canEdit && erpAvailable) {
+            loadInvoiceClients(() => {
+                const panelInput = document.getElementById('panel_client_search');
+                if (panelInput) panelInput.placeholder = 'Start typing client name...';
+            });
+        }
+
+        function filterPanelClients(query) {
+            const resultsDiv = document.getElementById('panel_client_results');
+            if (!resultsDiv) return;
+            if (query.length < 2) { resultsDiv.style.display = 'none'; return; }
+
+            const q = query.toLowerCase().trim();
+            const filtered = invoiceErpClients.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 15);
+
+            if (filtered.length === 0) {
+                resultsDiv.innerHTML = '<div style="padding:15px; color:#ef4444; font-weight:bold;">No client found.</div>';
+            } else {
+                resultsDiv.innerHTML = filtered.map(c => {
+                    if (c.status === 1) {
+                        return `<div style="padding:12px; cursor:pointer; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a;" onclick="saveNewClient('${c.code}', '${c.name.replace(/'/g, "\\'")}')">${escapeHtml(c.name)}<br><span style="color:#64748b; font-weight:normal; font-size:0.8rem;">Code: ${escapeHtml(c.code)}</span></div>`;
+                    }
+                    return `<div style="padding:12px; cursor:not-allowed; background:#f1f5f9; opacity:0.65;"><span style="font-weight:bold; color:#64748b; text-decoration:line-through;">${escapeHtml(c.name)}</span><br><span style="color:#ef4444; font-weight:bold; font-size:0.8rem;"><i class="fas fa-lock"></i> Blocked</span></div>`;
+                }).join('');
+            }
+            resultsDiv.style.display = 'block';
+        }
+
         function openClientEdit() {
             if (!erpAvailable) { alert(erpDownMessage); return; }
             document.getElementById('client-display-block').style.display = 'none';
             document.getElementById('client-edit-block').style.display = 'block';
             const input = document.getElementById('inv_client_search');
-            
+
             if (invoiceErpClients.length === 0) {
                 input.disabled = true;
                 input.placeholder = "Loading ERP clients...";
-                fetch(`api/plant_actions.php?action=get_company_clients&company_id=${invCompId}`)
-                .then(r => r.json())
-                .then(res => {
-                    if (res && res.error === 'ERP_UNAVAILABLE') {
-                        invoiceErpClients = [];
-                        input.placeholder = 'ERP offline — cannot load clients';
-                        input.disabled = true;
-                        return;
-                    }
-                    invoiceErpClients = Array.isArray(res) ? res : (res.clients || []);
+                loadInvoiceClients(() => {
                     input.disabled = false;
                     input.placeholder = "Start typing client name...";
                     input.focus();
                 });
             } else {
+                input.disabled = false;
                 input.focus();
             }
         }
@@ -941,21 +1141,48 @@ $hasSetupFeeFlag = $canEdit
 
         function saveNewClient(code, name) {
             if(!confirm(`Update this RFP to bill to ${name}?`)) return;
-            
-            document.getElementById('inv_client_results').style.display = 'none';
-            document.getElementById('inv_client_search').value = 'Saving...';
-            document.getElementById('inv_client_search').disabled = true;
-            
+
+            document.getElementById('panel_client_results') && (document.getElementById('panel_client_results').style.display = 'none');
+            document.getElementById('inv_client_results') && (document.getElementById('inv_client_results').style.display = 'none');
+
+            const panelInput = document.getElementById('panel_client_search');
+            const invInput = document.getElementById('inv_client_search');
+            if (panelInput) { panelInput.value = 'Saving...'; panelInput.disabled = true; }
+            if (invInput) { invInput.value = 'Saving...'; invInput.disabled = true; }
+
             const fd = new FormData();
             fd.append('action', 'update_job_client');
             fd.append('booking_id', invBookingId);
             fd.append('client_code', code);
             fd.append('client_name', name);
-            
+
             fetch('api/plant_actions.php', { method: 'POST', body: fd })
             .then(r => r.text())
             .then(res => {
-                if(res === 'OK') { location.reload(); } else { alert(res); cancelClientEdit(); }
+                if (res === 'OK') {
+                    panelClientCode = code;
+                    panelClientName = name;
+                    document.getElementById('disp_client_name').textContent = name;
+                    renderPanelClientSelected();
+                    if (canDiscount && code && code !== 'TBC') {
+                        fetch(`api/plant_actions.php?action=get_client_max_discount&client_code=${encodeURIComponent(code)}&company_id=${encodeURIComponent(invCompId)}`)
+                        .then(r => r.json())
+                        .then(data => {
+                            maxAllowedDiscount = parseFloat(data.max_discount);
+                            if (isNaN(maxAllowedDiscount)) maxAllowedDiscount = 0;
+                            const label = document.getElementById('max_disc_label');
+                            if (label) label.innerText = `(Max allowed: ${maxAllowedDiscount}%)`;
+                            validateAndRenderDiscount();
+                        });
+                    }
+                    cancelClientEdit();
+                    if (panelInput) { panelInput.value = ''; panelInput.disabled = false; }
+                } else {
+                    alert(res);
+                    cancelClientEdit();
+                    if (panelInput) { panelInput.value = ''; panelInput.disabled = false; }
+                    if (invInput) { invInput.value = ''; invInput.disabled = false; }
+                }
             });
         }
 

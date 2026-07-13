@@ -40,6 +40,63 @@ function computePlantFlatAddons(array $sessions): array {
 }
 
 /**
+ * Persist flat add-on quantities from the RFP edit panel onto job sessions.
+ * Stores the full job-level qty list on the first session; clears add-ons on the rest.
+ */
+function applyPlantInvoiceAddonOverrides(PDO $pdo, int $bookingId, array $overrides, ?array $plantConfigurations = null): bool {
+    if ($plantConfigurations === null) {
+        $cfgStmt = $pdo->prepare("
+            SELECT p.configurations
+            FROM plant_bookings pb
+            JOIN plants p ON pb.plant_id = p.id
+            WHERE pb.id = ? AND p.has_configurations = 1
+        ");
+        $cfgStmt->execute([$bookingId]);
+        $cfgJson = $cfgStmt->fetchColumn();
+        $plantConfigurations = is_string($cfgJson) ? json_decode($cfgJson, true) : null;
+    }
+
+    $allowedAddons = [];
+    if (is_array($plantConfigurations)) {
+        foreach ($plantConfigurations as $cfg) {
+            if (($cfg['type'] ?? '') === 'addon' && !empty($cfg['name'])) {
+                $allowedAddons[trim((string)$cfg['name'])] = true;
+            }
+        }
+    }
+    if (empty($allowedAddons)) {
+        return false;
+    }
+
+    $normalized = [];
+    foreach ($overrides as $row) {
+        if (!is_array($row)) continue;
+        $name = trim((string)($row['name'] ?? ''));
+        $qty = (int)($row['qty'] ?? 0);
+        if ($name === '' || !isset($allowedAddons[$name]) || $qty <= 0) continue;
+        $normalized[] = ['name' => $name, 'qty' => $qty];
+    }
+
+    $sessStmt = $pdo->prepare("SELECT id FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC, id ASC");
+    $sessStmt->execute([$bookingId]);
+    $sessionIds = $sessStmt->fetchAll(PDO::FETCH_COLUMN);
+    if (empty($sessionIds)) {
+        return false;
+    }
+
+    $addonsJson = !empty($normalized) ? json_encode($normalized, JSON_UNESCAPED_UNICODE) : null;
+    $updateStmt = $pdo->prepare("UPDATE plant_job_sessions SET addons_used = ? WHERE id = ? AND booking_id = ?");
+    $updateStmt->execute([$addonsJson, (int)$sessionIds[0], $bookingId]);
+
+    if (count($sessionIds) > 1) {
+        $clearStmt = $pdo->prepare("UPDATE plant_job_sessions SET addons_used = NULL WHERE booking_id = ? AND id != ?");
+        $clearStmt->execute([$bookingId, (int)$sessionIds[0]]);
+    }
+
+    return true;
+}
+
+/**
  * Resolve a configured mode/add-on's ERP nominal code + rate.
  * Rate comes from the live ERP nominal when available, else the stored config price.
  * Returns ['code' => string, 'rate' => float].
@@ -522,7 +579,7 @@ if ($action == 'erp_status') {
     exit;
 }
 
-if ($action == 'get_company_clients' && $isManager) {
+if ($action == 'get_company_clients' && ($isManager || $canViewLedger)) {
     if (!j2ErpIsAvailable()) {
         echo json_encode(j2ErpUnavailablePayload(['clients' => []]));
         exit;
@@ -1370,6 +1427,13 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $pdo->prepare("UPDATE plant_bookings SET punch_in_time=?, punch_out_time=? WHERE id=?")->execute([$punchIn, $punchOut, $bookingId]);
     }
 
+    if (!empty($_POST['addon_overrides'])) {
+        $decodedAddons = json_decode((string)$_POST['addon_overrides'], true);
+        if (is_array($decodedAddons)) {
+            applyPlantInvoiceAddonOverrides($pdo, (int)$bookingId, $decodedAddons);
+        }
+    }
+
     $customDiscountPct = isset($_POST['discount_pct']) ? (float)$_POST['discount_pct'] : 0.00;
 
     $isInternal = $job['booking_type'] == 'in-house';
@@ -1770,7 +1834,7 @@ if ($action == 'resolve_map_url' && $isManager) {
     exit;
 }
 
-if ($action == 'update_job_client' && $isManager) {
+if ($action == 'update_job_client' && ($isManager || $canViewLedger)) {
     j2ErpGate('text');
     $bookingId = $_POST['booking_id'];
     $clientCode = $_POST['client_code'];
