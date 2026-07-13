@@ -421,12 +421,15 @@ include 'header.php';
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+        const cal24h = { hour: '2-digit', minute: '2-digit', hour12: false };
         const calendarEl = document.getElementById('director-calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
+            locale: 'en-gb',
             initialView: 'listWeek',
             headerToolbar: false, 
             height: 600,
-            eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+            eventTimeFormat: cal24h,
+            slotLabelFormat: cal24h,
             displayEventEnd: true,
             events: 'api/plant_actions.php?action=fetch_bookings',
             
