@@ -8,6 +8,7 @@ require_once '../init.php';
 require_once '../email_helper.php';
 require_once '../vendor/autoload.php'; 
 require_once '../S3FileManager.php'; // ADDED: Required to fetch Cloudflare Logos
+require_once __DIR__ . '/../includes/plant_rfp_lines.php';
 
 $cronToken = getenv('CRON_SECRET_TOKEN');
 
@@ -37,6 +38,7 @@ $endDate = $_POST['end_date'] ?? $_GET['end_date'] ?? date('Y-m-d');
 $stmt = $pdo->prepare("
     SELECT pb.*, p.name as plant_name, p.registration_plate, p.billing_company_id, p.category,
            p.pricing_type, p.lifecycle_type, p.min_hours, p.nom_code_fixed, p.nom_code_variable, p.setup_fee, p.nom_code_setup,
+           p.has_configurations, p.configurations,
            bc.name as developer_name, bc.logo_path as developer_logo, bc.bank_name, bc.iban,
            u.first_name, u.last_name, prj.name as project_name
     FROM plant_bookings pb 
@@ -158,81 +160,13 @@ function generateJobPdfFile($job, $pdo, $sessions = null) {
     }
 
     $pricingType = $job['pricing_type'];
-    $minHours = (float)$job['min_hours'];
-    
-    $rateFixed = (float)($job['final_rate_fixed'] ?? 0);
-    $rateVar = (float)($job['final_rate_var'] ?? 0);
-    $rateSetup = (float)($job['final_setup_fee'] ?? 0);
-    $hasSetupFee = ((isset($job['apply_setup_fee']) && $job['apply_setup_fee'] == 1) || $rateSetup > 0);
-    
-    $totalQty = (float)($job['final_hours'] ?? 0);
-    if ($pricingType === 'per_trip' && $job['qty_trips'] > 0) {
-        $totalQty = (float)$job['qty_trips'];
-    }
-    
-    $rawNomFixed = htmlspecialchars($job['nom_code_fixed'] ?? 'MISSING');
-    $rawNomVar = htmlspecialchars($job['nom_code_variable'] ?? 'MISSING');
-    $rawNomSetup = htmlspecialchars($job['nom_code_setup'] ?? '0000');
-
-    $tableRows = "";
-    $grossSubtotal = 0;
-
-    if ($hasSetupFee) {
-        $sTotal = $rateSetup;
-        $grossSubtotal += $sTotal;
-        $tableRows .= "<tr>
-            <td><b>{$rawNomSetup}</b></td>
-            <td>Setup / Mobilisation Fee<br><i style='font-size:11px; color:#64748b;'>(Job Ref: {$jobRef})</i></td>
-            <td style='text-align: right;'>1.00</td>
-            <td style='text-align: right;'>" . number_format($rateSetup, 4) . "</td>
-            <td style='text-align: right;'><b>" . number_format($sTotal, 2) . "</b></td>
-        </tr>";
+    if ($sessions === null) {
+        $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
     }
 
-    if ($pricingType === 'fixed_then_hourly') {
-        $fTotal = $rateFixed;
-        $grossSubtotal += $fTotal;
-        $tableRows .= "<tr>
-            <td><b>{$rawNomFixed}</b></td>
-            <td>Fixed Callout Charge<br><i style='font-size:11px; color:#64748b;'>(Job Ref: {$jobRef})</i></td>
-            <td style='text-align: right;'>1.00</td>
-            <td style='text-align: right;'>" . number_format($rateFixed, 4) . "</td>
-            <td style='text-align: right;'><b>" . number_format($fTotal, 2) . "</b></td>
-        </tr>";
-
-        $extraHours = max(0, $totalQty - $minHours);
-        if ($extraHours > 0) {
-            $vTotal = $extraHours * $rateVar;
-            $grossSubtotal += $vTotal;
-            $tableRows .= "<tr>
-                <td><b>{$rawNomVar}</b></td>
-                <td>Additional Hourly Rate<br><i style='font-size:11px; color:#64748b;'>(Extra Hours > {$minHours})</i></td>
-                <td style='text-align: right;'>" . number_format($extraHours, 2) . "</td>
-                <td style='text-align: right;'>" . number_format($rateVar, 4) . "</td>
-                <td style='text-align: right;'><b>" . number_format($vTotal, 2) . "</b></td>
-            </tr>";
-        }
-    } elseif ($pricingType === 'per_trip') {
-        $tTotal = $totalQty * $rateFixed;
-        $grossSubtotal += $tTotal;
-        $tableRows .= "<tr>
-            <td><b>{$rawNomFixed}</b></td>
-            <td>Trip Execution Charge<br><i style='font-size:11px; color:#64748b;'>(Job Ref: {$jobRef})</i></td>
-            <td style='text-align: right;'>{$totalQty} Trips</td>
-            <td style='text-align: right;'>" . number_format($rateFixed, 4) . "</td>
-            <td style='text-align: right;'><b>" . number_format($tTotal, 2) . "</b></td>
-        </tr>";
-    } else {
-        $hTotal = $totalQty * $rateVar;
-        $grossSubtotal += $hTotal;
-        $tableRows .= "<tr>
-            <td><b>{$rawNomVar}</b></td>
-            <td>Standard Hourly Operation<br><i style='font-size:11px; color:#64748b;'>(Job Ref: {$jobRef})</i></td>
-            <td style='text-align: right;'>{$totalQty} Hrs</td>
-            <td style='text-align: right;'>" . number_format($rateVar, 4) . "</td>
-            <td style='text-align: right;'><b>" . number_format($hTotal, 2) . "</b></td>
-        </tr>";
-    }
+    $invoiceTable = buildPlantRfpInvoiceTable($job, $sessions, $jobRef);
+    $tableRows = $invoiceTable['rows'];
+    $grossSubtotal = $invoiceTable['grossSubtotal'];
 
     $discountPct = (float)($job['final_discount_pct'] ?? 0);
     $totalDiscount = $grossSubtotal * ($discountPct / 100);
@@ -243,10 +177,10 @@ function generateJobPdfFile($job, $pdo, $sessions = null) {
     $clientDisplay = !empty($job['client_name']) ? htmlspecialchars($job['client_name']) : 'N/A';
     $clientCodeDisplay = !empty($job['client_code']) ? htmlspecialchars($job['client_code']) : 'MISSING CODE';
     $projectDisplay = htmlspecialchars(getPlantJobLocationLabel($job));
-    if ($sessions === null) {
-        $sessions = getPlantJobSessions($pdo, (int)($job['id'] ?? 0));
-    }
     $timeLogged = htmlspecialchars(getPlantJobTimeLogged($pdo, $job, $sessions));
+
+    $driverRaw = trim(($job['first_name'] ?? '') . ' ' . ($job['last_name'] ?? ''));
+    $driverDisplay = $driverRaw !== '' ? htmlspecialchars($driverRaw) : 'Unassigned';
     
     $signatureHtml = "";
     if (!empty($job['signature_data'])) {
@@ -325,7 +259,7 @@ function generateJobPdfFile($job, $pdo, $sessions = null) {
                         <h4>Job Report (Execution Details)</h4>
                         <div class='data-row'><span class='data-label'>Machinery</span><span class='data-val'>" . htmlspecialchars($job['plant_name']) . "</span></div>
                         <div class='data-row'><span class='data-label'>Reg Plate</span><span class='data-val'>" . htmlspecialchars($job['registration_plate'] ?? 'N/A') . "</span></div>
-                        <div class='data-row'><span class='data-label'>Driver</span><span class='data-val'>" . htmlspecialchars($job['first_name'] ?? 'Unassigned') . " " . htmlspecialchars($job['last_name'] ?? '') . "</span></div>
+                        <div class='data-row'><span class='data-label'>Driver</span><span class='data-val'>{$driverDisplay}</span></div>
                         <div class='data-row'><span class='data-label'>Time Logged</span><span class='data-val'>{$timeLogged}</span></div>
                     </div>
                 </td>
