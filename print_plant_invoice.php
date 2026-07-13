@@ -1220,6 +1220,10 @@ $canToggleSetupFee = $canEdit && (
             fd.append('hours', finalQty);
             fd.append('discount_pct', currentDiscountPct);
 
+            if (pricingType === 'per_trip') {
+                fd.append('qty_trips', Math.max(1, Math.round(finalQty)));
+            }
+
             const chitEl = document.getElementById('edit_delivery_chit_number');
             if (chitEl) fd.append('delivery_chit_number', chitEl.value.trim());
 
