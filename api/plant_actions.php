@@ -39,6 +39,132 @@ function computePlantFlatAddons(array $sessions): array {
     return $addons;
 }
 
+function plantBaseModeName(): string
+{
+    return 'Standard Operation';
+}
+
+function plantSessionHoursBetween(string $punchIn, string $punchOut): float
+{
+    $inTs = strtotime($punchIn);
+    $outTs = strtotime($punchOut);
+    if ($inTs === false || $outTs === false || $outTs <= $inTs) {
+        return 0.0;
+    }
+
+    return round(($outTs - $inTs) / 3600, 2);
+}
+
+/**
+ * Selectable operational modes for configured plants — always includes the base unit rate first.
+ *
+ * @return array<int, array{name: string, label: string, is_base: bool}>
+ */
+function plantSelectableModes(?array $configurations, string $plantName): array
+{
+    $modes = [[
+        'name' => plantBaseModeName(),
+        'label' => trim($plantName) !== '' ? trim($plantName) . ' (Base)' : 'Base Operation',
+        'is_base' => true,
+    ]];
+
+    $seen = [plantBaseModeName() => true];
+    if (is_array($configurations)) {
+        foreach ($configurations as $cfg) {
+            if (($cfg['type'] ?? '') !== 'mode') {
+                continue;
+            }
+            $name = trim((string)($cfg['name'] ?? ''));
+            if ($name === '' || isset($seen[$name])) {
+                continue;
+            }
+            $seen[$name] = true;
+            $modes[] = ['name' => $name, 'label' => $name, 'is_base' => false];
+        }
+    }
+
+    return $modes;
+}
+
+/**
+ * Persist per-mode hour overrides from the RFP edit panel onto job sessions.
+ */
+function applyPlantInvoiceModeOverrides(PDO $pdo, int $bookingId, array $overrides, ?array $plantConfigurations, string $plantName): bool
+{
+    $allowed = [];
+    foreach (plantSelectableModes($plantConfigurations, $plantName) as $modeRow) {
+        $allowed[$modeRow['name']] = true;
+    }
+    if (empty($allowed)) {
+        return false;
+    }
+
+    $targets = [];
+    foreach ($overrides as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $name = trim((string)($row['name'] ?? ''));
+        $hours = round((float)($row['hours'] ?? 0), 2);
+        if ($name === '' || !isset($allowed[$name]) || $hours < 0) {
+            continue;
+        }
+        $targets[$name] = $hours;
+    }
+    if (empty($targets)) {
+        return false;
+    }
+
+    $sessStmt = $pdo->prepare("SELECT id, punch_in, punch_out, hours, mode_name FROM plant_job_sessions WHERE booking_id = ? ORDER BY punch_in ASC, id ASC");
+    $sessStmt->execute([$bookingId]);
+    $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (empty($sessions)) {
+        return false;
+    }
+
+    $byMode = [];
+    foreach ($sessions as $session) {
+        $modeName = !empty($session['mode_name']) ? (string)$session['mode_name'] : plantBaseModeName();
+        if (!isset($byMode[$modeName])) {
+            $byMode[$modeName] = [];
+        }
+        $byMode[$modeName][] = $session;
+    }
+
+    $updateHoursStmt = $pdo->prepare("UPDATE plant_job_sessions SET hours = ? WHERE id = ? AND booking_id = ?");
+    $insertStmt = $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, NULL)");
+
+    foreach ($targets as $modeName => $targetHours) {
+        $group = $byMode[$modeName] ?? [];
+        $currentTotal = 0.0;
+        foreach ($group as $sessionRow) {
+            $currentTotal += (float)$sessionRow['hours'];
+        }
+
+        if (abs($currentTotal - $targetHours) < 0.001) {
+            continue;
+        }
+
+        if (!empty($group)) {
+            $lastSession = $group[count($group) - 1];
+            $newHours = max(0, round(((float)$lastSession['hours']) + ($targetHours - $currentTotal), 2));
+            $updateHoursStmt->execute([$newHours, (int)$lastSession['id'], $bookingId]);
+            continue;
+        }
+
+        $template = $sessions[count($sessions) - 1];
+        $insertStmt->execute([
+            $bookingId,
+            $template['punch_in'],
+            $template['punch_out'],
+            $targetHours,
+            $modeName,
+        ]);
+    }
+
+    return true;
+}
+
 /**
  * Persist flat add-on quantities from the RFP edit panel onto job sessions.
  * Stores the full job-level qty list on the first session; clears add-ons on the rest.
@@ -1153,7 +1279,7 @@ if ($action == 'get_job_sessions') {
     try {
         $stmt = $pdo->prepare("
             SELECT pb.id, pb.status, pb.punch_in_time, pb.active_mode, pb.active_addons,
-                   p.has_configurations, p.configurations
+                   p.has_configurations, p.configurations, p.name AS plant_name
             FROM plant_bookings pb
             JOIN plants p ON pb.plant_id = p.id
             WHERE pb.id = ?
@@ -1203,21 +1329,32 @@ if ($action == 'get_job_sessions') {
         $shifts = [];
     }
 
-    if ($booking['status'] === 'In Progress' && !empty($booking['punch_in_time'])) {
-        $shifts[] = [
-            'id' => null,
-            'punch_in' => $booking['punch_in_time'],
-            'punch_out' => null,
-            'hours' => null,
-            'mode_name' => !empty($booking['active_mode']) ? $booking['active_mode'] : 'Standard Operation',
-            'addons' => $parseSessionAddons($booking['active_addons'] ?? null),
-            'is_current' => true,
-        ];
+    if (!empty($booking['punch_in_time']) && ($booking['status'] ?? '') !== 'Completed') {
+        $hasCurrent = false;
+        foreach ($shifts as $shiftRow) {
+            if (!empty($shiftRow['is_current'])) {
+                $hasCurrent = true;
+                break;
+            }
+        }
+        if (!$hasCurrent) {
+            $shifts[] = [
+                'id' => null,
+                'punch_in' => $booking['punch_in_time'],
+                'punch_out' => null,
+                'hours' => null,
+                'mode_name' => !empty($booking['active_mode']) ? $booking['active_mode'] : plantBaseModeName(),
+                'addons' => $parseSessionAddons($booking['active_addons'] ?? null),
+                'is_current' => true,
+            ];
+        }
     }
 
     echo json_encode([
         'has_configurations' => (int)($booking['has_configurations'] ?? 0),
         'configurations' => $configurations,
+        'plant_name' => (string)($booking['plant_name'] ?? ''),
+        'selectable_modes' => plantSelectableModes($configurations, (string)($booking['plant_name'] ?? '')),
         'shifts' => $shifts,
     ]);
     exit;
@@ -1277,10 +1414,7 @@ if ($action == 'pause_job') {
 
     // Save the daily session
     if (!empty($job['punch_in_time'])) {
-        $inTime = new DateTime($job['punch_in_time']);
-        $outTime = new DateTime($punchOut);
-        $interval = $inTime->diff($outTime);
-        $hours = round($interval->h + ($interval->i / 60), 2);
+        $hours = plantSessionHoursBetween($job['punch_in_time'], $punchOut);
 
         // FIXED: Replaced undefined $punchOutTime with $punchOut
         $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchOut, $hours, $job['active_mode'], $job['active_addons']]);
@@ -1334,7 +1468,7 @@ if ($action == 'punch_out_complete') {
         }
         $addonsJson = $encodeSessionAddons(is_array($confirmation['addons'] ?? null) ? $confirmation['addons'] : []);
 
-        if (empty($confirmation['id'])) {
+        if (!array_key_exists('id', $confirmation) || $confirmation['id'] === null || $confirmation['id'] === '') {
             $pendingConfirmation = ['mode_name' => $modeName, 'addons_used' => $addonsJson];
             continue;
         }
@@ -1350,13 +1484,10 @@ if ($action == 'punch_out_complete') {
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!empty($job['punch_in_time'])) {
-        $inTime = new DateTime($job['punch_in_time']);
-        $outTime = new DateTime($punchTime);
-        $interval = $inTime->diff($outTime);
-        $hours = round($interval->h + ($interval->i / 60), 2);
+        $hours = plantSessionHoursBetween($job['punch_in_time'], $punchTime);
 
         // Use the driver's confirmed values for the final (still-open) shift when provided.
-        $finalMode = $pendingConfirmation['mode_name'] ?? ($job['active_mode'] ?: 'Standard Operation');
+        $finalMode = $pendingConfirmation['mode_name'] ?? ($job['active_mode'] ?: plantBaseModeName());
         $finalAddons = array_key_exists('addons_used', (array)$pendingConfirmation) ? $pendingConfirmation['addons_used'] : $job['active_addons'];
 
         $pdo->prepare("INSERT INTO plant_job_sessions (booking_id, punch_in, punch_out, hours, mode_name, addons_used) VALUES (?, ?, ?, ?, ?, ?)")->execute([$bookingId, $job['punch_in_time'], $punchTime, $hours, $finalMode, $finalAddons]);
@@ -1405,12 +1536,21 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     $bookingId = $_POST['booking_id'];
     $finalHours = empty($_POST['hours']) ? 0 : (float)$_POST['hours'];
 
-    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, p.setup_fee, p.nom_code_setup FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
+    $stmt = $pdo->prepare("SELECT pb.*, p.billing_company_id, p.pricing_type, p.nom_code_fixed, p.nom_code_variable, p.min_hours, p.setup_fee, p.nom_code_setup, p.has_configurations, p.configurations, p.name AS plant_name FROM plant_bookings pb JOIN plants p ON pb.plant_id = p.id WHERE pb.id = ?"); 
     $stmt->execute([$bookingId]); 
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($job['client_code'] === 'TBC' || empty($job['client_code'])) {
         echo "ERROR: Client details are marked as TBC. You must assign a valid ERP Client before finalising the delivery note."; exit;
+    }
+
+    $cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
+
+    if (!empty($_POST['mode_overrides'])) {
+        $decodedModes = json_decode((string)$_POST['mode_overrides'], true);
+        if (is_array($decodedModes)) {
+            applyPlantInvoiceModeOverrides($pdo, (int)$bookingId, $decodedModes, is_array($cfgs) ? $cfgs : null, (string)($job['plant_name'] ?? ''));
+        }
     }
 
     $apiKey = getApiKey($job['billing_company_id']);
@@ -1473,8 +1613,6 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         $qty = round((float)$finalHours > 0 ? (float)$finalHours : 1, 2); 
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } else {
-        $cfgs = ($job['has_configurations'] == 1 && !empty($job['configurations'])) ? json_decode($job['configurations'], true) : null;
-        
         $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
         $sessStmt->execute([$bookingId]);
         $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1482,7 +1620,7 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         if (is_array($cfgs) && count($sessions) > 0) {
             $modeBreakdown = [];
             foreach ($sessions as $s) {
-                $mName = !empty($s['mode_name']) ? $s['mode_name'] : 'Standard Operation';
+                $mName = !empty($s['mode_name']) ? $s['mode_name'] : plantBaseModeName();
                 if (!isset($modeBreakdown[$mName])) $modeBreakdown[$mName] = 0;
                 $modeBreakdown[$mName] += (float)$s['hours'];
             }
