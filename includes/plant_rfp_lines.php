@@ -127,14 +127,22 @@ if (!function_exists('plantRfpAppendLine')) {
     {
         $safeCode = htmlspecialchars($code, ENT_QUOTES, 'UTF-8');
         $safeDesc = htmlspecialchars($description, ENT_QUOTES, 'UTF-8');
+        $safeQty = htmlspecialchars($qtyLabel, ENT_QUOTES, 'UTF-8');
 
         return "<tr>
             <td><b>{$safeCode}</b></td>
             <td>{$safeDesc}</td>
-            <td style='text-align: right;'>{$qtyLabel}</td>
-            <td style='text-align: right;'>" . number_format($rate, 4) . "</td>
-            <td style='text-align: right;'><b>" . number_format($total, 2) . "</b></td>
+            <td style=\"text-align: right;\">{$safeQty}</td>
+            <td style=\"text-align: right;\">" . number_format($rate, 4) . "</td>
+            <td style=\"text-align: right;\"><b>" . number_format($total, 2) . "</b></td>
         </tr>";
+    }
+}
+
+if (!function_exists('plantRfpJobRefSuffix')) {
+    function plantRfpJobRefSuffix(string $jobRef): string
+    {
+        return ' (Job Ref: ' . $jobRef . ')';
     }
 }
 
@@ -159,7 +167,7 @@ if (!function_exists('buildPlantRfpInvoiceTable')) {
 
         $tableRows = '';
         $grossSubtotal = 0.0;
-        $refSuffix = "<br><i style='font-size:11px; color:#64748b;'>(Job Ref: " . htmlspecialchars($jobRef, ENT_QUOTES, 'UTF-8') . ")</i>";
+        $refSuffix = plantRfpJobRefSuffix($jobRef);
 
         if ($hasSetupFee) {
             $setupCode = htmlspecialchars((string)($job['nom_code_setup'] ?? '0000'), ENT_QUOTES, 'UTF-8');
@@ -180,7 +188,7 @@ if (!function_exists('buildPlantRfpInvoiceTable')) {
                 $grossSubtotal += $vTotal;
                 $tableRows .= plantRfpAppendLine(
                     $varCode,
-                    'Additional Hourly Rate' . "<br><i style='font-size:11px; color:#64748b;'>(Extra Hours > {$minHours})</i>",
+                    'Additional Hourly Rate (Extra Hours > ' . $minHours . ')' . $refSuffix,
                     number_format($extraHours, 2),
                     $rateVar,
                     $vTotal
