@@ -47,18 +47,56 @@ function j2ErpProbe(string $endpoint, string $apiKey): array
     ];
 }
 
+function j2ErpHasSessionContext(): bool
+{
+    return session_status() === PHP_SESSION_ACTIVE
+        || (session_status() === PHP_SESSION_NONE && isset($_SESSION));
+}
+
+function j2ErpWriteHealthCache(array $health): void
+{
+    if (!j2ErpHasSessionContext()) {
+        return;
+    }
+
+    $reopened = false;
+    if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+        session_start();
+        $reopened = true;
+    }
+
+    $_SESSION['j2_erp_health_cache'] = $health;
+
+    if ($reopened) {
+        session_write_close();
+    }
+}
+
 function j2ErpGetHealth(bool $forceRefresh = false): array
 {
+    static $requestCache = null;
+    static $requestCacheAt = 0;
+
     $ttl = 60;
 
     if (
-        session_status() === PHP_SESSION_ACTIVE
+        !$forceRefresh
+        && is_array($requestCache)
+        && (time() - $requestCacheAt) < $ttl
+    ) {
+        return $requestCache;
+    }
+
+    if (
+        j2ErpHasSessionContext()
         && !$forceRefresh
         && isset($_SESSION['j2_erp_health_cache'])
         && is_array($_SESSION['j2_erp_health_cache'])
         && (time() - (int)($_SESSION['j2_erp_health_cache']['checked_at'] ?? 0)) < $ttl
     ) {
-        return $_SESSION['j2_erp_health_cache'];
+        $requestCache = $_SESSION['j2_erp_health_cache'];
+        $requestCacheAt = time();
+        return $requestCache;
     }
 
     $praKey = getenv('J2_API_KEY_PRA') ?: '';
@@ -72,9 +110,9 @@ function j2ErpGetHealth(bool $forceRefresh = false): array
             'http_code' => 0,
             'checked_at' => time(),
         ];
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            $_SESSION['j2_erp_health_cache'] = $health;
-        }
+        j2ErpWriteHealthCache($health);
+        $requestCache = $health;
+        $requestCacheAt = time();
         return $health;
     }
 
@@ -124,9 +162,9 @@ function j2ErpGetHealth(bool $forceRefresh = false): array
         ];
     }
 
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        $_SESSION['j2_erp_health_cache'] = $health;
-    }
+    j2ErpWriteHealthCache($health);
+    $requestCache = $health;
+    $requestCacheAt = time();
     return $health;
 }
 
@@ -137,11 +175,10 @@ function j2ErpIsAvailable(bool $forceRefresh = false): bool
 
 function j2ErpGate(string $format = 'json'): void
 {
-    if (j2ErpIsAvailable()) {
+    $health = j2ErpGetHealth();
+    if ($health['available'] === true) {
         return;
     }
-
-    $health = j2ErpGetHealth();
 
     if ($format === 'text') {
         if (!headers_sent()) {

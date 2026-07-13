@@ -504,12 +504,13 @@ if ($action == 'form_data') {
         }
     }
     
+    $erpHealth = j2ErpGetHealth();
     echo json_encode([
         'plants' => $plants,
         'drivers' => $drivers,
         'projects' => $projects,
-        'erp_health' => j2ErpGetHealth(),
-        'erp_available' => j2ErpIsAvailable(),
+        'erp_health' => $erpHealth,
+        'erp_available' => $erpHealth['available'] === true,
     ]);
     exit;
 }
@@ -1462,11 +1463,13 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
 
 if ($action == 'retry_erp_sync' && $canViewLedger) {
     j2ErpGate('text');
-    $erpResult = pushBookingToERP($pdo, $_POST['booking_id'], $userId);
+    $bookingId = (int)($_POST['booking_id'] ?? 0);
+    $erpResult = pushBookingToERP($pdo, $bookingId, $userId);
     if ($erpResult === "OK") {
+        $pdo->prepare("UPDATE plant_bookings SET payment_status='Invoiced' WHERE id=?")->execute([$bookingId]);
         echo "OK";
     } else {
-        echo $erpResult; 
+        echo $erpResult;
     }
     exit;
 }
