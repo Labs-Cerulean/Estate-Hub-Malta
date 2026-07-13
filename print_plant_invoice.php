@@ -250,6 +250,21 @@ if ($job['has_configurations'] == 1 && !empty($job['configurations']) && count($
     unset($data);
 }
 
+$hasConfiguredModes = count($modeBreakdown) > 0;
+$modeDisplayLabels = [
+    'Standard Operation' => trim($job['plant_name'] ?? '') !== '' ? trim($job['plant_name']) . ' (Base)' : 'Base Operation',
+];
+if ($job['has_configurations'] == 1 && !empty($job['configurations'])) {
+    $modeCfgDecoded = json_decode($job['configurations'], true);
+    if (is_array($modeCfgDecoded)) {
+        foreach ($modeCfgDecoded as $cfg) {
+            if (($cfg['type'] ?? '') === 'mode' && !empty($cfg['name'])) {
+                $modeDisplayLabels[(string)$cfg['name']] = (string)$cfg['name'];
+            }
+        }
+    }
+}
+
 $jobStart = new DateTime($job['booking_date']);
 $jobEnd = !empty($job['end_date']) ? new DateTime($job['end_date']) : clone $jobStart;
 $diffDays = $jobStart->diff($jobEnd)->days + 1;
@@ -344,6 +359,12 @@ $hasSetupFeeFlag = $canEdit
         .live-badge { display: inline-flex; align-items: center; gap: 6px; background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
         .warn-inline { color: #b45309; font-size: 0.78rem; font-weight: 600; margin-top: 6px; display: none; }
         .erp-rate-note { font-size: 0.78rem; color: #64748b; margin-top: 4px; }
+        .edit-section { border-top: 1px dashed #d6d3d1; padding-top: 14px; margin-top: 14px; }
+        .edit-section h4 { margin: 0 0 10px; font-size: 0.8rem; color: #44403c; text-transform: uppercase; }
+        .edit-row-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 10px; }
+        .edit-row-table th, .edit-row-table td { border: 1px solid #e7e5e4; padding: 8px; text-align: left; }
+        .edit-row-table th { background: #fafaf9; font-size: 0.72rem; text-transform: uppercase; color: #57534e; }
+        .edit-row-table input[type="number"] { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d6d3d1; border-radius: 6px; font: inherit; }
         .btn-final { padding: 12px 22px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 1rem; }
         .btn-final:hover { background: #059669; }
         .btn-final:disabled { background: #94a3b8; cursor: not-allowed; }
@@ -395,7 +416,7 @@ $hasSetupFeeFlag = $canEdit
                 </div>
 
                 <div class="edit-grid">
-                    <div class="edit-field">
+                    <div class="edit-field" id="field_master_qty" style="<?= $hasConfiguredModes ? 'display:none;' : '' ?>">
                         <label>Final <?= htmlspecialchars($qtyLabel) ?></label>
                         <input type="number" id="calc_master_qty" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()" <?= !$erpAvailable ? 'disabled' : '' ?>>
                     </div>
@@ -415,6 +436,23 @@ $hasSetupFeeFlag = $canEdit
                         <input type="text" id="edit_delivery_chit_number" maxlength="40" value="<?= htmlspecialchars($job['delivery_chit_number'] ?? '') ?>" placeholder="Optional" <?= !$erpAvailable ? 'disabled' : '' ?>>
                     </div>
                 </div>
+
+                <?php if ($hasConfiguredModes): ?>
+                <div class="edit-section" id="section_modes">
+                    <h4><i class="fas fa-layer-group"></i> Operational modes (hours)</h4>
+                    <p class="erp-rate-note" style="margin-bottom:10px;">Adjust billed hours per mode below. Rates always come from ERP nominal codes.</p>
+                    <table class="edit-row-table">
+                        <thead>
+                            <tr>
+                                <th>Mode</th>
+                                <th style="width:120px;">Hours</th>
+                                <th style="width:120px;">Rate (€)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="edit_modes_body"></tbody>
+                    </table>
+                </div>
+                <?php endif; ?>
 
                 <div class="edit-total-bar">
                     <div>
@@ -614,7 +652,21 @@ $hasSetupFeeFlag = $canEdit
         
         const savedHours = <?= $job['final_hours'] ?? 0 ?>;
         const hasSetupFee = <?= $hasSetupFeeFlag ? 'true' : 'false' ?>;
-        const modeBreakdown = <?= json_encode($modeBreakdown) ?>;
+        const hasConfiguredModes = <?= $hasConfiguredModes ? 'true' : 'false' ?>;
+        const modeDisplayLabels = <?= json_encode($modeDisplayLabels, JSON_HEX_APOS | JSON_HEX_TAG) ?>;
+
+        let modeState = {};
+        (function initModeState() {
+            const seed = <?= json_encode($modeBreakdown, JSON_HEX_APOS | JSON_HEX_TAG) ?>;
+            Object.entries(seed).forEach(([name, data]) => {
+                modeState[name] = {
+                    hours: parseFloat(data.hours) || 0,
+                    rate: parseFloat(data.rate) || 0,
+                    nom_code: data.nom_code || '',
+                };
+            });
+        })();
+
         const addonBreakdown = <?= json_encode($addonBreakdown) ?>;
 
         const rateFixed = <?= (float)$erpRateFixed ?>;
@@ -624,6 +676,40 @@ $hasSetupFeeFlag = $canEdit
         let currentDiscountPct = <?= $savedDiscountPct ?>;
         let maxAllowedDiscount = null;
         let grossSubtotal = 0;
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function modeDisplayName(name) {
+            return modeDisplayLabels[name] || name;
+        }
+
+        function renderModeEditTable() {
+            const modesBody = document.getElementById('edit_modes_body');
+            if (!modesBody) return;
+
+            modesBody.innerHTML = Object.entries(modeState).map(([name, data]) => `
+                <tr>
+                    <td><strong>${escapeHtml(modeDisplayName(name))}</strong></td>
+                    <td><input type="number" step="0.25" min="0" value="${(parseFloat(data.hours) || 0).toFixed(2)}" onchange="setModeHours('${name.replace(/'/g, "\\'")}', this.value)"></td>
+                    <td><span class="rate-readonly">${(parseFloat(data.rate) || 0).toFixed(4)}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function setModeHours(name, value) {
+            if (!modeState[name]) return;
+            modeState[name].hours = Math.max(0, parseFloat(value) || 0);
+            renderModeEditTable();
+            renderTable();
+        }
+
+        function buildModeOverridesPayload() {
+            return Object.entries(modeState)
+                .filter(([, data]) => (parseFloat(data.hours) || 0) > 0)
+                .map(([name, data]) => ({ name, hours: parseFloat(parseFloat(data.hours).toFixed(2)) || 0 }));
+        }
 
         function formatRate(value) {
             return `<span class="rate-readonly">${(parseFloat(value) || 0).toFixed(4)}</span>`;
@@ -766,18 +852,19 @@ $hasSetupFeeFlag = $canEdit
                 </tr>`;
             }
             else {
-                if (Object.keys(modeBreakdown).length > 0) {
-                    for (const [modeName, data] of Object.entries(modeBreakdown)) {
+                if (Object.keys(modeState).length > 0) {
+                    for (const [modeName, data] of Object.entries(modeState)) {
                         const mCode = data.nom_code || 'MISSING';
-                        let mQty = parseFloat(data.hours).toFixed(2);
-                        let mRate = parseFloat(data.rate);
+                        let mQty = parseFloat(data.hours) || 0;
+                        let mRate = parseFloat(data.rate) || 0;
+                        if (mQty <= 0) continue;
                         let mTotal = +(mQty * mRate).toFixed(2);
                         grossSubtotal += mTotal;
-                        
+
                         html += `<tr>
                             <td><b>${mCode}</b></td>
-                            <td>Primary Mode: ${modeName}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
-                            <td class="text-right">${mQty} Hrs</td>
+                            <td>Primary Mode: ${escapeHtml(modeDisplayName(modeName))}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                            <td class="text-right">${mQty.toFixed(2)} Hrs</td>
                             <td class="text-right">${formatRate(mRate)}</td>
                             <td class="text-right"><b>${mTotal.toFixed(2)}</b></td>
                         </tr>`;
@@ -842,6 +929,7 @@ $hasSetupFeeFlag = $canEdit
         }
 
         renderTable();
+        if (hasConfiguredModes) renderModeEditTable();
 
         function saveAndPrint() {
             <?php if ($billingCompanyMissing): ?>
@@ -866,6 +954,10 @@ $hasSetupFeeFlag = $canEdit
 
             const chitEl = document.getElementById('edit_delivery_chit_number');
             if (chitEl) fd.append('delivery_chit_number', chitEl.value.trim());
+
+            if (hasConfiguredModes) {
+                fd.append('mode_overrides', JSON.stringify(buildModeOverridesPayload()));
+            }
             
             const timeIn = document.getElementById('edit_time_in');
             const timeOut = document.getElementById('edit_time_out');

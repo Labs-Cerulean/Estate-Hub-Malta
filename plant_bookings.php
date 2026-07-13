@@ -402,6 +402,32 @@ $userId = $_SESSION['user_id'];
 
 <script>
     let calendar, mapboxMap, marker, signaturePad, groupedPlants = {};
+    const PLANT_BASE_MODE = 'Standard Operation';
+
+    function buildPlantModeChoices(configurations, plantName) {
+        const choices = [{ name: PLANT_BASE_MODE, label: `${plantName || 'Plant'} (Base)` }];
+        const seen = { [PLANT_BASE_MODE]: true };
+        (configurations || []).forEach(cfg => {
+            if (cfg.type !== 'mode') return;
+            const name = (cfg.name || '').trim();
+            if (!name || seen[name]) return;
+            seen[name] = true;
+            choices.push({ name, label: name });
+        });
+        return choices;
+    }
+
+    function renderPlantModeSelect(selectableModes, selectedMode) {
+        const modes = Array.isArray(selectableModes) && selectableModes.length
+            ? selectableModes
+            : [{ name: PLANT_BASE_MODE, label: 'Base Operation' }];
+        return `<select class="shift-mode-select input-heavy" style="margin-bottom:0;">${modes.map(m => {
+            const value = escapeShiftAttr(m.name);
+            const label = escapeShiftHtml(m.label || m.name);
+            const selected = (selectedMode || PLANT_BASE_MODE) === m.name ? ' selected' : '';
+            return `<option value="${value}"${selected}>${label}</option>`;
+        }).join('')}</select>`;
+    }
     window.fleetData = []; 
     window.currentActiveJob = null; 
 
@@ -1703,7 +1729,7 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
                     controlsHtml += `<button class="btn-heavy btn-green" onclick="punchJob(${job.id}, 'in')"><i class="fas fa-play"></i> Resume Job</button>`;
                 } else if (job.status === 'In Progress') {
                     // Show Pause button for ANY Multi-Day machine (keeping Excavator check for backward compatibility)
-                    if (job.lifecycle_type === 'Multi-Day' || job.category === 'Excavator') {
+                    if (job.lifecycle_type === 'Multi-Day' || job.category === 'Excavator' || job.category === 'Rock Saw') {
                         controlsHtml += `<button class="btn-heavy btn-blue" onclick="pauseJob(${job.id})"><i class="fas fa-pause"></i> Pause Job (End Day)</button>`;
                     }
                     controlsHtml += `<button class="btn-heavy btn-red" onclick="startPunchOut(${job.id}, '${job.pricing_type}')"><i class="fas fa-stop"></i> Complete Job (Final Signature)</button>`;
@@ -1799,32 +1825,30 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
                 const cfgs = JSON.parse(job.configurations);
                 const container = document.getElementById('config-options-container');
                 container.innerHTML = '';
-                
-                let hasModes = false;
+
+                const plantName = job.plant_name || 'Plant';
+                const modeChoices = buildPlantModeChoices(cfgs, plantName);
                 let hasAddons = false;
 
-                cfgs.forEach((c, idx) => {
-                    if (c.type === 'mode') {
-                        if (!hasModes) { container.innerHTML += `<div style="font-size:0.8rem; font-weight:bold; color:#64748b; margin-bottom:5px; text-transform:uppercase;">Primary Mode</div>`; hasModes = true; }
-                        container.innerHTML += `
+                container.innerHTML += `<div style="font-size:0.8rem; font-weight:bold; color:#64748b; margin-bottom:5px; text-transform:uppercase;">Primary Mode</div>`;
+                modeChoices.forEach((mode, idx) => {
+                    container.innerHTML += `
                         <label style="border:2px solid #e2e8f0; border-radius:12px; padding:15px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:1.1rem; color:#0f172a; background:#f8fafc; transition:0.2s; margin-bottom:10px;" onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='#e2e8f0'">
-                            <input type="radio" name="driver_selected_mode" value="${c.name}" style="width:20px; height:20px;" ${hasModes && idx===0 ? 'checked' : ''}>
-                            <b>${c.name}</b>
+                            <input type="radio" name="driver_selected_mode" value="${escapeShiftAttr(mode.name)}" style="width:20px; height:20px;" ${idx === 0 ? 'checked' : ''}>
+                            <b>${escapeShiftHtml(mode.label)}</b>
                         </label>`;
-                    } else if (c.type === 'addon') {
+                });
+
+                cfgs.forEach((c) => {
+                    if (c.type === 'addon') {
                         if (!hasAddons) { container.innerHTML += `<div style="font-size:0.8rem; font-weight:bold; color:#64748b; margin-top:15px; margin-bottom:5px; text-transform:uppercase;">Extra Add-ons (Qty)</div>`; hasAddons = true; }
                         container.innerHTML += `
                         <div style="border:2px solid #e2e8f0; border-radius:12px; padding:10px 15px; display:flex; align-items:center; justify-content:space-between; font-size:1.1rem; color:#0f172a; background:#f8fafc; margin-bottom:10px;">
-                            <b>${c.name}</b>
-                            <input type="number" class="driver-addon-input" data-addon-name="${c.name}" min="0" value="0" style="width:60px; padding:5px; border:1px solid #cbd5e1; border-radius:6px; font-weight:bold; text-align:center;">
+                            <b>${escapeShiftHtml(c.name)}</b>
+                            <input type="number" class="driver-addon-input" data-addon-name="${escapeShiftAttr(c.name)}" min="0" value="0" style="width:60px; padding:5px; border:1px solid #cbd5e1; border-radius:6px; font-weight:bold; text-align:center;">
                         </div>`;
                     }
                 });
-
-                // If they ONLY have addons, make sure no radio button crashes the script
-                if (!hasModes) {
-                    container.innerHTML += `<input type="hidden" name="driver_selected_mode" value="Standard Operation">`;
-                }
 
                 pendingPunchData = { id, direction, btn, originalHtml };
                 document.getElementById('driver-config-modal').style.display = 'flex';
@@ -1968,18 +1992,17 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         }
 
         const cfgs = Array.isArray(data.configurations) ? data.configurations : [];
-        const modes = cfgs.filter(c => c.type === 'mode');
         const addons = cfgs.filter(c => c.type === 'addon');
-        const hasModes = modes.length > 0;
+        const selectableModes = Array.isArray(data.selectable_modes) && data.selectable_modes.length
+            ? data.selectable_modes
+            : buildPlantModeChoices(cfgs, data.plant_name || 'Plant').map(m => ({ name: m.name, label: m.label }));
 
         shiftBox.style.display = 'block';
         shiftList.innerHTML = data.shifts.map((shift, idx) => {
             const addonMap = {};
             (shift.addons || []).forEach(a => { addonMap[a.name] = parseInt(a.qty, 10) || 0; });
 
-            const modeHtml = hasModes
-                ? `<select class="shift-mode-select input-heavy" style="margin-bottom:0;">${modes.map(m => `<option value="${escapeShiftAttr(m.name)}" ${shift.mode_name === m.name ? 'selected' : ''}>${escapeShiftHtml(m.name)}</option>`).join('')}</select>`
-                : `<input type="hidden" class="shift-mode-select" value="${escapeShiftAttr(shift.mode_name || 'Standard Operation')}"><span style="font-weight:700;">${escapeShiftHtml(shift.mode_name || 'Standard Operation')}</span>`;
+            const modeHtml = renderPlantModeSelect(selectableModes, shift.mode_name || PLANT_BASE_MODE);
 
             const addonHtml = addons.length > 0
                 ? addons.map(a => `
@@ -1992,11 +2015,13 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
             const hoursLabel = shift.hours != null ? ` · <b>${Number(shift.hours).toFixed(2)} hrs</b>` : '';
             const currentBadge = shift.is_current ? ' <span style="color:#2563eb; font-size:0.82rem;">(current shift)</span>' : '';
 
+            const sessionKey = shift.is_current ? 'current' : (shift.id == null ? '' : String(shift.id));
+
             return `
-                <div class="shift-confirm-card" data-session-id="${shift.id == null ? '' : shift.id}" style="background:#fff; border:1px solid #d1d5db; border-radius:12px; padding:14px; margin-bottom:10px;">
+                <div class="shift-confirm-card" data-session-id="${escapeShiftAttr(sessionKey)}" style="background:#fff; border:1px solid #d1d5db; border-radius:12px; padding:14px; margin-bottom:10px;">
                     <div style="font-weight:800; color:#0f172a; margin-bottom:6px;">Shift ${idx + 1}${currentBadge}</div>
                     <div style="font-size:0.88rem; color:#64748b; margin-bottom:12px;">${formatShiftWindow(shift)}${hoursLabel}</div>
-                    ${hasModes ? '<label style="display:block; font-size:0.72rem; font-weight:700; text-transform:uppercase; color:#64748b; margin-bottom:4px;">Mode</label>' : ''}
+                    <label style="display:block; font-size:0.72rem; font-weight:700; text-transform:uppercase; color:#64748b; margin-bottom:4px;">Mode</label>
                     ${modeHtml}
                     ${addonHtml ? `<div style="margin-top:12px; border-top:1px dashed #e5e7eb; padding-top:10px;"><div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:#64748b; margin-bottom:6px;">Add-ons (quantity)</div>${addonHtml}</div>` : ''}
                 </div>`;
@@ -2007,15 +2032,16 @@ function addConfigRow(data = {type: 'mode', name: '', price: 0, nom_code: ''}) {
         const confirmations = [];
         document.querySelectorAll('.shift-confirm-card').forEach(card => {
             const sessionIdRaw = card.getAttribute('data-session-id');
+            const isCurrentShift = sessionIdRaw === 'current' || sessionIdRaw === '' || sessionIdRaw == null;
             const modeEl = card.querySelector('.shift-mode-select');
-            const modeName = modeEl ? modeEl.value : 'Standard Operation';
+            const modeName = modeEl ? modeEl.value : PLANT_BASE_MODE;
             const addons = [];
             card.querySelectorAll('.shift-addon-input').forEach(input => {
                 const qty = parseInt(input.value, 10) || 0;
                 if (qty > 0) addons.push({ name: input.getAttribute('data-addon-name'), qty });
             });
             confirmations.push({
-                id: (sessionIdRaw === '' || sessionIdRaw == null) ? null : parseInt(sessionIdRaw, 10),
+                id: isCurrentShift ? null : parseInt(sessionIdRaw, 10),
                 mode_name: modeName,
                 addons
             });
