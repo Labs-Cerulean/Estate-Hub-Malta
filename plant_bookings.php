@@ -445,7 +445,7 @@ $userId = $_SESSION['user_id'];
             if (msgEl) msgEl.textContent = health.message || 'Billing and booking actions are disabled until the ERP link is restored.';
             const metaEl = document.getElementById('erp-banner-meta');
             if (metaEl && health.checked_at) {
-                metaEl.textContent = 'Last checked: ' + new Date(health.checked_at * 1000).toLocaleTimeString();
+                metaEl.textContent = 'Last checked: ' + new Date(health.checked_at * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
             }
         }
 
@@ -494,7 +494,10 @@ $userId = $_SESSION['user_id'];
     }
 
     function initCalendar() {
+        const cal24h = { hour: '2-digit', minute: '2-digit', hour12: false };
+
         calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+            locale: 'en-gb',
             initialView: isManager ? 'listMonth' : 'listDay',
             headerToolbar: { 
                 left: 'prev,next today', 
@@ -502,10 +505,13 @@ $userId = $_SESSION['user_id'];
                 right: isManager ? 'listMonth,timeGridWeek,timeGridDay' : 'listMonth,listDay' 
             },
             views: {
-                listMonth: { buttonText: 'Month' },
-                timeGridWeek: { buttonText: 'Week' },
-                timeGridDay: { buttonText: 'Day' }
+                listMonth: { buttonText: 'Month', eventTimeFormat: cal24h },
+                listDay: { buttonText: 'Day', eventTimeFormat: cal24h },
+                timeGridWeek: { buttonText: 'Week', slotLabelFormat: cal24h, eventTimeFormat: cal24h },
+                timeGridDay: { buttonText: 'Day', slotLabelFormat: cal24h, eventTimeFormat: cal24h }
             },
+            eventTimeFormat: cal24h,
+            slotLabelFormat: cal24h,
             slotMinTime: '06:00:00', 
             slotMaxTime: '20:00:00', 
             allDaySlot: false, 
