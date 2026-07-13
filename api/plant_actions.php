@@ -39,9 +39,76 @@ function computePlantFlatAddons(array $sessions): array {
     return $addons;
 }
 
+/**
+ * Sum operational mode hours across all job sessions.
+ *
+ * @return array<string, float> modeName => hours
+ */
+function computePlantModeBreakdown(array $sessions): array
+{
+    $breakdown = [];
+    foreach ($sessions as $session) {
+        $modeName = !empty($session['mode_name']) ? (string)$session['mode_name'] : plantBaseModeName();
+        if (!isset($breakdown[$modeName])) {
+            $breakdown[$modeName] = 0.0;
+        }
+        $breakdown[$modeName] += (float)($session['hours'] ?? 0);
+    }
+
+    return $breakdown;
+}
+
+/**
+ * Optional configured modes (non-base) billed on top of fixed_then_hourly pricing.
+ *
+ * @return array<int, array{name: string, code: string, rate: float, hours: float, total: float}>
+ */
+function computePlantOptionalModeCharges(?array $cfgs, array $sessions, array $allNominals, bool $isInternal): array
+{
+    $charges = [];
+    if (!is_array($cfgs) || empty($sessions)) {
+        return $charges;
+    }
+
+    $baseMode = plantBaseModeName();
+    foreach (computePlantModeBreakdown($sessions) as $modeName => $modeHours) {
+        if ($modeName === $baseMode) {
+            continue;
+        }
+        $hours = round((float)$modeHours, 2);
+        if ($hours <= 0) {
+            continue;
+        }
+        $resolved = resolvePlantConfigRate($cfgs, $modeName, 'mode', $allNominals, $isInternal);
+        if ($resolved['code'] === '') {
+            continue;
+        }
+        $rate = round((float)$resolved['rate'], 4);
+        $charges[] = [
+            'name' => $modeName,
+            'code' => $resolved['code'],
+            'rate' => $rate,
+            'hours' => $hours,
+            'total' => round($hours * $rate, 2),
+        ];
+    }
+
+    return $charges;
+}
+
 function plantBaseModeName(): string
 {
     return 'Standard Operation';
+}
+
+function plantNormalizeTripQty($value, int $default = 1): int
+{
+    $qty = (int)$value;
+    if ($qty < 1) {
+        $qty = max(1, $default);
+    }
+
+    return $qty;
 }
 
 function plantSessionHoursBetween(string $punchIn, string $punchOut): float
@@ -333,10 +400,28 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
             $lines[] = [ "Type" => "N", "Code" => $vCode, "Description" => $vDesc, "UOMLevel" => 1, "Location" => "01", 
                          "Qty" => $extraHours, "Price" => $vPrice, "VATCode" => "VF", "DiscCalcOn" => "P", "DiscPer" => round($discountPct, 2), "DR" => 0, "CR" => 0 ]; 
         }
+
+        foreach (computePlantOptionalModeCharges($cfgs, $sessions, $allNominals, $isInternal) as $modeCharge) {
+            $grossSubtotal += $modeCharge['total'];
+            $lines[] = [
+                "Type" => "N",
+                "Code" => $modeCharge['code'],
+                "Description" => substr('Mode: ' . $modeCharge['name'], 0, 35),
+                "UOMLevel" => 1,
+                "Location" => "01",
+                "Qty" => $modeCharge['hours'],
+                "Price" => $modeCharge['rate'],
+                "VATCode" => "VF",
+                "DiscCalcOn" => "P",
+                "DiscPer" => round($discountPct, 2),
+                "DR" => 0,
+                "CR" => 0,
+            ];
+        }
     } elseif ($job['pricing_type'] == 'per_trip') {
         $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
-        $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
+        $qty = round(plantNormalizeTripQty($job['qty_trips'] ?? 1), 2);
         $price = round((float)$job['final_rate_fixed'], 4);
         $grossSubtotal += round($qty * $price, 2);
         
@@ -1519,7 +1604,7 @@ if ($action == 'punch_out_complete') {
     
     $stmt->execute([
         $punchTime,
-        empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], 
+        empty($_POST['qty_trips']) ? null : plantNormalizeTripQty($_POST['qty_trips']),
         $deliveryChit !== '' ? $deliveryChit : null,
         $_POST['rep_name'], 
         $_POST['rep_id'], 
@@ -1624,35 +1709,43 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
     }
 
     // Backend calculation for local database saving
+    $billingSessions = [];
+    if (is_array($cfgs)) {
+        $billingSessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
+        $billingSessStmt->execute([$bookingId]);
+        $billingSessions = $billingSessStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     $backendSubtotal = round($syncSetupPrice, 2);
     if ($job['pricing_type'] == 'fixed_then_hourly') {
         $backendSubtotal += round($syncPriceFixed, 2);
         $extraHours = round($finalHours - (float)$job['min_hours'], 2);
-        if ($extraHours > 0) $backendSubtotal += round($extraHours * $syncPriceVar, 2);
+        if ($extraHours > 0) {
+            $backendSubtotal += round($extraHours * $syncPriceVar, 2);
+        }
+        foreach (computePlantOptionalModeCharges($cfgs, $billingSessions, $allNominals, $isInternal) as $modeCharge) {
+            $backendSubtotal += $modeCharge['total'];
+        }
     } elseif ($job['pricing_type'] == 'per_trip') {
-        $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
-        $backendSubtotal += round($qty * $syncPriceFixed, 2);
+        $tripQty = isset($_POST['qty_trips'])
+            ? plantNormalizeTripQty($_POST['qty_trips'])
+            : plantNormalizeTripQty($finalHours > 0 ? $finalHours : ($job['qty_trips'] ?? 1));
+        $pdo->prepare("UPDATE plant_bookings SET qty_trips = ? WHERE id = ?")->execute([$tripQty, $bookingId]);
+        $job['qty_trips'] = $tripQty;
+        $backendSubtotal += round($tripQty * $syncPriceFixed, 2);
     } elseif ($job['pricing_type'] == 'daily') {
         $qty = round((float)$finalHours > 0 ? (float)$finalHours : 1, 2); 
         $backendSubtotal += round($qty * $syncPriceFixed, 2);
     } else {
-        $sessStmt = $pdo->prepare("SELECT * FROM plant_job_sessions WHERE booking_id = ?");
-        $sessStmt->execute([$bookingId]);
-        $sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
-
-        if (is_array($cfgs) && count($sessions) > 0) {
-            $modeBreakdown = [];
-            foreach ($sessions as $s) {
-                $mName = !empty($s['mode_name']) ? $s['mode_name'] : plantBaseModeName();
-                if (!isset($modeBreakdown[$mName])) $modeBreakdown[$mName] = 0;
-                $modeBreakdown[$mName] += (float)$s['hours'];
-            }
-            foreach ($modeBreakdown as $mName => $mHours) {
+        if (is_array($cfgs) && count($billingSessions) > 0) {
+            foreach (computePlantModeBreakdown($billingSessions) as $mName => $mHours) {
                 $resolved = resolvePlantConfigRate($cfgs, $mName, 'mode', $allNominals, $isInternal);
                 $rate = $resolved['code'] !== '' ? $resolved['rate'] : $syncPriceVar;
                 $backendSubtotal += round(round($mHours, 2) * $rate, 2);
             }
-        } else { $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2); }
+        } else {
+            $backendSubtotal += round(round($finalHours, 2) * $syncPriceVar, 2);
+        }
     }
 
     // Universal add-ons: flat quantity on top of the base pricing (any plant type).
