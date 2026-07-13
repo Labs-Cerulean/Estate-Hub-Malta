@@ -101,6 +101,16 @@ function plantBaseModeName(): string
     return 'Standard Operation';
 }
 
+function plantNormalizeTripQty($value, int $default = 1): int
+{
+    $qty = (int)$value;
+    if ($qty < 1) {
+        $qty = max(1, $default);
+    }
+
+    return $qty;
+}
+
 function plantSessionHoursBetween(string $punchIn, string $punchOut): float
 {
     $inTs = strtotime($punchIn);
@@ -411,7 +421,7 @@ function pushBookingToERP($pdo, $bookingId, $userId) {
     } elseif ($job['pricing_type'] == 'per_trip') {
         $tCode = $fixedNom ? trim($fixedNom['NCCode']) : trim($job['nom_code_fixed']);
         $tDesc = $fixedNom ? substr(trim($fixedNom['NCDesc']), 0, 35) : "Trip Execution Charge";
-        $qty = round((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1, 2);
+        $qty = round(plantNormalizeTripQty($job['qty_trips'] ?? 1), 2);
         $price = round((float)$job['final_rate_fixed'], 4);
         $grossSubtotal += round($qty * $price, 2);
         
@@ -1594,7 +1604,7 @@ if ($action == 'punch_out_complete') {
     
     $stmt->execute([
         $punchTime,
-        empty($_POST['qty_trips']) ? null : $_POST['qty_trips'], 
+        empty($_POST['qty_trips']) ? null : plantNormalizeTripQty($_POST['qty_trips']),
         $deliveryChit !== '' ? $deliveryChit : null,
         $_POST['rep_name'], 
         $_POST['rep_id'], 
@@ -1718,8 +1728,8 @@ if ($action == 'finalize_and_invoice' && $canViewLedger) {
         }
     } elseif ($job['pricing_type'] == 'per_trip') {
         $tripQty = isset($_POST['qty_trips'])
-            ? (int)max(1, (int)$_POST['qty_trips'])
-            : (int)max(1, round($finalHours > 0 ? $finalHours : ((float)$job['qty_trips'] > 0 ? (float)$job['qty_trips'] : 1)));
+            ? plantNormalizeTripQty($_POST['qty_trips'])
+            : plantNormalizeTripQty($finalHours > 0 ? $finalHours : ($job['qty_trips'] ?? 1));
         $pdo->prepare("UPDATE plant_bookings SET qty_trips = ? WHERE id = ?")->execute([$tripQty, $bookingId]);
         $job['qty_trips'] = $tripQty;
         $backendSubtotal += round($tripQty * $syncPriceFixed, 2);

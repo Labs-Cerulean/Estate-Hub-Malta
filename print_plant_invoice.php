@@ -352,7 +352,7 @@ $isTripBased = ($job['pricing_type'] == 'per_trip');
 $isDailyBased = ($job['pricing_type'] == 'daily');
 
 if ($isTripBased) {
-    $qtyValue = ($job['qty_trips'] > 0) ? $job['qty_trips'] : 1;
+    $qtyValue = max(1, (int)($job['qty_trips'] ?? 1));
     $qtyLabel = "Trips Executed";
 } elseif ($isDailyBased) {
     $qtyValue = (isset($job['final_hours']) && $job['final_hours'] > 0) ? $job['final_hours'] : $diffDays;
@@ -513,7 +513,7 @@ $canToggleSetupFee = $canEdit && (
 
                     <div class="edit-field" id="field_master_qty" style="<?= $hasConfiguredModes ? 'display:none;' : '' ?>">
                         <label>Final <?= htmlspecialchars($qtyLabel) ?></label>
-                        <input type="number" id="calc_master_qty" value="<?= $qtyValue ?>" step="0.25" oninput="renderTable()" <?= !$erpAvailable ? 'disabled' : '' ?>>
+                        <input type="number" id="calc_master_qty" value="<?= $qtyValue ?>" step="<?= $isTripBased ? '1' : '0.25' ?>" min="<?= $isTripBased ? '1' : '0' ?>" oninput="onMasterQtyInput()" <?= !$erpAvailable ? 'disabled' : '' ?>>
                     </div>
 
                     <?php if ($canDiscount): ?>
@@ -836,6 +836,23 @@ $canToggleSetupFee = $canEdit && (
 
         const PLANT_BASE_MODE = 'Standard Operation';
 
+        function normalizeTripQty(value) {
+            return Math.max(1, parseInt(value, 10) || 1);
+        }
+
+        function onMasterQtyInput() {
+            if (pricingType === 'per_trip') {
+                const qtyInput = document.getElementById('calc_master_qty');
+                if (qtyInput) {
+                    const normalized = normalizeTripQty(qtyInput.value);
+                    if (String(normalized) !== qtyInput.value) {
+                        qtyInput.value = normalized;
+                    }
+                }
+            }
+            renderTable();
+        }
+
         function getMasterQty() {
             if (hasConfiguredModes && Object.keys(modeState).length > 0) {
                 if (modeState[PLANT_BASE_MODE]) {
@@ -844,7 +861,11 @@ $canToggleSetupFee = $canEdit && (
                 return Object.values(modeState).reduce((sum, data) => sum + (parseFloat(data.hours) || 0), 0);
             }
             const qtyInput = document.getElementById('calc_master_qty');
-            return parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : <?= $qtyValue ?>);
+            const rawQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : <?= $qtyValue ?>);
+            if (pricingType === 'per_trip') {
+                return normalizeTripQty(rawQty);
+            }
+            return rawQty;
         }
 
         function renderAddonEditTable() {
@@ -1016,7 +1037,8 @@ $canToggleSetupFee = $canEdit && (
         }
 
         function renderTable() {
-            let totalQty = getMasterQty().toFixed(2);
+            const rawQty = getMasterQty();
+            const totalQty = pricingType === 'per_trip' ? String(normalizeTripQty(rawQty)) : rawQty.toFixed(2);
             
             const tbody = document.getElementById('lines-body');
             let html = '';
@@ -1221,7 +1243,7 @@ $canToggleSetupFee = $canEdit && (
             fd.append('discount_pct', currentDiscountPct);
 
             if (pricingType === 'per_trip') {
-                fd.append('qty_trips', Math.max(1, Math.round(finalQty)));
+                fd.append('qty_trips', normalizeTripQty(finalQty));
             }
 
             const chitEl = document.getElementById('edit_delivery_chit_number');
