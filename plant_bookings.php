@@ -407,7 +407,7 @@ $userId = $_SESSION['user_id'];
     function buildPlantModeChoices(configurations, plantName) {
         const choices = [{ name: PLANT_BASE_MODE, label: `${plantName || 'Plant'} (Base)` }];
         const seen = { [PLANT_BASE_MODE]: true };
-        (configurations || []).forEach(cfg => {
+        (Array.isArray(configurations) ? configurations : []).forEach(cfg => {
             if (cfg.type !== 'mode') return;
             const name = (cfg.name || '').trim();
             if (!name || seen[name]) return;

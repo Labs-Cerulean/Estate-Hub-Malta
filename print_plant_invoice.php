@@ -767,6 +767,19 @@ $hasSetupFeeFlag = $canEdit
             }
         }
 
+        const PLANT_BASE_MODE = 'Standard Operation';
+
+        function getMasterQty() {
+            if (hasConfiguredModes && Object.keys(modeState).length > 0) {
+                if (modeState[PLANT_BASE_MODE]) {
+                    return parseFloat(modeState[PLANT_BASE_MODE].hours) || 0;
+                }
+                return Object.values(modeState).reduce((sum, data) => sum + (parseFloat(data.hours) || 0), 0);
+            }
+            const qtyInput = document.getElementById('calc_master_qty');
+            return parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : <?= $qtyValue ?>);
+        }
+
         function renderAddonEditTable() {
             const addonsBody = document.getElementById('edit_addons_body');
             if (!addonsBody) return;
@@ -775,9 +788,9 @@ $hasSetupFeeFlag = $canEdit
             addonsBody.innerHTML = rows.map(([name, data]) => `
                 <tr>
                     <td><strong>${escapeHtml(name)}</strong></td>
-                    <td><input type="number" step="1" min="0" value="${data.qty}" onchange="setAddonQty('${name.replace(/'/g, "\\'")}', this.value)"></td>
+                    <td><input type="number" step="1" min="0" value="${data.qty}" data-addon-name="${escapeHtml(name)}" onchange="setAddonQty(this.getAttribute('data-addon-name'), this.value)"></td>
                     <td><span class="rate-readonly">${(parseFloat(data.rate) || 0).toFixed(4)}</span></td>
-                    <td><button type="button" class="btn-danger-soft" onclick="removeAddon('${name.replace(/'/g, "\\'")}')">Remove</button></td>
+                    <td><button type="button" class="btn-danger-soft" data-addon-name="${escapeHtml(name)}" onclick="removeAddon(this.getAttribute('data-addon-name'))">Remove</button></td>
                 </tr>
             `).join('');
 
@@ -836,7 +849,7 @@ $hasSetupFeeFlag = $canEdit
             modesBody.innerHTML = Object.entries(modeState).map(([name, data]) => `
                 <tr>
                     <td><strong>${escapeHtml(modeDisplayName(name))}</strong></td>
-                    <td><input type="number" step="0.25" min="0" value="${(parseFloat(data.hours) || 0).toFixed(2)}" onchange="setModeHours('${name.replace(/'/g, "\\'")}', this.value)"></td>
+                    <td><input type="number" step="0.25" min="0" value="${(parseFloat(data.hours) || 0).toFixed(2)}" data-mode="${escapeHtml(name)}" onchange="setModeHours(this.getAttribute('data-mode'), this.value)"></td>
                     <td><span class="rate-readonly">${(parseFloat(data.rate) || 0).toFixed(4)}</span></td>
                 </tr>
             `).join('');
@@ -917,8 +930,7 @@ $hasSetupFeeFlag = $canEdit
         }
 
         function renderTable() {
-            const qtyInput = document.getElementById('calc_master_qty');
-            let totalQty = parseFloat(qtyInput ? (parseFloat(qtyInput.value) || 0) : <?= $qtyValue ?>).toFixed(2);
+            let totalQty = getMasterQty().toFixed(2);
             
             const tbody = document.getElementById('lines-body');
             let html = '';
@@ -951,7 +963,7 @@ $hasSetupFeeFlag = $canEdit
                     <td class="text-right"><b>${fTotal.toFixed(2)}</b></td>
                 </tr>`;
 
-                const extraHours = Math.max(0, totalQty - minHours);
+                const extraHours = Math.max(0, parseFloat(totalQty) - minHours);
                 if (extraHours > 0) {
                     const vCode = rawNomVar || 'MISSING';
                     const vDesc = 'Additional Hourly Rate';
@@ -965,6 +977,26 @@ $hasSetupFeeFlag = $canEdit
                         <td class="text-right">${formatRate(rateVar)}</td>
                         <td class="text-right"><b>${vTotal.toFixed(2)}</b></td>
                     </tr>`;
+                }
+
+                if (hasConfiguredModes) {
+                    for (const [modeName, data] of Object.entries(modeState)) {
+                        if (modeName === PLANT_BASE_MODE) continue;
+                        const mCode = data.nom_code || 'MISSING';
+                        let mQty = parseFloat(data.hours) || 0;
+                        let mRate = parseFloat(data.rate) || 0;
+                        if (mQty <= 0) continue;
+                        let mTotal = +(mQty * mRate).toFixed(2);
+                        grossSubtotal += mTotal;
+
+                        html += `<tr>
+                            <td><b>${mCode}</b></td>
+                            <td>Primary Mode: ${escapeHtml(modeDisplayName(modeName))}<br><i style="font-size:0.8rem; color:#64748b;">(Job Ref: ${jobRef})</i></td>
+                            <td class="text-right">${mQty.toFixed(2)} Hrs</td>
+                            <td class="text-right">${formatRate(mRate)}</td>
+                            <td class="text-right"><b>${mTotal.toFixed(2)}</b></td>
+                        </tr>`;
+                    }
                 }
             } 
             else if (pricingType === 'per_trip') {
@@ -1094,7 +1126,7 @@ $hasSetupFeeFlag = $canEdit
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
             btn.disabled = true;
 
-            const finalQty = document.getElementById('calc_master_qty').value;
+            const finalQty = getMasterQty();
 
             const fd = new FormData();
             fd.append('action', 'finalize_and_invoice');

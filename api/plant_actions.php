@@ -146,9 +146,25 @@ function applyPlantInvoiceModeOverrides(PDO $pdo, int $bookingId, array $overrid
         }
 
         if (!empty($group)) {
-            $lastSession = $group[count($group) - 1];
-            $newHours = max(0, round(((float)$lastSession['hours']) + ($targetHours - $currentTotal), 2));
-            $updateHoursStmt->execute([$newHours, (int)$lastSession['id'], $bookingId]);
+            $diff = round($targetHours - $currentTotal, 2);
+            if ($diff > 0) {
+                $lastSession = $group[count($group) - 1];
+                $newHours = round((float)$lastSession['hours'] + $diff, 2);
+                $updateHoursStmt->execute([$newHours, (int)$lastSession['id'], $bookingId]);
+            } elseif ($diff < 0) {
+                $remainingDeduction = round(abs($diff), 2);
+                for ($i = count($group) - 1; $i >= 0; $i--) {
+                    $sessionRow = $group[$i];
+                    $currentSessHours = round((float)$sessionRow['hours'], 2);
+                    if ($currentSessHours >= $remainingDeduction) {
+                        $newHours = round($currentSessHours - $remainingDeduction, 2);
+                        $updateHoursStmt->execute([$newHours, (int)$sessionRow['id'], $bookingId]);
+                        break;
+                    }
+                    $updateHoursStmt->execute([0.0, (int)$sessionRow['id'], $bookingId]);
+                    $remainingDeduction = round($remainingDeduction - $currentSessHours, 2);
+                }
+            }
             continue;
         }
 
