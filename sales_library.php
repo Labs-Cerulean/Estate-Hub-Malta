@@ -95,7 +95,57 @@ if (!empty($projectsRaw)) {
     .lib-tabs { display: flex; gap: 8px; margin-bottom: 15px; }
     .lib-tab { padding: 8px 16px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; cursor: pointer; border: 1px solid var(--lib-border); background: var(--lib-bg-base); color: var(--lib-text-muted); }
     .lib-tab.active { background: rgba(16,185,129,0.12); color: var(--lib-avail); border-color: var(--lib-avail); }
-    .lib-units { display: flex; flex-direction: column; gap: 15px; }
+    /* Unit cards: responsive grid so large projects are easier to scan */
+    .lib-units > div {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 12px;
+        padding: 0 !important;
+    }
+    .lib-units .unit-card {
+        margin-bottom: 0 !important;
+        height: 100%;
+    }
+    .lib-units .unit-card .card-body {
+        padding: 14px !important;
+    }
+    .lib-units .unit-card h5 {
+        font-size: 1rem !important;
+    }
+    .lib-units .unit-card .d-flex.justify-content-between.align-items-start {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .lib-units .unit-card .badge {
+        align-self: flex-start;
+    }
+    .lib-units .unit-card .text-muted {
+        font-size: 0.75rem !important;
+        line-height: 1.35;
+    }
+    .lib-units .unit-card .d-flex.mt-3 {
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 10px !important;
+    }
+    .lib-units .unit-card .d-flex.mt-3 > div {
+        margin-right: 0 !important;
+    }
+    .lib-units .unit-card [id^="price_disp_"] {
+        margin-bottom: 0 !important;
+        padding: 10px !important;
+    }
+    .lib-units .unit-card [id^="price_disp_"] .d-flex {
+        flex-direction: column;
+        gap: 6px;
+        align-items: flex-start !important;
+    }
+    .lib-units .unit-card [id^="price_disp_"] .text-end {
+        text-align: left !important;
+    }
+    .lib-units .unit-card [id^="price_disp_"] div[style*="1.4rem"] {
+        font-size: 1.15rem !important;
+    }
     .lib-loader { display: none; text-align: center; padding: 30px; color: var(--lib-accent); font-weight: 700; }
     .lib-modal { display: none; position: fixed; z-index: 2000; inset: 0; background: rgba(15,23,42,0.95); backdrop-filter: blur(8px); }
     .lib-modal-content { background: var(--lib-bg-panel); margin: 5vh auto; padding: 20px; border: 1px solid var(--lib-border); border-radius: 16px; width: 95%; max-width: 1200px; height: 85vh; display: flex; flex-direction: column; color: #fff; }
