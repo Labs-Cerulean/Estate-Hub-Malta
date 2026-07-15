@@ -18,13 +18,13 @@ if (!hasSalesProjectAccess($pdo, $project_id)) {
     salesDenyJsonAccess();
 }
 
-$visStmt = $pdo->prepare('SELECT show_for_sale FROM projects WHERE id = ?');
-$visStmt->execute([$project_id]);
-if (!(int)$visStmt->fetchColumn()) {
-    salesDenyJsonAccess('Project is not listed for sale.');
-}
-
 try {
+    $visStmt = $pdo->prepare('SELECT show_for_sale FROM projects WHERE id = ?');
+    $visStmt->execute([$project_id]);
+    if (!(int)$visStmt->fetchColumn()) {
+        salesDenyJsonAccess('Project is not listed for sale.');
+    }
+
     $s3 = new S3FileManager();
 
     // Fetch Media Links for the Sidebar Carousel and Floor Plans

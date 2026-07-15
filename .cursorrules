@@ -34,9 +34,10 @@ Company data is highly confidential. These rules apply to **every file** in the 
 ## Input, Output & Injection
 1. **SQL**: PDO prepared statements only — no string concatenation of user input into queries. Never put variables inside column/table names without a strict allowlist.
 2. **XSS**: Escape ALL untrusted output in HTML with `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')` (or existing `safe_html()` helpers). Use `json_encode(..., JSON_HEX_APOS | JSON_HEX_TAG)` for data embedded in JavaScript. Never echo raw `$_GET`/`$_POST`/DB fields into HTML or JS.
-3. **Shell/command injection**: No `exec`, `shell_exec`, `system`, or backtick execution with user input. No dynamic `include`/`require` from request parameters.
-4. **SSRF**: Do not fetch arbitrary URLs from user-supplied input. External HTTP calls (maps, ERP, S3) must use server-defined endpoints/keys only.
-5. **Path traversal**: File paths from user input must be validated; uploads/downloads go through `S3FileManager.php` with controlled keys — no direct filesystem reads from request params.
+3. **Client-side JS (Stored/DOM XSS)**: Treat DB fields, upload filenames, document titles, and presigned S3/R2 URLs as untrusted when building UI with `innerHTML`, template literals, or attribute strings. Use a shared `escapeHtml()` (or `createTextNode` / `createElement`) before inserting names/titles into the DOM. Escape URLs placed in `href`/`src`; for **display-only** filenames from presigned URLs, strip the query string first (`split('?')[0]`) so signatures are not shown in the UI.
+4. **Shell/command injection**: No `exec`, `shell_exec`, `system`, or backtick execution with user input. No dynamic `include`/`require` from request parameters.
+5. **SSRF**: Do not fetch arbitrary URLs from user-supplied input. External HTTP calls (maps, ERP, S3) must use server-defined endpoints/keys only.
+6. **Path traversal**: File paths from user input must be validated; uploads/downloads go through `S3FileManager.php` with controlled keys — no direct filesystem reads from request params.
 
 ## Authentication, Sessions & Authorization (every protected file)
 1. **Every PHP page and API file** that reads or writes data must include `init.php` + `session-check.php` unless it is an explicitly documented public entry (e.g. login) — no exceptions for "internal" or "admin-only" scripts.
@@ -60,6 +61,8 @@ Company data is highly confidential. These rules apply to **every file** in the 
 1. New JSON/API endpoints need the same auth stack as pages: `init.php`, `session-check.php`, permission checks, and input validation.
 2. Validate `action` / `quote_type` / role values against allowlists — reject unknown enum values (do not silently coerce to dangerous defaults).
 3. Rate-limit or confirm destructive actions (delete, bulk assign, unlock quote, reload catalogue) where the codebase already uses confirmation patterns.
+4. **Schema-dependent queries** on JSON endpoints belong inside `try/catch` so a missing column (pre-migration deploy) returns JSON errors, not uncaught 500s.
+5. **Role allowlists must align**: page-level `$allowed_roles` / `session-check.php` sandboxes must match per-action checks (e.g. if `director` may call an AJAX action, they must be able to load the page).
 
 ## Agent Security Workflow (MANDATORY — every code change, every file)
 Before implementing **any** change (feature, bugfix, refactor, CSS, SQL, JS), explicitly assess and state in the reply:
@@ -96,6 +99,8 @@ See **`docs/DEFINITION_OF_DONE.md`** for the full checklist. Agents and humans m
 - [ ] Array → SQL bind order matches if persisting flags/caps/config
 - [ ] No secrets, credentials, or verbose errors added to the diff
 - [ ] Fail-closed: denied user cannot access via direct URL or forged POST
+- [ ] Client-side templates: no raw DB/upload filenames or titles in `innerHTML` without escaping
+- [ ] Page role gates match AJAX/action role gates on the same surface
 # Code Style and Architecture Rules
 1. **No New Frameworks**: Do not introduce React, Vue, Tailwind, Bootstrap, or Laravel components. Stick to the existing vanilla HTML/JS and the CSS variables defined in `styles.css` (e.g., `var(--primary-color)`, `var(--bg-card)`).
 2. **File Handling**: 

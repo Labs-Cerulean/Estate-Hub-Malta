@@ -2,8 +2,8 @@
 require_once 'config.php';
 require_once 'session-check.php';
 
-// Strict Access Control: Admin & Sales Manager ONLY (or explicit custom permission)
-$allowed_roles = ['sales_manager', 'admin'];
+// Strict Access Control: Admin, Director & Sales Manager (or explicit custom permission)
+$allowed_roles = ['sales_manager', 'admin', 'director'];
 if (!in_array($_SESSION['role'], $allowed_roles) && !hasPermission('manage_sales_frames')) {
     header("Location: index.php?error=unauthorized");
     exit;
@@ -468,6 +468,20 @@ foreach ($projectsRaw as $p) {
     let currentMedia = [];
     let currentVisibility = { show_for_sale: 1, show_for_sale_external: 0 };
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function mediaDisplayFileName(filePath) {
+        if (!filePath) return '';
+        return filePath.split('?')[0].split('/').pop() || '';
+    }
+
     function renderVisibilityPanel() {
         document.getElementById('showForSaleToggle').checked = !!currentVisibility.show_for_sale;
         document.getElementById('showForSaleExternalToggle').checked = !!currentVisibility.show_for_sale_external;
@@ -640,41 +654,50 @@ foreach ($projectsRaw as $p) {
         currentMedia.forEach(m => {
             if (m.sub_category === 'Project Plans') {
                 hasProjectPlans = true;
+                const safeTitle = escapeHtml(m.title || 'Project Plans Set');
+                const cleanFileName = escapeHtml(mediaDisplayFileName(m.file_path));
+                const safeFilePath = escapeHtml(m.file_path);
                 projectPlanHtml += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:var(--pm-bg-base); padding:15px; border:1px solid var(--pm-border); border-radius:8px; margin-bottom:10px;">
                         <div>
-                            <strong style="color: var(--pm-text-main);"><i class="fas fa-drafting-compass text-blue-500"></i> ${m.title || 'Project Plans Set'}</strong>
-                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${m.file_path.split('/').pop()}</div>
+                            <strong style="color: var(--pm-text-main);"><i class="fas fa-drafting-compass text-blue-500"></i> ${safeTitle}</strong>
+                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${cleanFileName}</div>
                         </div>
                         <div>
-                            <a href="${m.file_path}" target="_blank" rel="noopener" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
-                            <button class="btn-heavy btn-red" style="padding:6px 12px; font-size:0.85rem;" onclick="deleteMedia(${m.id})"><i class="fas fa-trash"></i></button>
+                            <a href="${safeFilePath}" target="_blank" rel="noopener noreferrer" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
+                            <button class="btn-heavy btn-red" style="padding:6px 12px; font-size:0.85rem;" onclick="deleteMedia(${parseInt(m.id, 10)})"><i class="fas fa-trash"></i></button>
                         </div>
                     </div>`;
             } else if (m.sub_category.includes('Floor Plan')) {
                 hasFloors = true;
-                let lvl = m.title.replace('Floor Plan - ', '');
+                const safeLevel = escapeHtml((m.title || '').replace('Floor Plan - ', ''));
+                const cleanFileName = escapeHtml(mediaDisplayFileName(m.file_path));
+                const safeFilePath = escapeHtml(m.file_path);
                 floorHtml += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:var(--pm-bg-base); padding:15px; border:1px solid var(--pm-border); border-radius:8px; margin-bottom:10px;">
                         <div>
-                            <strong style="color: var(--pm-text-main);"><i class="fas fa-layer-group text-blue-500"></i> Level: ${lvl}</strong>
-                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${m.file_path.split('/').pop()}</div>
+                            <strong style="color: var(--pm-text-main);"><i class="fas fa-layer-group text-blue-500"></i> Level: ${safeLevel}</strong>
+                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${cleanFileName}</div>
                         </div>
                         <div>
-                            <a href="${m.file_path}" target="_blank" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
-                            <button class="btn-heavy btn-red" style="padding:6px 12px; font-size:0.85rem;" onclick="deleteMedia(${m.id})"><i class="fas fa-trash"></i></button>
+                            <a href="${safeFilePath}" target="_blank" rel="noopener noreferrer" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
+                            <button class="btn-heavy btn-red" style="padding:6px 12px; font-size:0.85rem;" onclick="deleteMedia(${parseInt(m.id, 10)})"><i class="fas fa-trash"></i></button>
                         </div>
                     </div>`;
             } else if (m.sub_category.includes('Render') || m.sub_category.includes('Video')) {
-                let mediaEl = m.sub_category.includes('Video') ? `<video src="${m.file_path}" controls></video>` : `<img src="${m.file_path}">`;
+                const safeCategory = escapeHtml(m.sub_category);
+                const safeFilePath = escapeHtml(m.file_path);
+                const mediaEl = m.sub_category.includes('Video')
+                    ? `<video src="${safeFilePath}" controls></video>`
+                    : `<img src="${safeFilePath}" alt="">`;
                 mediaGrid.innerHTML += `
-                    <div class="media-card" data-id="${m.id}">
+                    <div class="media-card" data-id="${parseInt(m.id, 10)}">
                         ${mediaEl}
-                        <div class="media-title">${m.sub_category}</div>
+                        <div class="media-title">${safeCategory}</div>
                         <label style="font-size:0.7rem; color:var(--pm-text-muted);">Display Order:</label><br>
-                        <input type="number" class="media-order inp-sort" value="${m.sort_order || 0}">
+                        <input type="number" class="media-order inp-sort" value="${parseInt(m.sort_order, 10) || 0}">
                         <br>
-                        <button class="btn-heavy btn-red" style="width:100%; padding:6px; font-size:0.8rem;" onclick="deleteMedia(${m.id})"><i class="fas fa-trash"></i> Delete</button>
+                        <button class="btn-heavy btn-red" style="width:100%; padding:6px; font-size:0.8rem;" onclick="deleteMedia(${parseInt(m.id, 10)})"><i class="fas fa-trash"></i> Delete</button>
                     </div>`;
             }
         });
