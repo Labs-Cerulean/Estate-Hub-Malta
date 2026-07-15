@@ -52,10 +52,13 @@ try {
         }
     }
 
+    $extendedResale = salesResaleExtendedColumnsAvailable($pdo);
+    $resaleExtraCols = $extendedResale ? ', sp.resale_pricing_mode, sp.resale_shell_price, sp.resale_finishes_price' : '';
+
     // Fetch Units & Assigned Agent Names
     // MATH SORTING: (sp.floor_level + 0) forces MySQL to mathematically calculate the value (-3 < 0) rather than sorting strings alphabetically
     $stmt = $pdo->prepare("
-        SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.resale_price, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
+        SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.resale_price{$resaleExtraCols}, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
                u.first_name, u.last_name, sp.block 
         FROM sales_properties sp 
         LEFT JOIN users u ON sp.held_by_agent_id = u.id 
@@ -117,9 +120,15 @@ try {
             // --- START BEAUTIFUL CARD ---
             // Fix: Added data-floor attribute so JS can mathematically sort negative floors
             $floorLevelSafe = htmlspecialchars(trim($u['floor_level']), ENT_QUOTES, 'UTF-8');
+            $resaleMode = $extendedResale ? ($u['resale_pricing_mode'] ?? '') : '';
+            $resaleShell = $extendedResale ? floatval($u['resale_shell_price'] ?? 0) : 0;
+            $resaleFin = $extendedResale ? floatval($u['resale_finishes_price'] ?? 0) : 0;
             $resaleAsking = floatval($u['resale_price'] ?? 0);
             $resaleAttr = htmlspecialchars((string)$resaleAsking, ENT_QUOTES, 'UTF-8');
-            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' data-resale-price='{$resaleAttr}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
+            $resaleModeAttr = htmlspecialchars((string)$resaleMode, ENT_QUOTES, 'UTF-8');
+            $resaleShellAttr = htmlspecialchars((string)$resaleShell, ENT_QUOTES, 'UTF-8');
+            $resaleFinAttr = htmlspecialchars((string)$resaleFin, ENT_QUOTES, 'UTF-8');
+            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' data-resale-price='{$resaleAttr}' data-resale-mode='{$resaleModeAttr}' data-resale-shell='{$resaleShellAttr}' data-resale-finishes='{$resaleFinAttr}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---
@@ -154,14 +163,21 @@ try {
                             </div>
                           </div>";
             } elseif ($status === 'Resale') {
-                $askingDisplay = $resaleAsking > 0
-                    ? '€' . number_format($resaleAsking, 0)
-                    : '<span style="font-size: 0.95rem; color: #94a3b8;">Not set yet</span>';
+                if ($resaleMode === 'split' && ($resaleShell > 0 || $resaleFin > 0)) {
+                    $askingDisplay = '€' . number_format($resaleShell + $resaleFin, 0);
+                    $detailHtml = "Shell €" . number_format($resaleShell, 0) . " | Works/Fin €" . number_format($resaleFin, 0);
+                } elseif ($resaleAsking > 0) {
+                    $askingDisplay = '€' . number_format($resaleAsking, 0);
+                    $detailHtml = 'All-in asking price';
+                } else {
+                    $askingDisplay = '<span style="font-size: 0.95rem; color: #94a3b8;">Not set yet</span>';
+                    $detailHtml = 'Set pricing in Sales Hub';
+                }
                 $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
                             <div class='d-flex justify-content-between align-items-center'>
                                 <div>
                                     <div style='font-size: 0.7rem; color: #a855f7; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>3rd Party Resale</div>
-                                    <div style='font-size: 0.75rem; color: #64748b;'>List ref: Shell €" . number_format($u['shell_price'], 0) . " | Fin €" . number_format($u['finishes_price'], 0) . "</div>
+                                    <div style='font-size: 0.75rem; color: #64748b;'>{$detailHtml}</div>
                                 </div>
                                 <div class='text-end'>
                                     <div style='font-size: 0.7rem; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>Asking Price</div>
@@ -198,7 +214,7 @@ try {
                 $html .= "  </select>
                           </div>";
             } elseif (!$is_external) {
-                if ($status === 'Available') {
+                if ($status === 'Available' || $status === 'Resale') {
                     $html .= "<div style='margin-bottom: 12px;'>
                                 <button class='btn' style='display: block; width: 100%; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='holdProperty({$u['id']})'><i class='fas fa-hand-paper' style='margin-right: 5px;'></i> Put on Hold</button>
                               </div>";

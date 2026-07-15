@@ -28,7 +28,7 @@ function logSalesAction($pdo, $property_id, $user_id, $action_name, $old_status,
 try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    $stmt = $pdo->prepare("SELECT status, held_by_agent_id, hold_expiry, project_id FROM sales_properties WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT status, held_by_agent_id, hold_expiry, project_id" . (salesResaleExtendedColumnsAvailable($pdo) ? ', status_before_hold' : '') . " FROM sales_properties WHERE id = ?");
     $stmt->execute([$property_id]);
     $property = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -46,13 +46,14 @@ try {
     $alertResetSql = salesClearHoldAlertFlagsSql($pdo);
 
     if ($action === 'hold_property') {
-        if ($current_status !== 'Available') {
-            throw new Exception('Unit is not available to be held.');
+        if (!in_array($current_status, ['Available', 'Resale'], true)) {
+            throw new Exception('Only available or resale units can be placed on hold.');
         }
 
         $new_status = 'On Hold';
         $log_action_name = 'Placed on Hold';
         $rawExpiry = $_POST['hold_expiry'] ?? null;
+        $statusBeforeHold = ($current_status === 'Resale' && salesResaleExtendedColumnsAvailable($pdo)) ? 'Resale' : null;
 
         if ($rawExpiry !== null && trim($rawExpiry) !== '') {
             $expirySql = salesParseHoldExpiryInput($rawExpiry);
@@ -68,8 +69,17 @@ try {
                 ->format('Y-m-d H:i:s');
         }
 
-        $update = $pdo->prepare("UPDATE sales_properties SET status = ?, held_by_agent_id = ?, hold_expiry = ?{$alertResetSql} WHERE id = ?");
-        $update->execute([$new_status, $user_id, $expirySql, $property_id]);
+        $sql = "UPDATE sales_properties SET status = ?, held_by_agent_id = ?, hold_expiry = ?";
+        $params = [$new_status, $user_id, $expirySql];
+        if (salesResaleExtendedColumnsAvailable($pdo)) {
+            $sql .= ', status_before_hold = ?';
+            $params[] = $statusBeforeHold;
+        }
+        $sql .= "{$alertResetSql} WHERE id = ?";
+        $params[] = $property_id;
+
+        $update = $pdo->prepare($sql);
+        $update->execute($params);
 
     } elseif ($action === 'set_hold_deadline') {
         if (!salesCanManageHoldDeadlines($user_role)) {
@@ -108,7 +118,9 @@ try {
             throw new Exception('You are only authorized to release your own holds.');
         }
 
-        $new_status = 'Available';
+        $new_status = (salesResaleExtendedColumnsAvailable($pdo) && !empty($property['status_before_hold']))
+            ? $property['status_before_hold']
+            : 'Available';
         $log_action_name = 'Hold Released from Ledger';
         $clearSql = salesClearHoldFieldsSql($pdo);
         $update = $pdo->prepare("UPDATE sales_properties SET status = ?, {$clearSql} WHERE id = ?");
