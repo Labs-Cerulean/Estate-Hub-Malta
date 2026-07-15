@@ -2,8 +2,8 @@
 require_once 'config.php';
 require_once 'session-check.php';
 
-// Strict Access Control: Admin, Director & Sales Manager (or explicit custom permission)
-$allowed_roles = ['sales_manager', 'admin', 'director'];
+// Strict Access Control: Admin, Director, Sales Manager, System Manager (or explicit custom permission)
+$allowed_roles = ['sales_manager', 'admin', 'director', 'system_manager'];
 if (!in_array($_SESSION['role'], $allowed_roles) && !hasPermission('manage_sales_frames')) {
     header("Location: index.php?error=unauthorized");
     exit;
@@ -279,13 +279,79 @@ if (isset($_POST['action'])) {
 
 $pageTitle = 'Sales Project Manager';
 require_once 'header.php';
+require_once 'S3FileManager.php';
 
-// Fetch ONLY projects that have active sales units (Matches Jump to Project)
+// Projects with units (main grid) and empty projects (frame CSV upload only)
 $projectsRaw = salesGetAccessibleProjectsWithUnits($pdo);
 $projectsByCity = [];
 foreach ($projectsRaw as $p) {
     $city = trim($p['city']) ? trim($p['city']) : 'Uncategorized Locations';
     $projectsByCity[$city][] = $p;
+}
+
+$projectThumbUrls = [];
+$emptyFrameProjects = [];
+$emptyFrameThumbUrls = [];
+
+try {
+    $accessibleProjects = salesGetAccessibleProjects($pdo);
+    if (!empty($accessibleProjects)) {
+        $candidateIds = array_map('intval', array_column($accessibleProjects, 'id'));
+        $placeholders = implode(',', array_fill(0, count($candidateIds), '?'));
+        $unitStmt = $pdo->prepare("SELECT DISTINCT project_id FROM sales_properties WHERE project_id IN ($placeholders)");
+        $unitStmt->execute($candidateIds);
+        $projectsWithUnits = array_flip(array_map('intval', $unitStmt->fetchAll(PDO::FETCH_COLUMN)));
+
+        $withUnitIds = [];
+        foreach ($accessibleProjects as $projectRow) {
+            $pid = (int)$projectRow['id'];
+            if (isset($projectsWithUnits[$pid])) {
+                $withUnitIds[] = $pid;
+            } else {
+                $emptyFrameProjects[] = $projectRow;
+            }
+        }
+
+        $fetchThumbUrls = function (array $projectIds) use ($pdo): array {
+            if (empty($projectIds)) {
+                return [];
+            }
+            $thumbPlaceholders = implode(',', array_fill(0, count($projectIds), '?'));
+            $thumbStmt = $pdo->prepare("
+                SELECT pd.project_id, pd.file_path
+                FROM project_documents pd
+                INNER JOIN (
+                    SELECT project_id, MIN(id) AS min_id
+                    FROM project_documents
+                    WHERE category = 'Sales'
+                      AND sub_category = 'Render (Image)'
+                      AND project_id IN ($thumbPlaceholders)
+                    GROUP BY project_id
+                ) first_render ON pd.id = first_render.min_id
+            ");
+            $thumbStmt->execute($projectIds);
+            $urls = [];
+            $s3 = new S3FileManager();
+            foreach ($thumbStmt->fetchAll(PDO::FETCH_ASSOC) as $thumbRow) {
+                try {
+                    $urls[(int)$thumbRow['project_id']] = $s3->getPresignedUrl($thumbRow['file_path'], '+120 minutes');
+                } catch (Exception $e) {
+                    // Skip broken media keys
+                }
+            }
+            return $urls;
+        };
+
+        $projectThumbUrls = $fetchThumbUrls($withUnitIds);
+        if (!empty($emptyFrameProjects)) {
+            $emptyIds = array_map('intval', array_column($emptyFrameProjects, 'id'));
+            $emptyFrameThumbUrls = $fetchThumbUrls($emptyIds);
+        }
+    }
+} catch (Exception $e) {
+    $projectThumbUrls = [];
+    $emptyFrameProjects = [];
+    $emptyFrameThumbUrls = [];
 }
 ?>
 
@@ -295,9 +361,13 @@ foreach ($projectsRaw as $p) {
         --pm-bg-base: #0f172a;
         --pm-bg-panel: #1e293b;
         --pm-border: #334155;
+        --pm-border-light: rgba(255,255,255,0.1);
         --pm-text-main: #f8fafc;
         --pm-text-muted: #94a3b8;
         --pm-accent: #3b82f6;
+        --pm-avail: #10b981;
+        --pm-proc: #f59e0b;
+        --pm-danger: #ef4444;
     }
 
     /* Wrap the entire page in the dark theme */
@@ -326,7 +396,9 @@ foreach ($projectsRaw as $p) {
     .header-bar { 
         display: flex; 
         justify-content: space-between; 
-        align-items: center; 
+        align-items: flex-start; 
+        flex-wrap: wrap;
+        gap: 20px;
         background: var(--pm-bg-panel); 
         padding: 20px; 
         border-radius: 12px; 
@@ -335,7 +407,49 @@ foreach ($projectsRaw as $p) {
         border: 1px solid var(--pm-border); 
     }
     .header-bar h2 { color: var(--pm-text-main) !important; }
-    .header-bar select { padding: 10px 15px; border-radius: 8px; font-size: 1rem; width: 300px; outline: none; }
+    .pm-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+
+    .pm-project-section {
+        background: var(--pm-bg-panel);
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        margin-bottom: 20px;
+        border: 1px solid var(--pm-border);
+    }
+    .pm-project-section h3 { margin: 0 0 15px 0; color: var(--pm-text-main); font-size: 1rem; font-weight: 800; }
+
+    .pm-project-picker-city { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--pm-text-muted); margin: 12px 0 8px; }
+    .pm-project-picker-city:first-child { margin-top: 0; }
+    .pm-project-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+    .pm-project-picker-card {
+        background: var(--pm-bg-base); border: 2px solid var(--pm-border); border-radius: 10px;
+        padding: 8px; cursor: pointer; text-align: center; transition: 0.2s; color: #fff;
+    }
+    .pm-project-picker-card:hover { border-color: var(--pm-accent); transform: translateY(-1px); }
+    .pm-project-picker-card.selected { border-color: var(--pm-avail); box-shadow: 0 0 0 1px var(--pm-avail); background: rgba(16,185,129,0.08); }
+    .pm-project-picker-card.pm-add-card { border-style: dashed; border-color: var(--pm-accent); }
+    .pm-project-picker-card.pm-add-card:hover { background: rgba(59,130,246,0.08); }
+    .pm-project-picker-thumb {
+        width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; overflow: hidden;
+        background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
+    }
+    .pm-project-picker-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pm-project-picker-thumb i { font-size: 1.6rem; color: var(--pm-text-muted); }
+    .pm-project-picker-thumb .pm-add-icon { font-size: 2.4rem; color: var(--pm-accent); font-weight: 300; line-height: 1; }
+    .pm-project-picker-name { font-size: 0.72rem; font-weight: 700; line-height: 1.25; min-height: 2.4em; display: flex; align-items: center; justify-content: center; }
+
+    .pm-modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15,23,42,0.9); backdrop-filter: blur(8px); }
+    .pm-modal-content { background: var(--pm-bg-panel); margin: 5vh auto; padding: 25px; border: 1px solid var(--pm-border); border-radius: 16px; width: 90%; max-width: 520px; box-shadow: 0 25px 50px rgba(0,0,0,0.5); color: #fff; }
+    .pm-modal-content.large { max-width: 1200px; height: 85vh; display: flex; flex-direction: column; }
+    .pm-close { float: right; font-size: 1.5rem; color: var(--pm-text-muted); cursor: pointer; line-height: 1; }
+    .pm-close:hover { color: #fff; }
+    .pm-label { display: block; font-size: 0.75rem; font-weight: 800; color: var(--pm-text-muted); margin-bottom: 8px; text-transform: uppercase; }
+    .pm-select { width: 100%; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; outline: none; }
+    .pm-drop-zone { border: 2px dashed var(--pm-border); border-radius: 12px; padding: 30px; text-align: center; cursor: pointer; transition: 0.2s; background: rgba(0,0,0,0.2); margin-bottom: 15px; }
+    .pm-drop-zone:hover { border-color: var(--pm-avail); background: rgba(16,185,129,0.1); }
+    #pm-toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
+    .pm-toast { padding: 15px 20px; border-radius: 8px; color: #fff; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.3); transition: opacity 0.3s; display: flex; align-items: center; gap: 10px; }
     
     .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
     .tab { padding: 12px 25px; background: var(--pm-bg-base); color: var(--pm-text-muted); border-radius: 8px; cursor: pointer; font-weight: 700; transition: 0.2s; border: 1px solid var(--pm-border); }
@@ -374,23 +488,64 @@ foreach ($projectsRaw as $p) {
 <div class="manager-wrapper">
     <div class="manager-container">
         <div class="header-bar">
-            <div>
+            <div style="flex: 1; min-width: 280px;">
                 <a href="sales_hub.php" style="color: var(--pm-text-muted); text-decoration: none; font-size: 0.9rem; font-weight: bold;">&larr; Back to Sales Hub</a>
                 <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Project Frame & Media Manager</h2>
-                <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Surgically edit project frames, adjust properties, and organize media.</p>
+                <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Select a project below, or upload a new frame with the (+) tile.</p>
+                <div class="pm-toolbar">
+                    <button type="button" class="btn-heavy btn-blue" onclick="document.getElementById('dailySyncInput').click()">
+                        <i class="fas fa-sync-alt"></i> 1-Click Daily Sync
+                    </button>
+                    <input type="file" id="dailySyncInput" accept=".csv" style="display:none;" onchange="processDailySync(this)">
+                    <button type="button" class="btn-heavy btn-red" onclick="openIgnoredLedger()">
+                        <i class="fas fa-eye-slash"></i> Manage Ignored CSV Rows
+                    </button>
+                    <button type="button" class="btn-heavy btn-green" onclick="openUploadMediaModal()">
+                        <i class="fas fa-cloud-upload-alt"></i> Upload Media
+                    </button>
+                </div>
             </div>
-            <div>
-                <label style="font-weight: 800; color: var(--pm-text-muted); margin-right: 10px;">Select Project:</label>
-               <select id="projectSelect" onchange="loadProjectData()" style="padding: 10px 15px; border-radius: 8px; font-size: 1rem; width: 300px; outline: none;">
-                    <option value="">-- Choose a Project --</option>
-                    <?php foreach($projectsByCity as $city => $projs): ?>
-                        <optgroup label="<?= htmlspecialchars($city) ?>">
-                            <?php foreach($projs as $p): ?>
-                                <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
-                            <?php endforeach; ?>
-                        </optgroup>
-                    <?php endforeach; ?>
-                </select>
+        </div>
+
+        <div class="pm-project-section">
+            <h3><i class="fas fa-th-large"></i> Select Project</h3>
+            <input type="hidden" id="projectSelect" value="">
+            <div id="pmProjectGrid">
+                <?php if (empty($projectsByCity)): ?>
+                    <p style="color: var(--pm-text-muted); font-size: 0.85rem; margin: 0;">No projects with units yet. Use the (+) tile to upload a frame CSV for a new project.</p>
+                <?php else: ?>
+                    <?php
+                    foreach ($projectsByCity as $city => $projs):
+                        echo '<div class="pm-project-picker-city">' . htmlspecialchars($city, ENT_QUOTES, 'UTF-8') . '</div>';
+                        echo '<div class="pm-project-picker-grid">';
+                        foreach ($projs as $p):
+                            $pid = (int)$p['id'];
+                            $thumbUrl = $projectThumbUrls[$pid] ?? '';
+                    ?>
+                        <button type="button" class="pm-project-picker-card" data-project-id="<?= $pid ?>" onclick="selectProjectFromGrid(this)">
+                            <div class="pm-project-picker-thumb">
+                                <?php if ($thumbUrl): ?>
+                                    <img src="<?= htmlspecialchars($thumbUrl, ENT_QUOTES, 'UTF-8') ?>" alt="">
+                                <?php else: ?>
+                                    <i class="fas fa-building" aria-hidden="true"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="pm-project-picker-name"><?= htmlspecialchars($p['name'], ENT_QUOTES, 'UTF-8') ?></div>
+                        </button>
+                    <?php
+                        endforeach;
+                        echo '</div>';
+                    endforeach;
+                    ?>
+                <?php endif; ?>
+                <div class="pm-project-picker-grid" style="margin-top: 12px;">
+                    <button type="button" class="pm-project-picker-card pm-add-card" onclick="openUploadFrameModal()" title="Upload frame CSV for a new project">
+                        <div class="pm-project-picker-thumb">
+                            <span class="pm-add-icon" aria-hidden="true">+</span>
+                        </div>
+                        <div class="pm-project-picker-name">New Project Frame</div>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -464,13 +619,122 @@ foreach ($projectsRaw as $p) {
 
             <div id="projectPlansTab" class="tab-content">
                 <h4 style="margin: 0 0 20px 0;">Full Project Plans Set</h4>
-                <p style="color: var(--pm-text-muted); font-size: 0.85rem; margin: 0 0 15px 0;">Upload via Sales Hub → Upload Media → <strong>Project Plans — Full Set</strong>. External agents see these only (not floor-by-floor plans).</p>
+                <p style="color: var(--pm-text-muted); font-size: 0.85rem; margin: 0 0 15px 0;">Upload via <strong>Upload Media</strong> above → <strong>Project Plans — Full Set</strong>. External agents see these only (not floor-by-floor plans).</p>
                 <div id="projectPlanList"></div>
             </div>
         </div>
     </div>
 </div>
 
+<div id="pm-toast-container"></div>
+
+<div id="uploadFrameModal" class="pm-modal">
+    <div class="pm-modal-content">
+        <span class="pm-close" onclick="document.getElementById('uploadFrameModal').style.display='none'">&times;</span>
+        <h4 style="margin: 0 0 20px 0;">Upload Project Frame (CSV)</h4>
+        <form id="uploadFrameForm">
+            <label class="pm-label">Select empty project</label>
+            <input type="hidden" name="project_id" id="frameProjectId" value="">
+            <div class="pm-project-picker" id="frameProjectPicker" style="max-height: 280px; overflow-y: auto; margin-bottom: 20px;">
+                <?php if (empty($emptyFrameProjects)): ?>
+                    <p style="color: var(--pm-text-muted); font-size: 0.85rem; margin: 0;">
+                        No empty projects available. Frame upload is only for projects without units yet — ask an admin to create a project first.
+                    </p>
+                <?php else: ?>
+                    <?php
+                    $pickerCity = '';
+                    foreach ($emptyFrameProjects as $row):
+                        $city = trim($row['city'] ?? '') !== '' ? trim($row['city']) : 'Uncategorized';
+                        if ($city !== $pickerCity):
+                            if ($pickerCity !== '') echo '</div>';
+                            $pickerCity = $city;
+                            echo '<div class="pm-project-picker-city">' . htmlspecialchars($pickerCity, ENT_QUOTES, 'UTF-8') . '</div><div class="pm-project-picker-grid">';
+                        endif;
+                        $pid = (int)$row['id'];
+                        $thumbUrl = $emptyFrameThumbUrls[$pid] ?? '';
+                    ?>
+                        <button type="button" class="pm-project-picker-card" data-project-id="<?= $pid ?>" onclick="selectFrameProject(this)">
+                            <div class="pm-project-picker-thumb">
+                                <?php if ($thumbUrl): ?>
+                                    <img src="<?= htmlspecialchars($thumbUrl, ENT_QUOTES, 'UTF-8') ?>" alt="">
+                                <?php else: ?>
+                                    <i class="fas fa-building" aria-hidden="true"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="pm-project-picker-name"><?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?></div>
+                        </button>
+                    <?php endforeach; ?>
+                    <?php if ($pickerCity !== '') echo '</div>'; ?>
+                <?php endif; ?>
+            </div>
+            <label class="pm-label">CSV File</label>
+            <input type="file" name="frame_csv" accept=".csv" required style="width: 100%; background: var(--pm-bg-base); border: 1px solid var(--pm-border); padding: 10px; border-radius: 8px; color: #fff; margin-bottom: 20px;">
+            <button type="submit" class="btn-heavy btn-blue">Upload & Import</button>
+        </form>
+    </div>
+</div>
+
+<div id="uploadMediaModal" class="pm-modal">
+    <div class="pm-modal-content">
+        <span class="pm-close" onclick="document.getElementById('uploadMediaModal').style.display='none'">&times;</span>
+        <h4 style="margin: 0 0 20px 0;">Upload Project Media</h4>
+        <form id="uploadMediaForm">
+            <label class="pm-label">Select Project</label>
+            <select class="pm-select" name="project_id" required>
+                <option value="">-- Choose Project --</option>
+                <?php
+                $current_city = '';
+                foreach ($projectsRaw as $row) {
+                    $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
+                    if ($city !== $current_city) {
+                        if ($current_city !== '') echo '</optgroup>';
+                        echo '<optgroup label="' . htmlspecialchars($city, ENT_QUOTES, 'UTF-8') . '">';
+                        $current_city = $city;
+                    }
+                    echo '<option value="' . (int)$row['id'] . '">' . htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') . '</option>';
+                }
+                if ($current_city !== '') echo '</optgroup>';
+                ?>
+            </select>
+            <label class="pm-label">Media Type</label>
+            <select class="pm-select" name="media_type" id="mediaTypeSelect" required onchange="toggleFloorInput()">
+                <option value="Render (Image)">Render (Image)</option>
+                <option value="Render (Video)">Render (Video)</option>
+                <option value="Floor Plan">Floor Plan (PDF/Img)</option>
+                <option value="Project Plans">Project Plans — Full Set (PDF/Img)</option>
+                <option disabled>--- Pricelist Document Pages ---</option>
+                <option value="Pricelist - Front Cover">Pricelist - Front Cover</option>
+                <option value="Pricelist - Timeframes & Terms">Pricelist - Timeframes & Terms</option>
+                <option value="Pricelist - Spec Sheet">Pricelist - Spec Sheet (Multi-page PDF supported)</option>
+                <option value="Pricelist - Back Cover">Pricelist - Back Cover</option>
+            </select>
+            <div id="floorInputGroup" style="display:none;">
+                <label class="pm-label">Floor Level (Matches CSV)</label>
+                <input type="text" name="floor_level" placeholder="e.g. -1, 0, 1, 2" class="frame-input" style="margin-bottom: 15px;">
+            </div>
+            <label class="pm-label">Media Files</label>
+            <div class="pm-drop-zone" id="drop-zone">
+                <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--pm-text-muted); margin-bottom: 10px;"></i>
+                <div style="font-weight: bold; color: #fff;">Drag & Drop media here</div>
+                <div style="font-size: 0.8rem; color: var(--pm-text-muted);">or click to browse</div>
+                <input type="file" name="media_file[]" id="mediaFileInput" multiple required style="display:none;">
+            </div>
+            <div id="file-list" style="margin: 15px 0; font-size: 0.8rem; color: var(--pm-avail); max-height: 100px; overflow-y: auto;"></div>
+            <button type="submit" class="btn-heavy btn-green">Upload to Cloudflare</button>
+        </form>
+    </div>
+</div>
+
+<div id="ignoredLedgerModal" class="pm-modal">
+    <div class="pm-modal-content large" style="max-width: 800px; height: 80vh; display: flex; flex-direction: column;">
+        <div style="text-align: right; margin-bottom: 10px;">
+            <span class="pm-close" onclick="document.getElementById('ignoredLedgerModal').style.display='none'">&times;</span>
+        </div>
+        <div id="ignoredLedgerContent" style="flex: 1; overflow-y: auto; padding-right: 15px;"></div>
+    </div>
+</div>
+
+<script src="js/sales_pm_tools.js"></script>
 <script>
     // Enum mapping matching your database strictly
     const unitTypes = [
@@ -730,17 +994,17 @@ foreach ($projectsRaw as $p) {
         });
 
         if (!hasFloors) {
-            floorHtml = '<div style="padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No floor plans uploaded for this project yet. Use the Sales Hub Media Uploader to add them.</div>';
+            floorHtml = '<div style="padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No floor plans uploaded for this project yet. Use <strong>Upload Media</strong> above.</div>';
         }
         floorList.innerHTML = floorHtml;
 
         if (!hasProjectPlans) {
-            projectPlanHtml = '<div style="padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No full project plans uploaded yet. Use Sales Hub → Upload Media → Project Plans — Full Set.</div>';
+            projectPlanHtml = '<div style="padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No full project plans uploaded yet. Use <strong>Upload Media</strong> → Project Plans — Full Set.</div>';
         }
         projectPlanList.innerHTML = projectPlanHtml;
         
         if (mediaGrid.innerHTML === '') {
-            mediaGrid.innerHTML = '<div style="grid-column: 1/-1; padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No visual media uploaded yet. Use the Sales Hub Media Uploader to add renders and videos.</div>';
+            mediaGrid.innerHTML = '<div style="grid-column: 1/-1; padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No visual media uploaded yet. Use <strong>Upload Media</strong> above to add renders and videos.</div>';
         }
     }
 
@@ -785,6 +1049,8 @@ foreach ($projectsRaw as $p) {
             }
         });
     }
+
+    window.loadProjectData = loadProjectData;
 </script>
 
 <?php require_once 'footer.php'; ?>
