@@ -183,8 +183,8 @@
                     '<strong>' + escapeHtml(c.project_name) + ' - ' + escapeHtml(c.unit_name) + '</strong><br>' +
                     '<span style="color:var(--pm-text-muted);">Sh: €' + escapeHtml(c.db_shell) + ' | Fin: €' + escapeHtml(c.db_fin) + '</span></td>' +
                     '<td style="padding: 12px; text-align: right; border-left: 1px solid var(--pm-border); white-space: nowrap;">' +
-                    '<label style="margin-right: 15px; cursor: pointer;"><input type="radio" name="price_res_' + i + '" class="sync-price-radio" value="db" checked> Keep DB</label>' +
-                    '<label style="cursor: pointer; color: var(--pm-avail);"><input type="radio" name="price_res_' + i + '" class="sync-price-radio" value="csv" data-id="' + escapeHtml(c.id) + '" data-shell="' + escapeHtml(c.csv_shell) + '" data-fin="' + escapeHtml(c.csv_fin) + '"> Use CSV</label>' +
+                    '<label style="margin-right: 15px; cursor: pointer; color: var(--pm-avail);"><input type="radio" name="price_res_' + i + '" class="sync-price-radio" value="csv" checked data-id="' + escapeHtml(c.id) + '" data-shell="' + escapeHtml(c.csv_shell) + '" data-fin="' + escapeHtml(c.csv_fin) + '"> Use CSV</label>' +
+                    '<label style="cursor: pointer;"><input type="radio" name="price_res_' + i + '" class="sync-price-radio" value="db"> Keep DB</label>' +
                     '</td></tr>';
             });
 
