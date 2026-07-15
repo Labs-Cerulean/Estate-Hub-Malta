@@ -2,8 +2,8 @@
 require_once 'config.php';
 require_once 'session-check.php';
 
-// Strict Access Control: Admin & Sales Manager ONLY (or explicit custom permission)
-$allowed_roles = ['sales_manager', 'admin'];
+// Strict Access Control: Admin, Director & Sales Manager (or explicit custom permission)
+$allowed_roles = ['sales_manager', 'admin', 'director'];
 if (!in_array($_SESSION['role'], $allowed_roles) && !hasPermission('manage_sales_frames')) {
     header("Location: index.php?error=unauthorized");
     exit;
@@ -74,7 +74,40 @@ if (isset($_POST['action'])) {
                 $media[] = $m;
             }
 
-            echo json_encode(['success' => true, 'units' => $units, 'media' => $media]);
+            $stmtVisibility = $pdo->prepare('SELECT show_for_sale, show_for_sale_external FROM projects WHERE id = ?');
+            $stmtVisibility->execute([$pid]);
+            $visibilityRow = $stmtVisibility->fetch(PDO::FETCH_ASSOC) ?: [];
+            $visibility = [
+                'show_for_sale' => (int)($visibilityRow['show_for_sale'] ?? 1),
+                'show_for_sale_external' => (int)($visibilityRow['show_for_sale_external'] ?? 0),
+            ];
+
+            echo json_encode(['success' => true, 'units' => $units, 'media' => $media, 'visibility' => $visibility]);
+            exit;
+        }
+
+        if ($action === 'update_sale_visibility') {
+            $pid = (int)$_POST['project_id'];
+            salesAssertProjectAccess($pdo, $pid);
+
+            $allowedVisibilityRoles = ['admin', 'sales_manager', 'director'];
+            if (!in_array($_SESSION['role'], $allowedVisibilityRoles, true)) {
+                salesDenyJsonAccess('Unauthorized.');
+            }
+
+            $showForSale = !empty($_POST['show_for_sale']) ? 1 : 0;
+            $showExternal = !empty($_POST['show_for_sale_external']) ? 1 : 0;
+
+            $stmt = $pdo->prepare('UPDATE projects SET show_for_sale = ?, show_for_sale_external = ? WHERE id = ?');
+            $stmt->execute([$showForSale, $showExternal, $pid]);
+
+            echo json_encode([
+                'success' => true,
+                'visibility' => [
+                    'show_for_sale' => $showForSale,
+                    'show_for_sale_external' => $showExternal,
+                ],
+            ]);
             exit;
         }
 
@@ -345,10 +378,25 @@ foreach ($projectsRaw as $p) {
         </div>
 
         <div id="workspace" style="display: none;">
+            <div id="saleVisibilityPanel" style="background: var(--pm-bg-panel); border: 1px solid var(--pm-border); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 12px 0; color: var(--pm-text-main);"><i class="fas fa-eye"></i> Sales Visibility</h4>
+                <p style="margin: 0 0 15px 0; color: var(--pm-text-muted); font-size: 0.85rem;">Control whether this project appears in the in-house Sales Hub and the external agent library.</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 8px; color: var(--pm-text-main); font-weight: 600; cursor: pointer;">
+                        <input type="checkbox" id="showForSaleToggle"> Show for sale (in-house Sales Hub)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; color: var(--pm-text-main); font-weight: 600; cursor: pointer;">
+                        <input type="checkbox" id="showForSaleExternalToggle"> Show for sale — external agents
+                    </label>
+                    <button type="button" class="btn-heavy btn-blue" onclick="saveSaleVisibility()"><i class="fas fa-save"></i> Save Visibility</button>
+                </div>
+            </div>
+
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('frameTab', this)"><i class="fas fa-table"></i> Live Frame Editor</div>
                 <div class="tab" onclick="switchTab('mediaTab', this)"><i class="fas fa-images"></i> Media & Renders</div>
                 <div class="tab" onclick="switchTab('floorTab', this)"><i class="fas fa-map"></i> Floor Plans</div>
+                <div class="tab" onclick="switchTab('projectPlansTab', this)"><i class="fas fa-drafting-compass"></i> Project Plans</div>
             </div>
 
             <div id="loader" class="loader"><i class="fas fa-spinner fa-spin"></i> Loading Project Data...</div>
@@ -393,6 +441,12 @@ foreach ($projectsRaw as $p) {
                 <h4 style="margin: 0 0 20px 0;">Attached Floor Plans</h4>
                 <div id="floorPlanList"></div>
             </div>
+
+            <div id="projectPlansTab" class="tab-content">
+                <h4 style="margin: 0 0 20px 0;">Full Project Plans Set</h4>
+                <p style="color: var(--pm-text-muted); font-size: 0.85rem; margin: 0 0 15px 0;">Upload via Sales Hub → Upload Media → <strong>Project Plans — Full Set</strong>. External agents see these only (not floor-by-floor plans).</p>
+                <div id="projectPlanList"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -412,6 +466,48 @@ foreach ($projectsRaw as $p) {
 
     let currentUnits = [];
     let currentMedia = [];
+    let currentVisibility = { show_for_sale: 1, show_for_sale_external: 0 };
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function mediaDisplayFileName(filePath) {
+        if (!filePath) return '';
+        return filePath.split('?')[0].split('/').pop() || '';
+    }
+
+    function renderVisibilityPanel() {
+        document.getElementById('showForSaleToggle').checked = !!currentVisibility.show_for_sale;
+        document.getElementById('showForSaleExternalToggle').checked = !!currentVisibility.show_for_sale_external;
+    }
+
+    function saveSaleVisibility() {
+        const pid = document.getElementById('projectSelect').value;
+        if (!pid) return;
+
+        const fd = new FormData();
+        fd.append('action', 'update_sale_visibility');
+        fd.append('project_id', pid);
+        if (document.getElementById('showForSaleToggle').checked) fd.append('show_for_sale', '1');
+        if (document.getElementById('showForSaleExternalToggle').checked) fd.append('show_for_sale_external', '1');
+
+        fetch('sales_project_manager.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                currentVisibility = data.visibility || currentVisibility;
+                alert('Sales visibility updated.');
+            } else {
+                alert(data.message || 'Could not update visibility.');
+            }
+        });
+    }
 
     function switchTab(tabId, el) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -438,6 +534,8 @@ foreach ($projectsRaw as $p) {
         .then(data => {
             currentUnits = data.units || [];
             currentMedia = data.media || [];
+            currentVisibility = data.visibility || { show_for_sale: 1, show_for_sale_external: 0 };
+            renderVisibilityPanel();
             renderFrameTable();
             renderMediaManagers();
             document.getElementById('loader').style.display = 'none';
@@ -545,36 +643,61 @@ foreach ($projectsRaw as $p) {
     function renderMediaManagers() {
         const mediaGrid = document.getElementById('mediaGrid');
         const floorList = document.getElementById('floorPlanList');
+        const projectPlanList = document.getElementById('projectPlanList');
         
         mediaGrid.innerHTML = '';
         let floorHtml = '';
+        let projectPlanHtml = '';
         let hasFloors = false;
+        let hasProjectPlans = false;
 
         currentMedia.forEach(m => {
-            if (m.sub_category.includes('Floor Plan')) {
+            if (m.sub_category === 'Project Plans') {
+                hasProjectPlans = true;
+                const safeTitle = escapeHtml(m.title || 'Project Plans Set');
+                const cleanFileName = escapeHtml(mediaDisplayFileName(m.file_path));
+                const safeFilePath = escapeHtml(m.file_path);
+                projectPlanHtml += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--pm-bg-base); padding:15px; border:1px solid var(--pm-border); border-radius:8px; margin-bottom:10px;">
+                        <div>
+                            <strong style="color: var(--pm-text-main);"><i class="fas fa-drafting-compass text-blue-500"></i> ${safeTitle}</strong>
+                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${cleanFileName}</div>
+                        </div>
+                        <div>
+                            <a href="${safeFilePath}" target="_blank" rel="noopener noreferrer" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
+                            <button class="btn-heavy btn-red" style="padding:6px 12px; font-size:0.85rem;" onclick="deleteMedia(${parseInt(m.id, 10)})"><i class="fas fa-trash"></i></button>
+                        </div>
+                    </div>`;
+            } else if (m.sub_category.includes('Floor Plan')) {
                 hasFloors = true;
-                let lvl = m.title.replace('Floor Plan - ', '');
+                const safeLevel = escapeHtml((m.title || '').replace('Floor Plan - ', ''));
+                const cleanFileName = escapeHtml(mediaDisplayFileName(m.file_path));
+                const safeFilePath = escapeHtml(m.file_path);
                 floorHtml += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:var(--pm-bg-base); padding:15px; border:1px solid var(--pm-border); border-radius:8px; margin-bottom:10px;">
                         <div>
-                            <strong style="color: var(--pm-text-main);"><i class="fas fa-layer-group text-blue-500"></i> Level: ${lvl}</strong>
-                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${m.file_path.split('/').pop()}</div>
+                            <strong style="color: var(--pm-text-main);"><i class="fas fa-layer-group text-blue-500"></i> Level: ${safeLevel}</strong>
+                            <div style="font-size:0.8rem; color:var(--pm-text-muted); margin-top:4px;">File: ${cleanFileName}</div>
                         </div>
                         <div>
-                            <a href="${m.file_path}" target="_blank" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
-                            <button class="btn-heavy btn-red" style="padding:6px 12px; font-size:0.85rem;" onclick="deleteMedia(${m.id})"><i class="fas fa-trash"></i></button>
+                            <a href="${safeFilePath}" target="_blank" rel="noopener noreferrer" class="btn-heavy btn-blue" style="padding:6px 12px; font-size:0.85rem;"><i class="fas fa-eye"></i> View</a>
+                            <button class="btn-heavy btn-red" style="padding:6px 12px; font-size:0.85rem;" onclick="deleteMedia(${parseInt(m.id, 10)})"><i class="fas fa-trash"></i></button>
                         </div>
                     </div>`;
             } else if (m.sub_category.includes('Render') || m.sub_category.includes('Video')) {
-                let mediaEl = m.sub_category.includes('Video') ? `<video src="${m.file_path}" controls></video>` : `<img src="${m.file_path}">`;
+                const safeCategory = escapeHtml(m.sub_category);
+                const safeFilePath = escapeHtml(m.file_path);
+                const mediaEl = m.sub_category.includes('Video')
+                    ? `<video src="${safeFilePath}" controls></video>`
+                    : `<img src="${safeFilePath}" alt="">`;
                 mediaGrid.innerHTML += `
-                    <div class="media-card" data-id="${m.id}">
+                    <div class="media-card" data-id="${parseInt(m.id, 10)}">
                         ${mediaEl}
-                        <div class="media-title">${m.sub_category}</div>
+                        <div class="media-title">${safeCategory}</div>
                         <label style="font-size:0.7rem; color:var(--pm-text-muted);">Display Order:</label><br>
-                        <input type="number" class="media-order inp-sort" value="${m.sort_order || 0}">
+                        <input type="number" class="media-order inp-sort" value="${parseInt(m.sort_order, 10) || 0}">
                         <br>
-                        <button class="btn-heavy btn-red" style="width:100%; padding:6px; font-size:0.8rem;" onclick="deleteMedia(${m.id})"><i class="fas fa-trash"></i> Delete</button>
+                        <button class="btn-heavy btn-red" style="width:100%; padding:6px; font-size:0.8rem;" onclick="deleteMedia(${parseInt(m.id, 10)})"><i class="fas fa-trash"></i> Delete</button>
                     </div>`;
             }
         });
@@ -583,6 +706,11 @@ foreach ($projectsRaw as $p) {
             floorHtml = '<div style="padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No floor plans uploaded for this project yet. Use the Sales Hub Media Uploader to add them.</div>';
         }
         floorList.innerHTML = floorHtml;
+
+        if (!hasProjectPlans) {
+            projectPlanHtml = '<div style="padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No full project plans uploaded yet. Use Sales Hub → Upload Media → Project Plans — Full Set.</div>';
+        }
+        projectPlanList.innerHTML = projectPlanHtml;
         
         if (mediaGrid.innerHTML === '') {
             mediaGrid.innerHTML = '<div style="grid-column: 1/-1; padding:20px; text-align:center; color:var(--pm-text-muted); background:var(--pm-bg-base); border-radius:8px; border:1px solid var(--pm-border);">No visual media uploaded yet. Use the Sales Hub Media Uploader to add renders and videos.</div>';

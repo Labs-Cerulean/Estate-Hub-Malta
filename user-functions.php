@@ -369,12 +369,13 @@ function salesDenyJsonAccess(string $message = 'Access denied.'): void {
     exit;
 }
 
-function salesGetAccessibleProjectsWithUnits(PDO $pdo): array {
+function salesGetAccessibleProjectsWithUnits(PDO $pdo, bool $visibleForSaleOnly = false): array {
     $access = salesProjectAccessWhereClause($pdo, 'p');
+    $visibilitySql = $visibleForSaleOnly ? ' AND p.show_for_sale = 1' : '';
     $sql = "SELECT DISTINCT p.id, p.name, p.city
             FROM projects p
             INNER JOIN sales_properties sp ON p.id = sp.project_id
-            WHERE {$access['sql']}
+            WHERE {$access['sql']}{$visibilitySql}
             ORDER BY p.city ASC, p.name ASC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($access['params']);

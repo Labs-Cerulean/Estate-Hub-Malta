@@ -25,6 +25,7 @@ try {
         FROM projects p
         JOIN sales_properties sp ON p.id = sp.project_id
         WHERE {$access['sql']}
+        AND p.show_for_sale = 1
         GROUP BY p.id
     ";
 
