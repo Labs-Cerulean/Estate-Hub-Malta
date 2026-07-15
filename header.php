@@ -51,9 +51,8 @@ $userHubs = navUserHubs();
 $hubMeta = navHubMeta();
 $activeHub = navDetectActiveHub($currentPage);
 $showHubSwitcher = count($userHubs) > 1;
-$isPlantShell = navIsPlantOnlyRole();
-$isSalesAgentShell = navIsSalesAgentRole();
-$showEstateUtilities = !$isPlantShell && !$isSalesAgentShell;
+// Sales Hub pages (map, library, management) are a focused workspace — no Estate notifications/actions
+$showEstateUtilities = navCanAccessEstateHub() && $activeHub !== 'sales';
 $navItems = navItemsForHub($activeHub);
 $unreadCount = (isLoggedIn() && isset($pdo)) ? getUnreadNotificationCount($pdo, getCurrentUserId()) : 0;
 
