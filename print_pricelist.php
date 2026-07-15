@@ -75,6 +75,8 @@ $uStmt = $pdo->prepare("
 $uStmt->execute([$projectId]);
 $units = $uStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$canViewSoldPricing = salesCanViewSoldUnitPricing();
+
 $floors = [];
 foreach ($units as $u) {
     $floors[$u['floor_level']][] = $u;
@@ -136,6 +138,8 @@ function renderMediaPage($subCat, $mediaData) {
         .status-sold { color: #ef4444; font-weight: bold; }
         .status-avail { color: #10b981; font-weight: bold; }
 
+        body.pricelist-loading .data-page { display: none !important; }
+
         @media print {
             @page { size: A4; margin: 0; }
             body { background: transparent; margin: 0; }
@@ -186,14 +190,15 @@ function renderMediaPage($subCat, $mediaData) {
                         } elseif (stripos($unitStatus, 'Sold') !== false) {
                             $statusClass = 'status-sold';
                         }
+                        $hideSoldPrice = salesUnitStatusIsSold($unitStatus) && !$canViewSoldPricing;
                     ?>
                     <tr>
                         <td class="bold"><?= htmlspecialchars($u['unit_name']) ?></td>
                         <td><?= htmlspecialchars($u['description']) ?></td>
                         <td class="num"><?= $u['internal_sqm'] ?></td>
                         <td class="num"><?= $u['external_sqm'] ?></td>
-                        <td class="num">€<?= number_format($u['shell_price'], 0) ?></td>
-                        <td class="num"><?= $u['finishes_price'] > 0 ? '€'.number_format($u['finishes_price'], 0) : 'N/A' ?></td>
+                        <td class="num"><?= $hideSoldPrice ? '—' : '€' . number_format($u['shell_price'], 0) ?></td>
+                        <td class="num"><?= $hideSoldPrice ? '—' : ($u['finishes_price'] > 0 ? '€' . number_format($u['finishes_price'], 0) : 'N/A') ?></td>
                         <td class="num <?= $statusClass ?>"><?= strtoupper($u['status']) ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -213,7 +218,8 @@ function renderMediaPage($subCat, $mediaData) {
         document.addEventListener('DOMContentLoaded', function() {
             const pdfTargets = document.querySelectorAll('.pdf-render-target');
             if (pdfTargets.length > 0) {
-                
+                document.body.classList.add('pricelist-loading');
+
                 const printBtn = document.getElementById('printBtn');
                 if(printBtn) {
                     printBtn.disabled = true;
@@ -277,6 +283,16 @@ function renderMediaPage($subCat, $mediaData) {
                         printBtn.innerHTML = "🖨️ Save to PDF / Print";
                         printBtn.style.background = "#2563eb";
                     }
+                    document.body.classList.remove('pricelist-loading');
+                };
+                script.onerror = () => {
+                    console.error('Failed to load PDF.js script');
+                    if (printBtn) {
+                        printBtn.disabled = false;
+                        printBtn.innerHTML = '🖨️ Save to PDF / Print';
+                        printBtn.style.background = '#2563eb';
+                    }
+                    document.body.classList.remove('pricelist-loading');
                 };
                 document.head.appendChild(script);
             }

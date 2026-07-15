@@ -407,6 +407,16 @@ function salesIsExternalAgent(): bool {
     return getCurrentRole() === 'external_agent';
 }
 
+/** True when unit status is Sold - POS, Sold - Contract, etc. */
+function salesUnitStatusIsSold(?string $status): bool {
+    return $status !== null && stripos(trim($status), 'Sold') !== false;
+}
+
+/** Managers/admins may view sold-unit pricing; sales and external agents may not. */
+function salesCanViewSoldUnitPricing(): bool {
+    return in_array(getCurrentRole(), ['admin', 'sales_manager', 'system_manager', 'director'], true);
+}
+
 /** Map/list visibility SQL for the current Sales Hub viewer (in-house vs external library). */
 function salesListingVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
     if (salesIsExternalAgent()) {
