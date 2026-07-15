@@ -444,10 +444,10 @@ require_once 'header.php';
                 <option value="">-- Choose Project --</option>
                 <?php
                 try {
-                    // Shows ALL projects so brand new empty ones can be initialized
-                    $stmt = $pdo->query("SELECT id, name, city FROM projects ORDER BY city ASC, name ASC");
+                    // Accessible projects only (including empty projects for first-time frame upload)
+                    $accessibleProjects = salesGetAccessibleProjects($pdo);
                     $current_city = '';
-                    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { 
+                    foreach ($accessibleProjects as $row) {
                         $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
                         if ($city !== $current_city) {
                             if ($current_city !== '') echo '</optgroup>';
@@ -477,10 +477,9 @@ require_once 'header.php';
                 <option value="">-- Choose Project --</option>
                 <?php
                 try {
-                    // Matches Jump To Project (Only projects with units)
-                    $stmt = $pdo->query("SELECT DISTINCT p.id, p.name, p.city FROM projects p INNER JOIN sales_properties sp ON p.id = sp.project_id ORDER BY p.city ASC, p.name ASC");
+                    $accessibleProjects = salesGetAccessibleProjectsWithUnits($pdo);
                     $current_city = '';
-                    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { 
+                    foreach ($accessibleProjects as $row) {
                         $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
                         if ($city !== $current_city) {
                             if ($current_city !== '') echo '</optgroup>';

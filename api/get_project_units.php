@@ -5,13 +5,17 @@ require_once '../S3FileManager.php';
 
 header('Content-Type: application/json');
 
-$project_id = $_GET['project_id'] ?? 0;
+$project_id = (int)($_GET['project_id'] ?? 0);
 $user_role = $_SESSION['role'];
-$is_manager = in_array($user_role, ['admin', 'sales_manager', 'system_manager', 'director']);
+$is_manager = in_array($user_role, ['admin', 'sales_manager', 'system_manager', 'director'], true);
 
 if (!$project_id) {
     echo json_encode(['success' => false, 'message' => 'Project ID required']);
     exit;
+}
+
+if (!hasSalesProjectAccess($pdo, $project_id)) {
+    salesDenyJsonAccess();
 }
 
 try {

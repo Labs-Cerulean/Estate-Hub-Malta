@@ -296,6 +296,122 @@ function hasProjectAccess($pdo, $projectId) {
 }
 
 // ==========================================
+// SALES HUB — CLIENT / PROJECT ACCESS
+// ==========================================
+
+function salesHubHasGlobalAccess(): bool {
+    return isAdmin() || getCurrentRole() === 'director';
+}
+
+function hasSalesProjectAccess(PDO $pdo, int $projectId): bool {
+    if ($projectId <= 0) {
+        return false;
+    }
+    return hasProjectAccess($pdo, $projectId);
+}
+
+function hasSalesPropertyAccess(PDO $pdo, int $propertyId): bool {
+    if ($propertyId <= 0) {
+        return false;
+    }
+    $stmt = $pdo->prepare('SELECT project_id FROM sales_properties WHERE id = ?');
+    $stmt->execute([$propertyId]);
+    $projectId = $stmt->fetchColumn();
+    if (!$projectId) {
+        return false;
+    }
+    return hasSalesProjectAccess($pdo, (int)$projectId);
+}
+
+/**
+ * SQL fragment + bind params restricting rows to projects the current user may access.
+ *
+ * @return array{sql: string, params: array<int, int>}
+ */
+function salesProjectAccessWhereClause(PDO $pdo, string $projectAlias = 'p'): array {
+    if (salesHubHasGlobalAccess()) {
+        return ['sql' => '1=1', 'params' => []];
+    }
+
+    $userId = (int)getCurrentUserId();
+    if ($userId <= 0) {
+        return ['sql' => '1=0', 'params' => []];
+    }
+
+    $projectAlias = preg_replace('/[^a-zA-Z0-9_]/', '', $projectAlias) ?: 'p';
+    $sql = "(
+        EXISTS (
+            SELECT 1 FROM user_client_access uca
+            WHERE uca.user_id = ? AND uca.client_id = {$projectAlias}.clientid
+        )
+        OR EXISTS (
+            SELECT 1 FROM user_project_access upa
+            WHERE upa.user_id = ? AND upa.project_id = {$projectAlias}.id
+        )
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM user_project_exclusions upe
+        WHERE upe.user_id = ? AND upe.project_id = {$projectAlias}.id
+    )";
+
+    return ['sql' => $sql, 'params' => [$userId, $userId, $userId]];
+}
+
+function salesDenyJsonAccess(string $message = 'Access denied.'): void {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => $message]);
+    exit;
+}
+
+function salesGetAccessibleProjectsWithUnits(PDO $pdo): array {
+    $access = salesProjectAccessWhereClause($pdo, 'p');
+    $sql = "SELECT DISTINCT p.id, p.name, p.city
+            FROM projects p
+            INNER JOIN sales_properties sp ON p.id = sp.project_id
+            WHERE {$access['sql']}
+            ORDER BY p.city ASC, p.name ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($access['params']);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function salesGetAccessibleProjects(PDO $pdo): array {
+    $access = salesProjectAccessWhereClause($pdo, 'p');
+    $sql = "SELECT p.id, p.name, p.city
+            FROM projects p
+            WHERE {$access['sql']}
+            ORDER BY p.city ASC, p.name ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($access['params']);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function salesGetAccessibleUnits(PDO $pdo): array {
+    $access = salesProjectAccessWhereClause($pdo, 'p');
+    $sql = "SELECT sp.id, sp.unit_name, sp.status, sp.shell_price, sp.finishes_price, p.name AS project_name
+            FROM sales_properties sp
+            JOIN projects p ON sp.project_id = p.id
+            WHERE {$access['sql']}
+            ORDER BY p.name ASC, sp.unit_name ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($access['params']);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function salesAssertPropertyAccess(PDO $pdo, int $propertyId): void {
+    if (!hasSalesPropertyAccess($pdo, $propertyId)) {
+        salesDenyJsonAccess();
+    }
+}
+
+function salesAssertProjectAccess(PDO $pdo, int $projectId): void {
+    if (!hasSalesProjectAccess($pdo, $projectId)) {
+        salesDenyJsonAccess();
+    }
+}
+
+// ==========================================
 // 4. USER MANAGEMENT UTILITIES
 // ==========================================
 
