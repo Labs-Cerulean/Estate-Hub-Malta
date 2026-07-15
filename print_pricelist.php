@@ -38,9 +38,7 @@ if (!hasSalesProjectAccess($pdo, $projectId)) {
     die("Access denied.");
 }
 
-$visStmt = $pdo->prepare('SELECT show_for_sale FROM projects WHERE id = ?');
-$visStmt->execute([$projectId]);
-if (!(int)$visStmt->fetchColumn()) {
+if (!salesProjectIsListedForSale($pdo, $projectId)) {
     http_response_code(403);
     die("This project is not listed for sale.");
 }

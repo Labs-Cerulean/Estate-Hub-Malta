@@ -369,9 +369,50 @@ function salesDenyJsonAccess(string $message = 'Access denied.'): void {
     exit;
 }
 
+/**
+ * Stage C visibility columns may not exist until sql/2026-07-15_sales_visibility_flags.sql is run.
+ * When absent, skip in-house listing filters so Sales Hub keeps working pre-migration.
+ */
+function salesVisibilityColumnsAvailable(PDO $pdo): bool {
+    static $available = null;
+    if ($available !== null) {
+        return $available;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM projects LIKE 'show_for_sale'");
+        $available = $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+    } catch (Exception $e) {
+        $available = false;
+    }
+    return $available;
+}
+
+function salesInHouseVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return '';
+    }
+    $projectAlias = preg_replace('/[^a-zA-Z0-9_]/', '', $projectAlias) ?: 'p';
+    return " AND {$projectAlias}.show_for_sale = 1";
+}
+
+function salesProjectIsListedForSale(PDO $pdo, int $projectId): bool {
+    if ($projectId <= 0) {
+        return false;
+    }
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return true;
+    }
+    $stmt = $pdo->prepare('SELECT show_for_sale FROM projects WHERE id = ?');
+    $stmt->execute([$projectId]);
+    $value = $stmt->fetchColumn();
+    return $value !== false && (int)$value === 1;
+}
+
 function salesGetAccessibleProjectsWithUnits(PDO $pdo, bool $visibleForSaleOnly = false): array {
     $access = salesProjectAccessWhereClause($pdo, 'p');
-    $visibilitySql = $visibleForSaleOnly ? ' AND p.show_for_sale = 1' : '';
+    $visibilitySql = ($visibleForSaleOnly && salesVisibilityColumnsAvailable($pdo))
+        ? salesInHouseVisibilitySql($pdo, 'p')
+        : '';
     $sql = "SELECT DISTINCT p.id, p.name, p.city
             FROM projects p
             INNER JOIN sales_properties sp ON p.id = sp.project_id
