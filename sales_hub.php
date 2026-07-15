@@ -75,15 +75,67 @@ require_once 'header.php';
     #sh-wrapper { position: relative; height: 100vh; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; color: var(--sh-text-main); }
     #sales-map { position: absolute; top: 0; bottom: 0; width: 100%; left: 0; }
     
-    /* MapLibre draw controls (MapboxDraw patched to maplibregl-* classes) */
-    .maplibregl-ctrl-top-right,
-    .mapboxgl-ctrl-top-right { top: 20px; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 25; display: flex; pointer-events: auto; }
-    .maplibregl-ctrl-group,
-    .mapboxgl-ctrl-group { display: flex !important; flex-direction: row !important; background: var(--sh-bg-panel); border: 2px solid var(--sh-avail); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); overflow: hidden; pointer-events: auto; }
-    .maplibregl-ctrl-group button,
-    .mapboxgl-ctrl-group button { width: 45px; height: 45px; transition: 0.2s; cursor: pointer; pointer-events: auto; }
-    .maplibregl-ctrl-group button:hover,
-    .mapboxgl-ctrl-group button:hover { background: rgba(255,255,255,0.1); }
+    /* MapLibre draw controls — scoped to #sales-map */
+    #sales-map .maplibregl-ctrl-top-right,
+    #sales-map .mapboxgl-ctrl-top-right {
+        top: 20px;
+        left: 0;
+        right: 0;
+        margin-left: auto;
+        margin-right: auto;
+        width: max-content;
+        transform: none !important;
+        z-index: 25;
+        display: flex;
+        pointer-events: auto;
+    }
+    #sales-map .maplibregl-ctrl-group,
+    #sales-map .mapboxgl-ctrl-group {
+        display: flex !important;
+        flex-direction: row !important;
+        background: var(--sh-bg-panel);
+        border: 2px solid var(--sh-avail);
+        border-radius: 12px;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+        overflow: hidden;
+        pointer-events: auto;
+        float: none !important;
+    }
+    #sales-map .maplibregl-ctrl-group button,
+    #sales-map .mapboxgl-ctrl-group button,
+    #sales-map .mapbox-gl-draw_ctrl-draw-btn {
+        width: 45px;
+        height: 45px;
+        cursor: pointer;
+        pointer-events: auto;
+        box-sizing: border-box;
+        border: 0 !important;
+        outline: none;
+        transform: none !important;
+        transition: background-color 0.2s ease;
+        /* Sprite icons in mapbox-gl-draw.css are dark — invert to white on dark panel */
+        filter: brightness(0) invert(1);
+        background-color: transparent !important;
+    }
+    #sales-map .maplibregl-ctrl-group button + button,
+    #sales-map .mapboxgl-ctrl-group button + button {
+        border-left: 1px solid rgba(255,255,255,0.15) !important;
+        border-top: none !important;
+    }
+    #sales-map .maplibregl-ctrl-group button:hover,
+    #sales-map .mapboxgl-ctrl-group button:hover,
+    #sales-map .mapbox-gl-draw_ctrl-draw-btn:hover {
+        transform: none !important;
+        filter: brightness(0) invert(1);
+        background-color: rgba(255,255,255,0.12) !important;
+    }
+    #sales-map .maplibregl-ctrl-group button.active,
+    #sales-map .mapboxgl-ctrl-group button.active,
+    #sales-map .mapbox-gl-draw_ctrl-draw-btn.active {
+        transform: none !important;
+        filter: brightness(0) invert(1);
+        background-color: rgba(16, 185, 129, 0.35) !important;
+    }
 
     .sh-map-legend { text-align: left; color: var(--sh-text-muted); font-size: 0.75rem; margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; }
     .sh-legend-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
