@@ -79,12 +79,12 @@ try {
             $badgeText = '#ffffff';
 
             if (strpos($status, 'Hold') !== false) {
-                $accentColor = '#f59e0b'; // Amber
+                $accentColor = '#64748b';
+                $badgeBg = '#64748b';
+                $badgeText = '#ffffff';
+            } elseif (strpos($status, 'Proceeding') !== false) {
+                $accentColor = '#f59e0b';
                 $badgeBg = '#f59e0b';
-                $badgeText = '#000000';
-            } elseif (strpos($status, 'Reserved') !== false) {
-                $accentColor = '#0ea5e9'; // Cyan
-                $badgeBg = '#0ea5e9';
                 $badgeText = '#000000';
             } elseif (strpos($status, 'Sold') !== false) {
                 $accentColor = '#ef4444'; // Red
@@ -96,8 +96,8 @@ try {
 
             // --- AGENT TAG LOGIC ---
             $agentTag = '';
-            if ($u['held_by_agent_id'] && in_array($status, ['On Hold', 'Reserved'])) {
-                $verb = ($status === 'Reserved') ? 'Reserved by' : 'Held by';
+            if ($u['held_by_agent_id'] && $status === 'On Hold') {
+                $verb = 'Held by';
                 $agentTag = "<div class='mt-2 w-100 d-flex align-items-center shadow-sm' style='background: rgba(245, 158, 11, 0.15); color: #fcd34d; font-size: 0.8rem; font-weight: 600; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);'><i class='fas fa-user-circle' style='margin-right: 8px; font-size: 1rem;'></i> {$verb}: {$u['first_name']} {$u['last_name']}</div>";
             }
 
@@ -175,7 +175,7 @@ try {
                             <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-pen' style='margin-right: 5px;'></i> Modify Pricing</button>
                           </div>";
 
-                $statuses = ['Available', 'On Hold', 'Reserved', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
+                $statuses = ['Available', 'On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
                 $html .= "<div style='margin-bottom: 12px;'>
                             <select class='form-control bg-dark text-light border-secondary' style='display: block; width: 100%; font-size: 0.95rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$u['id']}, this.value, this)'>";
                 foreach ($statuses as $st) {

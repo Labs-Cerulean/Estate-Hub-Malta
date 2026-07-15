@@ -150,6 +150,7 @@ require_once 'header.php';
     .sh-card .text-success { color: var(--sh-avail) !important; font-size: 1.25rem !important; font-weight: 800 !important; }
     
     .sh-project-divider { background: rgba(0,0,0,0.3); padding: 12px 20px; font-weight: 800; color: #fff; font-size: 1.1rem; border-left: 4px solid var(--sh-avail); border-radius: 8px; margin-bottom: 10px; margin-top: 10px;}
+    .sh-unit-project { display: block; font-size: 0.72rem; font-weight: 700; color: var(--sh-avail); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
     .project-unit-group { display: flex; flex-direction: column; gap: 15px; }
     
     .sh-resale-input { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--sh-resale); background: rgba(168,85,247,0.1); color: #fff; font-weight: bold; margin-bottom: 10px; outline: none; }
@@ -678,6 +679,13 @@ require_once 'header.php';
 
             groupCards.forEach(c => group.appendChild(c)); 
         });
+
+        document.querySelectorAll('.sh-project-divider').forEach(divider => {
+            const group = divider.nextElementSibling;
+            if (!group || !group.classList.contains('project-unit-group')) return;
+            const hasVisible = Array.from(group.querySelectorAll('.sh-card')).some(card => card.style.display !== 'none');
+            divider.style.display = hasVisible ? '' : 'none';
+        });
     }
 
     function showToast(message, type = 'success') {
@@ -903,7 +911,7 @@ require_once 'header.php';
                     allHtml += `<div class="sh-project-divider"><i class="fas fa-building"></i> ${p.project_name}</div>`;
                 }
                 
-                allHtml += `<div class="project-unit-group">` + processUnitHtmlSafely(unitData.html) + `</div>`;
+                allHtml += `<div class="project-unit-group" data-project-name="${escapeHtmlAttr(p.project_name)}">` + processUnitHtmlSafely(unitData.html, p.project_name, projects.length > 1) + `</div>`;
 
                 if (unitData.media) {
                     if (unitData.media.renders) allMedia.renders.push(...unitData.media.renders);
@@ -953,7 +961,15 @@ require_once 'header.php';
         document.getElementById('sidebarMediaContainer').innerHTML = mediaHtml;
     }
 
-    function processUnitHtmlSafely(rawHtml) {
+    function escapeHtmlAttr(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function processUnitHtmlSafely(rawHtml, projectName = '', showProjectLabel = false) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = rawHtml;
         const cards = tempDiv.querySelectorAll('.card, .unit-card');
@@ -990,7 +1006,22 @@ require_once 'header.php';
             card.className = 'sh-card';
             card.setAttribute('data-status', status);
             card.setAttribute('data-type', unitTypeAttr);
+            if (projectName) card.setAttribute('data-project-name', projectName);
             card.style.marginBottom = '15px';
+
+            if (showProjectLabel && projectName) {
+                const existingLabel = card.querySelector('.sh-unit-project');
+                if (!existingLabel) {
+                    const projectLabel = document.createElement('div');
+                    projectLabel.className = 'sh-unit-project';
+                    const projectIcon = document.createElement('i');
+                    projectIcon.className = 'fas fa-building';
+                    projectLabel.appendChild(projectIcon);
+                    projectLabel.appendChild(document.createTextNode(' ' + projectName));
+                    const cardBody = card.querySelector('.card-body') || card;
+                    cardBody.insertBefore(projectLabel, cardBody.firstChild);
+                }
+            }
 
             if (status.includes('Available') || status === 'BOM') {
                 card.style.borderLeft = '4px solid var(--sh-avail)';
