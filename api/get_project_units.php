@@ -55,7 +55,7 @@ try {
     // Fetch Units & Assigned Agent Names
     // MATH SORTING: (sp.floor_level + 0) forces MySQL to mathematically calculate the value (-3 < 0) rather than sorting strings alphabetically
     $stmt = $pdo->prepare("
-        SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
+        SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.resale_price, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
                u.first_name, u.last_name, sp.block 
         FROM sales_properties sp 
         LEFT JOIN users u ON sp.held_by_agent_id = u.id 
@@ -117,7 +117,9 @@ try {
             // --- START BEAUTIFUL CARD ---
             // Fix: Added data-floor attribute so JS can mathematically sort negative floors
             $floorLevelSafe = htmlspecialchars(trim($u['floor_level']), ENT_QUOTES, 'UTF-8');
-            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
+            $resaleAsking = floatval($u['resale_price'] ?? 0);
+            $resaleAttr = htmlspecialchars((string)$resaleAsking, ENT_QUOTES, 'UTF-8');
+            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' data-resale-price='{$resaleAttr}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---
@@ -151,6 +153,22 @@ try {
                                 <i class='fas fa-lock' style='margin-right: 6px; opacity: 0.85;'></i> Price Confidential
                             </div>
                           </div>";
+            } elseif ($status === 'Resale') {
+                $askingDisplay = $resaleAsking > 0
+                    ? '€' . number_format($resaleAsking, 0)
+                    : '<span style="font-size: 0.95rem; color: #94a3b8;">Not set yet</span>';
+                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                            <div class='d-flex justify-content-between align-items-center'>
+                                <div>
+                                    <div style='font-size: 0.7rem; color: #a855f7; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>3rd Party Resale</div>
+                                    <div style='font-size: 0.75rem; color: #64748b;'>List ref: Shell €" . number_format($u['shell_price'], 0) . " | Fin €" . number_format($u['finishes_price'], 0) . "</div>
+                                </div>
+                                <div class='text-end'>
+                                    <div style='font-size: 0.7rem; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>Asking Price</div>
+                                    <div style='font-size: 1.4rem; font-weight: 800; color: {$accentColor}; line-height: 1;'>{$askingDisplay}</div>
+                                </div>
+                            </div>
+                          </div>";
             } else {
                 $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
                             <div class='d-flex justify-content-between align-items-center'>
@@ -166,35 +184,10 @@ try {
                           </div>";
             }
 
-            // --- MANAGER EDIT PRICE FORM ---
-            if ($is_manager) {
-                $html .= "
-                        <div id='price_edit_{$u['id']}' class='p-3 mb-3' style='display:none; background: rgba(14, 165, 233, 0.05); border-radius: 10px; border: 1px solid rgba(14, 165, 233, 0.2);'>
-                            <div class='mb-2'>
-                                <label class='form-label text-info' style='font-size: 0.75rem; font-weight: 700;'>Shell Price (€)</label>
-                                <input type='number' id='inp_sh_{$u['id']}' class='form-control bg-dark text-light border-info w-100' value='{$u['shell_price']}' style='font-size: 0.9rem; padding: 10px;'>
-                            </div>
-                            <div class='mb-3'>
-                                <label class='form-label text-info' style='font-size: 0.75rem; font-weight: 700;'>Finishes Price (€)</label>
-                                <input type='number' id='inp_fn_{$u['id']}' class='form-control bg-dark text-light border-info w-100' value='{$u['finishes_price']}' style='font-size: 0.9rem; padding: 10px;'>
-                            </div>
-                            <div style='margin-bottom: 8px;'>
-                                <button class='btn btn-info w-100 py-2 text-dark fw-bold' style='display: block; width: 100%; border-radius: 8px;' onclick='savePrice({$u['id']})'><i class='fas fa-save' style='margin-right: 5px;'></i> Save Price</button>
-                            </div>
-                            <div>
-                                <button class='btn btn-outline-secondary w-100 py-2' style='display: block; width: 100%; border-radius: 8px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-times' style='margin-right: 5px;'></i> Cancel</button>
-                            </div>
-                        </div>";
-            }
-
             // --- ACTION BUTTONS (VERTICAL BLOCK LAYOUT) ---
             $html .= "<div style='display: block; width: 100%; margin-top: 20px;'>"; 
             
             if ($is_manager) {
-                $html .= "<div style='margin-bottom: 12px;'>
-                            <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-pen' style='margin-right: 5px;'></i> Modify Pricing</button>
-                          </div>";
-
                 $statuses = ['Available', 'On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
                 $html .= "<div style='margin-bottom: 12px;'>
                             <select class='form-control bg-dark text-light border-secondary' style='display: block; width: 100%; font-size: 0.95rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$u['id']}, this.value, this)'>";
