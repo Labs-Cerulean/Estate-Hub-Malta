@@ -28,6 +28,9 @@ if (isset($_POST['action'])) {
     try {
         if ($action === 'load_project') {
             $pid = (int)$_POST['project_id'];
+            if (!hasSalesProjectAccess($pdo, $pid)) {
+                salesDenyJsonAccess();
+            }
             
             // Strictly using real DB columns: floor_level and unit_type
             $stmtUnits = $pdo->prepare("
@@ -77,6 +80,7 @@ if (isset($_POST['action'])) {
 
         if ($action === 'save_frame') {
             $pid = (int)$_POST['project_id'];
+            salesAssertProjectAccess($pdo, $pid);
             $unitsData = json_decode($_POST['units'], true);
             $userId = $_SESSION['user_id'];
             
@@ -157,6 +161,7 @@ if (isset($_POST['action'])) {
 
         if ($action === 'delete_unit') {
             $unit_id = (int)$_POST['unit_id'];
+            salesAssertPropertyAccess($pdo, $unit_id);
             $stmt = $pdo->prepare("SELECT unit_name, status FROM sales_properties WHERE id = ?");
             $stmt->execute([$unit_id]);
             $unit = $stmt->fetch();
@@ -177,6 +182,9 @@ if (isset($_POST['action'])) {
             $media = $stmt->fetch();
             
             if ($media) {
+                if (!hasSalesProjectAccess($pdo, (int)$media['project_id'])) {
+                    salesDenyJsonAccess();
+                }
                 $pdo->prepare("DELETE FROM project_documents WHERE id = ?")->execute([$media_id]);
                 $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([0, $_SESSION['user_id'], 'Media Deleted', 'Active', 'Deleted', "[Project " . $media['project_id'] . " Media] Deleted file: " . $media['title']]);
@@ -187,6 +195,22 @@ if (isset($_POST['action'])) {
 
         if ($action === 'update_media_order') {
             $sortData = json_decode($_POST['sort_data'], true);
+            $docIds = array_map(static function ($item) {
+                return (int)$item['id'];
+            }, $sortData ?? []);
+
+            if (!empty($docIds)) {
+                $placeholders = implode(',', array_fill(0, count($docIds), '?'));
+                $stmtDocs = $pdo->prepare("SELECT DISTINCT project_id FROM project_documents WHERE id IN ($placeholders)");
+                $stmtDocs->execute($docIds);
+                $projectIds = $stmtDocs->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($projectIds as $docProjectId) {
+                    if ((int)$docProjectId <= 0 || !hasSalesProjectAccess($pdo, (int)$docProjectId)) {
+                        salesDenyJsonAccess();
+                    }
+                }
+            }
+
             $stmt = $pdo->prepare("UPDATE project_documents SET sort_order = ? WHERE id = ?");
             foreach ($sortData as $item) {
                 $stmt->execute([(int)$item['order'], (int)$item['id']]);
@@ -207,7 +231,7 @@ $pageTitle = 'Sales Project Manager';
 require_once 'header.php';
 
 // Fetch ONLY projects that have active sales units (Matches Jump to Project)
-$projectsRaw = $pdo->query("SELECT DISTINCT p.id, p.name, p.city FROM projects p INNER JOIN sales_properties sp ON p.id = sp.project_id ORDER BY p.city ASC, p.name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$projectsRaw = salesGetAccessibleProjectsWithUnits($pdo);
 $projectsByCity = [];
 foreach ($projectsRaw as $p) {
     $city = trim($p['city']) ? trim($p['city']) : 'Uncategorized Locations';

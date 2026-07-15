@@ -53,6 +53,8 @@ try {
             throw new Exception("Missing required fields to save record.");
         }
 
+        salesAssertProjectAccess($pdo, $project_id);
+
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
         $title = preg_replace('/\\.[^.\\s]{3,4}$/', '', $filename); // Remove extension
         

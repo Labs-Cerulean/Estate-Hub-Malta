@@ -7,11 +7,11 @@ require_once 'S3FileManager.php';
 // Bypasses browser memory crashes and Cloudflare CORS security blocks
 if (isset($_GET['proxy_doc_id'])) {
     $docId = (int)$_GET['proxy_doc_id'];
-    $stmt = $pdo->prepare("SELECT file_path FROM project_documents WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT file_path, project_id FROM project_documents WHERE id = ?");
     $stmt->execute([$docId]);
-    $doc = $stmt->fetch();
+    $doc = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if ($doc) {
+    if ($doc && hasSalesProjectAccess($pdo, (int)$doc['project_id'])) {
         $s3 = new S3FileManager();
         $url = $s3->getPresignedUrl($doc['file_path'], '+10 minutes');
         
@@ -33,6 +33,10 @@ if (isset($_GET['proxy_doc_id'])) {
 
 $projectId = isset($_GET['project_id']) ? (int)$_GET['project_id'] : null;
 if (!$projectId) die("Project ID is missing.");
+if (!hasSalesProjectAccess($pdo, $projectId)) {
+    http_response_code(403);
+    die("Access denied.");
+}
 
 $s3 = new S3FileManager();
 

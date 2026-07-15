@@ -35,6 +35,9 @@ if ($ext !== 'csv' && !in_array($fileMimeType, $allowedMimeTypes)) {
 }
 
 try {
+    $project_id = (int)$project_id;
+    salesAssertProjectAccess($pdo, $project_id);
+
     $check_stmt = $pdo->prepare("SELECT COUNT(*) FROM sales_properties WHERE project_id = ?");
     $check_stmt->execute([$project_id]);
     if ($check_stmt->fetchColumn() > 0) {

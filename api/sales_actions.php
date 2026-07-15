@@ -29,11 +29,14 @@ try {
     // Force the database to report errors instead of failing silently
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     
-    $stmt = $pdo->prepare("SELECT status, held_by_agent_id FROM sales_properties WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT status, held_by_agent_id, project_id FROM sales_properties WHERE id = ?");
     $stmt->execute([$property_id]);
     $property = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$property) throw new Exception("Property not found.");
+    if (!hasSalesProjectAccess($pdo, (int)$property['project_id'])) {
+        salesDenyJsonAccess();
+    }
 
     $current_status = $property['status'];
     $new_status = $current_status;

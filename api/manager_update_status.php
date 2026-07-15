@@ -20,9 +20,20 @@ if (!$property_id || !$new_status) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT status FROM sales_properties WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT status, project_id FROM sales_properties WHERE id = ?");
     $stmt->execute([$property_id]);
-    $old_status = $stmt->fetchColumn();
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row) {
+        echo json_encode(['success' => false, 'message' => 'Property not found.']);
+        exit;
+    }
+
+    if (!hasSalesProjectAccess($pdo, (int)$row['project_id'])) {
+        salesDenyJsonAccess();
+    }
+
+    $old_status = $row['status'];
 
     if ($new_status === 'Resale') {
         $update = $pdo->prepare("UPDATE sales_properties SET status = ?, resale_price = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?");
@@ -39,8 +50,6 @@ try {
 
     $log = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
     $log->execute([$property_id, $_SESSION['user_id'], 'Manager Direct Status Override', $old_status, $new_status, $justification]);
-
-    echo json_encode(['success' => true, 'message' => 'Status updated successfully!']);
 
     echo json_encode(['success' => true, 'message' => 'Status updated successfully!']);
 } catch (Exception $e) {
