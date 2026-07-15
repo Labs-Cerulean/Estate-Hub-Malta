@@ -1380,25 +1380,36 @@ require_once 'header.php';
     }
     
     function holdProperty(propertyId) {
-        if(!confirm("Are you sure you want to put this unit on hold?")) return;
-        
-        let formData = new FormData(); 
-        formData.append('action', 'hold_property'); 
+        if (!confirm('Are you sure you want to put this unit on hold?')) return;
+
+        let formData = new FormData();
+        formData.append('action', 'hold_property');
         formData.append('property_id', propertyId);
-        
+
+        if (currentViewMode === 'manager' && isManagerUser) {
+            const defaultDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+            const pad = (n) => String(n).padStart(2, '0');
+            const defaultStr = `${defaultDate.getFullYear()}-${pad(defaultDate.getMonth() + 1)}-${pad(defaultDate.getDate())} ${pad(defaultDate.getHours())}:${pad(defaultDate.getMinutes())}`;
+            const custom = prompt('Hold deadline (YYYY-MM-DD HH:MM, Europe/Malta). Leave blank for 7 days:', defaultStr);
+            if (custom === null) return;
+            if (custom.trim() !== '') {
+                formData.append('hold_expiry', custom.trim().replace(' ', 'T'));
+            }
+        }
+
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json())
         .then(data => {
-            if(data.success) { 
-                showToast("Put on hold!", "success"); 
+            if (data.success) {
+                showToast('Put on hold!', 'success');
                 if (lastLoadedProjects.length > 0) {
-                    setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+                    setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500);
                 }
-            } else { 
-                showToast("Error: " + data.message, "error"); 
+            } else {
+                showToast('Error: ' + data.message, 'error');
             }
         })
-        .catch(err => showToast("System Error: " + err.message, "error"));
+        .catch(err => showToast('System Error: ' + err.message, 'error'));
     }
 
     // MISSING RESERVE UNIT FUNCTION ADDED (Fixes Item 7)
@@ -1786,63 +1797,153 @@ require_once 'header.php';
         fetch('api/get_holds_ledger.php?_t=' + Date.now())
         .then(response => response.json())
         .then(data => {
-            if (!data.success) { 
-                showToast("Error: " + (data.message || "Could not load ledger"), "error"); 
-                return; 
+            if (!data.success) {
+                showToast('Error: ' + (data.message || 'Could not load ledger'), 'error');
+                return;
             }
-            
-            let uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
-            let projectOptions = uniqueProjects.map(p => `<option value="${p}">${p}</option>`).join('');
+
+            const canManage = !!data.can_manage_deadlines;
+            const isAgent = data.role === 'sales_agent';
+            const colCount = isAgent ? 5 : (canManage ? 7 : 6);
+
+            const uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
+            const projectOptions = uniqueProjects.map(p => `<option value="${escapeHtmlAttr(p)}">${escapeHtmlText(p)}</option>`).join('');
 
             let html = `
             <div>
-                <div style="position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--sh-border); margin-bottom: 15px;">
-                    <h3 style="color: #fff; margin: 0;">${data.role === 'sales_agent' ? 'My Active Holds' : 'Global Holds Ledger'}</h3>
-                    <select id="ledgerProjectFilter" class="sh-select" style="width: auto; margin: 0; padding: 6px 12px; font-weight: bold; cursor: pointer;" onchange="filterLedgerTable()">
-                        <option value="All">All Projects</option>
-                        ${projectOptions}
-                    </select>
+                <div style="position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10; border-bottom: 1px solid var(--sh-border); margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+                        <h3 style="color: #fff; margin: 0;">${isAgent ? 'My Active Holds' : 'Global Holds Ledger'}</h3>
+                        <select id="ledgerProjectFilter" class="sh-select" style="width: auto; margin: 0; padding: 6px 12px; font-weight: bold; cursor: pointer;" onchange="filterLedgerTable()">
+                            <option value="All">All Projects</option>
+                            ${projectOptions}
+                        </select>
+                    </div>
+                    <p style="margin: 0; color: var(--sh-text-muted); font-size: 0.8rem;">
+                        Holds are <strong>not auto-released</strong> when expired. Managers must release manually or set a new deadline.
+                    </p>
                 </div>
                 <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; color: #fff;">
                     <thead>
                         <tr style="border-bottom: 2px solid var(--sh-border);">
                             <th style="padding: 10px;">Project</th>
                             <th style="padding: 10px;">Unit</th>
-                            ${data.role !== 'sales_agent' ? '<th style="padding: 10px;">Agent</th>' : ''}
-                            <th style="padding: 10px;">Expires In</th>
-                            <th style="padding: 10px;">Exact Expiry Date</th>
+                            ${!isAgent ? '<th style="padding: 10px;">Agent</th>' : ''}
+                            <th style="padding: 10px;">Status</th>
+                            <th style="padding: 10px;">Exact Expiry</th>
+                            ${canManage ? '<th style="padding: 10px;">Set Deadline</th>' : ''}
                             <th style="padding: 10px; text-align: right;">Action</th>
                         </tr>
                     </thead>
                     <tbody>`;
 
-            if (data.holds.length === 0) { 
-                html += `<tr><td colspan="6" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`; 
+            if (data.holds.length === 0) {
+                html += `<tr><td colspan="${colCount}" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`;
             } else {
                 data.holds.forEach(hold => {
-                    let warningStyle = hold.is_expiring_soon ? 'color: var(--sh-danger); font-weight: bold;' : 'color: var(--sh-text-main);';
-                    let warningIcon = hold.is_expiring_soon ? '<i class="fas fa-exclamation-triangle"></i> ' : '';
-                    let agentName = hold.is_legacy ? '<span style="color:var(--sh-text-muted); font-style:italic;">Legacy/System</span>' : `${hold.first_name} ${hold.last_name}`;
-                    let timeDisplay = hold.is_legacy ? '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-infinity"></i> Legacy</span>' : `<span style="${warningStyle}">${warningIcon}${hold.hours_remaining} Hours</span>`;
-                    let expiryDisplay = hold.is_legacy ? '<span style="color:var(--sh-text-muted);">N/A</span>' : new Date(hold.hold_expiry).toLocaleString();
+                    const agentName = hold.is_legacy
+                        ? '<span style="color:var(--sh-text-muted); font-style:italic;">Legacy/System</span>'
+                        : escapeHtmlText(`${hold.first_name || ''} ${hold.last_name || ''}`.trim());
+
+                    let statusHtml;
+                    if (hold.is_legacy) {
+                        statusHtml = '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-infinity"></i> Legacy</span>';
+                    } else if (hold.is_expired) {
+                        statusHtml = '<span style="background: rgba(239, 68, 68, 0.2); color: var(--sh-danger); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-exclamation-circle"></i> EXPIRED</span>';
+                    } else if (hold.is_expiring_soon) {
+                        statusHtml = `<span style="color: var(--sh-danger); font-weight: bold;"><i class="fas fa-exclamation-triangle"></i> ${hold.hours_remaining}h left</span>`;
+                    } else {
+                        statusHtml = `<span style="color: var(--sh-text-main);">${hold.hours_remaining}h left</span>`;
+                    }
+
+                    const expiryDisplay = hold.is_legacy
+                        ? '<span style="color:var(--sh-text-muted);">N/A</span>'
+                        : escapeHtmlText(new Date(hold.hold_expiry).toLocaleString());
+
+                    let deadlineCell = '';
+                    if (canManage) {
+                        const inputVal = escapeHtmlAttr(hold.hold_expiry_input || '');
+                        deadlineCell = `
+                            <td style="padding: 12px 10px;">
+                                <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                                    <input type="datetime-local" id="holdDeadline_${hold.id}" class="sh-input" style="width: auto; margin: 0; padding: 6px 8px; font-size: 0.8rem;" value="${inputVal}">
+                                    <button type="button" class="sh-btn sh-btn-info" style="margin:0; padding:6px 10px; width:auto; font-size:0.75rem;" onclick="setHoldDeadlineFromLedger(${hold.id})">Save</button>
+                                </div>
+                            </td>`;
+                    }
+
+                    let actionHtml = `<button type="button" class="sh-btn sh-btn-success" style="margin: 0 0 4px 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.8rem;" onclick="releaseHoldFromLedger(${hold.id})"><i class="fas fa-unlock"></i> Release</button>`;
+                    if (isAgent && !hold.is_legacy) {
+                        actionHtml += `<br><button type="button" class="sh-btn sh-btn-warning" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.75rem;" onclick="extendHoldFromLedger(${hold.id})"><i class="fas fa-clock"></i> +7 days</button>`;
+                    }
 
                     html += `
-                    <tr class="ledger-row" data-project="${hold.project_name}" style="border-bottom: 1px solid var(--sh-border-light);">
-                        <td style="padding: 12px 10px;">${hold.project_name}</td>
-                        <td style="padding: 12px 10px;"><strong>${hold.unit_name}</strong></td>
-                        ${data.role !== 'sales_agent' ? `<td style="padding: 12px 10px;">${agentName}</td>` : ''}
-                        <td style="padding: 12px 10px;">${timeDisplay}</td>
+                    <tr class="ledger-row" data-project="${escapeHtmlAttr(hold.project_name)}" style="border-bottom: 1px solid var(--sh-border-light);${hold.is_expired ? ' background: rgba(239,68,68,0.08);' : ''}">
+                        <td style="padding: 12px 10px;">${escapeHtmlText(hold.project_name)}</td>
+                        <td style="padding: 12px 10px;"><strong>${escapeHtmlText(hold.unit_name)}</strong></td>
+                        ${!isAgent ? `<td style="padding: 12px 10px;">${agentName}</td>` : ''}
+                        <td style="padding: 12px 10px;">${statusHtml}</td>
                         <td style="padding: 12px 10px;">${expiryDisplay}</td>
-                        <td style="padding: 12px 10px; text-align: right;">
-                            <button class="sh-btn sh-btn-success" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.8rem;" onclick="releaseHoldFromLedger(${hold.id})"><i class="fas fa-unlock"></i> Release</button>
-                        </td>
+                        ${deadlineCell}
+                        <td style="padding: 12px 10px; text-align: right;">${actionHtml}</td>
                     </tr>`;
                 });
             }
-            
+
             html += `</tbody></table></div>`;
-            document.getElementById('holdLedgerContent').innerHTML = html; 
+            document.getElementById('holdLedgerContent').innerHTML = html;
             document.getElementById('holdLedgerModal').style.display = 'block';
+        });
+    }
+
+    function setHoldDeadlineFromLedger(propertyId) {
+        const input = document.getElementById('holdDeadline_' + propertyId);
+        if (!input || !input.value) {
+            showToast('Please choose a future deadline.', 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('action', 'set_hold_deadline');
+        formData.append('property_id', propertyId);
+        formData.append('hold_expiry', input.value);
+
+        fetch('api/sales_actions.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Hold deadline updated.', 'success');
+                openHoldLedger();
+                if (lastLoadedProjects.length > 0) {
+                    setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500);
+                }
+            } else {
+                showToast('Error: ' + data.message, 'error');
+            }
+        });
+    }
+
+    function extendHoldFromLedger(propertyId) {
+        const justification = prompt('Justification required to extend this hold by 7 days:');
+        if (!justification || !justification.trim()) return;
+
+        const formData = new FormData();
+        formData.append('action', 'extend_hold');
+        formData.append('property_id', propertyId);
+        formData.append('justification', justification.trim());
+
+        fetch('api/sales_actions.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Hold extended by 7 days.', 'success');
+                openHoldLedger();
+                if (lastLoadedProjects.length > 0) {
+                    setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500);
+                }
+            } else {
+                showToast('Error: ' + data.message, 'error');
+            }
         });
     }
 

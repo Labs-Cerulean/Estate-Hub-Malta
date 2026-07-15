@@ -458,6 +458,80 @@ function salesAssertProjectAccess(PDO $pdo, int $projectId): void {
     }
 }
 
+/**
+ * Stage E alert columns may not exist until sql/2026-07-15_sales_holds_stage_e.sql is run.
+ */
+function salesHoldAlertColumnsAvailable(PDO $pdo): bool {
+    static $available = null;
+    if ($available !== null) {
+        return $available;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM sales_properties LIKE 'hold_warning_sent_at'");
+        $available = $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+    } catch (Exception $e) {
+        $available = false;
+    }
+    return $available;
+}
+
+function salesCanManageHoldDeadlines(string $role): bool {
+    return in_array($role, ['admin', 'sales_manager', 'director', 'system_manager'], true);
+}
+
+function salesParseHoldExpiryInput(?string $raw): ?string {
+    if ($raw === null || trim($raw) === '') {
+        return null;
+    }
+    $raw = trim(str_replace('T', ' ', $raw));
+    $dt = DateTime::createFromFormat('Y-m-d H:i', $raw, new DateTimeZone('Europe/Malta'));
+    if (!$dt) {
+        $dt = DateTime::createFromFormat('Y-m-d H:i:s', $raw, new DateTimeZone('Europe/Malta'));
+    }
+    if (!$dt) {
+        return null;
+    }
+    $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
+    if ($dt <= $now) {
+        return null;
+    }
+    return $dt->format('Y-m-d H:i:s');
+}
+
+function salesGetHoldAlertManagerEmails(PDO $pdo): array {
+    $stmt = $pdo->query("
+        SELECT DISTINCT email
+        FROM users
+        WHERE role IN ('admin', 'sales_manager', 'director', 'system_manager')
+          AND email IS NOT NULL
+          AND email != ''
+          AND (is_active = 'Yes' OR is_active IS NULL)
+    ");
+    $emails = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $email = filter_var($row['email'], FILTER_VALIDATE_EMAIL);
+        if ($email) {
+            $emails[] = $email;
+        }
+    }
+    return array_values(array_unique($emails));
+}
+
+function salesClearHoldFieldsSql(PDO $pdo): string {
+    $sql = 'held_by_agent_id = NULL, hold_expiry = NULL';
+    if (salesHoldAlertColumnsAvailable($pdo)) {
+        $sql .= ', hold_warning_sent_at = NULL, hold_expired_alert_sent_at = NULL';
+    }
+    return $sql;
+}
+
+function salesClearHoldAlertFlagsSql(PDO $pdo): string {
+    if (!salesHoldAlertColumnsAvailable($pdo)) {
+        return '';
+    }
+    return ', hold_warning_sent_at = NULL, hold_expired_alert_sent_at = NULL';
+}
+
 // ==========================================
 // 4. USER MANAGEMENT UTILITIES
 // ==========================================
