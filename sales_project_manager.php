@@ -74,13 +74,22 @@ if (isset($_POST['action'])) {
                 $media[] = $m;
             }
 
-            $stmtVisibility = $pdo->prepare('SELECT show_for_sale, show_for_sale_external FROM projects WHERE id = ?');
-            $stmtVisibility->execute([$pid]);
-            $visibilityRow = $stmtVisibility->fetch(PDO::FETCH_ASSOC) ?: [];
-            $visibility = [
-                'show_for_sale' => (int)($visibilityRow['show_for_sale'] ?? 1),
-                'show_for_sale_external' => (int)($visibilityRow['show_for_sale_external'] ?? 0),
-            ];
+            if (salesVisibilityColumnsAvailable($pdo)) {
+                $stmtVisibility = $pdo->prepare('SELECT show_for_sale, show_for_sale_external FROM projects WHERE id = ?');
+                $stmtVisibility->execute([$pid]);
+                $visibilityRow = $stmtVisibility->fetch(PDO::FETCH_ASSOC) ?: [];
+                $visibility = [
+                    'columns_available' => true,
+                    'show_for_sale' => (int)($visibilityRow['show_for_sale'] ?? 1),
+                    'show_for_sale_external' => (int)($visibilityRow['show_for_sale_external'] ?? 0),
+                ];
+            } else {
+                $visibility = [
+                    'columns_available' => false,
+                    'show_for_sale' => 1,
+                    'show_for_sale_external' => 0,
+                ];
+            }
 
             echo json_encode(['success' => true, 'units' => $units, 'media' => $media, 'visibility' => $visibility]);
             exit;
@@ -93,6 +102,14 @@ if (isset($_POST['action'])) {
             $allowedVisibilityRoles = ['admin', 'sales_manager', 'director'];
             if (!in_array($_SESSION['role'], $allowedVisibilityRoles, true)) {
                 salesDenyJsonAccess('Unauthorized.');
+            }
+
+            if (!salesVisibilityColumnsAvailable($pdo)) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Sales visibility requires sql/2026-07-15_sales_visibility_flags.sql to be run in phpMyAdmin first.',
+                ]);
+                exit;
             }
 
             $showForSale = !empty($_POST['show_for_sale']) ? 1 : 0;
@@ -381,7 +398,10 @@ foreach ($projectsRaw as $p) {
             <div id="saleVisibilityPanel" style="background: var(--pm-bg-panel); border: 1px solid var(--pm-border); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                 <h4 style="margin: 0 0 12px 0; color: var(--pm-text-main);"><i class="fas fa-eye"></i> Sales Visibility</h4>
                 <p style="margin: 0 0 15px 0; color: var(--pm-text-muted); font-size: 0.85rem;">Control whether this project appears in the in-house Sales Hub and the external agent library.</p>
-                <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center;">
+                <p id="saleVisibilityMigrationNote" style="display:none; margin: 0 0 15px 0; color: #f59e0b; font-size: 0.85rem; font-weight: 600;">
+                    Run sql/2026-07-15_sales_visibility_flags.sql in phpMyAdmin to enable visibility toggles. Until then, all accessible projects remain visible in Sales Hub.
+                </p>
+                <div id="saleVisibilityControls" style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center;">
                     <label style="display: flex; align-items: center; gap: 8px; color: var(--pm-text-main); font-weight: 600; cursor: pointer;">
                         <input type="checkbox" id="showForSaleToggle"> Show for sale (in-house Sales Hub)
                     </label>
@@ -483,6 +503,13 @@ foreach ($projectsRaw as $p) {
     }
 
     function renderVisibilityPanel() {
+        const migrationNote = document.getElementById('saleVisibilityMigrationNote');
+        const controls = document.getElementById('saleVisibilityControls');
+        const columnsReady = currentVisibility.columns_available !== false;
+
+        if (migrationNote) migrationNote.style.display = columnsReady ? 'none' : 'block';
+        if (controls) controls.style.display = columnsReady ? 'flex' : 'none';
+
         document.getElementById('showForSaleToggle').checked = !!currentVisibility.show_for_sale;
         document.getElementById('showForSaleExternalToggle').checked = !!currentVisibility.show_for_sale_external;
     }

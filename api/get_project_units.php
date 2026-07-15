@@ -19,9 +19,7 @@ if (!hasSalesProjectAccess($pdo, $project_id)) {
 }
 
 try {
-    $visStmt = $pdo->prepare('SELECT show_for_sale FROM projects WHERE id = ?');
-    $visStmt->execute([$project_id]);
-    if (!(int)$visStmt->fetchColumn()) {
+    if (!salesProjectIsListedForSale($pdo, $project_id)) {
         salesDenyJsonAccess('Project is not listed for sale.');
     }
 
