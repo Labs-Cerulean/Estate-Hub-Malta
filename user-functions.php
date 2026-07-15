@@ -304,23 +304,28 @@ function salesHubHasGlobalAccess(): bool {
 }
 
 function hasSalesProjectAccess(PDO $pdo, int $projectId): bool {
+    static $cache = [];
     if ($projectId <= 0) {
         return false;
     }
-    return hasProjectAccess($pdo, $projectId);
+    if (!isset($cache[$projectId])) {
+        $cache[$projectId] = hasProjectAccess($pdo, $projectId);
+    }
+    return $cache[$projectId];
 }
 
 function hasSalesPropertyAccess(PDO $pdo, int $propertyId): bool {
+    static $cache = [];
     if ($propertyId <= 0) {
         return false;
     }
-    $stmt = $pdo->prepare('SELECT project_id FROM sales_properties WHERE id = ?');
-    $stmt->execute([$propertyId]);
-    $projectId = $stmt->fetchColumn();
-    if (!$projectId) {
-        return false;
+    if (!isset($cache[$propertyId])) {
+        $stmt = $pdo->prepare('SELECT project_id FROM sales_properties WHERE id = ?');
+        $stmt->execute([$propertyId]);
+        $projectId = $stmt->fetchColumn();
+        $cache[$propertyId] = $projectId ? hasSalesProjectAccess($pdo, (int)$projectId) : false;
     }
-    return hasSalesProjectAccess($pdo, (int)$projectId);
+    return $cache[$propertyId];
 }
 
 /**
