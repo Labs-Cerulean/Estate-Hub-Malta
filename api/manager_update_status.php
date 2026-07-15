@@ -97,8 +97,8 @@ try {
                 $update->execute(['single', $resale_price, $property_id]);
                 $justification .= " (All-in: €{$resale_price})";
             } else {
-                if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0) {
-                    echo json_encode(['success' => false, 'message' => 'Shell and works/finishes prices are required for split pricing.']);
+                if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0 || ($resale_shell_price + $resale_finishes_price) <= 0) {
+                    echo json_encode(['success' => false, 'message' => 'Shell and finishes prices are required, and their sum must be greater than 0.']);
                     exit;
                 }
                 $combined = $resale_shell_price + $resale_finishes_price;
@@ -147,8 +147,8 @@ try {
             $update->execute([$new_status, $old_status, 'single', $resale_price, $property_id]);
             $justification .= " (All-in: €{$resale_price})";
         } else {
-            if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0) {
-                echo json_encode(['success' => false, 'message' => 'Shell and works/finishes prices are required for split pricing.']);
+            if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0 || ($resale_shell_price + $resale_finishes_price) <= 0) {
+                echo json_encode(['success' => false, 'message' => 'Shell and finishes prices are required, and their sum must be greater than 0.']);
                 exit;
             }
             $combined = $resale_shell_price + $resale_finishes_price;
@@ -163,5 +163,6 @@ try {
 
     echo json_encode(['success' => true, 'message' => 'Unit listed for resale.']);
 } catch (Exception $e) {
+    error_log('Resale status update failed: ' . $e->getMessage());
     echo json_encode(['success' => false, 'message' => 'Update failed. Please try again.']);
 }

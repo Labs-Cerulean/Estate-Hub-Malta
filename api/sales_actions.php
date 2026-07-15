@@ -69,16 +69,17 @@ try {
                 ->format('Y-m-d H:i:s');
         }
 
-        $update = $pdo->prepare(
-            salesResaleExtendedColumnsAvailable($pdo)
-                ? "UPDATE sales_properties SET status = ?, held_by_agent_id = ?, hold_expiry = ?, status_before_hold = ?{$alertResetSql} WHERE id = ?"
-                : "UPDATE sales_properties SET status = ?, held_by_agent_id = ?, hold_expiry = ?{$alertResetSql} WHERE id = ?"
-        );
+        $sql = "UPDATE sales_properties SET status = ?, held_by_agent_id = ?, hold_expiry = ?";
+        $params = [$new_status, $user_id, $expirySql];
         if (salesResaleExtendedColumnsAvailable($pdo)) {
-            $update->execute([$new_status, $user_id, $expirySql, $statusBeforeHold, $property_id]);
-        } else {
-            $update->execute([$new_status, $user_id, $expirySql, $property_id]);
+            $sql .= ', status_before_hold = ?';
+            $params[] = $statusBeforeHold;
         }
+        $sql .= "{$alertResetSql} WHERE id = ?";
+        $params[] = $property_id;
+
+        $update = $pdo->prepare($sql);
+        $update->execute($params);
 
     } elseif ($action === 'set_hold_deadline') {
         if (!salesCanManageHoldDeadlines($user_role)) {

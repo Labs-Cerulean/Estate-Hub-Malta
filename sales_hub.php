@@ -1304,7 +1304,8 @@ require_once 'header.php';
                 } else {
                     showToast('Error: ' + (data.message || 'Could not cancel'), 'error');
                 }
-            });
+            })
+            .catch(err => showToast('System Error: ' + err.message, 'error'));
     }
 
     function generateLivePricelist() { 
