@@ -75,9 +75,14 @@ require_once 'header.php';
     #sh-wrapper { position: relative; height: 100vh; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; color: var(--sh-text-main); }
     #sales-map { position: absolute; top: 0; bottom: 0; width: 100%; left: 0; }
     
+    /* MapLibre + MapboxDraw (Draw still emits mapboxgl-* control classes) */
+    .maplibregl-ctrl-top-right,
     .mapboxgl-ctrl-top-right { top: 20px; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 20; display: flex; }
+    .maplibregl-ctrl-group,
     .mapboxgl-ctrl-group { display: flex !important; flex-direction: row !important; background: var(--sh-bg-panel); border: 2px solid var(--sh-avail); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); overflow: hidden; }
+    .maplibregl-ctrl-group button,
     .mapboxgl-ctrl-group button { filter: invert(1); width: 45px; height: 45px; transition: 0.2s; }
+    .maplibregl-ctrl-group button:hover,
     .mapboxgl-ctrl-group button:hover { background: rgba(255,255,255,0.1); }
     
     .sh-overlay {
@@ -186,7 +191,7 @@ require_once 'header.php';
         header, #header, .navbar, .topbar, .top-header { display: none !important; }
         
         /* 2. Hide the map entirely & transform the wrapper */
-        #sales-map, .mapboxgl-control-container { display: none !important; }
+        #sales-map, .maplibregl-control-container, .mapboxgl-control-container { display: none !important; }
         
         #sh-wrapper {
             height: auto;
@@ -768,65 +773,71 @@ require_once 'header.php';
     }
 
     let mapProjectsData = {};
+    let draw = null;
     const defaultCenter = [14.38, 35.92];
     const defaultZoom = 9.5;
     const defaultPitch = 25;
+    const openFreeMapStyle = 'https://tiles.openfreemap.org/styles/dark';
 
-    // Alias mapboxgl to maplibregl so the Draw polygon plugin continues to work flawlessly
+    // MapboxDraw expects mapboxgl; alias to MapLibre (post-Mapbox migration)
     window.mapboxgl = maplibregl;
 
-    // Initialize the 100% free map (Notice: No API Key needed!)
-    const map = new maplibregl.Map({ 
-        container: 'sales-map', 
-        style: {
-            'version': 8,
-            'sources': {
-                'osm': {
-                    'type': 'raster',
-                    'tiles': ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                    'tileSize': 256,
-                    'attribution': '&copy; OpenStreetMap'
-                }
-            },
-            'layers': [{
-                'id': 'osm-layer',
-                'type': 'raster',
-                'source': 'osm',
-                'minzoom': 0,
-                'maxzoom': 19
-            }]
-        },
-        center: defaultCenter, 
-        zoom: defaultZoom, 
-        pitch: defaultPitch, 
-        bearing: 0 
+    const map = new maplibregl.Map({
+        container: 'sales-map',
+        style: openFreeMapStyle,
+        center: defaultCenter,
+        zoom: defaultZoom,
+        pitch: defaultPitch,
+        bearing: 0,
+        attributionControl: true
     });
     map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-    const draw = new MapboxDraw({ 
-        displayControlsDefault: false, 
-        controls: { polygon: true, trash: true }, 
-        defaultMode: 'simple_select' 
+    map.on('error', (e) => {
+        console.error('Sales Hub map error:', e.error || e);
     });
-    map.addControl(draw, 'top-right'); 
 
-    map.on('draw.create', filterMapByPolygon); 
-    map.on('draw.delete', filterMapByPolygon); 
-    map.on('draw.update', filterMapByPolygon);
+    function onDrawChanged(e) {
+        if (e && e.type === 'draw.create' && draw) {
+            const all = draw.getAll();
+            if (all.features.length > 1) {
+                all.features.slice(0, -1).forEach((feature) => draw.delete(feature.id));
+            }
+        }
+        filterMapByPolygon();
+    }
+
+    map.on('load', () => {
+        draw = new MapboxDraw({
+            displayControlsDefault: false,
+            controls: { polygon: true, trash: true },
+            defaultMode: 'simple_select'
+        });
+        map.addControl(draw, 'top-right');
+
+        map.on('draw.create', onDrawChanged);
+        map.on('draw.delete', onDrawChanged);
+        map.on('draw.update', onDrawChanged);
+
+        loadSalesMapProjects();
+    });
 
     function filterMapByPolygon() {
+        if (!draw) return;
         const data = draw.getAll();
         if (data.features.length > 0) {
             const polygon = data.features[0];
             let projectsInPolygon = [];
             
             Object.values(mapProjectsData).forEach(project => {
-                if (project.markerEl) {
-                    const pt = turf.point([project.longitude, project.latitude]);
-                    const isInside = turf.booleanPointInPolygon(pt, polygon);
-                    project.markerEl.style.display = isInside ? 'block' : 'none';
-                    if (isInside) projectsInPolygon.push(project);
-                }
+                if (!project.markerEl) return;
+                const lng = parseFloat(project.longitude);
+                const lat = parseFloat(project.latitude);
+                if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+                const pt = turf.point([lng, lat]);
+                const isInside = turf.booleanPointInPolygon(pt, polygon);
+                project.markerEl.style.display = isInside ? 'block' : 'none';
+                if (isInside) projectsInPolygon.push(project);
             });
             
             if (projectsInPolygon.length > 0) {
@@ -856,30 +867,55 @@ require_once 'header.php';
         closeSidebar();
     }
 
-    map.on('load', () => {
-        fetch('api/get_sales_map_data.php')
-        .then(r => r.json())
-        .then(data => {
-            if(data.success && data.data) {
-                const dropdown = document.getElementById('projectJumpDropdown');
-                
-                data.data.forEach(project => {
-                    if(project.latitude && project.longitude) {
-                        mapProjectsData[project.project_id] = project;
-                        dropdown.add(new Option(project.project_name, project.project_id));
-                        
-                        const el = document.createElement('div');
-                        el.style.cssText = `background-color: ${project.available_units > 0 ? '#10B981' : '#EF4444'}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8); cursor: pointer;`;
-                        
-                        new maplibregl.Marker(el).setLngLat([project.longitude, project.latitude]).addTo(map);
-                        project.markerEl = el; 
-                        
-                        el.addEventListener('click', () => loadMultipleProjects([project], true));
-                    }
-                });
+    function clearSalesMapMarkers() {
+        Object.values(mapProjectsData).forEach(project => {
+            if (project.marker) {
+                project.marker.remove();
             }
         });
-    });
+    }
+
+    function loadSalesMapProjects() {
+        fetch('api/get_sales_map_data.php')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success || !Array.isArray(data.data)) return;
+
+                clearSalesMapMarkers();
+
+                const dropdown = document.getElementById('projectJumpDropdown');
+                while (dropdown.options.length > 1) {
+                    dropdown.remove(1);
+                }
+                mapProjectsData = {};
+
+                data.data.forEach(project => {
+                    const lng = parseFloat(project.longitude);
+                    const lat = parseFloat(project.latitude);
+                    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+
+                    dropdown.add(new Option(project.project_name, project.project_id));
+
+                    const el = document.createElement('div');
+                    el.className = 'sh-map-pin';
+                    el.style.cssText = `background-color: ${project.available_units > 0 ? '#10B981' : '#EF4444'}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8); cursor: pointer;`;
+                    el.title = project.project_name;
+
+                    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+                        .setLngLat([lng, lat])
+                        .addTo(map);
+                    project.markerEl = el;
+                    project.marker = marker;
+                    mapProjectsData[project.project_id] = project;
+
+                    el.addEventListener('click', (evt) => {
+                        evt.stopPropagation();
+                        loadMultipleProjects([project], true);
+                    });
+                });
+            })
+            .catch(err => console.error('Sales Hub map data failed:', err));
+    }
 
     function jumpToSelectedProject(projectId) { 
         if(projectId && mapProjectsData[projectId]) {
@@ -892,7 +928,11 @@ require_once 'header.php';
         lastLoadedProjects = projects;
 
         if (shouldPan && projects.length === 1) {
-            map.panTo([projects[0].longitude, projects[0].latitude], { duration: 1000 });
+            const lng = parseFloat(projects[0].longitude);
+            const lat = parseFloat(projects[0].latitude);
+            if (Number.isFinite(lng) && Number.isFinite(lat)) {
+                map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13), duration: 1000 });
+            }
         }
         
         document.getElementById('sidebarProjectName').innerText = projects.length === 1 ? projects[0].project_name : `Selected Area (${projects.length} Projects)`;
