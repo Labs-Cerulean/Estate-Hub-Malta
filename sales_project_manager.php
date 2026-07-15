@@ -378,9 +378,9 @@ try {
     }
 
     .manager-container { 
-        max-width: 1500px; 
+        max-width: 100%; 
         margin: 0 auto; 
-        padding: 0 20px; 
+        padding: 0 24px; 
         font-family: 'Inter', sans-serif; 
         color: var(--pm-text-main); 
     }
@@ -418,24 +418,26 @@ try {
     }
     .pm-project-section h3 { margin: 0 0 15px 0; color: var(--pm-text-main); font-size: 1rem; font-weight: 800; }
 
-    .pm-project-picker-city { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--pm-text-muted); margin: 12px 0 8px; }
-    .pm-project-picker-city:first-child { margin-top: 0; }
-    .pm-project-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+    .pm-project-picker-city { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--pm-text-muted); margin-bottom: 4px; }
+    .pm-project-picker-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 14px;
+        width: 100%;
+    }
     .pm-project-picker-card {
         background: var(--pm-bg-base); border: 2px solid var(--pm-border); border-radius: 10px;
         padding: 8px; cursor: pointer; text-align: center; transition: 0.2s; color: #fff;
+        width: 100%; min-width: 0;
     }
     .pm-project-picker-card:hover { border-color: var(--pm-accent); transform: translateY(-1px); }
     .pm-project-picker-card.selected { border-color: var(--pm-avail); box-shadow: 0 0 0 1px var(--pm-avail); background: rgba(16,185,129,0.08); }
-    .pm-project-picker-card.pm-add-card { border-style: dashed; border-color: var(--pm-accent); }
-    .pm-project-picker-card.pm-add-card:hover { background: rgba(59,130,246,0.08); }
     .pm-project-picker-thumb {
         width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; overflow: hidden;
         background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
     }
     .pm-project-picker-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .pm-project-picker-thumb i { font-size: 1.6rem; color: var(--pm-text-muted); }
-    .pm-project-picker-thumb .pm-add-icon { font-size: 2.4rem; color: var(--pm-accent); font-weight: 300; line-height: 1; }
     .pm-project-picker-name { font-size: 0.72rem; font-weight: 700; line-height: 1.25; min-height: 2.4em; display: flex; align-items: center; justify-content: center; }
 
     .pm-modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15,23,42,0.9); backdrop-filter: blur(8px); }
@@ -490,7 +492,7 @@ try {
             <div style="flex: 1; min-width: 280px;">
                 <a href="sales_hub.php" style="color: var(--pm-text-muted); text-decoration: none; font-size: 0.9rem; font-weight: bold;">&larr; Back to Sales Hub</a>
                 <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Sales Management</h2>
-                <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Manage frames, media, daily CSV sync, and sales visibility. Select a project below, or upload a new frame with the (+) tile.</p>
+                <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Manage frames, media, daily CSV sync, and sales visibility. Select a project below.</p>
                 <div class="pm-toolbar">
                     <button type="button" class="btn-heavy btn-blue" onclick="document.getElementById('dailySyncInput').click()">
                         <i class="fas fa-sync-alt"></i> 1-Click Daily Sync
@@ -502,6 +504,9 @@ try {
                     <button type="button" class="btn-heavy btn-green" onclick="openUploadMediaModal()">
                         <i class="fas fa-cloud-upload-alt"></i> Upload Media
                     </button>
+                    <button type="button" class="btn-heavy btn-gray" onclick="openUploadFrameModal()">
+                        <i class="fas fa-plus"></i> New Project Frame
+                    </button>
                 </div>
             </div>
         </div>
@@ -509,18 +514,15 @@ try {
         <div class="pm-project-section">
             <h3><i class="fas fa-th-large"></i> Select Project</h3>
             <input type="hidden" id="projectSelect" value="">
-            <div id="pmProjectGrid">
+            <div id="pmProjectGrid" class="pm-project-picker-grid">
                 <?php if (empty($projectsByCity)): ?>
-                    <p style="color: var(--pm-text-muted); font-size: 0.85rem; margin: 0;">No projects with units yet. Use the (+) tile to upload a frame CSV for a new project.</p>
+                    <p style="color: var(--pm-text-muted); font-size: 0.85rem; margin: 0; grid-column: 1 / -1;">No projects with units yet. Use <strong>New Project Frame</strong> above to upload a frame CSV.</p>
                 <?php else: ?>
-                    <?php
-                    foreach ($projectsByCity as $city => $projs):
-                        echo '<div class="pm-project-picker-city">' . htmlspecialchars($city, ENT_QUOTES, 'UTF-8') . '</div>';
-                        echo '<div class="pm-project-picker-grid">';
-                        foreach ($projs as $p):
+                    <?php foreach ($projectsByCity as $city => $projs): ?>
+                        <?php foreach ($projs as $p):
                             $pid = (int)$p['id'];
                             $thumbUrl = $projectThumbUrls[$pid] ?? '';
-                    ?>
+                        ?>
                         <button type="button" class="pm-project-picker-card" data-project-id="<?= $pid ?>" onclick="selectProjectFromGrid(this)">
                             <div class="pm-project-picker-thumb">
                                 <?php if ($thumbUrl): ?>
@@ -529,22 +531,12 @@ try {
                                     <i class="fas fa-building" aria-hidden="true"></i>
                                 <?php endif; ?>
                             </div>
+                            <div class="pm-project-picker-city"><?= htmlspecialchars($city, ENT_QUOTES, 'UTF-8') ?></div>
                             <div class="pm-project-picker-name"><?= htmlspecialchars($p['name'], ENT_QUOTES, 'UTF-8') ?></div>
                         </button>
-                    <?php
-                        endforeach;
-                        echo '</div>';
-                    endforeach;
-                    ?>
+                        <?php endforeach; ?>
+                    <?php endforeach; ?>
                 <?php endif; ?>
-                <div class="pm-project-picker-grid" style="margin-top: 12px;">
-                    <button type="button" class="pm-project-picker-card pm-add-card" onclick="openUploadFrameModal()" title="Upload frame CSV for a new project">
-                        <div class="pm-project-picker-thumb">
-                            <span class="pm-add-icon" aria-hidden="true">+</span>
-                        </div>
-                        <div class="pm-project-picker-name">New Project Frame</div>
-                    </button>
-                </div>
             </div>
         </div>
 
