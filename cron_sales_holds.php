@@ -108,7 +108,8 @@ foreach ($expired as $hold) {
         . '</ul>'
         . '<p>The unit remains <strong>On Hold</strong> until a manager releases it or updates the deadline in the Holds Ledger.</p>';
 
-    if (sendSystemEmail($recipients, $subject, $htmlBody)) {
+    $sent = sendSystemEmail($recipients, $subject, $htmlBody);
+    if ($sent === true) {
         if ($alertColumnsReady) {
             $upd = $pdo->prepare('UPDATE sales_properties SET hold_expired_alert_sent_at = NOW() WHERE id = ?');
             $upd->execute([(int)$hold['id']]);
