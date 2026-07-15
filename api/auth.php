@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['username']) && !empt
 
             // REDIRECT LOGIC based on user role (Normalized to handle capitalization or spaces)
             $normalizedRole = strtolower(trim(str_replace(' ', '_', $user['role'])));
-            if ($normalizedRole === 'sales_agent') {
+            if (in_array($normalizedRole, ['sales_agent', 'external_agent'], true)) {
                 header('Location: ../sales_hub.php');
             } else {
                 header('Location: ../dashboard.php');

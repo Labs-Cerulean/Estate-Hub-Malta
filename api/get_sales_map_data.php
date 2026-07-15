@@ -4,7 +4,7 @@ require_once '../session-check.php';
 
 header('Content-Type: application/json');
 
-$allowed_roles = ['admin', 'sales_manager', 'sales_agent', 'director'];
+$allowed_roles = ['admin', 'sales_manager', 'sales_agent', 'external_agent', 'director'];
 if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $allowed_roles, true)) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized API Access']);
     exit;
@@ -25,7 +25,7 @@ try {
         FROM projects p
         JOIN sales_properties sp ON p.id = sp.project_id
         WHERE {$access['sql']}
-        " . salesInHouseVisibilitySql($pdo, 'p') . "
+        " . salesListingVisibilitySql($pdo, 'p') . "
         GROUP BY p.id
     ";
 

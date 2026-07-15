@@ -395,6 +395,26 @@ function salesInHouseVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string
     return " AND {$projectAlias}.show_for_sale = 1";
 }
 
+function salesExternalVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return '';
+    }
+    $projectAlias = preg_replace('/[^a-zA-Z0-9_]/', '', $projectAlias) ?: 'p';
+    return " AND {$projectAlias}.show_for_sale_external = 1";
+}
+
+function salesIsExternalAgent(): bool {
+    return getCurrentRole() === 'external_agent';
+}
+
+/** Map/list visibility SQL for the current Sales Hub viewer (in-house vs external library). */
+function salesListingVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
+    if (salesIsExternalAgent()) {
+        return salesExternalVisibilitySql($pdo, $projectAlias);
+    }
+    return salesInHouseVisibilitySql($pdo, $projectAlias);
+}
+
 function salesProjectIsListedForSale(PDO $pdo, int $projectId): bool {
     if ($projectId <= 0) {
         return false;
@@ -408,11 +428,35 @@ function salesProjectIsListedForSale(PDO $pdo, int $projectId): bool {
     return $value !== false && (int)$value === 1;
 }
 
+function salesProjectIsListedForExternal(PDO $pdo, int $projectId): bool {
+    if ($projectId <= 0) {
+        return false;
+    }
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return false;
+    }
+    $stmt = $pdo->prepare('SELECT show_for_sale_external FROM projects WHERE id = ?');
+    $stmt->execute([$projectId]);
+    $value = $stmt->fetchColumn();
+    return $value !== false && (int)$value === 1;
+}
+
+/** Whether the current user may view this project on Sales Hub / pricelist for their role. */
+function salesProjectPassesListingVisibility(PDO $pdo, int $projectId): bool {
+    if (salesIsExternalAgent()) {
+        return salesProjectIsListedForExternal($pdo, $projectId);
+    }
+    return salesProjectIsListedForSale($pdo, $projectId);
+}
+
 function salesGetAccessibleProjectsWithUnits(PDO $pdo, bool $visibleForSaleOnly = false): array {
     $access = salesProjectAccessWhereClause($pdo, 'p');
-    $visibilitySql = ($visibleForSaleOnly && salesVisibilityColumnsAvailable($pdo))
-        ? salesInHouseVisibilitySql($pdo, 'p')
-        : '';
+    $visibilitySql = '';
+    if ($visibleForSaleOnly && salesVisibilityColumnsAvailable($pdo)) {
+        $visibilitySql = salesIsExternalAgent()
+            ? salesExternalVisibilitySql($pdo, 'p')
+            : salesInHouseVisibilitySql($pdo, 'p');
+    }
     $sql = "SELECT DISTINCT p.id, p.name, p.city
             FROM projects p
             INNER JOIN sales_properties sp ON p.id = sp.project_id

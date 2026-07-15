@@ -11,7 +11,7 @@ if (isset($_GET['proxy_doc_id'])) {
     $stmt->execute([$docId]);
     $doc = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if ($doc && hasSalesProjectAccess($pdo, (int)$doc['project_id'])) {
+    if ($doc && hasSalesProjectAccess($pdo, (int)$doc['project_id']) && salesProjectPassesListingVisibility($pdo, (int)$doc['project_id'])) {
         $s3 = new S3FileManager();
         $url = $s3->getPresignedUrl($doc['file_path'], '+10 minutes');
         
@@ -38,7 +38,7 @@ if (!hasSalesProjectAccess($pdo, $projectId)) {
     die("Access denied.");
 }
 
-if (!salesProjectIsListedForSale($pdo, $projectId)) {
+if (!salesProjectPassesListingVisibility($pdo, $projectId)) {
     http_response_code(403);
     die("This project is not listed for sale.");
 }

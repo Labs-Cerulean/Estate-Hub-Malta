@@ -14,6 +14,14 @@ function navIsSalesAgentRole(): bool {
     return getCurrentRole() === 'sales_agent';
 }
 
+function navIsExternalAgentRole(): bool {
+    return getCurrentRole() === 'external_agent';
+}
+
+function navIsSalesHubDedicatedRole(): bool {
+    return navIsSalesAgentRole() || navIsSalesManagerRole() || navIsExternalAgentRole();
+}
+
 function navIsSalesManagerRole(): bool {
     return getCurrentRole() === 'sales_manager';
 }
@@ -23,7 +31,7 @@ function navIsLegalRep(): bool {
 }
 
 function navCanAccessEstateHub(): bool {
-    if (navIsPlantOnlyRole() || navIsSalesAgentRole()) {
+    if (navIsPlantOnlyRole() || navIsSalesAgentRole() || navIsExternalAgentRole()) {
         return false;
     }
     if (navIsLegalRep()) {
@@ -67,7 +75,7 @@ function navCanAccessSalesHub(): bool {
         return false;
     }
     // Dedicated sales roles always use Sales Hub; everyone else needs explicit Property Sales cap
-    if (navIsSalesAgentRole() || navIsSalesManagerRole()) {
+    if (navIsSalesAgentRole() || navIsSalesManagerRole() || navIsExternalAgentRole()) {
         return true;
     }
     return isAdmin() || hasPermission('view_property_sales');
@@ -75,6 +83,9 @@ function navCanAccessSalesHub(): bool {
 
 /** Matches sales_project_manager.php gate — frames, media, daily sync tooling. */
 function navCanAccessSalesProjectManager(): bool {
+    if (navIsExternalAgentRole()) {
+        return false;
+    }
     return in_array(getCurrentRole(), ['sales_manager', 'admin', 'director', 'system_manager'], true)
         || hasPermission('manage_sales_frames');
 }
@@ -293,8 +304,9 @@ function navEstateItems(): array {
 }
 
 function navSalesItems(): array {
+    $mapLabel = navIsExternalAgentRole() ? 'Property Library' : 'Sales Map';
     $items = [
-        ['type' => 'link', 'label' => 'Sales Map', 'href' => 'sales_hub.php', 'pages' => ['sales_hub']],
+        ['type' => 'link', 'label' => $mapLabel, 'href' => 'sales_hub.php', 'pages' => ['sales_hub']],
     ];
 
     if (navCanAccessSalesProjectManager()) {
