@@ -1014,7 +1014,10 @@ require_once 'header.php';
                 if (!existingLabel) {
                     const projectLabel = document.createElement('div');
                     projectLabel.className = 'sh-unit-project';
-                    projectLabel.innerHTML = `<i class="fas fa-building"></i> ${projectName}`;
+                    const projectIcon = document.createElement('i');
+                    projectIcon.className = 'fas fa-building';
+                    projectLabel.appendChild(projectIcon);
+                    projectLabel.appendChild(document.createTextNode(' ' + projectName));
                     const cardBody = card.querySelector('.card-body') || card;
                     cardBody.insertBefore(projectLabel, cardBody.firstChild);
                 }

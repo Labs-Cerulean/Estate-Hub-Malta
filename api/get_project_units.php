@@ -79,9 +79,9 @@ try {
             $badgeText = '#ffffff';
 
             if (strpos($status, 'Hold') !== false) {
-                $accentColor = '#f59e0b';
-                $badgeBg = '#f59e0b';
-                $badgeText = '#000000';
+                $accentColor = '#64748b';
+                $badgeBg = '#64748b';
+                $badgeText = '#ffffff';
             } elseif (strpos($status, 'Proceeding') !== false) {
                 $accentColor = '#f59e0b';
                 $badgeBg = '#f59e0b';
