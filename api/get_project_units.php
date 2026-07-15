@@ -144,18 +144,27 @@ try {
                       </div>";
 
             // --- INSET PRICE BOX ---
-            $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
-                        <div class='d-flex justify-content-between align-items-center'>
-                            <div>
-                                <div style='font-size: 0.8rem; color: #9ca3af; margin-bottom: 4px;'>Shell: <span class='text-white fw-bold'>€" . number_format($u['shell_price'], 0) . "</span></div>
-                                <div style='font-size: 0.8rem; color: #9ca3af;'>Finishes: <span class='text-white fw-bold'>€" . number_format($u['finishes_price'], 0) . "</span> <span style='font-size: 0.7rem; color: #64748b;'>({$finishState})</span></div>
+            $hideSoldPricing = !$is_manager && salesUnitStatusIsSold($status);
+            if ($hideSoldPricing) {
+                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                            <div style='text-align: center; color: #94a3b8; font-size: 0.85rem; font-weight: 600; padding: 6px 0;'>
+                                <i class='fas fa-lock' style='margin-right: 6px; opacity: 0.85;'></i> Price Confidential
                             </div>
-                            <div class='text-end'>
-                                <div style='font-size: 0.7rem; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>Total Price</div>
-                                <div style='font-size: 1.4rem; font-weight: 800; color: {$accentColor}; line-height: 1;'>€" . number_format($total_price, 0) . "</div>
+                          </div>";
+            } else {
+                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                            <div class='d-flex justify-content-between align-items-center'>
+                                <div>
+                                    <div style='font-size: 0.8rem; color: #9ca3af; margin-bottom: 4px;'>Shell: <span class='text-white fw-bold'>€" . number_format($u['shell_price'], 0) . "</span></div>
+                                    <div style='font-size: 0.8rem; color: #9ca3af;'>Finishes: <span class='text-white fw-bold'>€" . number_format($u['finishes_price'], 0) . "</span> <span style='font-size: 0.7rem; color: #64748b;'>({$finishState})</span></div>
+                                </div>
+                                <div class='text-end'>
+                                    <div style='font-size: 0.7rem; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>Total Price</div>
+                                    <div style='font-size: 1.4rem; font-weight: 800; color: {$accentColor}; line-height: 1;'>€" . number_format($total_price, 0) . "</div>
+                                </div>
                             </div>
-                        </div>
-                      </div>";
+                          </div>";
+            }
 
             // --- MANAGER EDIT PRICE FORM ---
             if ($is_manager) {
