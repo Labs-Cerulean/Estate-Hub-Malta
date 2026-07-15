@@ -109,6 +109,27 @@ require_once 'header.php';
         filter: brightness(0) invert(1);
         background-color: rgba(16, 185, 129, 0.35) !important;
     }
+    #sales-map .sh-satellite-toggle-btn {
+        width: 45px;
+        height: 45px;
+        cursor: pointer;
+        pointer-events: auto;
+        border: 0 !important;
+        outline: none;
+        background-color: transparent !important;
+        color: #fff;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        filter: brightness(0) invert(1);
+        transition: background-color 0.2s ease;
+    }
+    #sales-map .sh-satellite-toggle-btn:hover,
+    #sales-map .sh-satellite-toggle-btn.active {
+        filter: brightness(0) invert(1);
+        background-color: rgba(16, 185, 129, 0.35) !important;
+    }
 
     .sh-map-legend { text-align: left; color: var(--sh-text-muted); font-size: 0.75rem; margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; }
     .sh-legend-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
@@ -708,6 +729,66 @@ require_once 'header.php';
     const defaultZoom = 9.5;
     const defaultPitch = 25;
     const openFreeMapStyle = 'https://tiles.openfreemap.org/styles/liberty';
+    const satelliteMapStyle = {
+        version: 8,
+        sources: {
+            'esri-satellite': {
+                type: 'raster',
+                tiles: [
+                    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                ],
+                tileSize: 256,
+                maxzoom: 19,
+                attribution: 'Tiles © Esri'
+            }
+        },
+        layers: [
+            { id: 'esri-satellite-layer', type: 'raster', source: 'esri-satellite' }
+        ]
+    };
+    let mapSatelliteActive = false;
+
+    function attachSatelliteToggleButton() {
+        const drawGroup = document.querySelector('#sales-map .maplibregl-ctrl-top-right .maplibregl-ctrl-group');
+        if (!drawGroup || drawGroup.querySelector('.sh-satellite-toggle-btn')) return;
+        const satBtn = document.createElement('button');
+        satBtn.type = 'button';
+        satBtn.className = 'sh-satellite-toggle-btn mapbox-gl-draw_ctrl-draw-btn';
+        satBtn.title = 'Toggle satellite view';
+        satBtn.setAttribute('aria-label', 'Toggle satellite view');
+        satBtn.innerHTML = '<i class="fas fa-satellite"></i>';
+        if (mapSatelliteActive) satBtn.classList.add('active');
+        satBtn.addEventListener('click', toggleSatelliteView);
+        drawGroup.insertBefore(satBtn, drawGroup.firstChild);
+    }
+
+    function toggleSatelliteView() {
+        const savedDraw = draw ? draw.getAll() : null;
+        mapSatelliteActive = !mapSatelliteActive;
+        const btn = document.querySelector('.sh-satellite-toggle-btn');
+        if (btn) btn.classList.toggle('active', mapSatelliteActive);
+        map.once('style.load', () => setupDrawControl(savedDraw));
+        map.setStyle(mapSatelliteActive ? satelliteMapStyle : openFreeMapStyle);
+    }
+
+    function setupDrawControl(restoreData) {
+        if (draw) {
+            try { map.removeControl(draw); } catch (e) { /* already removed on style change */ }
+            draw = null;
+        }
+        draw = new MapboxDraw({
+            displayControlsDefault: false,
+            controls: { polygon: true, trash: true },
+            defaultMode: 'simple_select',
+            styles: mapDrawStyles
+        });
+        map.addControl(draw, 'top-right');
+        attachSatelliteToggleButton();
+        if (restoreData && restoreData.features && restoreData.features.length > 0) {
+            draw.add(restoreData);
+            filterMapByPolygon();
+        }
+    }
 
     // MapboxDraw expects mapboxgl; alias to MapLibre (post-Mapbox migration)
     window.mapboxgl = maplibregl;
@@ -757,18 +838,13 @@ require_once 'header.php';
     }
 
     map.on('load', () => {
-        draw = new MapboxDraw({
-            displayControlsDefault: false,
-            controls: { polygon: true, trash: true },
-            defaultMode: 'simple_select',
-            styles: mapDrawStyles
-        });
-        map.addControl(draw, 'top-right');
-
-        map.on('draw.create', onDrawChanged);
-        map.on('draw.delete', onDrawChanged);
-        map.on('draw.update', onDrawChanged);
-
+        if (!map._drawEventsBound) {
+            map.on('draw.create', onDrawChanged);
+            map.on('draw.delete', onDrawChanged);
+            map.on('draw.update', onDrawChanged);
+            map._drawEventsBound = true;
+        }
+        setupDrawControl();
         loadSalesMapProjects();
     });
 
