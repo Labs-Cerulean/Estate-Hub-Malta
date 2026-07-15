@@ -1066,11 +1066,12 @@ require_once 'header.php';
                 });
             }
 
-            let resalePrice = card.querySelector('.resale-input')?.value || card.querySelector('input[placeholder*="Resale"]')?.value || '';
+            let resalePrice = card.getAttribute('data-resale-price') || '';
+            if (parseFloat(resalePrice) === 0) resalePrice = '';
             const oldControls = card.querySelector('select[onchange^="managerUpdateStatus"]')?.parentNode || card.querySelector('.action-buttons') || card.querySelector('form');
             
             // FULL CLEANUP OF OLD BUTTONS (Fixes duplicate Hold/Reserve buttons - Item 6)
-            card.querySelectorAll('select, input, button[onclick*="togglePriceEdit"], button[onclick*="holdProperty"], button[onclick*="requestReserve"], button[onclick*="markResale"], .resale-input').forEach(el => el.remove());
+            card.querySelectorAll('select, input, button[onclick*="holdProperty"], button[onclick*="requestReserve"], button[onclick*="markResale"], .resale-input, .sh-resale-input').forEach(el => el.remove());
 
             const controlWrapper = document.createElement('div');
             controlWrapper.style.marginTop = '15px'; 
@@ -1093,16 +1094,6 @@ require_once 'header.php';
                         <button class="sh-btn sh-btn-success" style="margin-bottom:10px;" onclick="cancelResale(${unitId})"><i class="fas fa-undo"></i> Cancel Resale</button>
                         <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" onblur="updateResalePrice(${unitId}, this.value)">`;
                 }
-
-                controls += `
-                    <button class="sh-btn sh-btn-warning" style="background:transparent; border:1px dashed var(--sh-border);" onclick="togglePriceEdit(${unitId})">✎ Modify Pricing</button>
-                    <div id="price_edit_${unitId}" style="display:none; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; border:1px solid var(--sh-border); margin-top:10px;">
-                        <label class="sh-label">Shell Price (€)</label>
-                        <input type="number" id="inp_sh_${unitId}" class="sh-input" style="margin-bottom:10px;">
-                        <label class="sh-label">Finishes Price (€)</label>
-                        <input type="number" id="inp_fn_${unitId}" class="sh-input" style="margin-bottom:10px;">
-                        <button class="sh-btn sh-btn-success" onclick="savePrice(${unitId})">Save Prices</button>
-                    </div>`;
             } else {
                 if (status === 'Available' || status === 'BOM') {
                     controls += `
@@ -1124,8 +1115,10 @@ require_once 'header.php';
     }
 
     function markResale(propertyId) { 
-        if(!confirm("Mark this unit as a 3rd Party Resale?")) return; 
-        sendStatusToServer(propertyId, 'Resale', null); 
+        if(!confirm("Mark this unit as a 3rd Party Resale?")) return;
+        const asking = prompt('Enter resale asking price (€), or leave blank to set later:');
+        if (asking === null) return;
+        sendStatusToServer(propertyId, 'Resale', asking.trim() || null); 
     }
     
     function cancelResale(propertyId) { 
@@ -1155,34 +1148,6 @@ require_once 'header.php';
                 }
             } else { 
                 showToast("Error: " + data.message, 'error'); 
-            }
-        });
-    }
-
-    function togglePriceEdit(id) { 
-        const e = document.getElementById('price_edit_' + id); 
-        e.style.display = e.style.display === 'none' ? 'block' : 'none'; 
-    }
-    
-    function savePrice(id) {
-        const shell = document.getElementById('inp_sh_' + id).value; 
-        const fin = document.getElementById('inp_fn_' + id).value;
-        
-        let formData = new FormData(); 
-        formData.append('property_id', id); 
-        formData.append('shell_price', shell); 
-        formData.append('finishes_price', fin);
-        
-        fetch('api/update_unit_price.php', { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            if(data.success) { 
-                showToast("Price updated!", "success"); 
-                if (lastLoadedProjects.length > 0) {
-                    setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
-                }
-            } else { 
-                showToast("Error: " + data.message, "error"); 
             }
         });
     }
