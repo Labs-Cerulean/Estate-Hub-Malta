@@ -73,6 +73,12 @@ function navCanAccessSalesHub(): bool {
     return isAdmin() || hasPermission('view_property_sales');
 }
 
+/** Matches sales_project_manager.php gate — frames, media, daily sync tooling. */
+function navCanAccessSalesProjectManager(): bool {
+    return in_array(getCurrentRole(), ['sales_manager', 'admin', 'director', 'system_manager'], true)
+        || hasPermission('manage_sales_frames');
+}
+
 function navCanAccessPlantHub(): bool {
     return hasPermission('view_plant_bookings')
         || hasPermission('manage_plant_fleet')
@@ -291,8 +297,8 @@ function navSalesItems(): array {
         ['type' => 'link', 'label' => 'Sales Map', 'href' => 'sales_hub.php', 'pages' => ['sales_hub']],
     ];
 
-    if (in_array(getCurrentRole(), ['sales_manager', 'admin'], true) || hasPermission('manage_sales_frames')) {
-        $items[] = ['type' => 'link', 'label' => 'Project Frames', 'href' => 'sales_project_manager.php', 'pages' => ['sales_project_manager']];
+    if (navCanAccessSalesProjectManager()) {
+        $items[] = ['type' => 'link', 'label' => 'Sales Project Manager', 'href' => 'sales_project_manager.php', 'pages' => ['sales_project_manager']];
     }
 
     return $items;

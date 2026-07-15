@@ -1,10 +1,9 @@
 <?php
 require_once 'config.php';
 require_once 'session-check.php';
+require_once __DIR__ . '/includes/nav_config.php';
 
-// Strict Access Control: Admin, Director, Sales Manager, System Manager (or explicit custom permission)
-$allowed_roles = ['sales_manager', 'admin', 'director', 'system_manager'];
-if (!in_array($_SESSION['role'], $allowed_roles) && !hasPermission('manage_sales_frames')) {
+if (!navCanAccessSalesProjectManager()) {
     header("Location: index.php?error=unauthorized");
     exit;
 }
@@ -490,8 +489,8 @@ try {
         <div class="header-bar">
             <div style="flex: 1; min-width: 280px;">
                 <a href="sales_hub.php" style="color: var(--pm-text-muted); text-decoration: none; font-size: 0.9rem; font-weight: bold;">&larr; Back to Sales Hub</a>
-                <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Project Frame & Media Manager</h2>
-                <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Select a project below, or upload a new frame with the (+) tile.</p>
+                <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Sales Project Manager</h2>
+                <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Manage frames, media, daily CSV sync, and sales visibility. Select a project below, or upload a new frame with the (+) tile.</p>
                 <div class="pm-toolbar">
                     <button type="button" class="btn-heavy btn-blue" onclick="document.getElementById('dailySyncInput').click()">
                         <i class="fas fa-sync-alt"></i> 1-Click Daily Sync

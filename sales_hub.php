@@ -411,10 +411,6 @@ require_once 'header.php';
         
         <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
             <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px;">
-                <button class="sh-btn" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.5); margin-bottom: 15px;" onclick="window.location.href='sales_project_manager.php'">
-                    <i class="fas fa-tools"></i> Open Project Manager
-                </button>
-
                 <button id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
                     <i class="fas fa-eye"></i> View as Agent
                 </button>
