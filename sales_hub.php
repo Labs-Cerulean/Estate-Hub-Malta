@@ -75,15 +75,32 @@ require_once 'header.php';
     #sh-wrapper { position: relative; height: 100vh; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; color: var(--sh-text-main); }
     #sales-map { position: absolute; top: 0; bottom: 0; width: 100%; left: 0; }
     
-    /* MapLibre + MapboxDraw (Draw still emits mapboxgl-* control classes) */
+    /* MapLibre draw controls (MapboxDraw patched to maplibregl-* classes) */
     .maplibregl-ctrl-top-right,
-    .mapboxgl-ctrl-top-right { top: 20px; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 20; display: flex; }
+    .mapboxgl-ctrl-top-right { top: 20px; left: 50% !important; right: auto !important; transform: translateX(-50%); z-index: 25; display: flex; pointer-events: auto; }
     .maplibregl-ctrl-group,
-    .mapboxgl-ctrl-group { display: flex !important; flex-direction: row !important; background: var(--sh-bg-panel); border: 2px solid var(--sh-avail); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); overflow: hidden; }
+    .mapboxgl-ctrl-group { display: flex !important; flex-direction: row !important; background: var(--sh-bg-panel); border: 2px solid var(--sh-avail); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); overflow: hidden; pointer-events: auto; }
     .maplibregl-ctrl-group button,
-    .mapboxgl-ctrl-group button { filter: invert(1); width: 45px; height: 45px; transition: 0.2s; }
+    .mapboxgl-ctrl-group button { width: 45px; height: 45px; transition: 0.2s; cursor: pointer; pointer-events: auto; }
     .maplibregl-ctrl-group button:hover,
     .mapboxgl-ctrl-group button:hover { background: rgba(255,255,255,0.1); }
+
+    .sh-map-legend { text-align: left; color: var(--sh-text-muted); font-size: 0.75rem; margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; }
+    .sh-legend-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+    .sh-legend-item { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--sh-text-main); }
+    .sh-legend-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; display: inline-block; }
+    .sh-legend-dot.avail { background: var(--sh-avail); }
+    .sh-legend-dot.none { background: var(--sh-danger); }
+
+    /* MapboxDraw cursor classes → MapLibre canvas */
+    .maplibregl-map.mouse-pointer .maplibregl-canvas-container.maplibregl-interactive { cursor: pointer; }
+    .maplibregl-map.mouse-move .maplibregl-canvas-container.maplibregl-interactive { cursor: move; }
+    .maplibregl-map.mouse-add .maplibregl-canvas-container.maplibregl-interactive { cursor: crosshair; }
+    .maplibregl-map.mouse-move.mode-direct_select .maplibregl-canvas-container.maplibregl-interactive { cursor: grab; }
+    .maplibregl-map.mode-direct_select.feature-vertex.mouse-move .maplibregl-canvas-container.maplibregl-interactive { cursor: move; }
+    .maplibregl-map.mode-direct_select.feature-midpoint.mouse-pointer .maplibregl-canvas-container.maplibregl-interactive { cursor: cell; }
+    .maplibregl-map.mode-direct_select.feature-feature.mouse-move .maplibregl-canvas-container.maplibregl-interactive { cursor: move; }
+    .maplibregl-map.mode-static.mouse-pointer .maplibregl-canvas-container.maplibregl-interactive { cursor: grab; }
     
     .sh-overlay {
         position: absolute; top: 20px; left: 20px; z-index: 10; width: 340px;
@@ -331,9 +348,23 @@ require_once 'header.php';
                 <i class="fas fa-undo-alt"></i> Reset Map & Clear Filters
             </button>
 
-            <div class="hide-map-controls-mobile" style="text-align: center; color: var(--sh-text-muted); font-size: 0.75rem; margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
-                <i class="fas fa-draw-polygon text-info mb-2" style="font-size: 1.5rem;"></i><br>
-                Click the Polygon icon top-center to outline an area. <br><b>Double-click</b> to close the shape.
+            <div class="hide-map-controls-mobile sh-map-legend">
+                <div class="sh-legend-row">
+                    <span class="sh-legend-item"><span class="sh-legend-dot avail"></span> Available units</span>
+                    <span class="sh-legend-item"><span class="sh-legend-dot none"></span> None available</span>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <i class="fas fa-draw-polygon text-info"></i>
+                    Draw a search area on the map. <b>Double-click</b> to close the shape.
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="sh-btn sh-btn-info" style="margin: 0; flex: 1; padding: 8px;" onclick="startPolygonDraw()">
+                        <i class="fas fa-draw-polygon"></i> Draw Area
+                    </button>
+                    <button type="button" class="sh-btn sh-btn-danger" style="margin: 0; flex: 1; padding: 8px;" onclick="clearPolygonDraw()">
+                        <i class="fas fa-trash-alt"></i> Clear Area
+                    </button>
+                </div>
             </div>
         </div>
         
@@ -777,10 +808,29 @@ require_once 'header.php';
     const defaultCenter = [14.38, 35.92];
     const defaultZoom = 9.5;
     const defaultPitch = 25;
-    const openFreeMapStyle = 'https://tiles.openfreemap.org/styles/dark';
+    const openFreeMapStyle = 'https://tiles.openfreemap.org/styles/liberty';
 
     // MapboxDraw expects mapboxgl; alias to MapLibre (post-Mapbox migration)
     window.mapboxgl = maplibregl;
+
+    // Required for MapboxDraw + MapLibre 3.x (controls otherwise not clickable)
+    MapboxDraw.constants.classes.CANVAS = 'maplibregl-canvas';
+    MapboxDraw.constants.classes.CONTROL_BASE = 'maplibregl-ctrl';
+    MapboxDraw.constants.classes.CONTROL_PREFIX = 'maplibregl-ctrl-';
+    MapboxDraw.constants.classes.CONTROL_GROUP = 'maplibregl-ctrl-group';
+    MapboxDraw.constants.classes.ATTRIBUTION = 'maplibregl-ctrl-attrib';
+
+    const mapDrawStyles = [
+        {'id':'gl-draw-polygon-fill-inactive','type':'fill','filter':['all',['==','active','false'],['==','$type','Polygon'],['!=','mode','static']],'paint':{'fill-color':'#10b981','fill-outline-color':'#10b981','fill-opacity':0.15}},
+        {'id':'gl-draw-polygon-fill-active','type':'fill','filter':['all',['==','active','true'],['==','$type','Polygon']],'paint':{'fill-color':'#f59e0b','fill-outline-color':'#f59e0b','fill-opacity':0.15}},
+        {'id':'gl-draw-polygon-stroke-inactive','type':'line','filter':['all',['==','active','false'],['==','$type','Polygon'],['!=','mode','static']],'layout':{'line-cap':'round','line-join':'round'},'paint':{'line-color':'#10b981','line-width':2}},
+        {'id':'gl-draw-polygon-stroke-active','type':'line','filter':['all',['==','active','true'],['==','$type','Polygon']],'layout':{'line-cap':'round','line-join':'round'},'paint':{'line-color':'#f59e0b','line-dasharray':[0.2,2],'line-width':2}},
+        {'id':'gl-draw-line-inactive','type':'line','filter':['all',['==','active','false'],['==','$type','LineString'],['!=','mode','static']],'layout':{'line-cap':'round','line-join':'round'},'paint':{'line-color':'#10b981','line-width':2}},
+        {'id':'gl-draw-line-active','type':'line','filter':['all',['==','$type','LineString'],['==','active','true']],'layout':{'line-cap':'round','line-join':'round'},'paint':{'line-color':'#f59e0b','line-dasharray':[0.2,2],'line-width':2}},
+        {'id':'gl-draw-polygon-midpoint','type':'circle','filter':['all',['==','$type','Point'],['==','meta','midpoint']],'paint':{'circle-radius':3,'circle-color':'#f59e0b'}},
+        {'id':'gl-draw-polygon-and-line-vertex-stroke-inactive','type':'circle','filter':['all',['==','meta','vertex'],['==','$type','Point'],['!=','mode','static']],'paint':{'circle-radius':5,'circle-color':'#fff'}},
+        {'id':'gl-draw-polygon-and-line-vertex-inactive','type':'circle','filter':['all',['==','meta','vertex'],['==','$type','Point'],['!=','mode','static']],'paint':{'circle-radius':3,'circle-color':'#f59e0b'}}
+    ];
 
     const map = new maplibregl.Map({
         container: 'sales-map',
@@ -811,7 +861,8 @@ require_once 'header.php';
         draw = new MapboxDraw({
             displayControlsDefault: false,
             controls: { polygon: true, trash: true },
-            defaultMode: 'simple_select'
+            defaultMode: 'simple_select',
+            styles: mapDrawStyles
         });
         map.addControl(draw, 'top-right');
 
@@ -851,6 +902,17 @@ require_once 'header.php';
             });
             closeSidebar();
         }
+    }
+
+    function startPolygonDraw() {
+        if (!draw) return;
+        draw.changeMode('draw_polygon');
+    }
+
+    function clearPolygonDraw() {
+        if (!draw) return;
+        draw.deleteAll();
+        filterMapByPolygon();
     }
 
     function resetMap() {
@@ -896,10 +958,15 @@ require_once 'header.php';
 
                     dropdown.add(new Option(project.project_name, project.project_id));
 
+                    const availCount = parseInt(project.available_units || 0, 10);
+                    const hasAvail = availCount > 0;
+
                     const el = document.createElement('div');
                     el.className = 'sh-map-pin';
-                    el.style.cssText = `background-color: ${project.available_units > 0 ? '#10B981' : '#EF4444'}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8); cursor: pointer;`;
-                    el.title = project.project_name;
+                    el.style.cssText = `background-color: ${hasAvail ? '#10B981' : '#EF4444'}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8); cursor: pointer;`;
+                    el.title = hasAvail
+                        ? `${project.project_name} — ${availCount} available`
+                        : `${project.project_name} — no available units`;
 
                     const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
                         .setLngLat([lng, lat])
