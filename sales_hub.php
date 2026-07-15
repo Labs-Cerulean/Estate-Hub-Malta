@@ -40,6 +40,57 @@ try {
     $pdo->exec("ALTER TABLE sales_property_logs MODIFY COLUMN new_status VARCHAR(50) DEFAULT NULL");
     
 } catch(PDOException $e) { /* Silently ignore if columns already exist */ }
+
+require_once 'S3FileManager.php';
+$framePickerProjects = [];
+$frameProjectThumbUrls = [];
+try {
+    $framePickerCandidates = salesGetAccessibleProjects($pdo);
+    if (!empty($framePickerCandidates)) {
+        $candidateIds = array_map('intval', array_column($framePickerCandidates, 'id'));
+        $placeholders = implode(',', array_fill(0, count($candidateIds), '?'));
+        $unitStmt = $pdo->prepare("SELECT DISTINCT project_id FROM sales_properties WHERE project_id IN ($placeholders)");
+        $unitStmt->execute($candidateIds);
+        $projectsWithUnits = array_flip(array_map('intval', $unitStmt->fetchAll(PDO::FETCH_COLUMN)));
+
+        foreach ($framePickerCandidates as $projectRow) {
+            $pid = (int)$projectRow['id'];
+            if (!isset($projectsWithUnits[$pid])) {
+                $framePickerProjects[] = $projectRow;
+            }
+        }
+
+        if (!empty($framePickerProjects)) {
+            $pickerIds = array_map('intval', array_column($framePickerProjects, 'id'));
+            $thumbPlaceholders = implode(',', array_fill(0, count($pickerIds), '?'));
+            $thumbStmt = $pdo->prepare("
+                SELECT pd.project_id, pd.file_path
+                FROM project_documents pd
+                INNER JOIN (
+                    SELECT project_id, MIN(id) AS min_id
+                    FROM project_documents
+                    WHERE category = 'Sales'
+                      AND sub_category = 'Render (Image)'
+                      AND project_id IN ($thumbPlaceholders)
+                    GROUP BY project_id
+                ) first_render ON pd.id = first_render.min_id
+            ");
+            $thumbStmt->execute($pickerIds);
+            $s3FramePicker = new S3FileManager();
+            foreach ($thumbStmt->fetchAll(PDO::FETCH_ASSOC) as $thumbRow) {
+                try {
+                    $frameProjectThumbUrls[(int)$thumbRow['project_id']] = $s3FramePicker->getPresignedUrl($thumbRow['file_path'], '+120 minutes');
+                } catch (Exception $e) {
+                    // Skip broken media keys
+                }
+            }
+        }
+    }
+} catch (Exception $e) {
+    $framePickerProjects = [];
+    $frameProjectThumbUrls = [];
+}
+
 require_once 'header.php';
 ?>
 
@@ -232,6 +283,24 @@ require_once 'header.php';
 
     .sh-drop-zone { border: 2px dashed var(--sh-border); border-radius: 12px; padding: 30px; text-align: center; cursor: pointer; transition: 0.2s; background: rgba(0,0,0,0.2); }
     .sh-drop-zone:hover, .sh-drop-zone.dragover { border-color: var(--sh-avail); background: rgba(16,185,129,0.1); }
+
+    .sh-project-picker { max-height: 320px; overflow-y: auto; margin-bottom: 20px; padding-right: 4px; }
+    .sh-project-picker-city { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sh-text-muted); margin: 12px 0 8px; }
+    .sh-project-picker-city:first-child { margin-top: 0; }
+    .sh-project-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+    .sh-project-picker-card {
+        background: var(--sh-bg-base); border: 2px solid var(--sh-border); border-radius: 10px;
+        padding: 8px; cursor: pointer; text-align: center; transition: 0.2s; color: #fff;
+    }
+    .sh-project-picker-card:hover { border-color: var(--sh-sold); transform: translateY(-1px); }
+    .sh-project-picker-card.selected { border-color: var(--sh-avail); box-shadow: 0 0 0 1px var(--sh-avail); background: rgba(16,185,129,0.08); }
+    .sh-project-picker-thumb {
+        width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; overflow: hidden;
+        background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
+    }
+    .sh-project-picker-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .sh-project-picker-thumb i { font-size: 1.6rem; color: var(--sh-text-muted); }
+    .sh-project-picker-name { font-size: 0.72rem; font-weight: 700; line-height: 1.25; min-height: 2.4em; display: flex; align-items: center; justify-content: center; }
 
     .sh-lightbox { display: none; position: fixed; z-index: 3000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); backdrop-filter: blur(10px); flex-direction: column; align-items: center; justify-content: center; }
     .sh-lightbox-close { position: absolute; top: 20px; right: 30px; color: #fff; font-size: 3rem; cursor: pointer; line-height: 1; }
@@ -530,26 +599,39 @@ require_once 'header.php';
         <h4 style="margin: 0 0 20px 0;">Upload Project Frame (CSV)</h4>
         <form id="uploadFrameForm">
             <label class="sh-label">Select Project</label>
-            <select class="sh-select" name="project_id" required>
-                <option value="">-- Choose Project --</option>
-                <?php
-                try {
-                    // Accessible projects only (including empty projects for first-time frame upload)
-                    $accessibleProjects = salesGetAccessibleProjects($pdo);
-                    $current_city = '';
-                    foreach ($accessibleProjects as $row) {
-                        $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
-                        if ($city !== $current_city) {
-                            if ($current_city !== '') echo '</optgroup>';
-                            echo '<optgroup label="' . htmlspecialchars($city) . '">';
-                            $current_city = $city;
-                        }
-                        echo '<option value="' . htmlspecialchars($row['id']) . '">' . htmlspecialchars($row['name']) . '</option>'; 
-                    }
-                    if ($current_city !== '') echo '</optgroup>';
-                } catch (Exception $e) {}
-                ?>
-            </select>
+            <input type="hidden" name="project_id" id="frameProjectId" value="">
+            <div class="sh-project-picker" id="frameProjectPicker">
+                <?php if (empty($framePickerProjects)): ?>
+                    <p style="color: var(--sh-text-muted); font-size: 0.85rem; margin: 0;">
+                        No empty projects available. Frame upload is only for projects without units yet.
+                    </p>
+                <?php else: ?>
+                    <?php
+                    $pickerCity = '';
+                    foreach ($framePickerProjects as $row):
+                        $city = trim($row['city'] ?? '') !== '' ? trim($row['city']) : 'Uncategorized';
+                        if ($city !== $pickerCity):
+                            if ($pickerCity !== '') echo '</div>';
+                            $pickerCity = $city;
+                            echo '<div class="sh-project-picker-city">' . htmlspecialchars($pickerCity, ENT_QUOTES, 'UTF-8') . '</div><div class="sh-project-picker-grid">';
+                        endif;
+                        $pid = (int)$row['id'];
+                        $thumbUrl = $frameProjectThumbUrls[$pid] ?? '';
+                    ?>
+                        <button type="button" class="sh-project-picker-card" data-project-id="<?= $pid ?>" onclick="selectFrameProject(this)">
+                            <div class="sh-project-picker-thumb">
+                                <?php if ($thumbUrl): ?>
+                                    <img src="<?= htmlspecialchars($thumbUrl, ENT_QUOTES, 'UTF-8') ?>" alt="">
+                                <?php else: ?>
+                                    <i class="fas fa-building" aria-hidden="true"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="sh-project-picker-name"><?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?></div>
+                        </button>
+                    <?php endforeach; ?>
+                    <?php if ($pickerCity !== '') echo '</div>'; ?>
+                <?php endif; ?>
+            </div>
             <label class="sh-label">CSV File</label>
             <input type="file" name="frame_csv" accept=".csv" required style="width: 100%; background: var(--sh-bg-base); border: 1px solid var(--sh-border); padding: 10px; border-radius: 8px; color: #fff; margin-bottom: 20px;">
             <button type="submit" class="sh-btn sh-btn-info">Upload & Import</button>
@@ -1435,8 +1517,18 @@ require_once 'header.php';
         .catch(err => showToast("System Error: " + err.message, "error"));
     }
 
+    function selectFrameProject(cardEl) {
+        document.querySelectorAll('#frameProjectPicker .sh-project-picker-card').forEach(card => card.classList.remove('selected'));
+        cardEl.classList.add('selected');
+        document.getElementById('frameProjectId').value = cardEl.getAttribute('data-project-id') || '';
+    }
+
     document.getElementById('uploadFrameForm').addEventListener('submit', function(e) {
         e.preventDefault();
+        if (!document.getElementById('frameProjectId').value) {
+            showToast('Please select a project thumbnail first.', 'error');
+            return;
+        }
         let formData = new FormData(this); 
         this.querySelector('button[type="submit"]').disabled = true;
         
