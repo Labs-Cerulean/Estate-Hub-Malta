@@ -285,6 +285,15 @@ function renderMediaPage($subCat, $mediaData) {
                     }
                     document.body.classList.remove('pricelist-loading');
                 };
+                script.onerror = () => {
+                    console.error('Failed to load PDF.js script');
+                    if (printBtn) {
+                        printBtn.disabled = false;
+                        printBtn.innerHTML = '🖨️ Save to PDF / Print';
+                        printBtn.style.background = '#2563eb';
+                    }
+                    document.body.classList.remove('pricelist-loading');
+                };
                 document.head.appendChild(script);
             }
         });

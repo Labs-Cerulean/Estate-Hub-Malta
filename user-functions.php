@@ -408,8 +408,8 @@ function salesIsExternalAgent(): bool {
 }
 
 /** True when unit status is Sold - POS, Sold - Contract, etc. */
-function salesUnitStatusIsSold(string $status): bool {
-    return stripos(trim($status), 'Sold') !== false;
+function salesUnitStatusIsSold(?string $status): bool {
+    return $status !== null && stripos(trim($status), 'Sold') !== false;
 }
 
 /** Managers/admins may view sold-unit pricing; sales and external agents may not. */

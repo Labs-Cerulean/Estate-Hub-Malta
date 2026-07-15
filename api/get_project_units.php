@@ -144,7 +144,7 @@ try {
                       </div>";
 
             // --- INSET PRICE BOX ---
-            $hideSoldPricing = !$is_manager && salesUnitStatusIsSold($status);
+            $hideSoldPricing = !salesCanViewSoldUnitPricing() && salesUnitStatusIsSold($status);
             if ($hideSoldPricing) {
                 $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
                             <div style='text-align: center; color: #94a3b8; font-size: 0.85rem; font-weight: 600; padding: 6px 0;'>
