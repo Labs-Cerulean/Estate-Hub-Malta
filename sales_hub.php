@@ -867,11 +867,21 @@ require_once 'header.php';
         closeSidebar();
     }
 
+    function clearSalesMapMarkers() {
+        Object.values(mapProjectsData).forEach(project => {
+            if (project.marker) {
+                project.marker.remove();
+            }
+        });
+    }
+
     function loadSalesMapProjects() {
         fetch('api/get_sales_map_data.php')
             .then(r => r.json())
             .then(data => {
                 if (!data.success || !Array.isArray(data.data)) return;
+
+                clearSalesMapMarkers();
 
                 const dropdown = document.getElementById('projectJumpDropdown');
                 while (dropdown.options.length > 1) {
@@ -884,7 +894,6 @@ require_once 'header.php';
                     const lat = parseFloat(project.latitude);
                     if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
-                    mapProjectsData[project.project_id] = project;
                     dropdown.add(new Option(project.project_name, project.project_id));
 
                     const el = document.createElement('div');
@@ -892,10 +901,12 @@ require_once 'header.php';
                     el.style.cssText = `background-color: ${project.available_units > 0 ? '#10B981' : '#EF4444'}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8); cursor: pointer;`;
                     el.title = project.project_name;
 
-                    new maplibregl.Marker({ element: el, anchor: 'center' })
+                    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
                         .setLngLat([lng, lat])
                         .addTo(map);
                     project.markerEl = el;
+                    project.marker = marker;
+                    mapProjectsData[project.project_id] = project;
 
                     el.addEventListener('click', (evt) => {
                         evt.stopPropagation();
