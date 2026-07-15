@@ -1,5 +1,5 @@
 /**
- * Sales Project Manager — daily sync, frame CSV upload, media upload, ignored ledger.
+ * Sales Management — daily sync, frame CSV upload, media upload, ignored ledger.
  * Loaded by sales_project_manager.php only (manager roles).
  */
 (function () {

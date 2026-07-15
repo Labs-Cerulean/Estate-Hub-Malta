@@ -298,7 +298,7 @@ function navSalesItems(): array {
     ];
 
     if (navCanAccessSalesProjectManager()) {
-        $items[] = ['type' => 'link', 'label' => 'Sales Project Manager', 'href' => 'sales_project_manager.php', 'pages' => ['sales_project_manager']];
+        $items[] = ['type' => 'link', 'label' => 'Sales Management', 'href' => 'sales_project_manager.php', 'pages' => ['sales_project_manager']];
     }
 
     return $items;

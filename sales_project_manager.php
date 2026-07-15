@@ -276,7 +276,7 @@ if (isset($_POST['action'])) {
     }
 }
 
-$pageTitle = 'Sales Project Manager';
+$pageTitle = 'Sales Management';
 require_once 'header.php';
 require_once 'S3FileManager.php';
 
@@ -489,7 +489,7 @@ try {
         <div class="header-bar">
             <div style="flex: 1; min-width: 280px;">
                 <a href="sales_hub.php" style="color: var(--pm-text-muted); text-decoration: none; font-size: 0.9rem; font-weight: bold;">&larr; Back to Sales Hub</a>
-                <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Sales Project Manager</h2>
+                <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Sales Management</h2>
                 <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Manage frames, media, daily CSV sync, and sales visibility. Select a project below, or upload a new frame with the (+) tile.</p>
                 <div class="pm-toolbar">
                     <button type="button" class="btn-heavy btn-blue" onclick="document.getElementById('dailySyncInput').click()">
