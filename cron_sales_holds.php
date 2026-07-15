@@ -21,10 +21,12 @@ if (empty($expectedToken) || !hash_equals($expectedToken, $providedToken)) {
 }
 
 date_default_timezone_set('Europe/Malta');
+$nowStr = date('Y-m-d H:i:s');
+$twentyFourHoursLaterStr = date('Y-m-d H:i:s', strtotime('+24 hours'));
 $alertColumnsReady = salesHoldAlertColumnsAvailable($pdo);
 $managerEmails = salesGetHoldAlertManagerEmails($pdo);
 
-echo 'Sales holds alert run at ' . date('Y-m-d H:i:s') . "\n";
+echo 'Sales holds alert run at ' . $nowStr . " (Europe/Malta)\n";
 
 // --- 24h expiry warnings ---
 $warningSql = "
@@ -36,13 +38,15 @@ $warningSql = "
     JOIN users u ON sp.held_by_agent_id = u.id
     WHERE sp.status = 'On Hold'
       AND sp.hold_expiry IS NOT NULL
-      AND sp.hold_expiry > NOW()
-      AND sp.hold_expiry <= DATE_ADD(NOW(), INTERVAL 24 HOUR)
+      AND sp.hold_expiry > ?
+      AND sp.hold_expiry <= ?
 ";
 if ($alertColumnsReady) {
-    $warningSql .= " AND sp.hold_warning_sent_at IS NULL";
+    $warningSql .= ' AND sp.hold_warning_sent_at IS NULL';
 }
-$warnings = $pdo->query($warningSql)->fetchAll(PDO::FETCH_ASSOC);
+$warningStmt = $pdo->prepare($warningSql);
+$warningStmt->execute([$nowStr, $twentyFourHoursLaterStr]);
+$warnings = $warningStmt->fetchAll(PDO::FETCH_ASSOC);
 
 foreach ($warnings as $alert) {
     $agentEmail = filter_var($alert['email'], FILTER_VALIDATE_EMAIL);
@@ -62,8 +66,8 @@ foreach ($warnings as $alert) {
     $sent = sendSystemEmail($agentEmail, $subject, $htmlBody);
     if ($sent === true) {
         if ($alertColumnsReady) {
-            $upd = $pdo->prepare('UPDATE sales_properties SET hold_warning_sent_at = NOW() WHERE id = ?');
-            $upd->execute([(int)$alert['id']]);
+            $upd = $pdo->prepare('UPDATE sales_properties SET hold_warning_sent_at = ? WHERE id = ?');
+            $upd->execute([$nowStr, (int)$alert['id']]);
         }
         echo "Warning sent: property {$alert['id']}\n";
     }
@@ -79,12 +83,14 @@ $expiredSql = "
     LEFT JOIN users u ON sp.held_by_agent_id = u.id
     WHERE sp.status = 'On Hold'
       AND sp.hold_expiry IS NOT NULL
-      AND sp.hold_expiry <= NOW()
+      AND sp.hold_expiry <= ?
 ";
 if ($alertColumnsReady) {
-    $expiredSql .= " AND sp.hold_expired_alert_sent_at IS NULL";
+    $expiredSql .= ' AND sp.hold_expired_alert_sent_at IS NULL';
 }
-$expired = $pdo->query($expiredSql)->fetchAll(PDO::FETCH_ASSOC);
+$expiredStmt = $pdo->prepare($expiredSql);
+$expiredStmt->execute([$nowStr]);
+$expired = $expiredStmt->fetchAll(PDO::FETCH_ASSOC);
 
 foreach ($expired as $hold) {
     $recipients = $managerEmails;
@@ -111,8 +117,8 @@ foreach ($expired as $hold) {
     $sent = sendSystemEmail($recipients, $subject, $htmlBody);
     if ($sent === true) {
         if ($alertColumnsReady) {
-            $upd = $pdo->prepare('UPDATE sales_properties SET hold_expired_alert_sent_at = NOW() WHERE id = ?');
-            $upd->execute([(int)$hold['id']]);
+            $upd = $pdo->prepare('UPDATE sales_properties SET hold_expired_alert_sent_at = ? WHERE id = ?');
+            $upd->execute([$nowStr, (int)$hold['id']]);
         }
 
         $log = $pdo->prepare('INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, 0, ?, ?, ?, ?)');

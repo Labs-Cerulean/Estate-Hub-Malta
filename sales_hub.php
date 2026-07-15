@@ -1858,7 +1858,7 @@ require_once 'header.php';
 
                     const expiryDisplay = hold.is_legacy
                         ? '<span style="color:var(--sh-text-muted);">N/A</span>'
-                        : escapeHtmlText(new Date(hold.hold_expiry).toLocaleString());
+                        : escapeHtmlText(new Date(hold.hold_expiry.replace(' ', 'T')).toLocaleString());
 
                     let deadlineCell = '';
                     if (canManage) {
@@ -1920,7 +1920,8 @@ require_once 'header.php';
             } else {
                 showToast('Error: ' + data.message, 'error');
             }
-        });
+        })
+        .catch(err => showToast('System Error: ' + err.message, 'error'));
     }
 
     function extendHoldFromLedger(propertyId) {
@@ -1944,7 +1945,8 @@ require_once 'header.php';
             } else {
                 showToast('Error: ' + data.message, 'error');
             }
-        });
+        })
+        .catch(err => showToast('System Error: ' + err.message, 'error'));
     }
 
     function filterLedgerTable() { 

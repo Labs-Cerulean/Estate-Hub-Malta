@@ -52,9 +52,13 @@ try {
 
         $new_status = 'On Hold';
         $log_action_name = 'Placed on Hold';
-        $expirySql = salesParseHoldExpiryInput($_POST['hold_expiry'] ?? null);
+        $rawExpiry = $_POST['hold_expiry'] ?? null;
 
-        if ($expirySql) {
+        if ($rawExpiry !== null && trim($rawExpiry) !== '') {
+            $expirySql = salesParseHoldExpiryInput($rawExpiry);
+            if (!$expirySql) {
+                throw new Exception('A valid future deadline is required (YYYY-MM-DD HH:MM).');
+            }
             if (!salesCanManageHoldDeadlines($user_role)) {
                 throw new Exception('Only managers can set a custom hold deadline.');
             }
