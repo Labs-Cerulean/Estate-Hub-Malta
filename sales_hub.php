@@ -118,16 +118,20 @@ require_once 'header.php';
         outline: none;
         background-color: transparent !important;
         color: #fff;
-        font-size: 1rem;
         display: flex;
         align-items: center;
         justify-content: center;
-        filter: brightness(0) invert(1);
         transition: background-color 0.2s ease;
+        box-sizing: border-box;
+    }
+    #sales-map .sh-satellite-toggle-btn svg {
+        display: block;
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
     }
     #sales-map .sh-satellite-toggle-btn:hover,
     #sales-map .sh-satellite-toggle-btn.active {
-        filter: brightness(0) invert(1);
         background-color: rgba(16, 185, 129, 0.35) !important;
     }
 
