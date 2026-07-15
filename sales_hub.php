@@ -385,6 +385,8 @@ require_once 'header.php';
         <div class="sh-kpi hold"><div class="sh-kpi-val" id="sidebarHold">0</div><div class="sh-kpi-lbl">Hold</div></div>
         <div class="sh-kpi sold"><div class="sh-kpi-val" id="sidebarSold">0</div><div class="sh-kpi-lbl">Sold</div></div>
     </div>
+
+    <div id="sidebarProjectPlansBar" style="display:none; padding: 0 20px 10px 20px;"></div>
     
     <div class="sh-filter-row" style="flex-wrap: wrap; gap: 10px;">
         <div class="sh-tabs">
@@ -413,7 +415,7 @@ require_once 'header.php';
     <div class="vanilla-modal-content large">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--sh-border); padding-bottom: 15px; margin-bottom: 15px;">
             <div style="display: flex; align-items: center; gap: 15px;">
-                <h4 style="margin: 0; color: #fff;"><i class="fas fa-map"></i> Floor Plan Viewer</h4>
+                <h4 id="planModalTitle" style="margin: 0; color: #fff;"><i class="fas fa-map"></i> Floor Plan Viewer</h4>
                 <span id="planCountDisplay" style="color: var(--sh-avail); font-weight: 800; font-size: 0.9rem;"></span>
             </div>
             <div style="display: flex; gap: 10px;">
@@ -477,7 +479,7 @@ require_once 'header.php';
                 <option value="">-- Choose Project --</option>
                 <?php
                 try {
-                    $accessibleProjects = salesGetAccessibleProjectsWithUnits($pdo);
+                    $accessibleProjects = salesGetAccessibleProjectsWithUnits($pdo, true);
                     $current_city = '';
                     foreach ($accessibleProjects as $row) {
                         $city = trim($row['city']) ? trim($row['city']) : 'Uncategorized';
@@ -497,6 +499,7 @@ require_once 'header.php';
                 <option value="Render (Image)">Render (Image)</option>
                 <option value="Render (Video)">Render (Video)</option>
                 <option value="Floor Plan">Floor Plan (PDF/Img)</option>
+                <option value="Project Plans">Project Plans — Full Set (PDF/Img)</option>
                 <option disabled>--- Pricelist Document Pages ---</option>
                 <option value="Pricelist - Front Cover">Pricelist - Front Cover</option>
                 <option value="Pricelist - Timeframes & Terms">Pricelist - Timeframes & Terms</option>
@@ -705,9 +708,13 @@ require_once 'header.php';
     let currentPlans = [];
     let currentPlanIndex = 0;
 
-    function openPlanModal(urlsStr) { 
+    function openPlanModal(urlsStr, viewerLabel = 'Floor Plan Viewer') {
         currentPlans = urlsStr.split(',');
         currentPlanIndex = 0;
+        const titleEl = document.getElementById('planModalTitle');
+        if (titleEl) {
+            titleEl.textContent = viewerLabel;
+        }
         document.getElementById('viewPlanModal').style.display = 'block'; 
         renderPlanIframe();
     }
@@ -755,6 +762,8 @@ require_once 'header.php';
     
     function closeSidebar() { 
         document.getElementById('custom-sidebar').classList.remove('open'); 
+        document.getElementById('sidebarProjectPlansBar').innerHTML = '';
+        document.getElementById('sidebarProjectPlansBar').style.display = 'none';
         lastLoadedProjects = []; 
     }
 
@@ -895,6 +904,7 @@ require_once 'header.php';
         let allHtml = '';
         let totalAvail = 0, totalHold = 0, totalSold = 0;
         let allMedia = { renders: [], videos: [] };
+        let projectPlansHtml = '';
 
         const promises = projects.map(p => fetch('api/get_project_units.php?project_id=' + p.project_id).then(r => r.json()));
         const results = await Promise.all(promises);
@@ -905,6 +915,19 @@ require_once 'header.php';
                 totalAvail += parseInt(p.available_units || 0);
                 totalHold += parseInt(p.held_units || 0);
                 totalSold += parseInt(p.sold_units || 0);
+
+                if (unitData.project_plans && unitData.project_plans.length > 0) {
+                    const urlList = escapeHtmlAttr(unitData.project_plans.join(','));
+                    const planLabel = unitData.project_plans.length > 1
+                        ? `View Full Project Plans (${unitData.project_plans.length})`
+                        : 'View Full Project Plans';
+                    const projectLabel = projects.length > 1 ? escapeHtmlText(p.project_name) + ' — ' : '';
+                    projectPlansHtml += `
+                        <button type="button" class="sh-btn sh-btn-info" style="margin: 0 0 8px 0; width: 100%;"
+                            data-urls="${urlList}" onclick="openPlanModal(this.getAttribute('data-urls'), 'Project Plans Viewer')">
+                            <i class="fas fa-drafting-compass"></i> ${projectLabel}${planLabel}
+                        </button>`;
+                }
 
                 if (projects.length > 1) {
                     allHtml += `<div class="sh-project-divider"><i class="fas fa-building"></i> ${p.project_name}</div>`;
@@ -922,6 +945,15 @@ require_once 'header.php';
         document.getElementById('sidebarAvail').innerText = totalAvail;
         document.getElementById('sidebarHold').innerText = totalHold;
         document.getElementById('sidebarSold').innerText = totalSold;
+
+        const plansBar = document.getElementById('sidebarProjectPlansBar');
+        if (projectPlansHtml) {
+            plansBar.innerHTML = projectPlansHtml;
+            plansBar.style.display = 'block';
+        } else {
+            plansBar.innerHTML = '';
+            plansBar.style.display = 'none';
+        }
 
         document.getElementById('unitListContainer').innerHTML = '';
         const tempDiv = document.createElement('div');
@@ -964,6 +996,13 @@ require_once 'header.php';
         return String(value ?? '')
             .replace(/&/g, '&amp;')
             .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function escapeHtmlText(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
     }

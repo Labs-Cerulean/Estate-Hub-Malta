@@ -18,6 +18,12 @@ if (!hasSalesProjectAccess($pdo, $project_id)) {
     salesDenyJsonAccess();
 }
 
+$visStmt = $pdo->prepare('SELECT show_for_sale FROM projects WHERE id = ?');
+$visStmt->execute([$project_id]);
+if (!(int)$visStmt->fetchColumn()) {
+    salesDenyJsonAccess('Project is not listed for sale.');
+}
+
 try {
     $s3 = new S3FileManager();
 
@@ -26,13 +32,15 @@ try {
     $docStmt->execute([$project_id]);
     $docs = $docStmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $renders = []; $videos = []; $plans = []; 
+    $renders = []; $videos = []; $plans = []; $projectPlans = [];
     foreach ($docs as $d) {
         $url = $s3->getPresignedUrl($d['file_path'], '+120 minutes');
         if ($d['sub_category'] === 'Render (Image)') {
             $renders[] = $url;
         } elseif ($d['sub_category'] === 'Render (Video)') {
             $videos[] = $url;
+        } elseif ($d['sub_category'] === 'Project Plans') {
+            $projectPlans[] = $url;
         } elseif ($d['sub_category'] === 'Floor Plan') {
             // STRICT EXTRACTION: Pull the exact integer from the title (supports "Level -1", "Floor Plan - -1", etc)
             if (preg_match('/-?\d+/', $d['title'], $matches)) {
@@ -227,7 +235,8 @@ try {
         'media' => [
             'renders' => $renders,
             'videos' => $videos
-        ]
+        ],
+        'project_plans' => $projectPlans
     ]);
 
 } catch (Exception $e) {

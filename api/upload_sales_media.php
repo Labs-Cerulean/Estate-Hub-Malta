@@ -55,12 +55,22 @@ try {
 
         salesAssertProjectAccess($pdo, $project_id);
 
+        $allowedMediaTypes = [
+            'Render (Image)', 'Render (Video)', 'Floor Plan', 'Project Plans',
+            'Pricelist - Front Cover', 'Pricelist - Timeframes & Terms',
+            'Pricelist - Spec Sheet', 'Pricelist - Back Cover',
+        ];
+        if (!in_array($media_type, $allowedMediaTypes, true)) {
+            throw new Exception('Invalid media type.');
+        }
+
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-        $title = preg_replace('/\\.[^.\\s]{3,4}$/', '', $filename); // Remove extension
-        
-        // Auto-tag the Floor Plan
+        $title = preg_replace('/\\.[^.\\s]{3,4}$/', '', $filename);
+
         if ($media_type === 'Floor Plan' && $floor_level !== '') {
             $title = "Floor Plan - Level " . $floor_level;
+        } elseif ($media_type === 'Project Plans' && $title === '') {
+            $title = 'Project Plans Set';
         }
         
         $stmt = $pdo->prepare("INSERT INTO project_documents (project_id, category, sub_category, title, file_path, file_type, uploaded_by) VALUES (?, 'Sales', ?, ?, ?, ?, ?)");
