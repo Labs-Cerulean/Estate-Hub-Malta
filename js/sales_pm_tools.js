@@ -7,6 +7,15 @@
 
     let currentSyncPayload = { translations: [], prices: [], statuses: [] };
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
     function showToast(message, type) {
         type = type || 'success';
         const container = document.getElementById('pm-toast-container');
@@ -15,7 +24,7 @@
         toast.className = 'pm-toast';
         toast.style.background = type === 'success' ? '#10B981' : '#EF4444';
         const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
-        toast.innerHTML = '<i class="fas ' + icon + ' fa-lg"></i> ' + message;
+        toast.innerHTML = '<i class="fas ' + icon + ' fa-lg"></i> ' + escapeHtml(message);
         container.appendChild(toast);
         setTimeout(function () {
             toast.style.opacity = '0';
@@ -112,10 +121,10 @@
         data.all_db_units.forEach(function (u) {
             if (u.project_name !== currentProject) {
                 if (currentProject !== '') optionsHtml += '</optgroup>';
-                optionsHtml += '<optgroup label="' + u.project_name + '">';
+                optionsHtml += '<optgroup label="' + escapeHtml(u.project_name) + '">';
                 currentProject = u.project_name;
             }
-            optionsHtml += '<option value="' + u.id + '">' + u.project_name + ' - ' + u.unit_name + '</option>';
+            optionsHtml += '<option value="' + u.id + '">' + escapeHtml(u.project_name) + ' - ' + escapeHtml(u.unit_name) + '</option>';
         });
         if (currentProject !== '') optionsHtml += '</optgroup>';
 
@@ -133,14 +142,14 @@
                         'value="' + item.recommended_id + '" selected'
                     );
                     borderColor = 'var(--pm-proc)';
-                    badgeHtml = '<div style="font-size: 0.75rem; color: var(--pm-proc); font-weight: bold; margin-bottom: 5px;"><i class="fas fa-magic"></i> AI Suggested: ' + item.recommended_full_name + '</div>';
+                    badgeHtml = '<div style="font-size: 0.75rem; color: var(--pm-proc); font-weight: bold; margin-bottom: 5px;"><i class="fas fa-magic"></i> AI Suggested: ' + escapeHtml(item.recommended_full_name) + '</div>';
                 }
 
-                const safeCsvName = String(item.csv_name).replace(/"/g, '&quot;');
+                const safeCsvName = escapeHtml(item.csv_name);
 
                 rowsHtml +=
                     '<tr class="unmapped-row" style="border-bottom: 1px solid var(--pm-border-light);">' +
-                    '<td style="padding: 12px; color: var(--pm-danger); font-weight: bold;">' + item.csv_name + '</td>' +
+                    '<td style="padding: 12px; color: var(--pm-danger); font-weight: bold;">' + escapeHtml(item.csv_name) + '</td>' +
                     '<td style="padding: 12px; border-left: 1px solid var(--pm-border);">' +
                     badgeHtml +
                     '<div style="display: flex; gap: 10px;">' +
@@ -168,14 +177,14 @@
             data.price_conflicts.forEach(function (c, i) {
                 rowsHtml +=
                     '<tr style="border-bottom: 1px solid var(--pm-border-light);">' +
-                    '<td style="padding: 12px;"><strong>' + c.csv_source_name + '</strong><br>' +
-                    '<span style="color:var(--pm-avail);">Sh: €' + c.csv_shell + ' | Fin: €' + c.csv_fin + '</span></td>' +
+                    '<td style="padding: 12px;"><strong>' + escapeHtml(c.csv_source_name) + '</strong><br>' +
+                    '<span style="color:var(--pm-avail);">Sh: €' + escapeHtml(c.csv_shell) + ' | Fin: €' + escapeHtml(c.csv_fin) + '</span></td>' +
                     '<td style="padding: 12px; border-left: 1px solid var(--pm-border);">' +
-                    '<strong>' + c.project_name + ' - ' + c.unit_name + '</strong><br>' +
-                    '<span style="color:var(--pm-text-muted);">Sh: €' + c.db_shell + ' | Fin: €' + c.db_fin + '</span></td>' +
+                    '<strong>' + escapeHtml(c.project_name) + ' - ' + escapeHtml(c.unit_name) + '</strong><br>' +
+                    '<span style="color:var(--pm-text-muted);">Sh: €' + escapeHtml(c.db_shell) + ' | Fin: €' + escapeHtml(c.db_fin) + '</span></td>' +
                     '<td style="padding: 12px; text-align: right; border-left: 1px solid var(--pm-border); white-space: nowrap;">' +
                     '<label style="margin-right: 15px; cursor: pointer;"><input type="radio" name="price_res_' + i + '" class="sync-price-radio" value="db" checked> Keep DB</label>' +
-                    '<label style="cursor: pointer; color: var(--pm-avail);"><input type="radio" name="price_res_' + i + '" class="sync-price-radio" value="csv" data-id="' + c.id + '" data-shell="' + c.csv_shell + '" data-fin="' + c.csv_fin + '"> Use CSV</label>' +
+                    '<label style="cursor: pointer; color: var(--pm-avail);"><input type="radio" name="price_res_' + i + '" class="sync-price-radio" value="csv" data-id="' + escapeHtml(c.id) + '" data-shell="' + escapeHtml(c.csv_shell) + '" data-fin="' + escapeHtml(c.csv_fin) + '"> Use CSV</label>' +
                     '</td></tr>';
             });
 
@@ -198,13 +207,13 @@
             data.status_changes.forEach(function (s) {
                 rowsHtml +=
                     '<tr style="border-bottom: 1px solid var(--pm-border-light);">' +
-                    '<td style="padding: 12px;"><strong>' + s.csv_source_name + '</strong><br>' +
-                    '<span style="color:var(--pm-avail);">New Status: ' + s.new_status + '</span></td>' +
+                    '<td style="padding: 12px;"><strong>' + escapeHtml(s.csv_source_name) + '</strong><br>' +
+                    '<span style="color:var(--pm-avail);">New Status: ' + escapeHtml(s.new_status) + '</span></td>' +
                     '<td style="padding: 12px; border-left: 1px solid var(--pm-border);">' +
-                    '<strong>' + s.project_name + ' - ' + s.unit_name + '</strong><br>' +
-                    '<span style="color:var(--pm-text-muted);">Current: ' + s.old_status + '</span></td>' +
+                    '<strong>' + escapeHtml(s.project_name) + ' - ' + escapeHtml(s.unit_name) + '</strong><br>' +
+                    '<span style="color:var(--pm-text-muted);">Current: ' + escapeHtml(s.old_status) + '</span></td>' +
                     '<td style="padding: 12px; text-align: right; border-left: 1px solid var(--pm-border);">' +
-                    '<span style="color:var(--pm-avail); font-weight:bold;">Update to ' + s.new_status + ' <i class="fas fa-check"></i></span>' +
+                    '<span style="color:var(--pm-avail); font-weight:bold;">Update to ' + escapeHtml(s.new_status) + ' <i class="fas fa-check"></i></span>' +
                     '</td></tr>';
             });
 
@@ -327,7 +336,7 @@
                     data.ignored.forEach(function (item) {
                         html +=
                             '<tr style="border-bottom: 1px solid var(--pm-border-light);">' +
-                            '<td style="padding: 12px 10px; font-weight: bold; color: var(--pm-danger);">' + item.csv_name + '</td>' +
+                            '<td style="padding: 12px 10px; font-weight: bold; color: var(--pm-danger);">' + escapeHtml(item.csv_name) + '</td>' +
                             '<td style="padding: 12px 10px; text-align: right;">' +
                             '<button type="button" class="btn-heavy btn-green" style="padding: 6px 12px; font-size: 0.8rem;" onclick="window.restoreIgnoredRow(' + item.id + ')">' +
                             '<i class="fas fa-trash-restore"></i> Restore</button></td></tr>';
@@ -354,7 +363,7 @@
                     showToast('Row restored successfully!', 'success');
                     openIgnoredLedger();
                 } else {
-                    showToast('Error: ' + data.message, 'error');
+                    showToast('Error: ' + (data.message || 'Could not update'), 'error');
                 }
             });
     };
@@ -412,7 +421,7 @@
         function updateFileList() {
             if (!fileList || !mediaFileInput) return;
             fileList.innerHTML = Array.from(mediaFileInput.files)
-                .map(function (f) { return '<div><i class="fas fa-check"></i> ' + f.name + '</div>'; })
+                .map(function (f) { return '<div><i class="fas fa-check"></i> ' + escapeHtml(f.name) + '</div>'; })
                 .join('');
         }
 
