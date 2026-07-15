@@ -417,6 +417,28 @@ function salesCanViewSoldUnitPricing(): bool {
     return in_array(getCurrentRole(), ['admin', 'sales_manager', 'system_manager', 'director'], true);
 }
 
+/** Sold - POS / Sold - Contract (excludes Resale). */
+function salesUnitStatusIsSoldListing(?string $status): bool {
+    if ($status === null || $status === 'Resale') {
+        return false;
+    }
+    return salesUnitStatusIsSold($status);
+}
+
+function salesResaleExtendedColumnsAvailable(PDO $pdo): bool {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM sales_properties LIKE 'resale_pricing_mode'");
+        $cache = (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $cache = false;
+    }
+    return $cache;
+}
+
 /** Map/list visibility SQL for the current Sales Hub viewer (in-house vs external library). */
 function salesListingVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
     if (salesIsExternalAgent()) {
@@ -575,6 +597,9 @@ function salesClearHoldFieldsSql(PDO $pdo): string {
     $sql = 'held_by_agent_id = NULL, hold_expiry = NULL';
     if (salesHoldAlertColumnsAvailable($pdo)) {
         $sql .= ', hold_warning_sent_at = NULL, hold_expired_alert_sent_at = NULL';
+    }
+    if (salesResaleExtendedColumnsAvailable($pdo)) {
+        $sql .= ', status_before_hold = NULL';
     }
     return $sql;
 }

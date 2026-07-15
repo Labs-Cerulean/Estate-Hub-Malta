@@ -305,6 +305,36 @@ require_once 'header.php';
     </div>
 </div>
 
+<div id="resaleSetupModal" class="vanilla-modal" style="display:none;">
+    <div class="vanilla-modal-content" style="max-width: 480px; background: var(--sh-bg-panel); border: 1px solid var(--sh-border); color: #fff;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <h4 style="margin:0; font-weight:800;"><i class="fas fa-exchange-alt" style="color:var(--sh-resale);"></i> List for Resale</h4>
+            <span class="vanilla-close" onclick="closeResaleModal()" style="cursor:pointer; font-size:1.5rem;">&times;</span>
+        </div>
+        <p style="color:var(--sh-text-muted); font-size:0.85rem; margin:0 0 16px;">Sold units only. Choose how the resale asking price should be displayed.</p>
+        <input type="hidden" id="resaleModalPropertyId" value="">
+        <input type="hidden" id="resaleModalMode" value="create">
+        <div style="display:flex; gap:10px; margin-bottom:16px;">
+            <button type="button" id="resaleModeSingleBtn" class="sh-btn sh-btn-info" style="margin:0; flex:1;" onclick="setResalePricingMode('single')">Single (All-in)</button>
+            <button type="button" id="resaleModeSplitBtn" class="sh-btn" style="margin:0; flex:1; background:rgba(168,85,247,0.12); color:#a855f7; border:1px solid rgba(168,85,247,0.35);" onclick="setResalePricingMode('split')">Split (Shell + Works)</button>
+        </div>
+        <div id="resaleSingleFields" style="display:none; margin-bottom:16px;">
+            <label class="sh-label">All-in Asking Price (€)</label>
+            <input type="number" step="0.01" min="0" id="resaleSinglePrice" class="sh-input" placeholder="Total asking price">
+        </div>
+        <div id="resaleSplitFields" style="display:none; margin-bottom:16px;">
+            <label class="sh-label">Shell Price (€)</label>
+            <input type="number" step="0.01" min="0" id="resaleSplitShell" class="sh-input" style="margin-bottom:10px;" placeholder="Shell component">
+            <label class="sh-label">Works / Finishes (€)</label>
+            <input type="number" step="0.01" min="0" id="resaleSplitFinishes" class="sh-input" placeholder="CP, semi-finished, etc.">
+        </div>
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button type="button" class="sh-btn" style="margin:0; width:auto; background:transparent; border:1px solid var(--sh-border); color:var(--sh-text-muted);" onclick="closeResaleModal()">Cancel</button>
+            <button type="button" class="sh-btn sh-btn-success" style="margin:0; width:auto;" onclick="submitResaleModal()">Save Resale Listing</button>
+        </div>
+    </div>
+</div>
+
 <div id="sh-toast-container"></div>
 
 <div id="sh-lightbox" class="sh-lightbox">
@@ -1011,14 +1041,15 @@ require_once 'header.php';
             if (!unitId) unitId = Math.floor(Math.random() * 1000000); 
 
             let rawStatus = card.getAttribute('data-status') || card.querySelector('.badge')?.innerText || 'Available';
-            let status = rawStatus.trim();
+            rawStatus = rawStatus.trim();
+            let status = rawStatus;
             if (status === 'Reserved') status = 'Proceeding';
-            if (status === 'Sold POS' || status === 'Sold Contract') status = 'Sold';
+            if (status === 'Sold - POS' || status === 'Sold - Contract') status = 'Sold';
 
             let unitTypeAttr = card.getAttribute('data-type') || '';
 
             card.className = 'sh-card';
-            card.setAttribute('data-status', status);
+            card.setAttribute('data-status', rawStatus);
             card.setAttribute('data-type', unitTypeAttr);
             if (projectName) card.setAttribute('data-project-name', projectName);
             card.style.marginBottom = '15px';
@@ -1037,19 +1068,19 @@ require_once 'header.php';
                 }
             }
 
-            if (status.includes('Available') || status === 'BOM') {
+            if (status === 'Available' || status === 'BOM') {
                 card.style.borderLeft = '4px solid var(--sh-avail)';
             } else if (status.includes('Proceeding')) {
                 card.style.borderLeft = '4px solid var(--sh-proc)';
-            } else if (status.includes('Sold')) {
-                card.style.borderLeft = '4px solid var(--sh-sold)';
-            } else if (status === 'Resale') {
+            } else if (rawStatus === 'Resale') {
                 card.style.borderLeft = '4px solid var(--sh-resale)';
+            } else if (status.includes('Sold') || rawStatus.includes('Sold')) {
+                card.style.borderLeft = '4px solid var(--sh-sold)';
             } else {
                 card.style.borderLeft = '4px solid var(--sh-hold)';
             }
 
-            if (currentViewMode === 'agent' && status.includes('Sold')) {
+            if (currentViewMode === 'agent' && (status.includes('Sold') || rawStatus.includes('Sold')) && rawStatus !== 'Resale') {
                 const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
                 let nodesToReplace = [];
                 let node;
@@ -1067,39 +1098,41 @@ require_once 'header.php';
             }
 
             let resalePrice = card.getAttribute('data-resale-price') || '';
+            let resaleMode = card.getAttribute('data-resale-mode') || '';
+            let resaleShell = card.getAttribute('data-resale-shell') || '';
+            let resaleFinishes = card.getAttribute('data-resale-finishes') || '';
             if (parseFloat(resalePrice) === 0) resalePrice = '';
+            const isSoldListing = rawStatus !== 'Resale' && rawStatus.indexOf('Sold') !== -1;
+
             const oldControls = card.querySelector('select[onchange^="managerUpdateStatus"]')?.parentNode || card.querySelector('.action-buttons') || card.querySelector('form');
             
-            // FULL CLEANUP OF OLD BUTTONS (Fixes duplicate Hold/Reserve buttons - Item 6)
-            card.querySelectorAll('select, input, button[onclick*="holdProperty"], button[onclick*="requestReserve"], button[onclick*="markResale"], .resale-input, .sh-resale-input').forEach(el => el.remove());
+            card.querySelectorAll('select, input, button[onclick*="holdProperty"], button[onclick*="requestReserve"], button[onclick*="markResale"], button[onclick*="openResaleModal"], button[onclick*="cancelResale"], .resale-input, .sh-resale-input').forEach(el => el.remove());
 
             const controlWrapper = document.createElement('div');
             controlWrapper.style.marginTop = '15px'; 
             controlWrapper.style.paddingTop = '15px'; 
             controlWrapper.style.borderTop = '1px solid var(--sh-border)';
 
-            let controls = `<div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; margin-bottom:10px;">Status: <span style="color:#fff;">${status}</span></div>`;
+            let controls = `<div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; margin-bottom:10px;">Status: <span style="color:#fff;">${escapeHtmlText(rawStatus)}</span></div>`;
 
             if (currentViewMode === 'manager') {
                 if (status === 'Available' || status === 'BOM') {
+                    controls += `<button class="sh-btn sh-btn-warning" style="margin:0;" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Place on Hold</button>`;
+                } else if (isSoldListing) {
+                    controls += `<button class="sh-btn" style="margin:0; background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.3);" onclick="openResaleModal(${unitId}, 'create')"><i class="fas fa-exchange-alt"></i> List for Resale</button>`;
+                } else if (rawStatus === 'Resale') {
                     controls += `
-                        <div style="display:flex; gap:10px; margin-bottom:10px;">
-                            <button class="sh-btn sh-btn-warning" style="margin:0;" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Place on Hold</button>
-                            <button class="sh-btn" style="margin:0; background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.3);" onclick="markResale(${unitId})"><i class="fas fa-exchange-alt"></i> Resale</button>
-                        </div>`;
+                        <div style="display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+                            <button class="sh-btn sh-btn-warning" style="margin:0; flex:1;" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Place on Hold</button>
+                            <button class="sh-btn" style="margin:0; flex:1; background:rgba(168,85,247,0.12); color:#a855f7; border:1px solid rgba(168,85,247,0.35);" onclick="openResaleModal(${unitId}, 'edit', '${escapeHtmlAttr(resaleMode)}', '${escapeHtmlAttr(resalePrice)}', '${escapeHtmlAttr(resaleShell)}', '${escapeHtmlAttr(resaleFinishes)}')"><i class="fas fa-pen"></i> Edit Pricing</button>
+                        </div>
+                        <button class="sh-btn sh-btn-success" style="margin-bottom:10px;" onclick="cancelResale(${unitId})"><i class="fas fa-undo"></i> Cancel Resale</button>`;
                 } else if (status === 'On Hold' || status === 'Proceeding') {
                      controls += `<button class="sh-btn sh-btn-success" style="margin-bottom:10px;" onclick="releaseHoldFromLedger(${unitId})"><i class="fas fa-unlock"></i> Release Hold</button>`;
-                } else if (status === 'Resale') {
-                     controls += `
-                        <button class="sh-btn sh-btn-success" style="margin-bottom:10px;" onclick="cancelResale(${unitId})"><i class="fas fa-undo"></i> Cancel Resale</button>
-                        <input type="number" step="0.01" class="sh-resale-input" id="resale_input_${unitId}" placeholder="Resale Asking Price (€)" value="${resalePrice}" onblur="updateResalePrice(${unitId}, this.value)">`;
                 }
             } else {
-                if (status === 'Available' || status === 'BOM') {
-                    controls += `
-                    <div style="display:flex; gap:10px;">
-                        <button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Place on Hold</button>
-                    </div>`;
+                if (status === 'Available' || status === 'BOM' || rawStatus === 'Resale') {
+                    controls += `<button class="sh-btn sh-btn-warning" onclick="holdProperty(${unitId})"><i class="fas fa-pause"></i> Place on Hold</button>`;
                 }
             }
 
@@ -1114,42 +1147,88 @@ require_once 'header.php';
         return tempDiv.innerHTML;
     }
 
-    function markResale(propertyId) { 
-        if(!confirm("Mark this unit as a 3rd Party Resale?")) return;
-        const asking = prompt('Enter resale asking price (€), or leave blank to set later:');
-        if (asking === null) return;
-        sendStatusToServer(propertyId, 'Resale', asking.trim() || null); 
-    }
-    
-    function cancelResale(propertyId) { 
-        if(!confirm("Cancel Resale and revert unit to Available?")) return; 
-        sendStatusToServer(propertyId, 'Available', null); 
-    }
-    
-    function updateResalePrice(propertyId, price) { 
-        if(!price) return; 
-        sendStatusToServer(propertyId, 'Resale', price); 
+    let resalePricingMode = 'single';
+
+    function unitStatusIsSoldListing(status) {
+        if (!status || status === 'Resale') return false;
+        return status.indexOf('Sold') !== -1;
     }
 
-    function sendStatusToServer(propertyId, newStatus, resalePrice = null) {
-        let formData = new FormData(); 
-        formData.append('property_id', propertyId); 
-        formData.append('new_status', newStatus); 
-        
-        if (resalePrice) formData.append('resale_price', resalePrice);
-        
+    function closeResaleModal() {
+        document.getElementById('resaleSetupModal').style.display = 'none';
+    }
+
+    function setResalePricingMode(mode) {
+        resalePricingMode = mode;
+        document.getElementById('resaleSingleFields').style.display = mode === 'single' ? 'block' : 'none';
+        document.getElementById('resaleSplitFields').style.display = mode === 'split' ? 'block' : 'none';
+        document.getElementById('resaleModeSingleBtn').style.outline = mode === 'single' ? '2px solid var(--sh-sold)' : 'none';
+        document.getElementById('resaleModeSplitBtn').style.outline = mode === 'split' ? '2px solid var(--sh-resale)' : 'none';
+    }
+
+    function openResaleModal(propertyId, mode, pricingMode, allIn, shell, finishes) {
+        document.getElementById('resaleModalPropertyId').value = propertyId;
+        document.getElementById('resaleModalMode').value = mode;
+        document.getElementById('resaleSinglePrice').value = allIn && parseFloat(allIn) > 0 ? allIn : '';
+        document.getElementById('resaleSplitShell').value = shell && parseFloat(shell) > 0 ? shell : '';
+        document.getElementById('resaleSplitFinishes').value = finishes && parseFloat(finishes) > 0 ? finishes : '';
+        setResalePricingMode(pricingMode === 'split' ? 'split' : 'single');
+        document.getElementById('resaleSetupModal').style.display = 'block';
+    }
+
+    function submitResaleModal() {
+        const propertyId = document.getElementById('resaleModalPropertyId').value;
+        const mode = document.getElementById('resaleModalMode').value;
+        const formData = new FormData();
+        formData.append('property_id', propertyId);
+        formData.append('resale_pricing_mode', resalePricingMode);
+
+        if (resalePricingMode === 'single') {
+            formData.append('resale_price', document.getElementById('resaleSinglePrice').value);
+        } else {
+            formData.append('resale_shell_price', document.getElementById('resaleSplitShell').value);
+            formData.append('resale_finishes_price', document.getElementById('resaleSplitFinishes').value);
+        }
+
+        if (mode === 'edit') {
+            formData.append('action', 'update_resale_pricing');
+        } else {
+            formData.append('new_status', 'Resale');
+        }
+
         fetch('api/manager_update_status.php', { method: 'POST', body: formData })
-        .then(r => r.json())
-        .then(data => {
-            if(data.success) { 
-                showToast(`Status updated successfully!`, 'success'); 
-                if (lastLoadedProjects.length > 0) {
-                    setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500); 
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    closeResaleModal();
+                    showToast(data.message || 'Resale saved.', 'success');
+                    if (lastLoadedProjects.length > 0) {
+                        setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500);
+                    }
+                } else {
+                    showToast('Error: ' + (data.message || 'Could not save'), 'error');
                 }
-            } else { 
-                showToast("Error: " + data.message, 'error'); 
-            }
-        });
+            })
+            .catch(err => showToast('System Error: ' + err.message, 'error'));
+    }
+
+    function cancelResale(propertyId) {
+        if (!confirm('Cancel resale listing and restore the prior sold status?')) return;
+        const formData = new FormData();
+        formData.append('property_id', propertyId);
+        formData.append('action', 'cancel_resale');
+        fetch('api/manager_update_status.php', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message || 'Resale cancelled.', 'success');
+                    if (lastLoadedProjects.length > 0) {
+                        setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 500);
+                    }
+                } else {
+                    showToast('Error: ' + (data.message || 'Could not cancel'), 'error');
+                }
+            });
     }
 
     function generateLivePricelist() { 
