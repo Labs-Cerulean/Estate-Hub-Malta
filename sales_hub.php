@@ -8,6 +8,11 @@ if (!navCanAccessSalesHub()) {
     exit;
 }
 
+if (salesIsExternalAgent()) {
+    header('Location: sales_library.php');
+    exit;
+}
+
 // ==========================================
 // AUTO-DEPLOY DATABASE UPDATES
 // ==========================================
@@ -348,7 +353,7 @@ require_once 'header.php';
 
     <div class="sh-overlay">
         <h5 class="sh-overlay-title">
-            <span><i class="fas fa-map-marked-alt text-info"></i> <?= salesIsExternalAgent() ? 'Property Library' : 'Sales Hub' ?></span>
+            <span><i class="fas fa-map-marked-alt text-info"></i> Sales Hub</span>
         </h5>
         
         <label class="sh-label">Jump to Project</label>
@@ -382,11 +387,9 @@ require_once 'header.php';
                 </div>
             </div>
             
-            <?php if (!salesIsExternalAgent()): ?>
             <button class="sh-btn" style="margin-bottom: 10px; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="openHoldLedger()">
                 <i class="fas fa-list"></i> View Holds Ledger
             </button>
-            <?php endif; ?>
             <button class="sh-btn sh-btn-danger hide-map-controls-mobile" style="margin-bottom: 15px;" onclick="resetMap()">
                 <i class="fas fa-undo-alt"></i> Reset Map & Clear Filters
             </button>

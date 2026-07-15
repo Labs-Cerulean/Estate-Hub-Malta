@@ -130,7 +130,7 @@ function navHubMeta(): array {
         ],
         'sales' => [
             'label' => 'Sales Hub',
-            'home'  => 'sales_hub.php',
+            'home'  => navIsExternalAgentRole() ? 'sales_library.php' : 'sales_hub.php',
             'class' => 'hub-sales',
         ],
         'plant' => [
@@ -168,6 +168,7 @@ function navPageHubMap(): array {
         'profile' => 'estate',
 
         'sales_hub' => 'sales',
+        'sales_library' => 'sales',
         'sales_project_manager' => 'sales',
         'import_key_simplified' => 'sales',
 
@@ -304,9 +305,14 @@ function navEstateItems(): array {
 }
 
 function navSalesItems(): array {
-    $mapLabel = navIsExternalAgentRole() ? 'Property Library' : 'Sales Map';
+    if (navIsExternalAgentRole()) {
+        return [
+            ['type' => 'link', 'label' => 'Property Library', 'href' => 'sales_library.php', 'pages' => ['sales_library']],
+        ];
+    }
+
     $items = [
-        ['type' => 'link', 'label' => $mapLabel, 'href' => 'sales_hub.php', 'pages' => ['sales_hub']],
+        ['type' => 'link', 'label' => 'Sales Map', 'href' => 'sales_hub.php', 'pages' => ['sales_hub']],
     ];
 
     if (navCanAccessSalesProjectManager()) {
