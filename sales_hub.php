@@ -13,39 +13,6 @@ if (salesIsExternalAgent()) {
     exit;
 }
 
-// ==========================================
-// AUTO-DEPLOY DATABASE UPDATES
-// ==========================================
-try {
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN resale_price DECIMAL(10,2) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN held_by_agent_id INT DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN hold_expiry DATETIME DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN shell_price DECIMAL(10,2) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_properties ADD COLUMN finishes_price DECIMAL(10,2) DEFAULT NULL");
-    
-    // --- 1. STRICT ENUM FOR DATA INTEGRITY ---
-    $pdo->exec("ALTER TABLE sales_properties MODIFY COLUMN status ENUM(
-        'Available', 
-        'On Hold', 
-        'Proceeding', 
-        'Proceeding Pending Approval', 
-        'Sold', 
-        'Sold - POS', 
-        'POS Pending Approval', 
-        'Sold - Contract', 
-        'Contract Pending Approval', 
-        'Sold Pending Approval', 
-        'Resale', 
-        'BOM'
-    ) DEFAULT 'Available'");
-    
-    // --- 2. VARCHAR FOR SYSTEM LOGS (To support 'Deleted', 'Price Override', etc) ---
-    $pdo->exec("ALTER TABLE sales_property_logs MODIFY COLUMN old_status VARCHAR(50) DEFAULT NULL");
-    $pdo->exec("ALTER TABLE sales_property_logs MODIFY COLUMN new_status VARCHAR(50) DEFAULT NULL");
-    
-} catch(PDOException $e) { /* Silently ignore if columns already exist */ }
-
 require_once 'header.php';
 ?>
 
