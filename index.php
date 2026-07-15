@@ -10,6 +10,7 @@ if (isset($_SESSION['user_id'])) {
     } elseif ($normalizedRole === 'external_agent') {
         header("Location: sales_library.php");
     } elseif (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
+        header("Location: sales_hub.php");
     } else {
         header("Location: dashboard.php");
     }
@@ -57,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $normalizedRole = strtolower(trim(str_replace(' ', '_', $user['role'])));
                     if ($normalizedRole === 'legal_representative') {
                         header('Location: projects.php');
-                    if ($normalizedRole === 'external_agent') {
+                    } elseif ($normalizedRole === 'external_agent') {
                         header('Location: sales_library.php');
                     } elseif (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
                         header('Location: sales_hub.php');
