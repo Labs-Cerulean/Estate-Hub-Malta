@@ -122,7 +122,8 @@ function renderMediaPage($subCat, $mediaData) {
         .num { text-align: right; }
         .bold { font-weight: bold; }
         
-        .status-hold { color: #f59e0b; font-weight: bold; }
+        .status-hold { color: #64748b; font-weight: bold; }
+        .status-proc { color: #f59e0b; font-weight: bold; }
         .status-sold { color: #ef4444; font-weight: bold; }
         .status-avail { color: #10b981; font-weight: bold; }
 
@@ -166,10 +167,16 @@ function renderMediaPage($subCat, $mediaData) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($floorUnits as $u): 
+                    <?php foreach ($floorUnits as $u):
                         $statusClass = 'status-avail';
-                        if (strpos($u['status'], 'Hold') !== false || strpos($u['status'], 'Reserved') !== false) $statusClass = 'status-hold';
-                        if (strpos($u['status'], 'Sold') !== false) $statusClass = 'status-sold';
+                        $unitStatus = (string)($u['status'] ?? '');
+                        if (stripos($unitStatus, 'Proceeding') !== false) {
+                            $statusClass = 'status-proc';
+                        } elseif (stripos($unitStatus, 'Hold') !== false || stripos($unitStatus, 'Reserved') !== false) {
+                            $statusClass = 'status-hold';
+                        } elseif (stripos($unitStatus, 'Sold') !== false) {
+                            $statusClass = 'status-sold';
+                        }
                     ?>
                     <tr>
                         <td class="bold"><?= htmlspecialchars($u['unit_name']) ?></td>
