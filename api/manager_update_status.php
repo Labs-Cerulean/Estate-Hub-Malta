@@ -78,6 +78,10 @@ try {
         if (!$extendedResale) {
             $legacyPrice = $resale_price;
             if (($legacyPrice === null || $legacyPrice <= 0) && $resale_pricing_mode === 'split') {
+                if (($resale_shell_price ?? 0) < 0 || ($resale_finishes_price ?? 0) < 0) {
+                    echo json_encode(['success' => false, 'message' => 'Prices cannot be negative.']);
+                    exit;
+                }
                 $legacyPrice = ($resale_shell_price ?? 0) + ($resale_finishes_price ?? 0);
             }
             if ($legacyPrice === null || $legacyPrice <= 0) {
@@ -132,6 +136,10 @@ try {
     if (!$extendedResale) {
         $legacyPrice = $resale_price;
         if (($legacyPrice === null || $legacyPrice <= 0) && $resale_pricing_mode === 'split') {
+            if (($resale_shell_price ?? 0) < 0 || ($resale_finishes_price ?? 0) < 0) {
+                echo json_encode(['success' => false, 'message' => 'Prices cannot be negative.']);
+                exit;
+            }
             $legacyPrice = ($resale_shell_price ?? 0) + ($resale_finishes_price ?? 0);
         }
         if ($legacyPrice === null || $legacyPrice <= 0) {

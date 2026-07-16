@@ -801,7 +801,11 @@ require_once 'header.php';
         if (restoreData && restoreData.features && restoreData.features.length > 0) {
             const addedIds = draw.add(restoreData);
             if (addedIds && addedIds.length > 0) {
-                draw.changeMode('simple_select', { featureIds: [addedIds[0]] });
+                setTimeout(() => {
+                    if (draw) {
+                        draw.changeMode('simple_select', { featureIds: [addedIds[0]] });
+                    }
+                }, 0);
             }
             filterMapByPolygon();
         }
@@ -852,7 +856,11 @@ require_once 'header.php';
             }
             const createdId = e.features && e.features[0] ? e.features[0].id : null;
             if (createdId) {
-                draw.changeMode('simple_select', { featureIds: [createdId] });
+                setTimeout(() => {
+                    if (draw) {
+                        draw.changeMode('simple_select', { featureIds: [createdId] });
+                    }
+                }, 0);
             }
         }
         filterMapByPolygon();
@@ -1323,13 +1331,14 @@ require_once 'header.php';
 
         fetch('api/manager_update_status.php', { method: 'POST', body: formData })
             .then(async (response) => {
-                let data = null;
-                try {
-                    data = await response.json();
-                } catch (e) {
+                if (!response.ok) {
                     throw new Error(response.status === 403 ? 'Access denied — please refresh the page and try again.' : 'Unexpected server response.');
                 }
-                return data;
+                try {
+                    return await response.json();
+                } catch (e) {
+                    throw new Error('Unexpected server response.');
+                }
             })
             .then(data => {
                 if (data.success) {
