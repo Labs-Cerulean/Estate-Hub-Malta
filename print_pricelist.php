@@ -28,7 +28,7 @@ if (isset($_GET['proxy_doc_id'])) {
     // Stream the file byte-by-byte to save server RAM
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
     curl_exec($ch);
     curl_close($ch);
