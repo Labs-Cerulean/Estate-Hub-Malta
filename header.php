@@ -158,7 +158,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
 
                         <div class="header-user-menu">
                             <div class="nav-dropdown nav-profile-dropdown">
-                                <a href="/profile.php" class="user-menu-btn" title="My Profile">
+                                <button type="button" class="user-menu-btn nav-profile-toggle" title="Account menu" aria-haspopup="true" aria-expanded="false">
                                     <span class="user-avatar">
                                         <?php if ($headerAvatarUrl): ?>
                                             <img src="<?= htmlspecialchars($headerAvatarUrl) ?>" alt="">
@@ -171,7 +171,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                                         <span class="user-menu-role"><?= htmlspecialchars(str_replace('_', ' ', getCurrentRole())) ?></span>
                                     </span>
                                     <span class="user-menu-chevron">▾</span>
-                                </a>
+                                </button>
                                 <div class="dropdown-content dropdown-content-right">
                                     <a href="/profile.php" class="<?= $currentPage === 'profile' ? 'active' : '' ?>">My Profile</a>
                                     <a href="/api/logout.php">Logout</a>
@@ -209,15 +209,19 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                             <?php endforeach; ?>
                         </nav>
                     <?php endif; ?>
-                    <nav class="mobile-nav" aria-label="Mobile main navigation">
-                        <?php headerRenderNavItems($navItems, $currentPage, ' mobile-nav-link'); ?>
-                        <?php if ($showEstateUtilities): ?>
-                            <a href="/notifications.php" class="nav-link mobile-nav-link<?= $currentPage === 'notifications' ? ' active' : '' ?>">Notifications<?= $unreadCount > 0 ? ' (' . (int)$unreadCount . ')' : '' ?></a>
-                            <a href="/actions.php" class="nav-link mobile-nav-link<?= $currentPage === 'actions' ? ' active' : '' ?>">Actions<?= $pendingActionsCount > 0 ? ' (' . (int)$pendingActionsCount . ')' : '' ?></a>
-                        <?php endif; ?>
-                        <a href="/profile.php" class="nav-link mobile-nav-link">My Profile</a>
-                        <a href="/api/logout.php" class="nav-link mobile-nav-link">Logout</a>
-                    </nav>
+                    <div class="mobile-nav-drawer-body">
+                        <nav class="mobile-nav" aria-label="Mobile main navigation">
+                            <?php headerRenderNavItems($navItems, $currentPage, ' mobile-nav-link'); ?>
+                            <?php if ($showEstateUtilities): ?>
+                                <a href="/notifications.php" class="nav-link mobile-nav-link<?= $currentPage === 'notifications' ? ' active' : '' ?>">Notifications<?= $unreadCount > 0 ? ' (' . (int)$unreadCount . ')' : '' ?></a>
+                                <a href="/actions.php" class="nav-link mobile-nav-link<?= $currentPage === 'actions' ? ' active' : '' ?>">Actions<?= $pendingActionsCount > 0 ? ' (' . (int)$pendingActionsCount . ')' : '' ?></a>
+                            <?php endif; ?>
+                        </nav>
+                    </div>
+                    <div class="mobile-nav-drawer-foot">
+                        <a href="/profile.php" class="nav-link mobile-nav-link<?= $currentPage === 'profile' ? ' active' : '' ?>">My Profile</a>
+                        <a href="/api/logout.php" class="nav-link mobile-nav-link mobile-nav-logout">Logout</a>
+                    </div>
                 </div>
             </div>
         </header>

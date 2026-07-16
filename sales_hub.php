@@ -185,7 +185,7 @@ require_once 'header.php';
         position: fixed; top: 0; right: -500px; width: 500px; height: 100vh;
         background-color: var(--sh-bg-panel); color: var(--sh-text-main);
         box-shadow: -10px 0 30px rgba(0,0,0,0.6); transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 1050; display: flex; flex-direction: column; border-left: 1px solid var(--sh-border);
+        z-index: 950; display: flex; flex-direction: column; border-left: 1px solid var(--sh-border);
     }
     .sh-sidebar.open { right: 0; }
     
@@ -254,17 +254,18 @@ require_once 'header.php';
        MOBILE VIEW OPTIMIZATION
        ========================================= */
     @media (max-width: 768px) {
-        /* 1. Hide the main website header completely */
-        header, #header, .navbar, .topbar, .top-header { display: none !important; }
-        
-        /* 2. Hide the map entirely & transform the wrapper */
+        /* Keep site header visible for hamburger nav + logout (do not hide .site-header) */
+        .site-header .header-nav-row { display: none !important; }
+
+        /* Hide the map on small screens — dashboard list mode */
         #sales-map, .maplibregl-control-container, .mapboxgl-control-container { display: none !important; }
         
         #sh-wrapper {
             height: auto;
-            min-height: 100vh;
+            min-height: calc(100dvh - 56px);
             overflow-y: auto;
             background: var(--sh-bg-base);
+            -webkit-overflow-scrolling: touch;
         }
         
         /* The floating overlay converts into a standard, full-screen dashboard page */
@@ -313,7 +314,12 @@ require_once 'header.php';
         }
         
         /* Ensure the Sidebar still slides out to 100% width cleanly */
-        .sh-sidebar { width: 100%; right: -100%; }
+        .sh-sidebar {
+            width: 100%;
+            right: -100%;
+            top: 56px;
+            height: calc(100dvh - 56px);
+        }
         .sh-overlay-title { font-size: 1.1rem; margin-bottom: 10px; }
         .sh-kpi-row { padding: 10px 15px; }
         .sh-kpi { padding: 6px 10px; margin: 0 4px; }
