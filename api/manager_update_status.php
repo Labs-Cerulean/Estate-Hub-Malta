@@ -76,13 +76,21 @@ try {
             exit;
         }
         if (!$extendedResale) {
-            if ($resale_price === null || $resale_price <= 0) {
-                echo json_encode(['success' => false, 'message' => 'A valid all-in price is required.']);
+            $legacyPrice = $resale_price;
+            if (($legacyPrice === null || $legacyPrice <= 0) && $resale_pricing_mode === 'split') {
+                if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0) {
+                    echo json_encode(['success' => false, 'message' => 'Shell and finishes prices are required and cannot be negative.']);
+                    exit;
+                }
+                $legacyPrice = $resale_shell_price + $resale_finishes_price;
+            }
+            if ($legacyPrice === null || $legacyPrice <= 0) {
+                echo json_encode(['success' => false, 'message' => 'A valid asking price is required.']);
                 exit;
             }
             $update = $pdo->prepare('UPDATE sales_properties SET resale_price = ? WHERE id = ?');
-            $update->execute([$resale_price, $property_id]);
-            $justification .= " (All-in: €{$resale_price})";
+            $update->execute([$legacyPrice, $property_id]);
+            $justification .= " (All-in: €{$legacyPrice})";
         } else {
             if (!in_array($resale_pricing_mode, ['single', 'split'], true)) {
                 echo json_encode(['success' => false, 'message' => 'Choose single or split pricing.']);
@@ -126,13 +134,21 @@ try {
     }
 
     if (!$extendedResale) {
-        if ($resale_price === null || $resale_price <= 0) {
-            echo json_encode(['success' => false, 'message' => 'A valid all-in asking price is required.']);
+        $legacyPrice = $resale_price;
+        if (($legacyPrice === null || $legacyPrice <= 0) && $resale_pricing_mode === 'split') {
+            if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0) {
+                echo json_encode(['success' => false, 'message' => 'Shell and finishes prices are required and cannot be negative.']);
+                exit;
+            }
+            $legacyPrice = $resale_shell_price + $resale_finishes_price;
+        }
+        if ($legacyPrice === null || $legacyPrice <= 0) {
+            echo json_encode(['success' => false, 'message' => 'A valid asking price is required.']);
             exit;
         }
         $update = $pdo->prepare('UPDATE sales_properties SET status = ?, resale_price = ?, held_by_agent_id = NULL, hold_expiry = NULL WHERE id = ?');
-        $update->execute([$new_status, $resale_price, $property_id]);
-        $justification .= " (All-in: €{$resale_price})";
+        $update->execute([$new_status, $legacyPrice, $property_id]);
+        $justification .= " (All-in: €{$legacyPrice})";
     } else {
         if (!in_array($resale_pricing_mode, ['single', 'split'], true)) {
             echo json_encode(['success' => false, 'message' => 'Choose single or split pricing.']);
