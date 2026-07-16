@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (e.target === overlay) closeMobileNav();
     });
 
-    document.querySelectorAll('.mobile-nav-drawer-foot a, .mobile-nav a').forEach(function (link) {
+    document.querySelectorAll('.mobile-nav-drawer-foot a, .mobile-nav a, .mobile-hub-switcher a').forEach(function (link) {
         link.addEventListener('click', closeMobileNav);
     });
 });
