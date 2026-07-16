@@ -1298,10 +1298,21 @@ require_once 'header.php';
         formData.append('resale_pricing_mode', resalePricingMode);
 
         if (resalePricingMode === 'single') {
-            formData.append('resale_price', document.getElementById('resaleSinglePrice').value);
+            const allIn = parseFloat(document.getElementById('resaleSinglePrice').value);
+            if (!allIn || allIn <= 0) {
+                showToast('Enter a valid all-in asking price.', 'error');
+                return;
+            }
+            formData.append('resale_price', allIn);
         } else {
-            formData.append('resale_shell_price', document.getElementById('resaleSplitShell').value);
-            formData.append('resale_finishes_price', document.getElementById('resaleSplitFinishes').value);
+            const shell = parseFloat(document.getElementById('resaleSplitShell').value);
+            const finishes = parseFloat(document.getElementById('resaleSplitFinishes').value);
+            if (isNaN(shell) || isNaN(finishes) || shell < 0 || finishes < 0 || (shell + finishes) <= 0) {
+                showToast('Enter valid shell and finishes prices (sum must be greater than 0).', 'error');
+                return;
+            }
+            formData.append('resale_shell_price', shell);
+            formData.append('resale_finishes_price', finishes);
         }
 
         if (mode === 'edit') {
@@ -1311,7 +1322,15 @@ require_once 'header.php';
         }
 
         fetch('api/manager_update_status.php', { method: 'POST', body: formData })
-            .then(r => r.json())
+            .then(async (response) => {
+                let data = null;
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    throw new Error(response.status === 403 ? 'Access denied — please refresh the page and try again.' : 'Unexpected server response.');
+                }
+                return data;
+            })
             .then(data => {
                 if (data.success) {
                     closeResaleModal();
