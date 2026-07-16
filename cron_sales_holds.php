@@ -12,7 +12,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/user-functions.php';
 require_once __DIR__ . '/email_helper.php';
 
-$providedToken = $_SERVER['HTTP_X_CRON_TOKEN'] ?? ($_GET['token'] ?? '');
+$providedToken = (string)($_SERVER['HTTP_X_CRON_TOKEN'] ?? ($_GET['token'] ?? ''));
 $expectedToken = getenv('CRON_SECRET_TOKEN');
 
 if (empty($expectedToken) || !hash_equals($expectedToken, $providedToken)) {
