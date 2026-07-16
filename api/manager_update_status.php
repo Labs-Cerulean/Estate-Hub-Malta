@@ -78,11 +78,11 @@ try {
         if (!$extendedResale) {
             $legacyPrice = $resale_price;
             if (($legacyPrice === null || $legacyPrice <= 0) && $resale_pricing_mode === 'split') {
-                if (($resale_shell_price ?? 0) < 0 || ($resale_finishes_price ?? 0) < 0) {
-                    echo json_encode(['success' => false, 'message' => 'Prices cannot be negative.']);
+                if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0) {
+                    echo json_encode(['success' => false, 'message' => 'Shell and finishes prices are required and cannot be negative.']);
                     exit;
                 }
-                $legacyPrice = ($resale_shell_price ?? 0) + ($resale_finishes_price ?? 0);
+                $legacyPrice = $resale_shell_price + $resale_finishes_price;
             }
             if ($legacyPrice === null || $legacyPrice <= 0) {
                 echo json_encode(['success' => false, 'message' => 'A valid asking price is required.']);
@@ -136,11 +136,11 @@ try {
     if (!$extendedResale) {
         $legacyPrice = $resale_price;
         if (($legacyPrice === null || $legacyPrice <= 0) && $resale_pricing_mode === 'split') {
-            if (($resale_shell_price ?? 0) < 0 || ($resale_finishes_price ?? 0) < 0) {
-                echo json_encode(['success' => false, 'message' => 'Prices cannot be negative.']);
+            if ($resale_shell_price === null || $resale_shell_price < 0 || $resale_finishes_price === null || $resale_finishes_price < 0) {
+                echo json_encode(['success' => false, 'message' => 'Shell and finishes prices are required and cannot be negative.']);
                 exit;
             }
-            $legacyPrice = ($resale_shell_price ?? 0) + ($resale_finishes_price ?? 0);
+            $legacyPrice = $resale_shell_price + $resale_finishes_price;
         }
         if ($legacyPrice === null || $legacyPrice <= 0) {
             echo json_encode(['success' => false, 'message' => 'A valid asking price is required.']);
