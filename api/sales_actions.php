@@ -179,5 +179,6 @@ try {
     echo json_encode(['success' => true, 'message' => 'Action completed successfully.', 'new_status' => $new_status]);
 
 } catch (Exception $e) {
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    error_log('Sales action failed: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'An error occurred while processing your request.']);
 }

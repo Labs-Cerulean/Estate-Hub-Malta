@@ -77,5 +77,6 @@ try {
     ]);
 
 } catch (Exception $e) {
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    error_log('Failed to fetch holds ledger: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'An error occurred while fetching the holds ledger.']);
 }

@@ -101,10 +101,10 @@ if (!sessionShouldSkipHubIsolation()) {
                 sessionDenyApiAccess();
             }
         } elseif ($sessionBasename === 'sales_hub.php') {
-            header('Location: /sales_library.php');
+            header('Location: sales_library.php');
             exit;
         } elseif (!in_array($sessionBasename, $allowed_external_agent_pages, true)) {
-            header('Location: /sales_library.php');
+            header('Location: sales_library.php');
             exit;
         }
     }

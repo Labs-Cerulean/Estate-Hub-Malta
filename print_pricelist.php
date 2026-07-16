@@ -10,23 +10,28 @@ if (isset($_GET['proxy_doc_id'])) {
     $stmt = $pdo->prepare("SELECT file_path, project_id FROM project_documents WHERE id = ?");
     $stmt->execute([$docId]);
     $doc = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if ($doc && hasSalesProjectAccess($pdo, (int)$doc['project_id']) && salesProjectPassesListingVisibility($pdo, (int)$doc['project_id'])) {
-        $s3 = new S3FileManager();
-        $url = $s3->getPresignedUrl($doc['file_path'], '+10 minutes');
-        
-        header("Content-Type: application/pdf");
-        
-        // Stream the file byte-by-byte to save server RAM
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, false); 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_exec($ch);
-        curl_close($ch);
+
+    if (!$doc) {
+        http_response_code(404);
         exit;
     }
-    http_response_code(404);
+    if (!hasSalesProjectAccess($pdo, (int)$doc['project_id']) || !salesProjectPassesListingVisibility($pdo, (int)$doc['project_id'])) {
+        http_response_code(403);
+        exit;
+    }
+
+    $s3 = new S3FileManager();
+    $url = $s3->getPresignedUrl($doc['file_path'], '+10 minutes');
+
+    header("Content-Type: application/pdf");
+
+    // Stream the file byte-by-byte to save server RAM
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_exec($ch);
+    curl_close($ch);
     exit;
 }
 // -----------------------

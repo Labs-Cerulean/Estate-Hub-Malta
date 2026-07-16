@@ -112,14 +112,16 @@ try {
             $agentTag = '';
             if (!$is_external && $u['held_by_agent_id'] && $status === 'On Hold') {
                 $verb = 'Held by';
-                $agentTag = "<div class='mt-2 w-100 d-flex align-items-center shadow-sm' style='background: rgba(245, 158, 11, 0.15); color: #fcd34d; font-size: 0.8rem; font-weight: 600; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);'><i class='fas fa-user-circle' style='margin-right: 8px; font-size: 1rem;'></i> {$verb}: {$u['first_name']} {$u['last_name']}</div>";
+                $firstNameSafe = htmlspecialchars($u['first_name'] ?? '', ENT_QUOTES, 'UTF-8');
+                $lastNameSafe = htmlspecialchars($u['last_name'] ?? '', ENT_QUOTES, 'UTF-8');
+                $agentTag = "<div class='mt-2 w-100 d-flex align-items-center shadow-sm' style='background: rgba(245, 158, 11, 0.15); color: #fcd34d; font-size: 0.8rem; font-weight: 600; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);'><i class='fas fa-user-circle' style='margin-right: 8px; font-size: 1rem;'></i> {$verb}: {$firstNameSafe} {$lastNameSafe}</div>";
             }
 
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
             // --- START BEAUTIFUL CARD ---
             // Fix: Added data-floor attribute so JS can mathematically sort negative floors
-            $floorLevelSafe = htmlspecialchars(trim($u['floor_level']), ENT_QUOTES, 'UTF-8');
+            $floorLevelSafe = htmlspecialchars(trim((string)($u['floor_level'] ?? '')), ENT_QUOTES, 'UTF-8');
             $resaleMode = $extendedResale ? ($u['resale_pricing_mode'] ?? '') : '';
             $resaleShell = $extendedResale ? floatval($u['resale_shell_price'] ?? 0) : 0;
             $resaleFin = $extendedResale ? floatval($u['resale_finishes_price'] ?? 0) : 0;
@@ -227,7 +229,7 @@ try {
 
             // --- FLOOR PLAN BUTTON (in-house only; external agents get full project plans via sidebar) ---
             if (!$is_external) {
-                $floorLvl = trim($u['floor_level']);
+                $floorLvl = trim((string)($u['floor_level'] ?? ''));
                 if (isset($plans[$floorLvl]) && count($plans[$floorLvl]) > 0) {
                     // Safely embed multiple comma-separated URLs into a data attribute
                     $urlList = htmlspecialchars(implode(',', $plans[$floorLvl]), ENT_QUOTES, 'UTF-8');
