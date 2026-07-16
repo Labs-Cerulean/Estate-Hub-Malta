@@ -799,10 +799,9 @@ require_once 'header.php';
         attachSatelliteToggleButton();
         bindDrawTrashButton();
         if (restoreData && restoreData.features && restoreData.features.length > 0) {
-            draw.add(restoreData);
-            const restoredId = restoreData.features[0].id;
-            if (restoredId) {
-                draw.changeMode('simple_select', { featureIds: [restoredId] });
+            const addedIds = draw.add(restoreData);
+            if (addedIds && addedIds.length > 0) {
+                draw.changeMode('simple_select', { featureIds: [addedIds[0]] });
             }
             filterMapByPolygon();
         }
@@ -864,13 +863,14 @@ require_once 'header.php';
         if (!trashBtn || trashBtn.dataset.shTrashBound) return;
         trashBtn.dataset.shTrashBound = '1';
         trashBtn.addEventListener('click', () => {
+            if (!draw) return;
+            const hadSelection = draw.getSelectedIds().length > 0;
             setTimeout(() => {
                 if (!draw) return;
-                const selected = draw.getSelectedIds();
-                if (draw.getAll().features.length > 0 && selected.length === 0) {
+                if (!hadSelection && draw.getAll().features.length > 0) {
                     draw.deleteAll();
+                    filterMapByPolygon();
                 }
-                filterMapByPolygon();
             }, 0);
         });
     }
