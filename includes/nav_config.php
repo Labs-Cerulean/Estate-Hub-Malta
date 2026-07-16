@@ -14,6 +14,14 @@ function navIsSalesAgentRole(): bool {
     return getCurrentRole() === 'sales_agent';
 }
 
+function navIsExternalAgentRole(): bool {
+    return getCurrentRole() === 'external_agent';
+}
+
+function navIsSalesHubDedicatedRole(): bool {
+    return navIsSalesAgentRole() || navIsSalesManagerRole() || navIsExternalAgentRole();
+}
+
 function navIsSalesManagerRole(): bool {
     return getCurrentRole() === 'sales_manager';
 }
@@ -23,7 +31,7 @@ function navIsLegalRep(): bool {
 }
 
 function navCanAccessEstateHub(): bool {
-    if (navIsPlantOnlyRole() || navIsSalesAgentRole()) {
+    if (navIsPlantOnlyRole() || navIsSalesAgentRole() || navIsExternalAgentRole()) {
         return false;
     }
     if (navIsLegalRep()) {
@@ -67,10 +75,19 @@ function navCanAccessSalesHub(): bool {
         return false;
     }
     // Dedicated sales roles always use Sales Hub; everyone else needs explicit Property Sales cap
-    if (navIsSalesAgentRole() || navIsSalesManagerRole()) {
+    if (navIsSalesAgentRole() || navIsSalesManagerRole() || navIsExternalAgentRole()) {
         return true;
     }
     return isAdmin() || hasPermission('view_property_sales');
+}
+
+/** Matches sales_project_manager.php gate — frames, media, daily sync tooling. */
+function navCanAccessSalesProjectManager(): bool {
+    if (navIsExternalAgentRole()) {
+        return false;
+    }
+    return in_array(getCurrentRole(), ['sales_manager', 'admin', 'director', 'system_manager'], true)
+        || hasPermission('manage_sales_frames');
 }
 
 function navCanAccessPlantHub(): bool {
@@ -113,7 +130,7 @@ function navHubMeta(): array {
         ],
         'sales' => [
             'label' => 'Sales Hub',
-            'home'  => 'sales_hub.php',
+            'home'  => navIsExternalAgentRole() ? 'sales_library.php' : 'sales_hub.php',
             'class' => 'hub-sales',
         ],
         'plant' => [
@@ -151,6 +168,7 @@ function navPageHubMap(): array {
         'profile' => 'estate',
 
         'sales_hub' => 'sales',
+        'sales_library' => 'sales',
         'sales_project_manager' => 'sales',
         'import_key_simplified' => 'sales',
 
@@ -287,12 +305,18 @@ function navEstateItems(): array {
 }
 
 function navSalesItems(): array {
+    if (navIsExternalAgentRole()) {
+        return [
+            ['type' => 'link', 'label' => 'Property Library', 'href' => 'sales_library.php', 'pages' => ['sales_library']],
+        ];
+    }
+
     $items = [
         ['type' => 'link', 'label' => 'Sales Map', 'href' => 'sales_hub.php', 'pages' => ['sales_hub']],
     ];
 
-    if (in_array(getCurrentRole(), ['sales_manager', 'admin'], true) || hasPermission('manage_sales_frames')) {
-        $items[] = ['type' => 'link', 'label' => 'Project Frames', 'href' => 'sales_project_manager.php', 'pages' => ['sales_project_manager']];
+    if (navCanAccessSalesProjectManager()) {
+        $items[] = ['type' => 'link', 'label' => 'Sales Management', 'href' => 'sales_project_manager.php', 'pages' => ['sales_project_manager']];
     }
 
     return $items;

@@ -5,16 +5,25 @@ require_once '../S3FileManager.php';
 
 header('Content-Type: application/json');
 
-$project_id = $_GET['project_id'] ?? 0;
+$project_id = (int)($_GET['project_id'] ?? 0);
 $user_role = $_SESSION['role'];
-$is_manager = in_array($user_role, ['admin', 'sales_manager', 'system_manager', 'director']);
+$is_manager = in_array($user_role, ['admin', 'sales_manager', 'system_manager', 'director'], true);
+$is_external = salesIsExternalAgent();
 
 if (!$project_id) {
     echo json_encode(['success' => false, 'message' => 'Project ID required']);
     exit;
 }
 
+if (!hasSalesProjectAccess($pdo, $project_id)) {
+    salesDenyJsonAccess();
+}
+
 try {
+    if (!salesProjectPassesListingVisibility($pdo, $project_id)) {
+        salesDenyJsonAccess('Project is not listed for sale.');
+    }
+
     $s3 = new S3FileManager();
 
     // Fetch Media Links for the Sidebar Carousel and Floor Plans
@@ -22,13 +31,15 @@ try {
     $docStmt->execute([$project_id]);
     $docs = $docStmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $renders = []; $videos = []; $plans = []; 
+    $renders = []; $videos = []; $plans = []; $projectPlans = [];
     foreach ($docs as $d) {
         $url = $s3->getPresignedUrl($d['file_path'], '+120 minutes');
         if ($d['sub_category'] === 'Render (Image)') {
             $renders[] = $url;
         } elseif ($d['sub_category'] === 'Render (Video)') {
             $videos[] = $url;
+        } elseif ($d['sub_category'] === 'Project Plans') {
+            $projectPlans[] = $url;
         } elseif ($d['sub_category'] === 'Floor Plan') {
             // STRICT EXTRACTION: Pull the exact integer from the title (supports "Level -1", "Floor Plan - -1", etc)
             if (preg_match('/-?\d+/', $d['title'], $matches)) {
@@ -41,10 +52,13 @@ try {
         }
     }
 
+    $extendedResale = salesResaleExtendedColumnsAvailable($pdo);
+    $resaleExtraCols = $extendedResale ? ', sp.resale_pricing_mode, sp.resale_shell_price, sp.resale_finishes_price' : '';
+
     // Fetch Units & Assigned Agent Names
     // MATH SORTING: (sp.floor_level + 0) forces MySQL to mathematically calculate the value (-3 < 0) rather than sorting strings alphabetically
     $stmt = $pdo->prepare("
-        SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
+        SELECT sp.id, sp.unit_name, sp.unit_type, sp.floor_level, sp.shell_price, sp.finishes_price, sp.resale_price{$resaleExtraCols}, sp.internal_sqm, sp.external_sqm, sp.description, sp.status, sp.held_by_agent_id, 
                u.first_name, u.last_name, sp.block 
         FROM sales_properties sp 
         LEFT JOIN users u ON sp.held_by_agent_id = u.id 
@@ -79,12 +93,12 @@ try {
             $badgeText = '#ffffff';
 
             if (strpos($status, 'Hold') !== false) {
-                $accentColor = '#f59e0b'; // Amber
+                $accentColor = '#64748b';
+                $badgeBg = '#64748b';
+                $badgeText = '#ffffff';
+            } elseif (strpos($status, 'Proceeding') !== false) {
+                $accentColor = '#f59e0b';
                 $badgeBg = '#f59e0b';
-                $badgeText = '#000000';
-            } elseif (strpos($status, 'Reserved') !== false) {
-                $accentColor = '#0ea5e9'; // Cyan
-                $badgeBg = '#0ea5e9';
                 $badgeText = '#000000';
             } elseif (strpos($status, 'Sold') !== false) {
                 $accentColor = '#ef4444'; // Red
@@ -94,19 +108,29 @@ try {
                 $badgeBg = '#8b5cf6';
             }
 
-            // --- AGENT TAG LOGIC ---
+            // --- AGENT TAG LOGIC (in-house agents only; external library is read-only) ---
             $agentTag = '';
-            if ($u['held_by_agent_id'] && in_array($status, ['On Hold', 'Reserved'])) {
-                $verb = ($status === 'Reserved') ? 'Reserved by' : 'Held by';
-                $agentTag = "<div class='mt-2 w-100 d-flex align-items-center shadow-sm' style='background: rgba(245, 158, 11, 0.15); color: #fcd34d; font-size: 0.8rem; font-weight: 600; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);'><i class='fas fa-user-circle' style='margin-right: 8px; font-size: 1rem;'></i> {$verb}: {$u['first_name']} {$u['last_name']}</div>";
+            if (!$is_external && $u['held_by_agent_id'] && $status === 'On Hold') {
+                $verb = 'Held by';
+                $firstNameSafe = htmlspecialchars($u['first_name'] ?? '', ENT_QUOTES, 'UTF-8');
+                $lastNameSafe = htmlspecialchars($u['last_name'] ?? '', ENT_QUOTES, 'UTF-8');
+                $agentTag = "<div class='mt-2 w-100 d-flex align-items-center shadow-sm' style='background: rgba(245, 158, 11, 0.15); color: #fcd34d; font-size: 0.8rem; font-weight: 600; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);'><i class='fas fa-user-circle' style='margin-right: 8px; font-size: 1rem;'></i> {$verb}: {$firstNameSafe} {$lastNameSafe}</div>";
             }
 
             $finishState = ($u['finishes_price'] > 0) ? 'Semi-Finished' : 'Shell & Core';
 
             // --- START BEAUTIFUL CARD ---
             // Fix: Added data-floor attribute so JS can mathematically sort negative floors
-            $floorLevelSafe = htmlspecialchars(trim($u['floor_level']), ENT_QUOTES, 'UTF-8');
-            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
+            $floorLevelSafe = htmlspecialchars(trim((string)($u['floor_level'] ?? '')), ENT_QUOTES, 'UTF-8');
+            $resaleMode = $extendedResale ? ($u['resale_pricing_mode'] ?? '') : '';
+            $resaleShell = $extendedResale ? floatval($u['resale_shell_price'] ?? 0) : 0;
+            $resaleFin = $extendedResale ? floatval($u['resale_finishes_price'] ?? 0) : 0;
+            $resaleAsking = floatval($u['resale_price'] ?? 0);
+            $resaleAttr = htmlspecialchars((string)$resaleAsking, ENT_QUOTES, 'UTF-8');
+            $resaleModeAttr = htmlspecialchars((string)$resaleMode, ENT_QUOTES, 'UTF-8');
+            $resaleShellAttr = htmlspecialchars((string)$resaleShell, ENT_QUOTES, 'UTF-8');
+            $resaleFinAttr = htmlspecialchars((string)$resaleFin, ENT_QUOTES, 'UTF-8');
+            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' data-resale-price='{$resaleAttr}' data-resale-mode='{$resaleModeAttr}' data-resale-shell='{$resaleShellAttr}' data-resale-finishes='{$resaleFinAttr}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---
@@ -133,49 +157,56 @@ try {
                       </div>";
 
             // --- INSET PRICE BOX ---
-            $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
-                        <div class='d-flex justify-content-between align-items-center'>
-                            <div>
-                                <div style='font-size: 0.8rem; color: #9ca3af; margin-bottom: 4px;'>Shell: <span class='text-white fw-bold'>€" . number_format($u['shell_price'], 0) . "</span></div>
-                                <div style='font-size: 0.8rem; color: #9ca3af;'>Finishes: <span class='text-white fw-bold'>€" . number_format($u['finishes_price'], 0) . "</span> <span style='font-size: 0.7rem; color: #64748b;'>({$finishState})</span></div>
+            $hideSoldPricing = !salesCanViewSoldUnitPricing() && salesUnitStatusIsSold($status);
+            if ($hideSoldPricing) {
+                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                            <div style='text-align: center; color: #94a3b8; font-size: 0.85rem; font-weight: 600; padding: 6px 0;'>
+                                <i class='fas fa-lock' style='margin-right: 6px; opacity: 0.85;'></i> Price Confidential
                             </div>
-                            <div class='text-end'>
-                                <div style='font-size: 0.7rem; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>Total Price</div>
-                                <div style='font-size: 1.4rem; font-weight: 800; color: {$accentColor}; line-height: 1;'>€" . number_format($total_price, 0) . "</div>
+                          </div>";
+            } elseif ($status === 'Resale') {
+                if ($resaleMode === 'split' && ($resaleShell > 0 || $resaleFin > 0)) {
+                    $askingDisplay = '€' . number_format($resaleShell + $resaleFin, 0);
+                    $detailHtml = "Shell €" . number_format($resaleShell, 0) . " | Works/Fin €" . number_format($resaleFin, 0);
+                } elseif ($resaleAsking > 0) {
+                    $askingDisplay = '€' . number_format($resaleAsking, 0);
+                    $detailHtml = 'All-in asking price';
+                } else {
+                    $askingDisplay = '<span style="font-size: 0.95rem; color: #94a3b8;">Not set yet</span>';
+                    $detailHtml = 'Set pricing in Sales Hub';
+                }
+                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                            <div class='d-flex justify-content-between align-items-center'>
+                                <div>
+                                    <div style='font-size: 0.7rem; color: #a855f7; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>3rd Party Resale</div>
+                                    <div style='font-size: 0.75rem; color: #64748b;'>{$detailHtml}</div>
+                                </div>
+                                <div class='text-end'>
+                                    <div style='font-size: 0.7rem; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>Asking Price</div>
+                                    <div style='font-size: 1.4rem; font-weight: 800; color: {$accentColor}; line-height: 1;'>{$askingDisplay}</div>
+                                </div>
                             </div>
-                        </div>
-                      </div>";
-
-            // --- MANAGER EDIT PRICE FORM ---
-            if ($is_manager) {
-                $html .= "
-                        <div id='price_edit_{$u['id']}' class='p-3 mb-3' style='display:none; background: rgba(14, 165, 233, 0.05); border-radius: 10px; border: 1px solid rgba(14, 165, 233, 0.2);'>
-                            <div class='mb-2'>
-                                <label class='form-label text-info' style='font-size: 0.75rem; font-weight: 700;'>Shell Price (€)</label>
-                                <input type='number' id='inp_sh_{$u['id']}' class='form-control bg-dark text-light border-info w-100' value='{$u['shell_price']}' style='font-size: 0.9rem; padding: 10px;'>
+                          </div>";
+            } else {
+                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                            <div class='d-flex justify-content-between align-items-center'>
+                                <div>
+                                    <div style='font-size: 0.8rem; color: #9ca3af; margin-bottom: 4px;'>Shell: <span class='text-white fw-bold'>€" . number_format((float)($u['shell_price'] ?? 0), 0) . "</span></div>
+                                    <div style='font-size: 0.8rem; color: #9ca3af;'>Finishes: <span class='text-white fw-bold'>€" . number_format((float)($u['finishes_price'] ?? 0), 0) . "</span> <span style='font-size: 0.7rem; color: #64748b;'>({$finishState})</span></div>
+                                </div>
+                                <div class='text-end'>
+                                    <div style='font-size: 0.7rem; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>Total Price</div>
+                                    <div style='font-size: 1.4rem; font-weight: 800; color: {$accentColor}; line-height: 1;'>€" . number_format($total_price, 0) . "</div>
+                                </div>
                             </div>
-                            <div class='mb-3'>
-                                <label class='form-label text-info' style='font-size: 0.75rem; font-weight: 700;'>Finishes Price (€)</label>
-                                <input type='number' id='inp_fn_{$u['id']}' class='form-control bg-dark text-light border-info w-100' value='{$u['finishes_price']}' style='font-size: 0.9rem; padding: 10px;'>
-                            </div>
-                            <div style='margin-bottom: 8px;'>
-                                <button class='btn btn-info w-100 py-2 text-dark fw-bold' style='display: block; width: 100%; border-radius: 8px;' onclick='savePrice({$u['id']})'><i class='fas fa-save' style='margin-right: 5px;'></i> Save Price</button>
-                            </div>
-                            <div>
-                                <button class='btn btn-outline-secondary w-100 py-2' style='display: block; width: 100%; border-radius: 8px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-times' style='margin-right: 5px;'></i> Cancel</button>
-                            </div>
-                        </div>";
+                          </div>";
             }
 
             // --- ACTION BUTTONS (VERTICAL BLOCK LAYOUT) ---
             $html .= "<div style='display: block; width: 100%; margin-top: 20px;'>"; 
             
             if ($is_manager) {
-                $html .= "<div style='margin-bottom: 12px;'>
-                            <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' onclick='togglePriceEdit({$u['id']})'><i class='fas fa-pen' style='margin-right: 5px;'></i> Modify Pricing</button>
-                          </div>";
-
-                $statuses = ['Available', 'On Hold', 'Reserved', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
+                $statuses = ['Available', 'On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
                 $html .= "<div style='margin-bottom: 12px;'>
                             <select class='form-control bg-dark text-light border-secondary' style='display: block; width: 100%; font-size: 0.95rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$u['id']}, this.value, this)'>";
                 foreach ($statuses as $st) {
@@ -184,8 +215,8 @@ try {
                 }
                 $html .= "  </select>
                           </div>";
-            } else {
-                if ($status === 'Available') {
+            } elseif (!$is_external) {
+                if ($status === 'Available' || $status === 'Resale') {
                     $html .= "<div style='margin-bottom: 12px;'>
                                 <button class='btn' style='display: block; width: 100%; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='holdProperty({$u['id']})'><i class='fas fa-hand-paper' style='margin-right: 5px;'></i> Put on Hold</button>
                               </div>";
@@ -196,19 +227,21 @@ try {
                 }
             }
 
-            // --- FLOOR PLAN BUTTON (SUPPORTS MULTIPLE FILES) ---
-            $floorLvl = trim($u['floor_level']);
-            if (isset($plans[$floorLvl]) && count($plans[$floorLvl]) > 0) {
-                // Safely embed multiple comma-separated URLs into a data attribute
-                $urlList = htmlspecialchars(implode(',', $plans[$floorLvl]), ENT_QUOTES, 'UTF-8');
-                $count = count($plans[$floorLvl]);
-                $btnText = $count > 1 ? "View Floor Plans ({$count})" : "View Floor Plan";
-                
-                $html .= "<div style='margin-bottom: 12px;'>
-                            <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' data-urls='{$urlList}' onclick='openPlanModal(this.getAttribute(\"data-urls\"))'>
-                                <i class='fas fa-map' style='margin-right: 5px;'></i> {$btnText}
-                            </button>
-                          </div>";
+            // --- FLOOR PLAN BUTTON (in-house only; external agents get full project plans via sidebar) ---
+            if (!$is_external) {
+                $floorLvl = trim((string)($u['floor_level'] ?? ''));
+                if (isset($plans[$floorLvl]) && count($plans[$floorLvl]) > 0) {
+                    // Safely embed multiple comma-separated URLs into a data attribute
+                    $urlList = htmlspecialchars(implode(',', $plans[$floorLvl]), ENT_QUOTES, 'UTF-8');
+                    $count = count($plans[$floorLvl]);
+                    $btnText = $count > 1 ? "View Floor Plans ({$count})" : "View Floor Plan";
+                    
+                    $html .= "<div style='margin-bottom: 12px;'>
+                                <button class='btn btn-outline-info' style='display: block; width: 100%; border-radius: 8px; font-weight: 600; padding: 10px;' data-urls='{$urlList}' onclick='openPlanModal(this.getAttribute(\"data-urls\"))'>
+                                    <i class='fas fa-map' style='margin-right: 5px;'></i> {$btnText}
+                                </button>
+                              </div>";
+                }
             }
             
             $html .= "</div>"; 
@@ -223,7 +256,9 @@ try {
         'media' => [
             'renders' => $renders,
             'videos' => $videos
-        ]
+        ],
+        'project_plans' => $projectPlans,
+        'read_only' => $is_external,
     ]);
 
 } catch (Exception $e) {

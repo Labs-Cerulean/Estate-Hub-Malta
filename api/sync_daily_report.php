@@ -55,6 +55,9 @@ if ($action === 'commit') {
         if (!empty($payload['translations'])) {
             $stmtTrans = $pdo->prepare("INSERT INTO sync_translations (csv_name, db_unit_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE db_unit_id = ?");
             foreach ($payload['translations'] as $t) {
+                if ((int)$t['db_unit_id'] > 0) {
+                    salesAssertPropertyAccess($pdo, (int)$t['db_unit_id']);
+                }
                 $stmtTrans->execute([$t['csv_name'], $t['db_unit_id'], $t['db_unit_id']]);
             }
         }
@@ -64,6 +67,7 @@ if ($action === 'commit') {
             $stmtGetOldPrices = $pdo->prepare("SELECT shell_price, finishes_price FROM sales_properties WHERE id = ?");
             
             foreach ($payload['prices'] as $p) {
+                salesAssertPropertyAccess($pdo, (int)$p['id']);
                 $stmtGetOldPrices->execute([$p['id']]);
                 $oldPriceData = $stmtGetOldPrices->fetch(PDO::FETCH_ASSOC);
                 $stmtPrice->execute([$p['shell'], $p['finishes'], $p['id']]);
@@ -78,6 +82,7 @@ if ($action === 'commit') {
             $stmtKeepAgent = $pdo->prepare("UPDATE sales_properties SET status = ? WHERE id = ?");
             
             foreach ($payload['statuses'] as $s) {
+                salesAssertPropertyAccess($pdo, (int)$s['id']);
                 if (in_array($s['new_status'], ['Available', 'Sold', 'Sold - POS', 'Sold - Contract', 'Resale'])) {
                     $stmtClearAgent->execute([$s['new_status'], $s['id']]);
                 } else {
@@ -109,8 +114,7 @@ try {
     $handle = fopen($file, "r");
     if (!$handle) throw new Exception('Could not read the CSV file.');
 
-    $stmt = $pdo->query("SELECT sp.id, sp.unit_name, sp.status, sp.shell_price, sp.finishes_price, p.name as project_name FROM sales_properties sp JOIN projects p ON sp.project_id = p.id ORDER BY p.name ASC, sp.unit_name ASC");
-    $dbUnits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $dbUnits = salesGetAccessibleUnits($pdo);
 
     $dbUnitsById = [];
     foreach ($dbUnits as $u) { $dbUnitsById[$u['id']] = $u; }

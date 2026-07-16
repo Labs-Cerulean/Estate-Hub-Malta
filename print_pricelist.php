@@ -7,32 +7,46 @@ require_once 'S3FileManager.php';
 // Bypasses browser memory crashes and Cloudflare CORS security blocks
 if (isset($_GET['proxy_doc_id'])) {
     $docId = (int)$_GET['proxy_doc_id'];
-    $stmt = $pdo->prepare("SELECT file_path FROM project_documents WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT file_path, project_id FROM project_documents WHERE id = ?");
     $stmt->execute([$docId]);
-    $doc = $stmt->fetch();
-    
-    if ($doc) {
-        $s3 = new S3FileManager();
-        $url = $s3->getPresignedUrl($doc['file_path'], '+10 minutes');
-        
-        header("Content-Type: application/pdf");
-        
-        // Stream the file byte-by-byte to save server RAM
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, false); 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_exec($ch);
-        curl_close($ch);
+    $doc = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$doc) {
+        http_response_code(404);
         exit;
     }
-    http_response_code(404);
+    if (!hasSalesProjectAccess($pdo, (int)$doc['project_id']) || !salesProjectPassesListingVisibility($pdo, (int)$doc['project_id'])) {
+        http_response_code(403);
+        exit;
+    }
+
+    $s3 = new S3FileManager();
+    $url = $s3->getPresignedUrl($doc['file_path'], '+10 minutes');
+
+    header("Content-Type: application/pdf");
+
+    // Stream the file byte-by-byte to save server RAM
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_exec($ch);
+    curl_close($ch);
     exit;
 }
 // -----------------------
 
 $projectId = isset($_GET['project_id']) ? (int)$_GET['project_id'] : null;
 if (!$projectId) die("Project ID is missing.");
+if (!hasSalesProjectAccess($pdo, $projectId)) {
+    http_response_code(403);
+    die("Access denied.");
+}
+
+if (!salesProjectPassesListingVisibility($pdo, $projectId)) {
+    http_response_code(403);
+    die("This project is not listed for sale.");
+}
 
 $s3 = new S3FileManager();
 
@@ -65,6 +79,8 @@ $uStmt = $pdo->prepare("
 ");
 $uStmt->execute([$projectId]);
 $units = $uStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$canViewSoldPricing = salesCanViewSoldUnitPricing();
 
 $floors = [];
 foreach ($units as $u) {
@@ -122,9 +138,12 @@ function renderMediaPage($subCat, $mediaData) {
         .num { text-align: right; }
         .bold { font-weight: bold; }
         
-        .status-hold { color: #f59e0b; font-weight: bold; }
+        .status-hold { color: #64748b; font-weight: bold; }
+        .status-proc { color: #f59e0b; font-weight: bold; }
         .status-sold { color: #ef4444; font-weight: bold; }
         .status-avail { color: #10b981; font-weight: bold; }
+
+        body.pricelist-loading .data-page { display: none !important; }
 
         @media print {
             @page { size: A4; margin: 0; }
@@ -166,18 +185,25 @@ function renderMediaPage($subCat, $mediaData) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($floorUnits as $u): 
+                    <?php foreach ($floorUnits as $u):
                         $statusClass = 'status-avail';
-                        if (strpos($u['status'], 'Hold') !== false || strpos($u['status'], 'Reserved') !== false) $statusClass = 'status-hold';
-                        if (strpos($u['status'], 'Sold') !== false) $statusClass = 'status-sold';
+                        $unitStatus = (string)($u['status'] ?? '');
+                        if (stripos($unitStatus, 'Proceeding') !== false) {
+                            $statusClass = 'status-proc';
+                        } elseif (stripos($unitStatus, 'Hold') !== false || stripos($unitStatus, 'Reserved') !== false) {
+                            $statusClass = 'status-hold';
+                        } elseif (stripos($unitStatus, 'Sold') !== false) {
+                            $statusClass = 'status-sold';
+                        }
+                        $hideSoldPrice = salesUnitStatusIsSold($unitStatus) && !$canViewSoldPricing;
                     ?>
                     <tr>
                         <td class="bold"><?= htmlspecialchars($u['unit_name']) ?></td>
                         <td><?= htmlspecialchars($u['description']) ?></td>
                         <td class="num"><?= $u['internal_sqm'] ?></td>
                         <td class="num"><?= $u['external_sqm'] ?></td>
-                        <td class="num">€<?= number_format($u['shell_price'], 0) ?></td>
-                        <td class="num"><?= $u['finishes_price'] > 0 ? '€'.number_format($u['finishes_price'], 0) : 'N/A' ?></td>
+                        <td class="num"><?= $hideSoldPrice ? '—' : '€' . number_format((float)($u['shell_price'] ?? 0), 0) ?></td>
+                        <td class="num"><?= $hideSoldPrice ? '—' : ((float)($u['finishes_price'] ?? 0) > 0 ? '€' . number_format((float)($u['finishes_price'] ?? 0), 0) : 'N/A') ?></td>
                         <td class="num <?= $statusClass ?>"><?= strtoupper($u['status']) ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -197,7 +223,8 @@ function renderMediaPage($subCat, $mediaData) {
         document.addEventListener('DOMContentLoaded', function() {
             const pdfTargets = document.querySelectorAll('.pdf-render-target');
             if (pdfTargets.length > 0) {
-                
+                document.body.classList.add('pricelist-loading');
+
                 const printBtn = document.getElementById('printBtn');
                 if(printBtn) {
                     printBtn.disabled = true;
@@ -261,6 +288,16 @@ function renderMediaPage($subCat, $mediaData) {
                         printBtn.innerHTML = "🖨️ Save to PDF / Print";
                         printBtn.style.background = "#2563eb";
                     }
+                    document.body.classList.remove('pricelist-loading');
+                };
+                script.onerror = () => {
+                    console.error('Failed to load PDF.js script');
+                    if (printBtn) {
+                        printBtn.disabled = false;
+                        printBtn.innerHTML = '🖨️ Save to PDF / Print';
+                        printBtn.style.background = '#2563eb';
+                    }
+                    document.body.classList.remove('pricelist-loading');
                 };
                 document.head.appendChild(script);
             }

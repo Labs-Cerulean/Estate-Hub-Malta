@@ -4,15 +4,14 @@ require_once '../session-check.php';
 
 header('Content-Type: application/json');
 
-// ADDED 'admin' TO THIS LIST!
 $allowed_roles = ['admin', 'sales_manager', 'sales_agent', 'director'];
-if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $allowed_roles)) {
+if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $allowed_roles, true)) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized API Access']);
     exit;
 }
 
 try {
-    // Fetch projects that have sales properties, along with their coordinates
+    $access = salesProjectAccessWhereClause($pdo, 'p');
     $query = "
         SELECT 
             p.id as project_id, 
@@ -25,12 +24,15 @@ try {
             SUM(CASE WHEN sp.status LIKE 'Sold%' THEN 1 ELSE 0 END) as sold_units
         FROM projects p
         JOIN sales_properties sp ON p.id = sp.project_id
+        WHERE {$access['sql']}
+        " . salesListingVisibilitySql($pdo, 'p') . "
         GROUP BY p.id
     ";
-    
-    $stmt = $pdo->query($query);
+
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($access['params']);
     $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
+
     echo json_encode(['success' => true, 'data' => $projects]);
 
 } catch (Exception $e) {

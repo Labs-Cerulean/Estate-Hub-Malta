@@ -51,9 +51,8 @@ $userHubs = navUserHubs();
 $hubMeta = navHubMeta();
 $activeHub = navDetectActiveHub($currentPage);
 $showHubSwitcher = count($userHubs) > 1;
-$isPlantShell = navIsPlantOnlyRole();
-$isSalesAgentShell = navIsSalesAgentRole();
-$showEstateUtilities = !$isPlantShell && !$isSalesAgentShell;
+// Sales Hub pages (map, library, management) are a focused workspace — no Estate notifications/actions
+$showEstateUtilities = navCanAccessEstateHub() && $activeHub !== 'sales';
 $navItems = navItemsForHub($activeHub);
 $unreadCount = (isLoggedIn() && isset($pdo)) ? getUnreadNotificationCount($pdo, getCurrentUserId()) : 0;
 
@@ -77,7 +76,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                     $childActive = !empty($child['pages']) && in_array($currentPage, $child['pages'], true) ? ' active' : '';
                     $childClass = !empty($child['class']) ? ' ' . htmlspecialchars($child['class']) : '';
                     $confirm = !empty($child['confirm']) ? ' onclick="return confirm(\'Download a full database backup?\');"' : '';
-                    echo '<a href="' . htmlspecialchars($child['href']) . '" class="nav-link' . $childActive . $childClass . '"' . $confirm . '>' . htmlspecialchars($child['label']) . '</a>';
+                    echo '<a href="' . htmlspecialchars($child['href']) . '" class="nav-link' . $childActive . $childClass . $extraClass . '"' . $confirm . '>' . htmlspecialchars($child['label']) . '</a>';
                 }
                 echo '</div></div>';
             } else {
@@ -159,7 +158,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
 
                         <div class="header-user-menu">
                             <div class="nav-dropdown nav-profile-dropdown">
-                                <a href="/profile.php" class="user-menu-btn" title="My Profile">
+                                <button type="button" class="user-menu-btn nav-profile-toggle" title="Account menu" aria-haspopup="true" aria-expanded="false">
                                     <span class="user-avatar">
                                         <?php if ($headerAvatarUrl): ?>
                                             <img src="<?= htmlspecialchars($headerAvatarUrl) ?>" alt="">
@@ -172,7 +171,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                                         <span class="user-menu-role"><?= htmlspecialchars(str_replace('_', ' ', getCurrentRole())) ?></span>
                                     </span>
                                     <span class="user-menu-chevron">▾</span>
-                                </a>
+                                </button>
                                 <div class="dropdown-content dropdown-content-right">
                                     <a href="/profile.php" class="<?= $currentPage === 'profile' ? 'active' : '' ?>">My Profile</a>
                                     <a href="/api/logout.php">Logout</a>
@@ -192,36 +191,40 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                     </nav>
                 </div>
             </div>
+        </header>
 
-            <div class="mobile-nav-overlay" id="mobileNavOverlay" hidden>
-                <div class="mobile-nav-drawer" role="dialog" aria-label="Mobile navigation">
-                    <div class="mobile-nav-drawer-head">
-                        <strong>Menu</strong>
-                        <button type="button" class="mobile-nav-close" id="mobileNavClose" aria-label="Close menu">&times;</button>
-                    </div>
-                    <?php if ($showHubSwitcher): ?>
-                        <nav class="hub-switcher mobile-hub-switcher" aria-label="Hub selector">
-                            <?php foreach ($userHubs as $hubKey): ?>
-                                <?php $meta = $hubMeta[$hubKey]; ?>
-                                <a href="<?= htmlspecialchars($meta['home']) ?>"
-                                   class="hub-tab <?= htmlspecialchars($meta['class'] ?? '') ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
-                                    <?= htmlspecialchars($meta['label']) ?>
-                                </a>
-                            <?php endforeach; ?>
-                        </nav>
-                    <?php endif; ?>
+        <div class="mobile-nav-overlay" id="mobileNavOverlay" hidden>
+            <div class="mobile-nav-drawer" role="dialog" aria-label="Mobile navigation">
+                <div class="mobile-nav-drawer-head">
+                    <strong>Menu</strong>
+                    <button type="button" class="mobile-nav-close" id="mobileNavClose" aria-label="Close menu">&times;</button>
+                </div>
+                <?php if ($showHubSwitcher): ?>
+                    <nav class="hub-switcher mobile-hub-switcher" aria-label="Hub selector">
+                        <?php foreach ($userHubs as $hubKey): ?>
+                            <?php $meta = $hubMeta[$hubKey]; ?>
+                            <a href="<?= htmlspecialchars($meta['home']) ?>"
+                               class="hub-tab <?= htmlspecialchars($meta['class'] ?? '') ?><?= $activeHub === $hubKey ? ' active' : '' ?>">
+                                <?= htmlspecialchars($meta['label']) ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </nav>
+                <?php endif; ?>
+                <div class="mobile-nav-drawer-body">
                     <nav class="mobile-nav" aria-label="Mobile main navigation">
                         <?php headerRenderNavItems($navItems, $currentPage, ' mobile-nav-link'); ?>
                         <?php if ($showEstateUtilities): ?>
                             <a href="/notifications.php" class="nav-link mobile-nav-link<?= $currentPage === 'notifications' ? ' active' : '' ?>">Notifications<?= $unreadCount > 0 ? ' (' . (int)$unreadCount . ')' : '' ?></a>
                             <a href="/actions.php" class="nav-link mobile-nav-link<?= $currentPage === 'actions' ? ' active' : '' ?>">Actions<?= $pendingActionsCount > 0 ? ' (' . (int)$pendingActionsCount . ')' : '' ?></a>
                         <?php endif; ?>
-                        <a href="/profile.php" class="nav-link mobile-nav-link">My Profile</a>
-                        <a href="/api/logout.php" class="nav-link mobile-nav-link">Logout</a>
                     </nav>
                 </div>
+                <div class="mobile-nav-drawer-foot">
+                    <a href="/profile.php" class="nav-link mobile-nav-link<?= $currentPage === 'profile' ? ' active' : '' ?>">My Profile</a>
+                    <a href="/api/logout.php" class="nav-link mobile-nav-link mobile-nav-logout">Logout</a>
+                </div>
             </div>
-        </header>
+        </div>
     <?php endif; ?>
 
     <main class="main-content">

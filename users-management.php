@@ -40,6 +40,7 @@ function umGetRoleDefaultCapabilities(): array {
         'subcontractor' => ['assign_actions', 'view_projects', 'view_drawings'],
         'sales_manager' => ['view_projects', 'add_project', 'edit_project_details', 'view_property_sales', 'view_sales_demo_exc', 'manage_sales_demo_exc', 'view_sales_const', 'manage_sales_const', 'view_sales_finishes', 'manage_sales_finishes', 'view_sales_ohsa', 'manage_sales_ohsa'],
         'sales_agent' => ['view_property_sales'],
+        'external_agent' => ['view_property_sales'],
         'condominium_agent' => [], 'end_customer' => [], 'viewer' => ['view_projects'],
         'legal_representative' => ['view_projects'],
         'plant_manager' => ['view_plant_bookings'],
@@ -191,7 +192,7 @@ $rolesList = [
     'admin', 'director', 'system_manager', 'project_manager', 'accountant', 'architect', 'structural_engineer', 
     'services_engineer', 'quality_controller', 'pmo_staff', 'ohsa_rep', 
     'site_technical_officer', 'subcontractor', 'condominium_agent', 
-    'sales_manager', 'sales_agent', 'end_customer', 'viewer', 'legal_representative',
+    'sales_manager', 'sales_agent', 'external_agent', 'end_customer', 'viewer', 'legal_representative',
     'plant_manager', 'plant_driver'
 ];
 
@@ -675,6 +676,7 @@ const docDefaults = {
     'subcontractor': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 2, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
     'sales_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 4, doc_training: 0 },
     'sales_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2, doc_training: 0 },
+    'external_agent': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 2, doc_training: 0 },
     'plant_manager': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 },
     'plant_driver': { doc_bca: 0, doc_ohsa: 0, doc_drawings: 0, doc_engineering: 0, doc_commercial: 0, doc_sales: 0, doc_training: 0 }
 };

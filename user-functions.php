@@ -296,6 +296,322 @@ function hasProjectAccess($pdo, $projectId) {
 }
 
 // ==========================================
+// SALES HUB — CLIENT / PROJECT ACCESS
+// ==========================================
+
+function salesHubHasGlobalAccess(): bool {
+    return isAdmin() || getCurrentRole() === 'director';
+}
+
+function hasSalesProjectAccess(PDO $pdo, int $projectId): bool {
+    static $cache = [];
+    if ($projectId <= 0) {
+        return false;
+    }
+    if (!isset($cache[$projectId])) {
+        $cache[$projectId] = hasProjectAccess($pdo, $projectId);
+    }
+    return $cache[$projectId];
+}
+
+function hasSalesPropertyAccess(PDO $pdo, int $propertyId): bool {
+    static $cache = [];
+    if ($propertyId <= 0) {
+        return false;
+    }
+    if (!isset($cache[$propertyId])) {
+        $stmt = $pdo->prepare('SELECT project_id FROM sales_properties WHERE id = ?');
+        $stmt->execute([$propertyId]);
+        $projectId = $stmt->fetchColumn();
+        $cache[$propertyId] = $projectId ? hasSalesProjectAccess($pdo, (int)$projectId) : false;
+    }
+    return $cache[$propertyId];
+}
+
+/**
+ * SQL fragment + bind params restricting rows to projects the current user may access.
+ *
+ * @return array{sql: string, params: array<int, int>}
+ */
+function salesProjectAccessWhereClause(PDO $pdo, string $projectAlias = 'p'): array {
+    if (salesHubHasGlobalAccess()) {
+        return ['sql' => '1=1', 'params' => []];
+    }
+
+    $userId = (int)getCurrentUserId();
+    if ($userId <= 0) {
+        return ['sql' => '1=0', 'params' => []];
+    }
+
+    $projectAlias = preg_replace('/[^a-zA-Z0-9_]/', '', $projectAlias) ?: 'p';
+    $sql = "(
+        EXISTS (
+            SELECT 1 FROM user_client_access uca
+            WHERE uca.user_id = ? AND uca.client_id = {$projectAlias}.clientid
+        )
+        OR EXISTS (
+            SELECT 1 FROM user_project_access upa
+            WHERE upa.user_id = ? AND upa.project_id = {$projectAlias}.id
+        )
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM user_project_exclusions upe
+        WHERE upe.user_id = ? AND upe.project_id = {$projectAlias}.id
+    )";
+
+    return ['sql' => $sql, 'params' => [$userId, $userId, $userId]];
+}
+
+function salesDenyJsonAccess(string $message = 'Access denied.'): void {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => $message]);
+    exit;
+}
+
+/**
+ * Stage C visibility columns may not exist until sql/2026-07-15_sales_visibility_flags.sql is run.
+ * When absent, skip in-house listing filters so Sales Hub keeps working pre-migration.
+ */
+function salesVisibilityColumnsAvailable(PDO $pdo): bool {
+    static $available = null;
+    if ($available !== null) {
+        return $available;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM projects LIKE 'show_for_sale'");
+        $available = $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+    } catch (Exception $e) {
+        $available = false;
+    }
+    return $available;
+}
+
+function salesInHouseVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return '';
+    }
+    $projectAlias = preg_replace('/[^a-zA-Z0-9_]/', '', $projectAlias) ?: 'p';
+    return " AND {$projectAlias}.show_for_sale = 1";
+}
+
+function salesExternalVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return '';
+    }
+    $projectAlias = preg_replace('/[^a-zA-Z0-9_]/', '', $projectAlias) ?: 'p';
+    return " AND {$projectAlias}.show_for_sale_external = 1";
+}
+
+function salesIsExternalAgent(): bool {
+    return getCurrentRole() === 'external_agent';
+}
+
+/** True when unit status is Sold - POS, Sold - Contract, etc. */
+function salesUnitStatusIsSold(?string $status): bool {
+    return $status !== null && stripos(trim($status), 'Sold') !== false;
+}
+
+/** Managers/admins may view sold-unit pricing; sales and external agents may not. */
+function salesCanViewSoldUnitPricing(): bool {
+    return in_array(getCurrentRole(), ['admin', 'sales_manager', 'system_manager', 'director'], true);
+}
+
+/** Sold - POS / Sold - Contract (excludes Resale). */
+function salesUnitStatusIsSoldListing(?string $status): bool {
+    if ($status === null || $status === 'Resale') {
+        return false;
+    }
+    return salesUnitStatusIsSold($status);
+}
+
+function salesResaleExtendedColumnsAvailable(PDO $pdo): bool {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM sales_properties LIKE 'resale_pricing_mode'");
+        $cache = (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $cache = false;
+    }
+    return $cache;
+}
+
+/** Map/list visibility SQL for the current Sales Hub viewer (in-house vs external library). */
+function salesListingVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
+    if (salesIsExternalAgent()) {
+        return salesExternalVisibilitySql($pdo, $projectAlias);
+    }
+    return salesInHouseVisibilitySql($pdo, $projectAlias);
+}
+
+function salesProjectIsListedForSale(PDO $pdo, int $projectId): bool {
+    if ($projectId <= 0) {
+        return false;
+    }
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return true;
+    }
+    $stmt = $pdo->prepare('SELECT show_for_sale FROM projects WHERE id = ?');
+    $stmt->execute([$projectId]);
+    $value = $stmt->fetchColumn();
+    return $value !== false && (int)$value === 1;
+}
+
+function salesProjectIsListedForExternal(PDO $pdo, int $projectId): bool {
+    if ($projectId <= 0) {
+        return false;
+    }
+    if (!salesVisibilityColumnsAvailable($pdo)) {
+        return false;
+    }
+    $stmt = $pdo->prepare('SELECT show_for_sale_external FROM projects WHERE id = ?');
+    $stmt->execute([$projectId]);
+    $value = $stmt->fetchColumn();
+    return $value !== false && (int)$value === 1;
+}
+
+/** Whether the current user may view this project on Sales Hub / pricelist for their role. */
+function salesProjectPassesListingVisibility(PDO $pdo, int $projectId): bool {
+    if (salesIsExternalAgent()) {
+        return salesProjectIsListedForExternal($pdo, $projectId);
+    }
+    return salesProjectIsListedForSale($pdo, $projectId);
+}
+
+function salesGetAccessibleProjectsWithUnits(PDO $pdo, bool $visibleForSaleOnly = false): array {
+    $access = salesProjectAccessWhereClause($pdo, 'p');
+    $visibilitySql = '';
+    if ($visibleForSaleOnly && salesVisibilityColumnsAvailable($pdo)) {
+        $visibilitySql = salesIsExternalAgent()
+            ? salesExternalVisibilitySql($pdo, 'p')
+            : salesInHouseVisibilitySql($pdo, 'p');
+    }
+    $sql = "SELECT DISTINCT p.id, p.name, p.city
+            FROM projects p
+            INNER JOIN sales_properties sp ON p.id = sp.project_id
+            WHERE {$access['sql']}{$visibilitySql}
+            ORDER BY p.city ASC, p.name ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($access['params']);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function salesGetAccessibleProjects(PDO $pdo): array {
+    $access = salesProjectAccessWhereClause($pdo, 'p');
+    $sql = "SELECT p.id, p.name, p.city
+            FROM projects p
+            WHERE {$access['sql']}
+            ORDER BY p.city ASC, p.name ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($access['params']);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function salesGetAccessibleUnits(PDO $pdo): array {
+    $access = salesProjectAccessWhereClause($pdo, 'p');
+    $sql = "SELECT sp.id, sp.unit_name, sp.status, sp.shell_price, sp.finishes_price, p.name AS project_name
+            FROM sales_properties sp
+            JOIN projects p ON sp.project_id = p.id
+            WHERE {$access['sql']}
+            ORDER BY p.name ASC, sp.unit_name ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($access['params']);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function salesAssertPropertyAccess(PDO $pdo, int $propertyId): void {
+    if (!hasSalesPropertyAccess($pdo, $propertyId)) {
+        salesDenyJsonAccess();
+    }
+}
+
+function salesAssertProjectAccess(PDO $pdo, int $projectId): void {
+    if (!hasSalesProjectAccess($pdo, $projectId)) {
+        salesDenyJsonAccess();
+    }
+}
+
+/**
+ * Stage E alert columns may not exist until sql/2026-07-15_sales_holds_stage_e.sql is run.
+ */
+function salesHoldAlertColumnsAvailable(PDO $pdo): bool {
+    static $available = null;
+    if ($available !== null) {
+        return $available;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM sales_properties LIKE 'hold_warning_sent_at'");
+        $available = $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+    } catch (Exception $e) {
+        $available = false;
+    }
+    return $available;
+}
+
+function salesCanManageHoldDeadlines(string $role): bool {
+    return in_array($role, ['admin', 'sales_manager', 'director', 'system_manager'], true);
+}
+
+function salesParseHoldExpiryInput(?string $raw): ?string {
+    if ($raw === null || trim($raw) === '') {
+        return null;
+    }
+    $raw = trim(str_replace('T', ' ', $raw));
+    $dt = DateTime::createFromFormat('Y-m-d H:i', $raw, new DateTimeZone('Europe/Malta'));
+    if (!$dt) {
+        $dt = DateTime::createFromFormat('Y-m-d H:i:s', $raw, new DateTimeZone('Europe/Malta'));
+    }
+    if (!$dt) {
+        return null;
+    }
+    $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
+    if ($dt <= $now) {
+        return null;
+    }
+    return $dt->format('Y-m-d H:i:s');
+}
+
+function salesGetHoldAlertManagerEmails(PDO $pdo): array {
+    $stmt = $pdo->query("
+        SELECT DISTINCT email
+        FROM users
+        WHERE role IN ('admin', 'sales_manager', 'director', 'system_manager')
+          AND email IS NOT NULL
+          AND email != ''
+          AND (is_active = 'Yes' OR is_active IS NULL)
+    ");
+    $emails = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $email = filter_var($row['email'], FILTER_VALIDATE_EMAIL);
+        if ($email) {
+            $emails[] = $email;
+        }
+    }
+    return array_values(array_unique($emails));
+}
+
+function salesClearHoldFieldsSql(PDO $pdo): string {
+    $sql = 'held_by_agent_id = NULL, hold_expiry = NULL';
+    if (salesHoldAlertColumnsAvailable($pdo)) {
+        $sql .= ', hold_warning_sent_at = NULL, hold_expired_alert_sent_at = NULL';
+    }
+    if (salesResaleExtendedColumnsAvailable($pdo)) {
+        $sql .= ', status_before_hold = NULL';
+    }
+    return $sql;
+}
+
+function salesClearHoldAlertFlagsSql(PDO $pdo): string {
+    if (!salesHoldAlertColumnsAvailable($pdo)) {
+        return '';
+    }
+    return ', hold_warning_sent_at = NULL, hold_expired_alert_sent_at = NULL';
+}
+
+// ==========================================
 // 4. USER MANAGEMENT UTILITIES
 // ==========================================
 

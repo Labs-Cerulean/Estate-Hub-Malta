@@ -87,6 +87,28 @@ if (!sessionShouldSkipHubIsolation()) {
         }
     }
 
+    if (isset($_SESSION['role']) && $_SESSION['role'] === 'external_agent') {
+        $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
+        $allowed_external_agent_pages = ['sales_library.php', 'profile.php', 'print_pricelist.php'];
+        $allowed_external_agent_apis = [
+            'get_project_units.php',
+        ];
+
+        if (sessionIsLogoutRequest()) {
+            // allow
+        } elseif ($isApi) {
+            if (!in_array($sessionBasename, $allowed_external_agent_apis, true)) {
+                sessionDenyApiAccess();
+            }
+        } elseif ($sessionBasename === 'sales_hub.php') {
+            header('Location: sales_library.php');
+            exit;
+        } elseif (!in_array($sessionBasename, $allowed_external_agent_pages, true)) {
+            header('Location: sales_library.php');
+            exit;
+        }
+    }
+
     if (isset($_SESSION['role']) && $_SESSION['role'] === 'sales_agent') {
         $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
         $allowed_sales_agent_pages = ['sales_hub.php', 'profile.php'];

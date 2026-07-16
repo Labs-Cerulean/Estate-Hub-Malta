@@ -20,10 +20,18 @@ if (!$property_id) {
 }
 
 try {
-    // Get old prices for the audit log
-    $stmt = $pdo->prepare("SELECT shell_price, finishes_price FROM sales_properties WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT shell_price, finishes_price, project_id FROM sales_properties WHERE id = ?");
     $stmt->execute([$property_id]);
-    $old = $stmt->fetch();
+    $old = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$old) {
+        echo json_encode(['success' => false, 'message' => 'Property not found.']);
+        exit;
+    }
+
+    if (!hasSalesProjectAccess($pdo, (int)$old['project_id'])) {
+        salesDenyJsonAccess();
+    }
 
     // Update the prices
     $update = $pdo->prepare("UPDATE sales_properties SET shell_price = ?, finishes_price = ? WHERE id = ?");
