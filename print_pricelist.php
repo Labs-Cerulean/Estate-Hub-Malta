@@ -202,8 +202,8 @@ function renderMediaPage($subCat, $mediaData) {
                         <td><?= htmlspecialchars($u['description']) ?></td>
                         <td class="num"><?= $u['internal_sqm'] ?></td>
                         <td class="num"><?= $u['external_sqm'] ?></td>
-                        <td class="num"><?= $hideSoldPrice ? '—' : '€' . number_format($u['shell_price'], 0) ?></td>
-                        <td class="num"><?= $hideSoldPrice ? '—' : ($u['finishes_price'] > 0 ? '€' . number_format($u['finishes_price'], 0) : 'N/A') ?></td>
+                        <td class="num"><?= $hideSoldPrice ? '—' : '€' . number_format((float)($u['shell_price'] ?? 0), 0) ?></td>
+                        <td class="num"><?= $hideSoldPrice ? '—' : ((float)($u['finishes_price'] ?? 0) > 0 ? '€' . number_format((float)($u['finishes_price'] ?? 0), 0) : 'N/A') ?></td>
                         <td class="num <?= $statusClass ?>"><?= strtoupper($u['status']) ?></td>
                     </tr>
                     <?php endforeach; ?>
