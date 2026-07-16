@@ -7,14 +7,17 @@ if (isset($_SESSION['user_id'])) {
     $normalizedRole = strtolower(trim(str_replace(' ', '_', $_SESSION['role'] ?? '')));
     if ($normalizedRole === 'legal_representative') {
         header("Location: projects.php");
+        exit;
     } elseif ($normalizedRole === 'external_agent') {
         header("Location: sales_library.php");
+        exit;
     } elseif (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
         header("Location: sales_hub.php");
+        exit;
     } else {
         header("Location: dashboard.php");
+        exit;
     }
-    exit;
 }
 
 $error = '';
@@ -58,14 +61,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $normalizedRole = strtolower(trim(str_replace(' ', '_', $user['role'])));
                     if ($normalizedRole === 'legal_representative') {
                         header('Location: projects.php');
+                        exit;
                     } elseif ($normalizedRole === 'external_agent') {
                         header('Location: sales_library.php');
+                        exit;
                     } elseif (in_array($normalizedRole, ['sales_agent', 'sales_manager'])) {
                         header('Location: sales_hub.php');
+                        exit;
                     } else {
                         header('Location: dashboard.php');
+                        exit;
                     }
-                    exit;
                     
                 } else {
                     $error = 'Your account has been deactivated';
