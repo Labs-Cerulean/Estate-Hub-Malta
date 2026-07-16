@@ -185,7 +185,7 @@ require_once 'header.php';
         position: fixed; top: 0; right: -500px; width: 500px; height: 100vh;
         background-color: var(--sh-bg-panel); color: var(--sh-text-main);
         box-shadow: -10px 0 30px rgba(0,0,0,0.6); transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 950; display: flex; flex-direction: column; border-left: 1px solid var(--sh-border);
+        z-index: 1050; display: flex; flex-direction: column; border-left: 1px solid var(--sh-border);
     }
     .sh-sidebar.open { right: 0; }
     
@@ -319,6 +319,7 @@ require_once 'header.php';
             right: -100%;
             top: 56px;
             height: calc(100dvh - 56px);
+            z-index: 950;
         }
         .sh-overlay-title { font-size: 1.1rem; margin-bottom: 10px; }
         .sh-kpi-row { padding: 10px 15px; }
