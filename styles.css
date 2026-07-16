@@ -441,13 +441,6 @@ body {
     gap: 0.15rem;
 }
 
-.mobile-nav-group-links .nav-link {
-    display: flex !important;
-    align-items: center;
-    min-height: 44px;
-    width: 100%;
-}
-
 body.mobile-nav-open {
     overflow: hidden;
     overscroll-behavior: none;

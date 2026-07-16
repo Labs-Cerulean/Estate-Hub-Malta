@@ -76,7 +76,7 @@ function headerRenderNavItems(array $navItems, string $currentPage, string $extr
                     $childActive = !empty($child['pages']) && in_array($currentPage, $child['pages'], true) ? ' active' : '';
                     $childClass = !empty($child['class']) ? ' ' . htmlspecialchars($child['class']) : '';
                     $confirm = !empty($child['confirm']) ? ' onclick="return confirm(\'Download a full database backup?\');"' : '';
-                    echo '<a href="' . htmlspecialchars($child['href']) . '" class="nav-link' . ($extraClass ? ' mobile-nav-link' : '') . $childActive . $childClass . '"' . $confirm . '>' . htmlspecialchars($child['label']) . '</a>';
+                    echo '<a href="' . htmlspecialchars($child['href']) . '" class="nav-link' . $childActive . $childClass . $extraClass . '"' . $confirm . '>' . htmlspecialchars($child['label']) . '</a>';
                 }
                 echo '</div></div>';
             } else {
