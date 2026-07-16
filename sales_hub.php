@@ -74,8 +74,8 @@ require_once 'header.php';
         pointer-events: auto;
         float: none !important;
     }
-    #sales-map .maplibregl-ctrl-group button,
-    #sales-map .mapboxgl-ctrl-group button,
+    #sales-map .maplibregl-ctrl-group button:not(.sh-satellite-toggle-btn),
+    #sales-map .mapboxgl-ctrl-group button:not(.sh-satellite-toggle-btn),
     #sales-map .mapbox-gl-draw_ctrl-draw-btn {
         width: 45px;
         height: 45px;
@@ -95,15 +95,15 @@ require_once 'header.php';
         border-left: 1px solid rgba(255,255,255,0.15) !important;
         border-top: none !important;
     }
-    #sales-map .maplibregl-ctrl-group button:hover,
-    #sales-map .mapboxgl-ctrl-group button:hover,
+    #sales-map .maplibregl-ctrl-group button:not(.sh-satellite-toggle-btn):hover,
+    #sales-map .mapboxgl-ctrl-group button:not(.sh-satellite-toggle-btn):hover,
     #sales-map .mapbox-gl-draw_ctrl-draw-btn:hover {
         transform: none !important;
         filter: brightness(0) invert(1);
         background-color: rgba(255,255,255,0.12) !important;
     }
-    #sales-map .maplibregl-ctrl-group button.active,
-    #sales-map .mapboxgl-ctrl-group button.active,
+    #sales-map .maplibregl-ctrl-group button:not(.sh-satellite-toggle-btn).active,
+    #sales-map .mapboxgl-ctrl-group button:not(.sh-satellite-toggle-btn).active,
     #sales-map .mapbox-gl-draw_ctrl-draw-btn.active {
         transform: none !important;
         filter: brightness(0) invert(1);
@@ -114,24 +114,27 @@ require_once 'header.php';
         height: 45px;
         cursor: pointer;
         pointer-events: auto;
+        box-sizing: border-box;
         border: 0 !important;
         outline: none;
-        background-color: transparent !important;
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        transform: none !important;
         transition: background-color 0.2s ease;
-        box-sizing: border-box;
+        background-color: transparent !important;
+        /* Dark SVG sprite — same invert treatment as MapboxDraw buttons */
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000000'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.22.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 20px 20px;
+        filter: brightness(0) invert(1);
     }
-    #sales-map .sh-satellite-toggle-btn svg {
-        display: block;
-        width: 20px;
-        height: 20px;
-        fill: currentColor;
+    #sales-map .sh-satellite-toggle-btn:hover {
+        transform: none !important;
+        filter: brightness(0) invert(1);
+        background-color: rgba(255,255,255,0.12) !important;
     }
-    #sales-map .sh-satellite-toggle-btn:hover,
     #sales-map .sh-satellite-toggle-btn.active {
+        transform: none !important;
+        filter: brightness(0) invert(1);
         background-color: rgba(16, 185, 129, 0.35) !important;
     }
 
@@ -757,10 +760,9 @@ require_once 'header.php';
         if (!drawGroup || drawGroup.querySelector('.sh-satellite-toggle-btn')) return;
         const satBtn = document.createElement('button');
         satBtn.type = 'button';
-        satBtn.className = 'sh-satellite-toggle-btn mapbox-gl-draw_ctrl-draw-btn';
+        satBtn.className = 'sh-satellite-toggle-btn';
         satBtn.title = 'Toggle satellite view';
         satBtn.setAttribute('aria-label', 'Toggle satellite view');
-        satBtn.innerHTML = '<i class="fas fa-satellite"></i>';
         if (mapSatelliteActive) satBtn.classList.add('active');
         satBtn.addEventListener('click', toggleSatelliteView);
         drawGroup.insertBefore(satBtn, drawGroup.firstChild);
