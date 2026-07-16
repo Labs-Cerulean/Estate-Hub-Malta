@@ -111,7 +111,7 @@ if (!sessionShouldSkipHubIsolation()) {
 
     if (isset($_SESSION['role']) && $_SESSION['role'] === 'sales_agent') {
         $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
-        $allowed_sales_agent_pages = ['sales_hub.php', 'profile.php'];
+        $allowed_sales_agent_pages = ['sales_hub.php', 'profile.php', 'print_pricelist.php'];
         $allowed_sales_agent_apis = [
             'sales_actions.php', 'get_sales_map_data.php', 'get_holds_ledger.php',
             'get_project_units.php', 'upload_sales_media.php', 'upload_project_frame.php', 'update_unit_price.php',
@@ -136,12 +136,12 @@ if (!sessionShouldSkipHubIsolation()) {
             'sales_hub.php', 'sales_project_manager.php', 'import_key_simplified.php',
             'dashboard.php', 'projects.php', 'mobilization.php', 'mobilisation_detail.php',
             'engineering.php', 'create-project.php', 'edit-project.php', 'project-status.php',
-            'map-view.php', 'notifications.php', 'actions.php', 'profile.php',
+            'map-view.php', 'notifications.php', 'actions.php', 'profile.php', 'print_pricelist.php',
         ];
         $allowed_sales_manager_apis = [
             'sales_actions.php', 'get_sales_map_data.php', 'get_holds_ledger.php',
             'get_project_units.php', 'upload_sales_media.php', 'upload_project_frame.php',
-            'update_unit_price.php', 'sync_daily_report.php',
+            'update_unit_price.php', 'sync_daily_report.php', 'manager_update_status.php',
         ];
 
         if (sessionIsLogoutRequest()) {
