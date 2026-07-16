@@ -797,8 +797,13 @@ require_once 'header.php';
         });
         map.addControl(draw, 'top-right');
         attachSatelliteToggleButton();
+        bindDrawTrashButton();
         if (restoreData && restoreData.features && restoreData.features.length > 0) {
             draw.add(restoreData);
+            const restoredId = restoreData.features[0].id;
+            if (restoredId) {
+                draw.changeMode('simple_select', { featureIds: [restoredId] });
+            }
             filterMapByPolygon();
         }
     }
@@ -846,8 +851,28 @@ require_once 'header.php';
             if (all.features.length > 1) {
                 all.features.slice(0, -1).forEach((feature) => draw.delete(feature.id));
             }
+            const createdId = e.features && e.features[0] ? e.features[0].id : null;
+            if (createdId) {
+                draw.changeMode('simple_select', { featureIds: [createdId] });
+            }
         }
         filterMapByPolygon();
+    }
+
+    function bindDrawTrashButton() {
+        const trashBtn = document.querySelector('#sales-map .mapbox-gl-draw_trash');
+        if (!trashBtn || trashBtn.dataset.shTrashBound) return;
+        trashBtn.dataset.shTrashBound = '1';
+        trashBtn.addEventListener('click', () => {
+            setTimeout(() => {
+                if (!draw) return;
+                const selected = draw.getSelectedIds();
+                if (draw.getAll().features.length > 0 && selected.length === 0) {
+                    draw.deleteAll();
+                }
+                filterMapByPolygon();
+            }, 0);
+        });
     }
 
     map.on('load', () => {
