@@ -254,6 +254,16 @@
         document.body.insertAdjacentHTML('beforeend', html);
     }
 
+    window.showUnifiedMatrixModal = showUnifiedMatrixModal;
+
+    window.analyzeDailySyncResult = function (data, syncFileId) {
+        window.pendingSyncFileId = syncFileId || null;
+        currentSyncPayload.statuses = data.status_changes || [];
+        currentSyncPayload.translations = [];
+        currentSyncPayload.prices = [];
+        showUnifiedMatrixModal(data);
+    };
+
     window.commitSyncMatrix = function (btn) {
         currentSyncPayload.translations = [];
         document.querySelectorAll('.sync-trans-select').forEach(function (sel) {
@@ -279,6 +289,9 @@
         const formData = new FormData();
         formData.append('action', 'commit');
         formData.append('payload', JSON.stringify(currentSyncPayload));
+        if (window.pendingSyncFileId) {
+            formData.append('sync_file_id', String(window.pendingSyncFileId));
+        }
 
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         btn.disabled = true;
@@ -294,7 +307,9 @@
             })
             .then(function (data) {
                 if (data.success) {
-                    alert('Sync successfully committed!');
+                    const runMsg = data.sync_run_id ? (' Sync run #' + data.sync_run_id + ' recorded.') : '';
+                    alert('Sync successfully committed!' + runMsg);
+                    window.pendingSyncFileId = null;
                     location.reload();
                 } else {
                     alert('Database Error: ' + data.message);

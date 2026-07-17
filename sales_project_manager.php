@@ -494,6 +494,9 @@ try {
                 <h2 style="margin: 5px 0 0 0; font-weight: 900;"><i class="fas fa-tools text-blue-500"></i> Sales Management</h2>
                 <p style="margin: 5px 0 0 0; color: var(--pm-text-muted); font-size: 0.9rem;">Manage frames, media, daily CSV sync, and sales visibility. Select a project below.</p>
                 <div class="pm-toolbar">
+                    <a href="sales_daily_sync_inbox.php" class="btn-heavy btn-blue" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+                        <i class="fas fa-inbox"></i> Daily Sync Inbox
+                    </a>
                     <button type="button" class="btn-heavy btn-blue" onclick="document.getElementById('dailySyncInput').click()">
                         <i class="fas fa-sync-alt"></i> 1-Click Daily Sync
                     </button>

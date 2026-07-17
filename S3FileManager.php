@@ -95,6 +95,24 @@ class S3FileManager {
     }
 
     /**
+     * Download an object to a local path (for server-side processing).
+     */
+    public function downloadObjectToPath(string $key, string $localPath): bool
+    {
+        try {
+            $this->client->getObject([
+                'Bucket' => $this->bucket,
+                'Key'    => $key,
+                'SaveAs' => $localPath,
+            ]);
+            return is_readable($localPath);
+        } catch (AwsException $e) {
+            error_log('R2 Download Error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Permanently deletes a file from the bucket
      */
     public function deleteFile($key) {
