@@ -194,7 +194,7 @@
                         uploadForm.reset();
                         const dateEl = document.getElementById('syncReportDate');
                         if (dateEl) {
-                            dateEl.value = new Date().toISOString.slice(0, 10);
+                            dateEl.value = new Date().toISOString().slice(0, 10);
                         }
                         if (window.pmShowToast) {
                             window.pmShowToast('Report stored in inbox', 'success');

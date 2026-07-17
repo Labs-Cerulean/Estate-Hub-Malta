@@ -86,14 +86,15 @@ if ($action === 'analyze_pending') {
             throw new RuntimeException('Could not create temp file.');
         }
 
-        $s3 = new S3FileManager();
-        if (!$s3->downloadObjectToPath($row['r2_storage_key'], $tmp)) {
+        try {
+            $s3 = new S3FileManager();
+            if (!$s3->downloadObjectToPath($row['r2_storage_key'], $tmp)) {
+                throw new RuntimeException('Could not retrieve stored CSV.');
+            }
+            $result = salesAnalyzeDailySyncCsv($pdo, $tmp);
+        } finally {
             @unlink($tmp);
-            throw new RuntimeException('Could not retrieve stored CSV.');
         }
-
-        $result = salesAnalyzeDailySyncCsv($pdo, $tmp);
-        @unlink($tmp);
 
         if (!$result['success']) {
             echo json_encode($result);

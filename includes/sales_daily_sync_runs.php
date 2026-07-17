@@ -59,7 +59,7 @@ function salesDailySyncFinishRun(
     if (!in_array($outcome, $allowed, true)) {
         $outcome = 'failed';
     }
-    $err = $errorMessage !== null ? substr($errorMessage, 0, 255) : null;
+    $err = $errorMessage !== null ? mb_substr($errorMessage, 0, 255, 'UTF-8') : null;
     $stmt = $pdo->prepare(
         'UPDATE sales_daily_sync_runs SET completed_at = NOW(), outcome = ?, price_updates_count = ?, status_updates_count = ?, translation_updates_count = ?, error_message = ? WHERE id = ?'
     );
@@ -84,5 +84,5 @@ function salesDailySyncRunLogPrefix(?int $runId): string
 
 function salesDailySyncTruncateJustification(?int $runId, string $text): string
 {
-    return substr(salesDailySyncRunLogPrefix($runId) . $text, 0, 255);
+    return mb_substr(salesDailySyncRunLogPrefix($runId) . $text, 0, 255, 'UTF-8');
 }
