@@ -80,11 +80,68 @@ $uStmt = $pdo->prepare("
 $uStmt->execute([$projectId]);
 $units = $uStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$canViewSoldPricing = salesCanViewSoldUnitPricing();
-
 $floors = [];
 foreach ($units as $u) {
     $floors[$u['floor_level']][] = $u;
+}
+
+$extendedResale = salesResaleExtendedColumnsAvailable($pdo);
+
+/**
+ * Print-facing availability label (shared PDF — no POS/Contract/Resale wording).
+ */
+function salesPricelistDisplayStatus(string $status): array
+{
+    if ($status === 'Resale') {
+        return ['label' => 'Available *', 'class' => 'status-avail', 'is_resale' => true, 'is_sold' => false];
+    }
+    if (salesUnitStatusIsSold($status)) {
+        return ['label' => 'Sold', 'class' => 'status-sold', 'is_resale' => false, 'is_sold' => true];
+    }
+    $class = 'status-avail';
+    if (stripos($status, 'Proceeding') !== false) {
+        $class = 'status-proc';
+    } elseif (stripos($status, 'Hold') !== false || stripos($status, 'Reserved') !== false) {
+        $class = 'status-hold';
+    }
+    return ['label' => strtoupper($status), 'class' => $class, 'is_resale' => false, 'is_sold' => false];
+}
+
+/**
+ * Shell / finishes cells for print pricelist. Sold always blank; Resale uses asking prices.
+ *
+ * @return array{0: string, 1: string}
+ */
+function salesPricelistPriceCells(array $u, bool $isSold, bool $isResale, bool $extendedResale): array
+{
+    if ($isSold) {
+        return ['—', '—'];
+    }
+
+    if ($isResale) {
+        $mode = $extendedResale ? (string)($u['resale_pricing_mode'] ?? '') : '';
+        $resaleShell = $extendedResale ? (float)($u['resale_shell_price'] ?? 0) : 0.0;
+        $resaleFin = $extendedResale ? (float)($u['resale_finishes_price'] ?? 0) : 0.0;
+        $resaleAsking = (float)($u['resale_price'] ?? 0);
+
+        if ($mode === 'split' && ($resaleShell > 0 || $resaleFin > 0)) {
+            $shellCell = '€' . number_format($resaleShell, 0);
+            $finCell = $resaleFin > 0 ? ('€' . number_format($resaleFin, 0)) : 'N/A';
+            return [$shellCell, $finCell];
+        }
+        if ($resaleAsking > 0) {
+            // All-in asking: show under Shell; Finishes N/A (matches single-mode asking on hub cards).
+            return ['€' . number_format($resaleAsking, 0), 'N/A'];
+        }
+        return ['—', '—'];
+    }
+
+    $shell = (float)($u['shell_price'] ?? 0);
+    $finishes = (float)($u['finishes_price'] ?? 0);
+    return [
+        '€' . number_format($shell, 0),
+        $finishes > 0 ? ('€' . number_format($finishes, 0)) : 'N/A',
+    ];
 }
 
 // Render helper
@@ -186,25 +243,23 @@ function renderMediaPage($subCat, $mediaData) {
                 </thead>
                 <tbody>
                     <?php foreach ($floorUnits as $u):
-                        $statusClass = 'status-avail';
                         $unitStatus = (string)($u['status'] ?? '');
-                        if (stripos($unitStatus, 'Proceeding') !== false) {
-                            $statusClass = 'status-proc';
-                        } elseif (stripos($unitStatus, 'Hold') !== false || stripos($unitStatus, 'Reserved') !== false) {
-                            $statusClass = 'status-hold';
-                        } elseif (stripos($unitStatus, 'Sold') !== false) {
-                            $statusClass = 'status-sold';
-                        }
-                        $hideSoldPrice = salesUnitStatusIsSold($unitStatus) && !$canViewSoldPricing;
+                        $display = salesPricelistDisplayStatus($unitStatus);
+                        [$shellCell, $finishesCell] = salesPricelistPriceCells(
+                            $u,
+                            $display['is_sold'],
+                            $display['is_resale'],
+                            $extendedResale
+                        );
                     ?>
                     <tr>
-                        <td class="bold"><?= htmlspecialchars($u['unit_name']) ?></td>
-                        <td><?= htmlspecialchars($u['description']) ?></td>
-                        <td class="num"><?= $u['internal_sqm'] ?></td>
-                        <td class="num"><?= $u['external_sqm'] ?></td>
-                        <td class="num"><?= $hideSoldPrice ? '—' : '€' . number_format((float)($u['shell_price'] ?? 0), 0) ?></td>
-                        <td class="num"><?= $hideSoldPrice ? '—' : ((float)($u['finishes_price'] ?? 0) > 0 ? '€' . number_format((float)($u['finishes_price'] ?? 0), 0) : 'N/A') ?></td>
-                        <td class="num <?= $statusClass ?>"><?= strtoupper($u['status']) ?></td>
+                        <td class="bold"><?= htmlspecialchars((string)($u['unit_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
+                        <td><?= htmlspecialchars((string)($u['description'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
+                        <td class="num"><?= htmlspecialchars((string)($u['internal_sqm'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
+                        <td class="num"><?= htmlspecialchars((string)($u['external_sqm'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
+                        <td class="num"><?= htmlspecialchars($shellCell, ENT_QUOTES, 'UTF-8') ?></td>
+                        <td class="num"><?= htmlspecialchars($finishesCell, ENT_QUOTES, 'UTF-8') ?></td>
+                        <td class="num <?= htmlspecialchars($display['class'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($display['label'], ENT_QUOTES, 'UTF-8') ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
