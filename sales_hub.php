@@ -874,20 +874,18 @@ require_once 'header.php';
     }
 
     function bindDrawTrashButton() {
+        // MapboxDraw trash usually deletes the current selection / undoes a vertex.
+        // Sales Hub needs it to fully clear the search polygon (same as Clear Area).
         const trashBtn = document.querySelector('#sales-map .mapbox-gl-draw_trash');
         if (!trashBtn || trashBtn.dataset.shTrashBound) return;
         trashBtn.dataset.shTrashBound = '1';
-        trashBtn.addEventListener('click', () => {
-            if (!draw) return;
-            const hadSelection = draw.getSelectedIds().length > 0;
-            setTimeout(() => {
-                if (!draw) return;
-                if (!hadSelection && draw.getAll().features.length > 0) {
-                    draw.deleteAll();
-                    filterMapByPolygon();
-                }
-            }, 0);
-        });
+        trashBtn.title = 'Clear search area';
+        trashBtn.setAttribute('aria-label', 'Clear search area');
+        trashBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            clearPolygonDraw();
+        }, true);
     }
 
     map.on('load', () => {
