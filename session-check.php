@@ -133,7 +133,7 @@ if (!sessionShouldSkipHubIsolation()) {
         $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
         $blocked_sales_manager_pages = ['work_sales.php', 'works_sales.php', 'admin_standard_rates.php'];
         $allowed_sales_manager_pages = [
-            'sales_hub.php', 'sales_project_manager.php', 'import_key_simplified.php',
+            'sales_hub.php', 'sales_library.php', 'sales_project_manager.php', 'import_key_simplified.php',
             'dashboard.php', 'projects.php', 'mobilization.php', 'mobilisation_detail.php',
             'engineering.php', 'create-project.php', 'edit-project.php', 'project-status.php',
             'map-view.php', 'notifications.php', 'actions.php', 'profile.php', 'print_pricelist.php',
