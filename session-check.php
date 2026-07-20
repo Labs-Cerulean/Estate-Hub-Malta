@@ -133,7 +133,7 @@ if (!sessionShouldSkipHubIsolation()) {
         $isApi = str_contains($sessionRequestUri, '/api/') || str_contains($phpSelf, '/api/');
         $blocked_sales_manager_pages = ['work_sales.php', 'works_sales.php', 'admin_standard_rates.php'];
         $allowed_sales_manager_pages = [
-            'sales_hub.php', 'sales_project_manager.php', 'import_key_simplified.php',
+            'sales_hub.php', 'sales_project_manager.php', 'sales_daily_sync_inbox.php', 'import_key_simplified.php',
             'dashboard.php', 'projects.php', 'mobilization.php', 'mobilisation_detail.php',
             'engineering.php', 'create-project.php', 'edit-project.php', 'project-status.php',
             'map-view.php', 'notifications.php', 'actions.php', 'profile.php', 'print_pricelist.php',
@@ -141,7 +141,7 @@ if (!sessionShouldSkipHubIsolation()) {
         $allowed_sales_manager_apis = [
             'sales_actions.php', 'get_sales_map_data.php', 'get_holds_ledger.php',
             'get_project_units.php', 'upload_sales_media.php', 'upload_project_frame.php',
-            'update_unit_price.php', 'sync_daily_report.php', 'manager_update_status.php',
+            'update_unit_price.php', 'sync_daily_report.php', 'sales_daily_sync_inbox.php', 'manager_update_status.php',
         ];
 
         if (sessionIsLogoutRequest()) {
