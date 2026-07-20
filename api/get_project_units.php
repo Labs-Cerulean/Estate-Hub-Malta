@@ -82,8 +82,13 @@ try {
 
         foreach ($units as $u) {
             $total_price = floatval($u['shell_price']) + floatval($u['finishes_price']);
-            $status = trim($u['status']);
-            $unitTypeSafe = htmlspecialchars($u['unit_type'], ENT_QUOTES, 'UTF-8');
+            $status = trim((string)($u['status'] ?? ''));
+            $statusSafe = htmlspecialchars($status, ENT_QUOTES, 'UTF-8');
+            $unitNameSafe = htmlspecialchars((string)($u['unit_name'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $descriptionSafe = htmlspecialchars((string)($u['description'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $unitTypeSafe = htmlspecialchars((string)($u['unit_type'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $internalSqmSafe = htmlspecialchars((string)($u['internal_sqm'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $externalSqmSafe = htmlspecialchars((string)($u['external_sqm'] ?? ''), ENT_QUOTES, 'UTF-8');
             
             $icon = 'fa-home';
             if($u['unit_type'] == 'garage') $icon = 'fa-car';
@@ -124,6 +129,7 @@ try {
             // --- START BEAUTIFUL CARD ---
             // Fix: Added data-floor attribute so JS can mathematically sort negative floors
             $floorLevelSafe = htmlspecialchars(trim((string)($u['floor_level'] ?? '')), ENT_QUOTES, 'UTF-8');
+            $unitId = (int)$u['id'];
             $resaleMode = $extendedResale ? ($u['resale_pricing_mode'] ?? '') : '';
             $resaleShell = $extendedResale ? floatval($u['resale_shell_price'] ?? 0) : 0;
             $resaleFin = $extendedResale ? floatval($u['resale_finishes_price'] ?? 0) : 0;
@@ -132,18 +138,18 @@ try {
             $resaleModeAttr = htmlspecialchars((string)$resaleMode, ENT_QUOTES, 'UTF-8');
             $resaleShellAttr = htmlspecialchars((string)$resaleShell, ENT_QUOTES, 'UTF-8');
             $resaleFinAttr = htmlspecialchars((string)$resaleFin, ENT_QUOTES, 'UTF-8');
-            $html .= "<div class='card shadow unit-card' data-unit-id='{$u['id']}' data-status='{$status}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' data-resale-price='{$resaleAttr}' data-resale-mode='{$resaleModeAttr}' data-resale-shell='{$resaleShellAttr}' data-resale-finishes='{$resaleFinAttr}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
+            $html .= "<div class='card shadow unit-card' data-unit-id='{$unitId}' data-status='{$statusSafe}' data-type='{$unitTypeSafe}' data-floor='{$floorLevelSafe}' data-resale-price='{$resaleAttr}' data-resale-mode='{$resaleModeAttr}' data-resale-shell='{$resaleShellAttr}' data-resale-finishes='{$resaleFinAttr}' style='background: #1e1e2d; border: none; border-left: 6px solid {$accentColor}; border-radius: 12px; margin-bottom: 1.5rem;'>";
             $html .= "<div class='card-body p-4'>";
             
             // --- HEADER ---
             $html .= "<div class='d-flex justify-content-between align-items-start mb-2'>
                         <div>
                             <h5 class='m-0 fw-bold text-white d-flex align-items-center' style='letter-spacing: 0.5px;'>
-                                <i class='fas {$icon}' style='color: {$accentColor}; opacity: 0.9; margin-right: 8px;'></i> {$u['unit_name']}
+                                <i class='fas {$icon}' style='color: {$accentColor}; opacity: 0.9; margin-right: 8px;'></i> {$unitNameSafe}
                             </h5>
-                            <div class='text-muted mt-1' style='font-size: 0.85rem;'><i class='fas fa-layer-group text-secondary'></i> Level {$u['floor_level']} &nbsp;&bull;&nbsp; {$u['description']}</div>
+                            <div class='text-muted mt-1' style='font-size: 0.85rem;'><i class='fas fa-layer-group text-secondary'></i> Level {$floorLevelSafe} &nbsp;&bull;&nbsp; {$descriptionSafe}</div>
                         </div>
-                        <span class='badge shadow-sm' style='background-color: {$badgeBg}; color: {$badgeText}; font-size: 0.8rem; padding: 6px 12px; border-radius: 8px;'>{$status}</span>
+                        <span class='badge shadow-sm' style='background-color: {$badgeBg}; color: {$badgeText}; font-size: 0.8rem; padding: 6px 12px; border-radius: 8px;'>{$statusSafe}</span>
                       </div>";
             
             $html .= $agentTag;
@@ -151,17 +157,17 @@ try {
             // --- SPECS PILLS ---
             $html .= "<div class='d-flex mt-3'>
                         <div style='background: rgba(255,255,255,0.03); padding: 8px; border-radius: 8px; font-size: 0.8rem; color: #cbd5e1; flex: 1; border: 1px solid rgba(255,255,255,0.05); text-align: center; margin-right: 8px;'>
-                            <i class='fas fa-compress-arrows-alt' style='color: #94a3b8;'></i> Int: <b class='text-white'>{$u['internal_sqm']}</b>
+                            <i class='fas fa-compress-arrows-alt' style='color: #94a3b8;'></i> Int: <b class='text-white'>{$internalSqmSafe}</b>
                         </div>
                         <div style='background: rgba(255,255,255,0.03); padding: 8px; border-radius: 8px; font-size: 0.8rem; color: #cbd5e1; flex: 1; border: 1px solid rgba(255,255,255,0.05); text-align: center;'>
-                            <i class='fas fa-expand-arrows-alt' style='color: #94a3b8;'></i> Ext: <b class='text-white'>{$u['external_sqm']}</b>
+                            <i class='fas fa-expand-arrows-alt' style='color: #94a3b8;'></i> Ext: <b class='text-white'>{$externalSqmSafe}</b>
                         </div>
                       </div>";
 
             // --- INSET PRICE BOX ---
             $hideSoldPricing = salesUnitStatusIsSold($status) && ($is_external || !salesCanViewSoldUnitPricing());
             if ($hideSoldPricing) {
-                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                $html .= "<div id='price_disp_{$unitId}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
                             <div style='text-align: center; color: #94a3b8; font-size: 0.85rem; font-weight: 600; padding: 6px 0;'>
                                 <i class='fas fa-lock' style='margin-right: 6px; opacity: 0.85;'></i> Price Confidential
                             </div>
@@ -177,7 +183,7 @@ try {
                     $askingDisplay = '<span style="font-size: 0.95rem; color: #94a3b8;">Not set yet</span>';
                     $detailHtml = 'Set pricing in Sales Hub';
                 }
-                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                $html .= "<div id='price_disp_{$unitId}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
                             <div class='d-flex justify-content-between align-items-center'>
                                 <div>
                                     <div style='font-size: 0.7rem; color: #a855f7; text-transform: uppercase; font-weight: 700; margin-bottom: 4px;'>3rd Party Resale</div>
@@ -190,7 +196,7 @@ try {
                             </div>
                           </div>";
             } else {
-                $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
+                $html .= "<div id='price_disp_{$unitId}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
                             <div class='d-flex justify-content-between align-items-center'>
                                 <div>
                                     <div style='font-size: 0.8rem; color: #9ca3af; margin-bottom: 4px;'>Shell: <span class='text-white fw-bold'>€" . number_format((float)($u['shell_price'] ?? 0), 0) . "</span></div>
@@ -210,21 +216,22 @@ try {
             if ($is_manager) {
                 $statuses = ['Available', 'On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
                 $html .= "<div style='margin-bottom: 12px;'>
-                            <select class='form-control bg-dark text-light border-secondary' style='display: block; width: 100%; font-size: 0.95rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$u['id']}, this.value, this)'>";
+                            <select class='form-control bg-dark text-light border-secondary' style='display: block; width: 100%; font-size: 0.95rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$unitId}, this.value, this)'>";
                 foreach ($statuses as $st) {
                     $selected = ($status === $st) ? 'selected' : '';
-                    $html .= "<option value='{$st}' {$selected}>{$st}</option>";
+                    $stSafe = htmlspecialchars($st, ENT_QUOTES, 'UTF-8');
+                    $html .= "<option value='{$stSafe}' {$selected}>{$stSafe}</option>";
                 }
                 $html .= "  </select>
                           </div>";
             } elseif (!$is_external) {
                 if ($status === 'Available' || $status === 'Resale') {
                     $html .= "<div style='margin-bottom: 12px;'>
-                                <button class='btn' style='display: block; width: 100%; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='holdProperty({$u['id']})'><i class='fas fa-hand-paper' style='margin-right: 5px;'></i> Put on Hold</button>
+                                <button class='btn' style='display: block; width: 100%; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='holdProperty({$unitId})'><i class='fas fa-hand-paper' style='margin-right: 5px;'></i> Put on Hold</button>
                               </div>";
                 } elseif ($status === 'On Hold' && $u['held_by_agent_id'] == $_SESSION['user_id']) {
                      $html .= "<div style='margin-bottom: 12px;'>
-                                <button class='btn' style='display: block; width: 100%; background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='requestReserve({$u['id']})'><i class='fas fa-check-circle' style='margin-right: 5px;'></i> Reserve Unit</button>
+                                <button class='btn' style='display: block; width: 100%; background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='requestReserve({$unitId})'><i class='fas fa-check-circle' style='margin-right: 5px;'></i> Reserve Unit</button>
                               </div>";
                 }
             }

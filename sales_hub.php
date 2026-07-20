@@ -706,8 +706,10 @@ require_once 'header.php';
         const toast = document.createElement('div');
         toast.className = 'sh-toast';
         toast.style.background = type === 'success' ? '#10B981' : '#EF4444';
-        const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
-        toast.innerHTML = `<i class="fas ${icon} fa-lg"></i> ${message}`;
+        const icon = document.createElement('i');
+        icon.className = 'fas ' + (type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle') + ' fa-lg';
+        toast.appendChild(icon);
+        toast.appendChild(document.createTextNode(' ' + String(message ?? '')));
         container.appendChild(toast);
         setTimeout(() => { 
             toast.style.opacity = '0'; 
