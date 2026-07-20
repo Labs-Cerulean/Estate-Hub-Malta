@@ -7,8 +7,10 @@ header('Content-Type: application/json');
 
 $project_id = (int)($_GET['project_id'] ?? 0);
 $user_role = $_SESSION['role'];
-$is_manager = in_array($user_role, ['admin', 'sales_manager', 'system_manager', 'director'], true);
-$is_external = salesIsExternalAgent();
+$is_external_preview = salesRequestWantsExternalPreview();
+$is_external = salesIsExternalAgent() || $is_external_preview;
+// Preview must match real external UX: no manager controls / sold pricing.
+$is_manager = !$is_external && in_array($user_role, ['admin', 'sales_manager', 'system_manager', 'director'], true);
 
 if (!$project_id) {
     echo json_encode(['success' => false, 'message' => 'Project ID required']);
@@ -157,7 +159,7 @@ try {
                       </div>";
 
             // --- INSET PRICE BOX ---
-            $hideSoldPricing = !salesCanViewSoldUnitPricing() && salesUnitStatusIsSold($status);
+            $hideSoldPricing = salesUnitStatusIsSold($status) && ($is_external || !salesCanViewSoldUnitPricing());
             if ($hideSoldPricing) {
                 $html .= "<div id='price_disp_{$u['id']}' class='mt-3 p-3 position-relative' style='background: #151521; border-radius: 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.03); margin-bottom: 15px;'>
                             <div style='text-align: center; color: #94a3b8; font-size: 0.85rem; font-weight: 600; padding: 6px 0;'>

@@ -447,9 +447,12 @@ require_once 'header.php';
         </div>
         
         <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
-            <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px;">
-                <button id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
-                    <i class="fas fa-eye"></i> View as Agent
+            <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px; display: flex; flex-direction: column; gap: 8px;">
+                <button type="button" id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
+                    <i class="fas fa-eye"></i> View as Internal Agent
+                </button>
+                <button type="button" id="viewExternalBtn" class="sh-btn sh-btn-info" onclick="openExternalAgentPreview()">
+                    <i class="fas fa-external-link-alt"></i> View as External Agent
                 </button>
             </div>
         <?php endif; ?>
@@ -541,13 +544,17 @@ require_once 'header.php';
             btn.classList.add('active');
         } else {
             currentViewMode = 'manager';
-            btn.innerHTML = '<i class="fas fa-eye"></i> View as Agent';
+            btn.innerHTML = '<i class="fas fa-eye"></i> View as Internal Agent';
             btn.classList.replace('sh-btn-success', 'sh-btn-warning');
             btn.classList.remove('active');
         }
         if (lastLoadedProjects.length > 0) {
             loadMultipleProjects(lastLoadedProjects, false);
         }
+    }
+
+    function openExternalAgentPreview() {
+        window.open('sales_library.php?preview_external=1', '_blank');
     }
 
     let currentGallery = [];
