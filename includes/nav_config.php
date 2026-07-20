@@ -170,6 +170,7 @@ function navPageHubMap(): array {
         'sales_hub' => 'sales',
         'sales_library' => 'sales',
         'sales_project_manager' => 'sales',
+        'sales_daily_sync_inbox' => 'sales',
         'import_key_simplified' => 'sales',
 
         'plant_bookings' => 'plant',
@@ -317,6 +318,7 @@ function navSalesItems(): array {
 
     if (navCanAccessSalesProjectManager()) {
         $items[] = ['type' => 'link', 'label' => 'Sales Management', 'href' => 'sales_project_manager.php', 'pages' => ['sales_project_manager']];
+        $items[] = ['type' => 'link', 'label' => 'Daily Sync Inbox', 'href' => 'sales_daily_sync_inbox.php', 'pages' => ['sales_daily_sync_inbox']];
     }
 
     return $items;
