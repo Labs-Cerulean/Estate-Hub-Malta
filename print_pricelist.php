@@ -93,10 +93,10 @@ $extendedResale = salesResaleExtendedColumnsAvailable($pdo);
 function salesPricelistDisplayStatus(string $status): array
 {
     if ($status === 'Resale') {
-        return ['label' => 'Available *', 'class' => 'status-avail', 'is_resale' => true, 'is_sold' => false];
+        return ['label' => 'AVAILABLE *', 'class' => 'status-avail', 'is_resale' => true, 'is_sold' => false];
     }
     if (salesUnitStatusIsSold($status)) {
-        return ['label' => 'Sold', 'class' => 'status-sold', 'is_resale' => false, 'is_sold' => true];
+        return ['label' => 'SOLD', 'class' => 'status-sold', 'is_resale' => false, 'is_sold' => true];
     }
     $class = 'status-avail';
     if (stripos($status, 'Proceeding') !== false) {
