@@ -407,6 +407,24 @@ function salesIsExternalAgent(): bool {
     return getCurrentRole() === 'external_agent';
 }
 
+/** Managers/admins may open Property Library as an external-agent preview (new tab). */
+function salesCanPreviewExternalLibrary(): bool {
+    return in_array(getCurrentRole(), ['admin', 'sales_manager', 'system_manager', 'director'], true);
+}
+
+/**
+ * True when this request should use external listing visibility / read-only library UX.
+ * Preview is request-scoped (?preview_external=1) — never flips the real session role.
+ */
+function salesRequestWantsExternalPreview(): bool {
+    $flag = $_GET['preview_external'] ?? $_POST['preview_external'] ?? '';
+    return (string)$flag === '1' && salesCanPreviewExternalLibrary();
+}
+
+function salesIsExternalListingContext(): bool {
+    return salesIsExternalAgent() || salesRequestWantsExternalPreview();
+}
+
 /** True when unit status is Sold - POS, Sold - Contract, etc. */
 function salesUnitStatusIsSold(?string $status): bool {
     return $status !== null && stripos(trim($status), 'Sold') !== false;
@@ -441,7 +459,7 @@ function salesResaleExtendedColumnsAvailable(PDO $pdo): bool {
 
 /** Map/list visibility SQL for the current Sales Hub viewer (in-house vs external library). */
 function salesListingVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
-    if (salesIsExternalAgent()) {
+    if (salesIsExternalListingContext()) {
         return salesExternalVisibilitySql($pdo, $projectAlias);
     }
     return salesInHouseVisibilitySql($pdo, $projectAlias);
@@ -475,7 +493,7 @@ function salesProjectIsListedForExternal(PDO $pdo, int $projectId): bool {
 
 /** Whether the current user may view this project on Sales Hub / pricelist for their role. */
 function salesProjectPassesListingVisibility(PDO $pdo, int $projectId): bool {
-    if (salesIsExternalAgent()) {
+    if (salesIsExternalListingContext()) {
         return salesProjectIsListedForExternal($pdo, $projectId);
     }
     return salesProjectIsListedForSale($pdo, $projectId);
@@ -485,7 +503,7 @@ function salesGetAccessibleProjectsWithUnits(PDO $pdo, bool $visibleForSaleOnly 
     $access = salesProjectAccessWhereClause($pdo, 'p');
     $visibilitySql = '';
     if ($visibleForSaleOnly && salesVisibilityColumnsAvailable($pdo)) {
-        $visibilitySql = salesIsExternalAgent()
+        $visibilitySql = salesIsExternalListingContext()
             ? salesExternalVisibilitySql($pdo, 'p')
             : salesInHouseVisibilitySql($pdo, 'p');
     }

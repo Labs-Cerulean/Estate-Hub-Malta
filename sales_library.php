@@ -3,12 +3,13 @@ require_once 'config.php';
 require_once 'session-check.php';
 require_once __DIR__ . '/includes/nav_config.php';
 
-if (!salesIsExternalAgent()) {
+$isExternalPreview = salesRequestWantsExternalPreview();
+if (!salesIsExternalAgent() && !$isExternalPreview) {
     header('Location: sales_hub.php');
     exit;
 }
 
-$pageTitle = 'Property Library';
+$pageTitle = $isExternalPreview ? 'Property Library (External Preview)' : 'Property Library';
 require_once 'header.php';
 require_once 'S3FileManager.php';
 
@@ -158,6 +159,11 @@ if (!empty($projectsRaw)) {
 
 <div class="library-wrapper">
     <div class="library-container">
+        <?php if ($isExternalPreview): ?>
+        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); color: #fcd34d; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.9rem; font-weight: 600;">
+            <i class="fas fa-eye"></i> Preview mode — you are seeing the Property Library exactly as an <strong>external agent</strong> (external listing flags, read-only, sold prices hidden). Close this tab to return to Sales Hub.
+        </div>
+        <?php endif; ?>
         <div class="library-header">
             <h2><i class="fas fa-book-open text-info"></i> Property Library</h2>
             <p style="margin: 8px 0 0; color: var(--lib-text-muted); font-size: 0.9rem;">Browse available developments, view live pricelists, and download full project plans. Read-only access.</p>
@@ -252,6 +258,11 @@ if (!empty($projectsRaw)) {
     let currentGallery = [];
     let currentGalleryIndex = 0;
     let libraryStatusFilter = 'All';
+    const libraryPreviewExternal = <?= $isExternalPreview ? 'true' : 'false' ?>;
+
+    function libraryPreviewQuery() {
+        return libraryPreviewExternal ? '&preview_external=1' : '';
+    }
 
     function selectLibraryProject(cardEl) {
         document.querySelectorAll('.lib-project-card').forEach(c => c.classList.remove('selected'));
@@ -283,7 +294,7 @@ if (!empty($projectsRaw)) {
     }
 
     function loadLibraryProject(projectId) {
-        fetch('api/get_project_units.php?project_id=' + projectId)
+        fetch('api/get_project_units.php?project_id=' + projectId + libraryPreviewQuery())
             .then(r => r.json())
             .then(data => {
                 document.getElementById('libraryLoader').style.display = 'none';
@@ -376,7 +387,11 @@ if (!empty($projectsRaw)) {
 
     function openLibraryPricelist() {
         if (selectedProjectId) {
-            window.open('print_pricelist.php?project_id=' + selectedProjectId, '_blank');
+            let url = 'print_pricelist.php?project_id=' + selectedProjectId;
+            if (libraryPreviewExternal) {
+                url += '&preview_external=1';
+            }
+            window.open(url, '_blank');
         }
     }
 
