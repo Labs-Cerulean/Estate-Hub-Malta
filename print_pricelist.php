@@ -86,7 +86,6 @@ foreach ($units as $u) {
 }
 
 $extendedResale = salesResaleExtendedColumnsAvailable($pdo);
-$hasResaleAsteriskNote = false;
 
 /**
  * Print-facing availability label (shared PDF — no POS/Contract/Resale wording).
@@ -246,9 +245,6 @@ function renderMediaPage($subCat, $mediaData) {
                     <?php foreach ($floorUnits as $u):
                         $unitStatus = (string)($u['status'] ?? '');
                         $display = salesPricelistDisplayStatus($unitStatus);
-                        if ($display['is_resale']) {
-                            $hasResaleAsteriskNote = true;
-                        }
                         [$shellCell, $finishesCell] = salesPricelistPriceCells(
                             $u,
                             $display['is_sold'],
@@ -270,9 +266,6 @@ function renderMediaPage($subCat, $mediaData) {
             </table>
         </div>
         <?php endforeach; ?>
-        <?php if ($hasResaleAsteriskNote): ?>
-        <p style="font-size: 11px; color: #64748b; margin-top: 12px;">* Available — private-owner listing (asking prices shown).</p>
-        <?php endif; ?>
     </div>
 
     <?php renderMediaPage('Pricelist - Timeframes & Terms', $media); ?>
