@@ -573,7 +573,35 @@ function salesCanManageHoldDeadlines(string $role): bool {
     return in_array($role, ['admin', 'sales_manager', 'director', 'system_manager'], true);
 }
 
-function salesParseHoldExpiryInput(?string $raw): ?string {
+/** Minimum justification length for agent +7 day hold extensions. */
+function salesHoldExtendMinJustificationLength(): int {
+    return 25;
+}
+
+/**
+ * Agents may +7 only within 24h of expiry, or after expiry while still On Hold (option A).
+ */
+function salesAgentMayExtendHold(?string $holdExpirySql): bool {
+    if ($holdExpirySql === null || trim($holdExpirySql) === '') {
+        return false;
+    }
+    try {
+        $expiry = new DateTime($holdExpirySql, new DateTimeZone('Europe/Malta'));
+    } catch (Exception $e) {
+        return false;
+    }
+    $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
+    if ($expiry <= $now) {
+        return true; // already expired — still On Hold; allow recovery extend
+    }
+    $windowStart = (clone $expiry)->modify('-24 hours');
+    return $now >= $windowStart;
+}
+
+/**
+ * @param bool $allowPast Managers may set past deadlines (alarm testing / mark expired).
+ */
+function salesParseHoldExpiryInput(?string $raw, bool $allowPast = false): ?string {
     if ($raw === null || trim($raw) === '') {
         return null;
     }
@@ -585,9 +613,11 @@ function salesParseHoldExpiryInput(?string $raw): ?string {
     if (!$dt) {
         return null;
     }
-    $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
-    if ($dt <= $now) {
-        return null;
+    if (!$allowPast) {
+        $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
+        if ($dt <= $now) {
+            return null;
+        }
     }
     return $dt->format('Y-m-d H:i:s');
 }

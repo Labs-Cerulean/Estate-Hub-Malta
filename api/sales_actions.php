@@ -56,12 +56,12 @@ try {
         $statusBeforeHold = ($current_status === 'Resale' && salesResaleExtendedColumnsAvailable($pdo)) ? 'Resale' : null;
 
         if ($rawExpiry !== null && trim($rawExpiry) !== '') {
-            $expirySql = salesParseHoldExpiryInput($rawExpiry);
-            if (!$expirySql) {
-                throw new Exception('A valid future deadline is required (YYYY-MM-DD HH:MM).');
-            }
             if (!salesCanManageHoldDeadlines($user_role)) {
                 throw new Exception('Only managers can set a custom hold deadline.');
+            }
+            $expirySql = salesParseHoldExpiryInput($rawExpiry, true);
+            if (!$expirySql) {
+                throw new Exception('Enter a valid deadline (YYYY-MM-DD HH:MM).');
             }
         } else {
             $expirySql = (new DateTime('now', new DateTimeZone('Europe/Malta')))
@@ -89,9 +89,9 @@ try {
             throw new Exception('Unit is not currently on hold.');
         }
 
-        $expirySql = salesParseHoldExpiryInput($_POST['hold_expiry'] ?? null);
+        $expirySql = salesParseHoldExpiryInput($_POST['hold_expiry'] ?? null, true);
         if (!$expirySql) {
-            throw new Exception('A valid future deadline is required (YYYY-MM-DD HH:MM).');
+            throw new Exception('Enter a valid deadline (YYYY-MM-DD HH:MM).');
         }
 
         $log_action_name = 'Hold Deadline Set by Manager';
@@ -102,8 +102,12 @@ try {
         if ($current_status !== 'On Hold' || (int)$property['held_by_agent_id'] !== $user_id) {
             throw new Exception('You do not hold this unit.');
         }
-        if (empty($justification)) {
-            throw new Exception('Justification is required for hold extension.');
+        $minJust = salesHoldExtendMinJustificationLength();
+        if ($justification === null || mb_strlen($justification, 'UTF-8') < $minJust) {
+            throw new Exception("Justification must be at least {$minJust} characters.");
+        }
+        if (!salesAgentMayExtendHold($property['hold_expiry'] ?? null)) {
+            throw new Exception('You can only extend a hold within 24 hours of expiry (or after it has expired). Ask a manager to adjust the deadline earlier.');
         }
 
         $log_action_name = 'Hold Extended';
