@@ -59,12 +59,14 @@ try {
             $hold['hours_remaining'] = $hours_left;
             $hold['is_expiring_soon'] = !$isExpired && $hours_left <= 24;
             $hold['hold_expiry_input'] = $expiry_time->format('Y-m-d\\TH:i');
+            $hold['can_extend_hold'] = salesAgentMayExtendHold($hold['hold_expiry']);
         } else {
             $hold['is_legacy'] = true;
             $hold['is_expired'] = false;
             $hold['hours_remaining'] = null;
             $hold['is_expiring_soon'] = false;
             $hold['hold_expiry_input'] = '';
+            $hold['can_extend_hold'] = false;
         }
     }
     unset($hold);
@@ -74,6 +76,7 @@ try {
         'holds' => $holds,
         'role' => $user_role,
         'can_manage_deadlines' => $canManageDeadlines,
+        'extend_min_justification' => salesHoldExtendMinJustificationLength(),
     ]);
 
 } catch (Exception $e) {

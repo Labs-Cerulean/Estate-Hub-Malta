@@ -1457,6 +1457,7 @@ require_once 'header.php';
 
             const canManage = !!data.can_manage_deadlines;
             const isAgent = data.role === 'sales_agent';
+            window._holdExtendMinJustification = parseInt(data.extend_min_justification, 10) || 25;
             const colCount = isAgent ? 5 : (canManage ? 7 : 6);
 
             const uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
@@ -1527,7 +1528,11 @@ require_once 'header.php';
 
                     let actionHtml = `<button type="button" class="sh-btn sh-btn-success" style="margin: 0 0 4px 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.8rem;" onclick="releaseHoldFromLedger(${hold.id})"><i class="fas fa-unlock"></i> Release</button>`;
                     if (isAgent && !hold.is_legacy) {
-                        actionHtml += `<br><button type="button" class="sh-btn sh-btn-warning" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.75rem;" onclick="extendHoldFromLedger(${hold.id})"><i class="fas fa-clock"></i> +7 days</button>`;
+                        if (hold.can_extend_hold) {
+                            actionHtml += `<br><button type="button" class="sh-btn sh-btn-warning" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.75rem;" onclick="extendHoldFromLedger(${hold.id})"><i class="fas fa-clock"></i> +7 days</button>`;
+                        } else {
+                            actionHtml += `<br><span style="display:inline-block; margin-top:4px; font-size:0.7rem; color:var(--sh-text-muted);">+7 only within 24h of expiry</span>`;
+                        }
                     }
 
                     html += `
@@ -1552,7 +1557,7 @@ require_once 'header.php';
     function setHoldDeadlineFromLedger(propertyId) {
         const input = document.getElementById('holdDeadline_' + propertyId);
         if (!input || !input.value) {
-            showToast('Please choose a future deadline.', 'error');
+            showToast('Please choose a deadline.', 'error');
             return;
         }
 
@@ -1578,13 +1583,19 @@ require_once 'header.php';
     }
 
     function extendHoldFromLedger(propertyId) {
-        const justification = prompt('Justification required to extend this hold by 7 days:');
-        if (!justification || !justification.trim()) return;
+        const minChars = window._holdExtendMinJustification || 25;
+        const justification = prompt('Justification required to extend this hold by 7 days (min ' + minChars + ' characters):');
+        if (justification === null) return;
+        const trimmed = justification.trim();
+        if (trimmed.length < minChars) {
+            showToast('Justification must be at least ' + minChars + ' characters.', 'error');
+            return;
+        }
 
         const formData = new FormData();
         formData.append('action', 'extend_hold');
         formData.append('property_id', propertyId);
-        formData.append('justification', justification.trim());
+        formData.append('justification', trimmed);
 
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json())
