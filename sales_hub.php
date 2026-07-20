@@ -603,8 +603,9 @@ require_once 'header.php';
         const maxPrice = parseFloat(document.getElementById('maxBudget').value) || Infinity;
         const statusFilter = document.getElementById('btnFilterAll').classList.contains('active') ? 'All' : 'Available';
         const sortMode = document.getElementById('agentSortDropdown').value;
+        const listContainer = document.getElementById('unitListContainer');
 
-        const cards = document.querySelectorAll('.sh-card');
+        const cards = document.querySelectorAll('#unitListContainer .sh-card');
         cards.forEach(card => {
             const rawType = (card.getAttribute('data-type') || '').toLowerCase();
             const cardStatus = card.getAttribute('data-status');
@@ -623,48 +624,81 @@ require_once 'header.php';
             card.style.display = show ? 'block' : 'none';
         });
 
-        const groups = document.querySelectorAll('.project-unit-group');
-        groups.forEach(group => {
-            const groupCards = Array.from(group.querySelectorAll('.sh-card'));
-            
-            groupCards.sort((a, b) => {
-                if (sortMode === 'default') {
-                    return parseInt(a.getAttribute('data-index') || 0) - parseInt(b.getAttribute('data-index') || 0);
-                }
+        const projectGroups = Array.from(document.querySelectorAll('#unitListContainer .project-unit-group:not(.project-unit-group-flat)'));
+        const isMultiProject = projectGroups.length > 1 || (lastLoadedProjects && lastLoadedProjects.length > 1);
+        const useGlobalSort = isMultiProject && sortMode !== 'default';
 
-                if (sortMode === 'price_asc' || sortMode === 'price_desc') {
-                    let priceA = 0; let priceB = 0;
-                    const m1 = a.innerText.match(/€[\d,]+/); 
-                    if(m1) priceA = parseFloat(m1[0].replace(/[€,]/g, ''));
-                    
-                    const m2 = b.innerText.match(/€[\d,]+/); 
-                    if(m2) priceB = parseFloat(m2[0].replace(/[€,]/g, ''));
+        function compareUnitCards(a, b) {
+            if (sortMode === 'default') {
+                return parseInt(a.getAttribute('data-index') || 0, 10) - parseInt(b.getAttribute('data-index') || 0, 10);
+            }
+            if (sortMode === 'price_asc' || sortMode === 'price_desc') {
+                let priceA = 0;
+                let priceB = 0;
+                const m1 = a.innerText.match(/€[\d,]+/);
+                if (m1) priceA = parseFloat(m1[0].replace(/[€,]/g, ''));
+                const m2 = b.innerText.match(/€[\d,]+/);
+                if (m2) priceB = parseFloat(m2[0].replace(/[€,]/g, ''));
+                return sortMode === 'price_asc' ? priceA - priceB : priceB - priceA;
+            }
+            if (sortMode === 'floor_asc' || sortMode === 'floor_desc') {
+                const floorA = parseInt(a.getAttribute('data-floor') || '0', 10) || 0;
+                const floorB = parseInt(b.getAttribute('data-floor') || '0', 10) || 0;
+                return sortMode === 'floor_asc' ? floorA - floorB : floorB - floorA;
+            }
+            return 0;
+        }
 
-                    return sortMode === 'price_asc' ? priceA - priceB : priceB - priceA;
-                }
+        let flatGroup = listContainer ? listContainer.querySelector('.project-unit-group-flat') : null;
 
-                if (sortMode === 'floor_asc' || sortMode === 'floor_desc') {
-                    let floorAStr = a.getAttribute('data-floor');
-                    let floorBStr = b.getAttribute('data-floor');
-                    
-                    let floorA = floorAStr ? parseInt(floorAStr, 10) : 0;
-                    let floorB = floorBStr ? parseInt(floorBStr, 10) : 0;
-
-                    return sortMode === 'floor_asc' ? floorA - floorB : floorB - floorA;
-                }
-                
-                return 0;
+        if (useGlobalSort && listContainer) {
+            document.querySelectorAll('#unitListContainer .sh-project-divider').forEach(divider => {
+                divider.style.display = 'none';
+            });
+            projectGroups.forEach(group => {
+                group.style.display = 'none';
             });
 
-            groupCards.forEach(c => group.appendChild(c)); 
-        });
+            if (!flatGroup) {
+                flatGroup = document.createElement('div');
+                flatGroup.className = 'project-unit-group project-unit-group-flat';
+                listContainer.appendChild(flatGroup);
+            }
+            flatGroup.style.display = '';
 
-        document.querySelectorAll('.sh-project-divider').forEach(divider => {
-            const group = divider.nextElementSibling;
-            if (!group || !group.classList.contains('project-unit-group')) return;
-            const hasVisible = Array.from(group.querySelectorAll('.sh-card')).some(card => card.style.display !== 'none');
-            divider.style.display = hasVisible ? '' : 'none';
-        });
+            const allCards = Array.from(listContainer.querySelectorAll('.sh-card'));
+            allCards.sort(compareUnitCards);
+            allCards.forEach(card => flatGroup.appendChild(card));
+        } else {
+            if (flatGroup) {
+                Array.from(flatGroup.querySelectorAll('.sh-card')).forEach(card => {
+                    const projectName = card.getAttribute('data-project-name') || '';
+                    const homeGroup = projectGroups.find(group => group.getAttribute('data-project-name') === projectName);
+                    if (homeGroup) {
+                        homeGroup.appendChild(card);
+                    } else if (projectGroups[0]) {
+                        projectGroups[0].appendChild(card);
+                    }
+                });
+                flatGroup.remove();
+            }
+
+            projectGroups.forEach(group => {
+                group.style.display = '';
+                const groupCards = Array.from(group.querySelectorAll('.sh-card'));
+                groupCards.sort(compareUnitCards);
+                groupCards.forEach(card => group.appendChild(card));
+            });
+
+            document.querySelectorAll('#unitListContainer .sh-project-divider').forEach(divider => {
+                const group = divider.nextElementSibling;
+                if (!group || !group.classList.contains('project-unit-group') || group.classList.contains('project-unit-group-flat')) {
+                    return;
+                }
+                const hasVisible = Array.from(group.querySelectorAll('.sh-card')).some(card => card.style.display !== 'none');
+                divider.style.display = hasVisible ? '' : 'none';
+            });
+        }
     }
 
     function showToast(message, type = 'success') {
