@@ -797,8 +797,16 @@ require_once 'header.php';
         });
         map.addControl(draw, 'top-right');
         attachSatelliteToggleButton();
+        bindDrawTrashButton();
         if (restoreData && restoreData.features && restoreData.features.length > 0) {
-            draw.add(restoreData);
+            const addedIds = draw.add(restoreData);
+            if (addedIds && addedIds.length > 0) {
+                setTimeout(() => {
+                    if (draw) {
+                        draw.changeMode('simple_select', { featureIds: [addedIds[0]] });
+                    }
+                }, 0);
+            }
             filterMapByPolygon();
         }
     }
@@ -846,8 +854,33 @@ require_once 'header.php';
             if (all.features.length > 1) {
                 all.features.slice(0, -1).forEach((feature) => draw.delete(feature.id));
             }
+            const createdId = e.features && e.features[0] ? e.features[0].id : null;
+            if (createdId) {
+                setTimeout(() => {
+                    if (draw) {
+                        draw.changeMode('simple_select', { featureIds: [createdId] });
+                    }
+                }, 0);
+            }
         }
         filterMapByPolygon();
+    }
+
+    function bindDrawTrashButton() {
+        const trashBtn = document.querySelector('#sales-map .mapbox-gl-draw_trash');
+        if (!trashBtn || trashBtn.dataset.shTrashBound) return;
+        trashBtn.dataset.shTrashBound = '1';
+        trashBtn.addEventListener('click', () => {
+            if (!draw) return;
+            const hadSelection = draw.getSelectedIds().length > 0;
+            setTimeout(() => {
+                if (!draw) return;
+                if (!hadSelection && draw.getAll().features.length > 0) {
+                    draw.deleteAll();
+                    filterMapByPolygon();
+                }
+            }, 0);
+        });
     }
 
     map.on('load', () => {
@@ -1273,10 +1306,21 @@ require_once 'header.php';
         formData.append('resale_pricing_mode', resalePricingMode);
 
         if (resalePricingMode === 'single') {
-            formData.append('resale_price', document.getElementById('resaleSinglePrice').value);
+            const allIn = parseFloat(document.getElementById('resaleSinglePrice').value);
+            if (!allIn || allIn <= 0) {
+                showToast('Enter a valid all-in asking price.', 'error');
+                return;
+            }
+            formData.append('resale_price', allIn);
         } else {
-            formData.append('resale_shell_price', document.getElementById('resaleSplitShell').value);
-            formData.append('resale_finishes_price', document.getElementById('resaleSplitFinishes').value);
+            const shell = parseFloat(document.getElementById('resaleSplitShell').value);
+            const finishes = parseFloat(document.getElementById('resaleSplitFinishes').value);
+            if (isNaN(shell) || isNaN(finishes) || shell < 0 || finishes < 0 || (shell + finishes) <= 0) {
+                showToast('Enter valid shell and finishes prices (sum must be greater than 0).', 'error');
+                return;
+            }
+            formData.append('resale_shell_price', shell);
+            formData.append('resale_finishes_price', finishes);
         }
 
         if (mode === 'edit') {
@@ -1286,7 +1330,16 @@ require_once 'header.php';
         }
 
         fetch('api/manager_update_status.php', { method: 'POST', body: formData })
-            .then(r => r.json())
+            .then(async (response) => {
+                if (!response.ok) {
+                    throw new Error(response.status === 403 ? 'Access denied — please refresh the page and try again.' : 'Unexpected server response.');
+                }
+                try {
+                    return await response.json();
+                } catch (e) {
+                    throw new Error('Unexpected server response.');
+                }
+            })
             .then(data => {
                 if (data.success) {
                     closeResaleModal();
