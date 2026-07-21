@@ -149,9 +149,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt1->execute([$username, $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_engineering, $doc_commercial, $doc_sales, $doc_training, $userId]);
             
             if (!empty($_POST['new_password'])) {
+                $hashStmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ?');
+                $hashStmt->execute([(int)$userId]);
+                $existingHash = $hashStmt->fetchColumn();
                 $policyError = validatePasswordStrength((string)$_POST['new_password'], [
                     'username' => $username,
                     'email' => trim((string)($_POST['email'] ?? '')),
+                    'current_hash' => is_string($existingHash) ? $existingHash : null,
                 ]);
                 if ($policyError !== null) {
                     throw new InvalidArgumentException($policyError);

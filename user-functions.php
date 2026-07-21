@@ -733,12 +733,13 @@ function removeUserFromProject($pdo, $userId, $projectId) {
 
 function changePassword($pdo, $userId, $newPassword) {
     try {
-        $ctxStmt = $pdo->prepare('SELECT username, email FROM users WHERE id = ?');
+        $ctxStmt = $pdo->prepare('SELECT username, email, password_hash FROM users WHERE id = ?');
         $ctxStmt->execute([(int)$userId]);
         $ctx = $ctxStmt->fetch(PDO::FETCH_ASSOC) ?: [];
         $policyError = validatePasswordStrength((string)$newPassword, [
             'username' => $ctx['username'] ?? null,
             'email' => $ctx['email'] ?? null,
+            'current_hash' => $ctx['password_hash'] ?? null,
         ]);
         if ($policyError !== null) {
             return false;
@@ -759,7 +760,7 @@ function passwordPolicyMaxLength(): int {
 }
 
 function passwordPolicyRequirementsText(): string {
-    return 'At least 12 characters, including uppercase, lowercase, a number, and a symbol. Avoid common passwords and do not reuse your username or email.';
+    return 'At least 12 characters, including uppercase, lowercase, a number, and a symbol. Avoid common passwords; do not reuse your username, email, or current password.';
 }
 
 /**
@@ -786,7 +787,7 @@ function passwordCommonDenylist(): array {
 /**
  * Validate a new password (create, admin reset, profile change, forgot-password).
  *
- * @param array{username?:?string,email?:?string} $context
+ * @param array{username?:?string,email?:?string,current_hash?:?string,current_password?:?string} $context
  * @return string|null Human-readable error, or null if OK
  */
 function validatePasswordStrength(string $password, array $context = []): ?string
@@ -839,6 +840,16 @@ function validatePasswordStrength(string $password, array $context = []): ?strin
         if ($emailLocal !== '' && strlen($emailLocal) >= 4 && ($lower === $emailLocal || str_contains($lower, $emailLocal))) {
             return 'Password cannot contain your email address.';
         }
+    }
+
+    $currentPassword = (string)($context['current_password'] ?? '');
+    if ($currentPassword !== '' && hash_equals($currentPassword, $password)) {
+        return 'New password must be different from your current password.';
+    }
+
+    $currentHash = (string)($context['current_hash'] ?? '');
+    if ($currentHash !== '' && password_verify($password, $currentHash)) {
+        return 'New password must be different from your current password.';
     }
 
     return null;
