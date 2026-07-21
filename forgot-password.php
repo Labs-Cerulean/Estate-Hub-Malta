@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 date_default_timezone_set('Europe/Malta');
                 $token = bin2hex(random_bytes(32));
                 $tokenHash = hash('sha256', $token);
-                $expires = date('Y-m-d H:i:s', time() + 3600);
+                $expires = date('Y-m-d H:i:s', time() + 300);
 
                 $pdo->prepare("UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL")->execute([$user['id']]);
                 $pdo->prepare("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")->execute([$user['id'], $tokenHash, $expires]);
@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 require_once __DIR__ . '/email_helper.php';
                 $resetLink = rtrim(APP_URL, '/') . '/reset-password.php?token=' . urlencode($token);
                 $name = htmlspecialchars($user['first_name'] ?: 'User');
-                $html = "<p>Hello {$name},</p><p>We received a request to reset your Estate Hub password.</p><p><a href=\"{$resetLink}\">Reset your password</a></p><p>This link expires in 1 hour. If you did not request this, you can ignore this email.</p>";
+                $html = "<p>Hello {$name},</p><p>We received a request to reset your Estate Hub password.</p><p><a href=\"{$resetLink}\">Reset your password</a></p><p>This link expires in 5 minutes. If you did not request this, you can ignore this email.</p>";
                 sendSystemEmail($user['email'], 'Estate Hub — Password Reset', $html);
             }
 
