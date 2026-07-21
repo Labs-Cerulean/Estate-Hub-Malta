@@ -32,12 +32,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken) {
         $error = 'Passwords do not match.';
     } else {
         try {
-            $ctxStmt = $pdo->prepare('SELECT username, email FROM users WHERE id = ?');
+            $ctxStmt = $pdo->prepare('SELECT username, email, password_hash FROM users WHERE id = ?');
             $ctxStmt->execute([$userId]);
             $ctx = $ctxStmt->fetch(PDO::FETCH_ASSOC) ?: [];
             $policyError = validatePasswordStrength($newPass, [
                 'username' => $ctx['username'] ?? null,
                 'email' => $ctx['email'] ?? null,
+                'current_hash' => $ctx['password_hash'] ?? null,
             ]);
             if ($policyError !== null) {
                 $error = $policyError;

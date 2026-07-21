@@ -97,6 +97,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $policyError = validatePasswordStrength($newPass, [
                         'username' => $row['username'] ?? null,
                         'email' => $row['email'] ?? null,
+                        'current_password' => $currentPass,
+                        'current_hash' => $row['password_hash'] ?? null,
                     ]);
                     if ($policyError !== null) {
                         $error = $policyError;
