@@ -733,9 +733,115 @@ function removeUserFromProject($pdo, $userId, $projectId) {
 
 function changePassword($pdo, $userId, $newPassword) {
     try {
+        $ctxStmt = $pdo->prepare('SELECT username, email FROM users WHERE id = ?');
+        $ctxStmt->execute([(int)$userId]);
+        $ctx = $ctxStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $policyError = validatePasswordStrength((string)$newPassword, [
+            'username' => $ctx['username'] ?? null,
+            'email' => $ctx['email'] ?? null,
+        ]);
+        if ($policyError !== null) {
+            return false;
+        }
         $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
         return $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?")->execute([$passwordHash, $userId]);
     } catch (PDOException $e) { return false; }
+}
+
+/** Minimum password length for create / change / reset. */
+function passwordPolicyMinLength(): int {
+    return 12;
+}
+
+/** Maximum password length (DoS guard before hashing). */
+function passwordPolicyMaxLength(): int {
+    return 128;
+}
+
+function passwordPolicyRequirementsText(): string {
+    return 'At least 12 characters, including uppercase, lowercase, a number, and a symbol. Avoid common passwords and do not reuse your username or email.';
+}
+
+/**
+ * Common / trivial passwords blocked even if they meet length/composition.
+ *
+ * @return list<string>
+ */
+function passwordCommonDenylist(): array {
+    return [
+        'password', 'password1', 'password12', 'password123', 'password1234',
+        'passw0rd', 'p@ssw0rd', 'p@ssword', 'passwd',
+        '123456', '1234567', '12345678', '123456789', '1234567890',
+        '1234', '12345', '111111', '000000', 'qwerty', 'qwerty123',
+        'abc123', 'abcdef', 'letmein', 'welcome', 'welcome1', 'admin',
+        'admin123', 'administrator', 'root', 'toor', 'changeme',
+        'estatehub', 'estatehub1', 'estatehub12', 'estatehub123',
+        'labscerulean', 'cerulean', 'malta123', 'iloveyou', 'monkey',
+        'dragon', 'master', 'login', 'guest', 'default', 'secret',
+        'summer2024', 'summer2025', 'summer2026', 'winter2024', 'winter2025', 'winter2026',
+        'spring2024', 'spring2025', 'spring2026', 'autumn2024', 'autumn2025', 'autumn2026',
+    ];
+}
+
+/**
+ * Validate a new password (create, admin reset, profile change, forgot-password).
+ *
+ * @param array{username?:?string,email?:?string} $context
+ * @return string|null Human-readable error, or null if OK
+ */
+function validatePasswordStrength(string $password, array $context = []): ?string
+{
+    $min = passwordPolicyMinLength();
+    $max = passwordPolicyMaxLength();
+    $len = strlen($password);
+
+    if ($len < $min) {
+        return "Password must be at least {$min} characters.";
+    }
+    if ($len > $max) {
+        return "Password must be at most {$max} characters.";
+    }
+
+    if (!preg_match('/[a-z]/', $password)) {
+        return 'Password must include at least one lowercase letter.';
+    }
+    if (!preg_match('/[A-Z]/', $password)) {
+        return 'Password must include at least one uppercase letter.';
+    }
+    if (!preg_match('/[0-9]/', $password)) {
+        return 'Password must include at least one number.';
+    }
+    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
+        return 'Password must include at least one symbol (e.g. !@#$%).';
+    }
+
+    $lower = strtolower($password);
+    foreach (passwordCommonDenylist() as $blocked) {
+        if ($lower === strtolower($blocked)) {
+            return 'This password is too common. Please choose a different one.';
+        }
+    }
+
+    $username = strtolower(trim((string)($context['username'] ?? '')));
+    if ($username !== '' && $lower === $username) {
+        return 'Password cannot be the same as your username.';
+    }
+    if ($username !== '' && strlen($username) >= 4 && str_contains($lower, $username)) {
+        return 'Password cannot contain your username.';
+    }
+
+    $email = strtolower(trim((string)($context['email'] ?? '')));
+    if ($email !== '') {
+        if ($lower === $email) {
+            return 'Password cannot be the same as your email.';
+        }
+        $emailLocal = explode('@', $email, 2)[0];
+        if ($emailLocal !== '' && strlen($emailLocal) >= 4 && ($lower === $emailLocal || str_contains($lower, $emailLocal))) {
+            return 'Password cannot contain your email address.';
+        }
+    }
+
+    return null;
 }
 
 function deleteUser($pdo, $userId) {
