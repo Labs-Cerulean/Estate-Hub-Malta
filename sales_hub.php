@@ -447,9 +447,12 @@ require_once 'header.php';
         </div>
         
         <?php if(in_array($_SESSION['role'], ['admin', 'system_manager', 'sales_manager', 'director'])): ?>
-            <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px;">
-                <button id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
-                    <i class="fas fa-eye"></i> View as Agent
+            <div style="border-top: 1px solid var(--sh-border-light); margin: 15px -20px; padding-top: 15px; padding-left: 20px; padding-right: 20px; display: flex; flex-direction: column; gap: 8px;">
+                <button type="button" id="viewToggleBtn" class="sh-btn sh-btn-warning" onclick="toggleViewMode()">
+                    <i class="fas fa-eye"></i> View as Internal Agent
+                </button>
+                <button type="button" id="viewExternalBtn" class="sh-btn sh-btn-info" onclick="openExternalAgentPreview()">
+                    <i class="fas fa-external-link-alt"></i> View as External Agent
                 </button>
             </div>
         <?php endif; ?>
@@ -541,13 +544,17 @@ require_once 'header.php';
             btn.classList.add('active');
         } else {
             currentViewMode = 'manager';
-            btn.innerHTML = '<i class="fas fa-eye"></i> View as Agent';
+            btn.innerHTML = '<i class="fas fa-eye"></i> View as Internal Agent';
             btn.classList.replace('sh-btn-success', 'sh-btn-warning');
             btn.classList.remove('active');
         }
         if (lastLoadedProjects.length > 0) {
             loadMultipleProjects(lastLoadedProjects, false);
         }
+    }
+
+    function openExternalAgentPreview() {
+        window.open('sales_library.php?preview_external=1', '_blank');
     }
 
     let currentGallery = [];
@@ -596,8 +603,9 @@ require_once 'header.php';
         const maxPrice = parseFloat(document.getElementById('maxBudget').value) || Infinity;
         const statusFilter = document.getElementById('btnFilterAll').classList.contains('active') ? 'All' : 'Available';
         const sortMode = document.getElementById('agentSortDropdown').value;
+        const listContainer = document.getElementById('unitListContainer');
 
-        const cards = document.querySelectorAll('.sh-card');
+        const cards = document.querySelectorAll('#unitListContainer .sh-card');
         cards.forEach(card => {
             const rawType = (card.getAttribute('data-type') || '').toLowerCase();
             const cardStatus = card.getAttribute('data-status');
@@ -616,48 +624,81 @@ require_once 'header.php';
             card.style.display = show ? 'block' : 'none';
         });
 
-        const groups = document.querySelectorAll('.project-unit-group');
-        groups.forEach(group => {
-            const groupCards = Array.from(group.querySelectorAll('.sh-card'));
-            
-            groupCards.sort((a, b) => {
-                if (sortMode === 'default') {
-                    return parseInt(a.getAttribute('data-index') || 0) - parseInt(b.getAttribute('data-index') || 0);
-                }
+        const projectGroups = Array.from(document.querySelectorAll('#unitListContainer .project-unit-group:not(.project-unit-group-flat)'));
+        const isMultiProject = projectGroups.length > 1 || (lastLoadedProjects && lastLoadedProjects.length > 1);
+        const useGlobalSort = isMultiProject && sortMode !== 'default';
 
-                if (sortMode === 'price_asc' || sortMode === 'price_desc') {
-                    let priceA = 0; let priceB = 0;
-                    const m1 = a.innerText.match(/€[\d,]+/); 
-                    if(m1) priceA = parseFloat(m1[0].replace(/[€,]/g, ''));
-                    
-                    const m2 = b.innerText.match(/€[\d,]+/); 
-                    if(m2) priceB = parseFloat(m2[0].replace(/[€,]/g, ''));
+        function compareUnitCards(a, b) {
+            if (sortMode === 'default') {
+                return parseInt(a.getAttribute('data-index') || 0, 10) - parseInt(b.getAttribute('data-index') || 0, 10);
+            }
+            if (sortMode === 'price_asc' || sortMode === 'price_desc') {
+                let priceA = 0;
+                let priceB = 0;
+                const m1 = a.innerText.match(/€[\d,]+/);
+                if (m1) priceA = parseFloat(m1[0].replace(/[€,]/g, ''));
+                const m2 = b.innerText.match(/€[\d,]+/);
+                if (m2) priceB = parseFloat(m2[0].replace(/[€,]/g, ''));
+                return sortMode === 'price_asc' ? priceA - priceB : priceB - priceA;
+            }
+            if (sortMode === 'floor_asc' || sortMode === 'floor_desc') {
+                const floorA = parseInt(a.getAttribute('data-floor') || '0', 10) || 0;
+                const floorB = parseInt(b.getAttribute('data-floor') || '0', 10) || 0;
+                return sortMode === 'floor_asc' ? floorA - floorB : floorB - floorA;
+            }
+            return 0;
+        }
 
-                    return sortMode === 'price_asc' ? priceA - priceB : priceB - priceA;
-                }
+        let flatGroup = listContainer ? listContainer.querySelector('.project-unit-group-flat') : null;
 
-                if (sortMode === 'floor_asc' || sortMode === 'floor_desc') {
-                    let floorAStr = a.getAttribute('data-floor');
-                    let floorBStr = b.getAttribute('data-floor');
-                    
-                    let floorA = floorAStr ? parseInt(floorAStr, 10) : 0;
-                    let floorB = floorBStr ? parseInt(floorBStr, 10) : 0;
-
-                    return sortMode === 'floor_asc' ? floorA - floorB : floorB - floorA;
-                }
-                
-                return 0;
+        if (useGlobalSort && listContainer) {
+            document.querySelectorAll('#unitListContainer .sh-project-divider').forEach(divider => {
+                divider.style.display = 'none';
+            });
+            projectGroups.forEach(group => {
+                group.style.display = 'none';
             });
 
-            groupCards.forEach(c => group.appendChild(c)); 
-        });
+            if (!flatGroup) {
+                flatGroup = document.createElement('div');
+                flatGroup.className = 'project-unit-group project-unit-group-flat';
+                listContainer.appendChild(flatGroup);
+            }
+            flatGroup.style.display = '';
 
-        document.querySelectorAll('.sh-project-divider').forEach(divider => {
-            const group = divider.nextElementSibling;
-            if (!group || !group.classList.contains('project-unit-group')) return;
-            const hasVisible = Array.from(group.querySelectorAll('.sh-card')).some(card => card.style.display !== 'none');
-            divider.style.display = hasVisible ? '' : 'none';
-        });
+            const allCards = Array.from(listContainer.querySelectorAll('.sh-card'));
+            allCards.sort(compareUnitCards);
+            allCards.forEach(card => flatGroup.appendChild(card));
+        } else {
+            if (flatGroup) {
+                Array.from(flatGroup.querySelectorAll('.sh-card')).forEach(card => {
+                    const projectName = card.getAttribute('data-project-name') || '';
+                    const homeGroup = projectGroups.find(group => group.getAttribute('data-project-name') === projectName);
+                    if (homeGroup) {
+                        homeGroup.appendChild(card);
+                    } else if (projectGroups[0]) {
+                        projectGroups[0].appendChild(card);
+                    }
+                });
+                flatGroup.remove();
+            }
+
+            projectGroups.forEach(group => {
+                group.style.display = '';
+                const groupCards = Array.from(group.querySelectorAll('.sh-card'));
+                groupCards.sort(compareUnitCards);
+                groupCards.forEach(card => group.appendChild(card));
+            });
+
+            document.querySelectorAll('#unitListContainer .sh-project-divider').forEach(divider => {
+                const group = divider.nextElementSibling;
+                if (!group || !group.classList.contains('project-unit-group') || group.classList.contains('project-unit-group-flat')) {
+                    return;
+                }
+                const hasVisible = Array.from(group.querySelectorAll('.sh-card')).some(card => card.style.display !== 'none');
+                divider.style.display = hasVisible ? '' : 'none';
+            });
+        }
     }
 
     function showToast(message, type = 'success') {
@@ -665,8 +706,10 @@ require_once 'header.php';
         const toast = document.createElement('div');
         toast.className = 'sh-toast';
         toast.style.background = type === 'success' ? '#10B981' : '#EF4444';
-        const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
-        toast.innerHTML = `<i class="fas ${icon} fa-lg"></i> ${message}`;
+        const icon = document.createElement('i');
+        icon.className = 'fas ' + (type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle') + ' fa-lg';
+        toast.appendChild(icon);
+        toast.appendChild(document.createTextNode(' ' + String(message ?? '')));
         container.appendChild(toast);
         setTimeout(() => { 
             toast.style.opacity = '0'; 
@@ -867,20 +910,18 @@ require_once 'header.php';
     }
 
     function bindDrawTrashButton() {
+        // MapboxDraw trash usually deletes the current selection / undoes a vertex.
+        // Sales Hub needs it to fully clear the search polygon (same as Clear Area).
         const trashBtn = document.querySelector('#sales-map .mapbox-gl-draw_trash');
         if (!trashBtn || trashBtn.dataset.shTrashBound) return;
         trashBtn.dataset.shTrashBound = '1';
-        trashBtn.addEventListener('click', () => {
-            if (!draw) return;
-            const hadSelection = draw.getSelectedIds().length > 0;
-            setTimeout(() => {
-                if (!draw) return;
-                if (!hadSelection && draw.getAll().features.length > 0) {
-                    draw.deleteAll();
-                    filterMapByPolygon();
-                }
-            }, 0);
-        });
+        trashBtn.title = 'Clear search area';
+        trashBtn.setAttribute('aria-label', 'Clear search area');
+        trashBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            clearPolygonDraw();
+        }, true);
     }
 
     map.on('load', () => {
@@ -1450,6 +1491,7 @@ require_once 'header.php';
 
             const canManage = !!data.can_manage_deadlines;
             const isAgent = data.role === 'sales_agent';
+            window._holdExtendMinJustification = parseInt(data.extend_min_justification, 10) || 25;
             const colCount = isAgent ? 5 : (canManage ? 7 : 6);
 
             const uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
@@ -1520,7 +1562,11 @@ require_once 'header.php';
 
                     let actionHtml = `<button type="button" class="sh-btn sh-btn-success" style="margin: 0 0 4px 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.8rem;" onclick="releaseHoldFromLedger(${hold.id})"><i class="fas fa-unlock"></i> Release</button>`;
                     if (isAgent && !hold.is_legacy) {
-                        actionHtml += `<br><button type="button" class="sh-btn sh-btn-warning" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.75rem;" onclick="extendHoldFromLedger(${hold.id})"><i class="fas fa-clock"></i> +7 days</button>`;
+                        if (hold.can_extend_hold) {
+                            actionHtml += `<br><button type="button" class="sh-btn sh-btn-warning" style="margin: 0; padding: 6px 12px; width: auto; display: inline-block; font-size: 0.75rem;" onclick="extendHoldFromLedger(${hold.id})"><i class="fas fa-clock"></i> +7 days</button>`;
+                        } else {
+                            actionHtml += `<br><span style="display:inline-block; margin-top:4px; font-size:0.7rem; color:var(--sh-text-muted);">+7 only within 24h of expiry</span>`;
+                        }
                     }
 
                     html += `
@@ -1545,7 +1591,7 @@ require_once 'header.php';
     function setHoldDeadlineFromLedger(propertyId) {
         const input = document.getElementById('holdDeadline_' + propertyId);
         if (!input || !input.value) {
-            showToast('Please choose a future deadline.', 'error');
+            showToast('Please choose a deadline.', 'error');
             return;
         }
 
@@ -1571,13 +1617,19 @@ require_once 'header.php';
     }
 
     function extendHoldFromLedger(propertyId) {
-        const justification = prompt('Justification required to extend this hold by 7 days:');
-        if (!justification || !justification.trim()) return;
+        const minChars = window._holdExtendMinJustification || 25;
+        const justification = prompt('Justification required to extend this hold by 7 days (min ' + minChars + ' characters):');
+        if (justification === null) return;
+        const trimmed = justification.trim();
+        if (trimmed.length < minChars) {
+            showToast('Justification must be at least ' + minChars + ' characters.', 'error');
+            return;
+        }
 
         const formData = new FormData();
         formData.append('action', 'extend_hold');
         formData.append('property_id', propertyId);
-        formData.append('justification', justification.trim());
+        formData.append('justification', trimmed);
 
         fetch('api/sales_actions.php', { method: 'POST', body: formData })
         .then(r => r.json())

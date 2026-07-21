@@ -407,6 +407,24 @@ function salesIsExternalAgent(): bool {
     return getCurrentRole() === 'external_agent';
 }
 
+/** Managers/admins may open Property Library as an external-agent preview (new tab). */
+function salesCanPreviewExternalLibrary(): bool {
+    return in_array(getCurrentRole(), ['admin', 'sales_manager', 'system_manager', 'director'], true);
+}
+
+/**
+ * True when this request should use external listing visibility / read-only library UX.
+ * Preview is request-scoped (?preview_external=1) — never flips the real session role.
+ */
+function salesRequestWantsExternalPreview(): bool {
+    $flag = $_GET['preview_external'] ?? $_POST['preview_external'] ?? '';
+    return (string)$flag === '1' && salesCanPreviewExternalLibrary();
+}
+
+function salesIsExternalListingContext(): bool {
+    return salesIsExternalAgent() || salesRequestWantsExternalPreview();
+}
+
 /** True when unit status is Sold - POS, Sold - Contract, etc. */
 function salesUnitStatusIsSold(?string $status): bool {
     return $status !== null && stripos(trim($status), 'Sold') !== false;
@@ -441,7 +459,7 @@ function salesResaleExtendedColumnsAvailable(PDO $pdo): bool {
 
 /** Map/list visibility SQL for the current Sales Hub viewer (in-house vs external library). */
 function salesListingVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
-    if (salesIsExternalAgent()) {
+    if (salesIsExternalListingContext()) {
         return salesExternalVisibilitySql($pdo, $projectAlias);
     }
     return salesInHouseVisibilitySql($pdo, $projectAlias);
@@ -475,7 +493,7 @@ function salesProjectIsListedForExternal(PDO $pdo, int $projectId): bool {
 
 /** Whether the current user may view this project on Sales Hub / pricelist for their role. */
 function salesProjectPassesListingVisibility(PDO $pdo, int $projectId): bool {
-    if (salesIsExternalAgent()) {
+    if (salesIsExternalListingContext()) {
         return salesProjectIsListedForExternal($pdo, $projectId);
     }
     return salesProjectIsListedForSale($pdo, $projectId);
@@ -485,7 +503,7 @@ function salesGetAccessibleProjectsWithUnits(PDO $pdo, bool $visibleForSaleOnly 
     $access = salesProjectAccessWhereClause($pdo, 'p');
     $visibilitySql = '';
     if ($visibleForSaleOnly && salesVisibilityColumnsAvailable($pdo)) {
-        $visibilitySql = salesIsExternalAgent()
+        $visibilitySql = salesIsExternalListingContext()
             ? salesExternalVisibilitySql($pdo, 'p')
             : salesInHouseVisibilitySql($pdo, 'p');
     }
@@ -555,7 +573,35 @@ function salesCanManageHoldDeadlines(string $role): bool {
     return in_array($role, ['admin', 'sales_manager', 'director', 'system_manager'], true);
 }
 
-function salesParseHoldExpiryInput(?string $raw): ?string {
+/** Minimum justification length for agent +7 day hold extensions. */
+function salesHoldExtendMinJustificationLength(): int {
+    return 25;
+}
+
+/**
+ * Agents may +7 only within 24h of expiry, or after expiry while still On Hold (option A).
+ */
+function salesAgentMayExtendHold(?string $holdExpirySql): bool {
+    if ($holdExpirySql === null || trim($holdExpirySql) === '') {
+        return false;
+    }
+    try {
+        $expiry = new DateTime($holdExpirySql, new DateTimeZone('Europe/Malta'));
+    } catch (Exception $e) {
+        return false;
+    }
+    $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
+    if ($expiry <= $now) {
+        return true; // already expired — still On Hold; allow recovery extend
+    }
+    $windowStart = (clone $expiry)->modify('-24 hours');
+    return $now >= $windowStart;
+}
+
+/**
+ * @param bool $allowPast Managers may set past deadlines (alarm testing / mark expired).
+ */
+function salesParseHoldExpiryInput(?string $raw, bool $allowPast = false): ?string {
     if ($raw === null || trim($raw) === '') {
         return null;
     }
@@ -567,9 +613,11 @@ function salesParseHoldExpiryInput(?string $raw): ?string {
     if (!$dt) {
         return null;
     }
-    $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
-    if ($dt <= $now) {
-        return null;
+    if (!$allowPast) {
+        $now = new DateTime('now', new DateTimeZone('Europe/Malta'));
+        if ($dt <= $now) {
+            return null;
+        }
     }
     return $dt->format('Y-m-d H:i:s');
 }
@@ -685,9 +733,126 @@ function removeUserFromProject($pdo, $userId, $projectId) {
 
 function changePassword($pdo, $userId, $newPassword) {
     try {
+        $ctxStmt = $pdo->prepare('SELECT username, email, password_hash FROM users WHERE id = ?');
+        $ctxStmt->execute([(int)$userId]);
+        $ctx = $ctxStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $policyError = validatePasswordStrength((string)$newPassword, [
+            'username' => $ctx['username'] ?? null,
+            'email' => $ctx['email'] ?? null,
+            'current_hash' => $ctx['password_hash'] ?? null,
+        ]);
+        if ($policyError !== null) {
+            return false;
+        }
         $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
         return $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?")->execute([$passwordHash, $userId]);
     } catch (PDOException $e) { return false; }
+}
+
+/** Minimum password length for create / change / reset. */
+function passwordPolicyMinLength(): int {
+    return 12;
+}
+
+/** Maximum password length (DoS guard before hashing). */
+function passwordPolicyMaxLength(): int {
+    return 128;
+}
+
+function passwordPolicyRequirementsText(): string {
+    return 'At least 12 characters, including uppercase, lowercase, a number, and a symbol. Avoid common passwords; do not reuse your username, email, or current password.';
+}
+
+/**
+ * Common / trivial passwords blocked even if they meet length/composition.
+ *
+ * @return list<string>
+ */
+function passwordCommonDenylist(): array {
+    return [
+        'password', 'password1', 'password12', 'password123', 'password1234',
+        'passw0rd', 'p@ssw0rd', 'p@ssword', 'passwd',
+        '123456', '1234567', '12345678', '123456789', '1234567890',
+        '1234', '12345', '111111', '000000', 'qwerty', 'qwerty123',
+        'abc123', 'abcdef', 'letmein', 'welcome', 'welcome1', 'admin',
+        'admin123', 'administrator', 'root', 'toor', 'changeme',
+        'estatehub', 'estatehub1', 'estatehub12', 'estatehub123',
+        'labscerulean', 'cerulean', 'malta123', 'iloveyou', 'monkey',
+        'dragon', 'master', 'login', 'guest', 'default', 'secret',
+        'summer2024', 'summer2025', 'summer2026', 'winter2024', 'winter2025', 'winter2026',
+        'spring2024', 'spring2025', 'spring2026', 'autumn2024', 'autumn2025', 'autumn2026',
+    ];
+}
+
+/**
+ * Validate a new password (create, admin reset, profile change, forgot-password).
+ *
+ * @param array{username?:?string,email?:?string,current_hash?:?string,current_password?:?string} $context
+ * @return string|null Human-readable error, or null if OK
+ */
+function validatePasswordStrength(string $password, array $context = []): ?string
+{
+    $min = passwordPolicyMinLength();
+    $max = passwordPolicyMaxLength();
+    $len = strlen($password);
+
+    if ($len < $min) {
+        return "Password must be at least {$min} characters.";
+    }
+    if ($len > $max) {
+        return "Password must be at most {$max} characters.";
+    }
+
+    if (!preg_match('/[a-z]/', $password)) {
+        return 'Password must include at least one lowercase letter.';
+    }
+    if (!preg_match('/[A-Z]/', $password)) {
+        return 'Password must include at least one uppercase letter.';
+    }
+    if (!preg_match('/[0-9]/', $password)) {
+        return 'Password must include at least one number.';
+    }
+    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
+        return 'Password must include at least one symbol (e.g. !@#$%).';
+    }
+
+    $lower = strtolower($password);
+    foreach (passwordCommonDenylist() as $blocked) {
+        if ($lower === strtolower($blocked)) {
+            return 'This password is too common. Please choose a different one.';
+        }
+    }
+
+    $username = strtolower(trim((string)($context['username'] ?? '')));
+    if ($username !== '' && $lower === $username) {
+        return 'Password cannot be the same as your username.';
+    }
+    if ($username !== '' && strlen($username) >= 4 && str_contains($lower, $username)) {
+        return 'Password cannot contain your username.';
+    }
+
+    $email = strtolower(trim((string)($context['email'] ?? '')));
+    if ($email !== '') {
+        if ($lower === $email) {
+            return 'Password cannot be the same as your email.';
+        }
+        $emailLocal = explode('@', $email, 2)[0];
+        if ($emailLocal !== '' && strlen($emailLocal) >= 4 && ($lower === $emailLocal || str_contains($lower, $emailLocal))) {
+            return 'Password cannot contain your email address.';
+        }
+    }
+
+    $currentPassword = (string)($context['current_password'] ?? '');
+    if ($currentPassword !== '' && hash_equals($currentPassword, $password)) {
+        return 'New password must be different from your current password.';
+    }
+
+    $currentHash = (string)($context['current_hash'] ?? '');
+    if ($currentHash !== '' && password_verify($password, $currentHash)) {
+        return 'New password must be different from your current password.';
+    }
+
+    return null;
 }
 
 function deleteUser($pdo, $userId) {

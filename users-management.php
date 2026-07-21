@@ -95,6 +95,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($username) || empty($password)) {
             $error = 'Username and password are required';
         } else {
+            $policyError = validatePasswordStrength($password, [
+                'username' => $username,
+                'email' => $email,
+            ]);
+            if ($policyError !== null) {
+                $error = $policyError;
+            } else {
             try {
                 $pdo->beginTransaction();
                 $hash = password_hash($password, PASSWORD_DEFAULT);
@@ -110,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (PDOException $e) { 
                 $pdo->rollBack(); 
                 $error = 'Error: ' . $e->getMessage(); 
+            }
             }
         }
     }
@@ -141,6 +149,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt1->execute([$username, $_POST['email'], $_POST['first_name'], $_POST['last_name'], $_POST['phone'], $role, $_POST['is_active'], $architectFirmId, $structuralFirmId, $doc_bca, $doc_ohsa, $doc_drawings, $doc_engineering, $doc_commercial, $doc_sales, $doc_training, $userId]);
             
             if (!empty($_POST['new_password'])) {
+                $hashStmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ?');
+                $hashStmt->execute([(int)$userId]);
+                $existingHash = $hashStmt->fetchColumn();
+                $policyError = validatePasswordStrength((string)$_POST['new_password'], [
+                    'username' => $username,
+                    'email' => trim((string)($_POST['email'] ?? '')),
+                    'current_hash' => is_string($existingHash) ? $existingHash : null,
+                ]);
+                if ($policyError !== null) {
+                    throw new InvalidArgumentException($policyError);
+                }
                 $pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
                 $pdo->prepare("UPDATE users SET password_hash=? WHERE id=?")->execute([$pass, $userId]);
             }
@@ -149,6 +168,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $pdo->commit();
             $message = 'User profile & permissions updated successfully!';
+        } catch (InvalidArgumentException $e) {
+            $pdo->rollBack();
+            $error = $e->getMessage();
         } catch (PDOException $e) { 
             $pdo->rollBack(); 
             $error = 'Update Error: ' . $e->getMessage(); 
@@ -464,7 +486,7 @@ require_once 'header.php';
                             <div class="form-group"><label>Email</label><input type="email" name="email" value="<?= htmlspecialchars($selectedUser['email']) ?>"></div>
                             <div class="form-group"><label>Phone</label><input type="text" name="phone" value="<?= htmlspecialchars($selectedUser['phone'] ?? '') ?>"></div>
                         </div>
-                        <div class="form-group"><label>New Password</label><input type="password" name="new_password" placeholder="Leave blank to keep current password"></div>
+                        <div class="form-group"><label>New Password</label><input type="password" name="new_password" placeholder="Leave blank to keep current" minlength="<?= (int)passwordPolicyMinLength() ?>" maxlength="<?= (int)passwordPolicyMaxLength() ?>" autocomplete="new-password"><p style="font-size:0.75rem;color:var(--text-muted);margin:0.35rem 0 0;"><?= htmlspecialchars(passwordPolicyRequirementsText(), ENT_QUOTES, 'UTF-8') ?></p></div>
 
                         <div id="editLevel1Fields" class="um-card" style="display:none; border-color: rgba(139,92,246,0.35);">
                             <h4 style="color:#c4b5fd;">Firm Assignments (Level 1)</h4>
@@ -645,7 +667,8 @@ require_once 'header.php';
 
             <div class="form-group" style="margin-bottom: 1.5rem;">
                 <label>Initial Password</label>
-                <input type="password" name="password" placeholder="Required" required>
+                <input type="password" name="password" placeholder="Required" required minlength="<?= (int)passwordPolicyMinLength() ?>" maxlength="<?= (int)passwordPolicyMaxLength() ?>" autocomplete="new-password">
+                <p style="font-size:0.75rem;color:var(--text-muted);margin:0.35rem 0 0;"><?= htmlspecialchars(passwordPolicyRequirementsText(), ENT_QUOTES, 'UTF-8') ?></p>
             </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Create User</button>
