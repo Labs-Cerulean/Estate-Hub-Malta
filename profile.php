@@ -78,21 +78,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'change_password') {
-        $newPass = $_POST['new_password'] ?? '';
-        $confirmPass = $_POST['confirm_password'] ?? '';
+        $currentPass = (string)($_POST['current_password'] ?? '');
+        $newPass = (string)($_POST['new_password'] ?? '');
+        $confirmPass = (string)($_POST['confirm_password'] ?? '');
 
-        if (empty($newPass) || strlen($newPass) < 6) {
-            $error = "Password must be at least 6 characters.";
+        if ($currentPass === '' || $newPass === '' || $confirmPass === '') {
+            $error = 'Please fill in all password fields.';
         } elseif ($newPass !== $confirmPass) {
-            $error = "Passwords do not match.";
+            $error = 'Passwords do not match.';
         } else {
             try {
-                $hash = password_hash($newPass, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
-                $stmt->execute([$hash, $userId]);
-                $message = "Password changed successfully.";
+                $hashStmt = $pdo->prepare('SELECT password_hash, username, email FROM users WHERE id = ?');
+                $hashStmt->execute([$userId]);
+                $row = $hashStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$row || empty($row['password_hash']) || !password_verify($currentPass, $row['password_hash'])) {
+                    $error = 'Current password is incorrect.';
+                } else {
+                    $policyError = validatePasswordStrength($newPass, [
+                        'username' => $row['username'] ?? null,
+                        'email' => $row['email'] ?? null,
+                    ]);
+                    if ($policyError !== null) {
+                        $error = $policyError;
+                    } else {
+                        $hash = password_hash($newPass, PASSWORD_DEFAULT);
+                        $stmt = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+                        $stmt->execute([$hash, $userId]);
+                        $message = 'Password changed successfully.';
+                    }
+                }
             } catch (Exception $e) {
-                $error = "Error changing password.";
+                $error = 'Error changing password.';
             }
         }
     }
@@ -167,15 +183,20 @@ require_once 'header.php';
             <h2 class="section-title">Security</h2>
             <form method="POST">
                 <input type="hidden" name="action" value="change_password">
+
+                <div class="form-group">
+                    <label>Current Password</label>
+                    <input type="password" name="current_password" required autocomplete="current-password" minlength="1" maxlength="<?= (int)passwordPolicyMaxLength() ?>">
+                </div>
                 
                 <div class="form-group">
                     <label>New Password</label>
-                    <input type="password" name="new_password" required minlength="6">
+                    <input type="password" name="new_password" required autocomplete="new-password" minlength="<?= (int)passwordPolicyMinLength() ?>" maxlength="<?= (int)passwordPolicyMaxLength() ?>">
                 </div>
 
                 <div class="form-group">
                     <label>Confirm New Password</label>
-                    <input type="password" name="confirm_password" required minlength="6">
+                    <input type="password" name="confirm_password" required autocomplete="new-password" minlength="<?= (int)passwordPolicyMinLength() ?>" maxlength="<?= (int)passwordPolicyMaxLength() ?>">
                 </div>
 
                 <button type="submit" class="btn btn-secondary" style="width: 100%;">Update Password</button>
@@ -183,7 +204,7 @@ require_once 'header.php';
             
             <div class="info-box" style="margin-top: 2rem; padding: 1rem; background: var(--info-bg); border-radius: 8px; border: 1px solid var(--info);">
                 <p style="font-size: 0.85rem; color: var(--info); margin: 0;">
-                    <strong>Tip:</strong> Use a strong password with at least 6 characters, including numbers and symbols.
+                    <strong>Requirements:</strong> <?= htmlspecialchars(passwordPolicyRequirementsText(), ENT_QUOTES, 'UTF-8') ?>
                 </p>
             </div>
         </div>

@@ -26,19 +26,28 @@ if ($token) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken) {
-    $newPass = $_POST['new_password'] ?? '';
-    $confirm = $_POST['confirm_password'] ?? '';
-    if (strlen($newPass) < 6) {
-        $error = 'Password must be at least 6 characters.';
-    } elseif ($newPass !== $confirm) {
+    $newPass = (string)($_POST['new_password'] ?? '');
+    $confirm = (string)($_POST['confirm_password'] ?? '');
+    if ($newPass !== $confirm) {
         $error = 'Passwords do not match.';
     } else {
         try {
-            $hash = password_hash($newPass, PASSWORD_DEFAULT);
-            $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?")->execute([$hash, $userId]);
-            $pdo->prepare("UPDATE password_reset_tokens SET used_at = NOW() WHERE token_hash = ?")->execute([hash('sha256', $token)]);
-            header('Location: index.php?reset=1');
-            exit;
+            $ctxStmt = $pdo->prepare('SELECT username, email FROM users WHERE id = ?');
+            $ctxStmt->execute([$userId]);
+            $ctx = $ctxStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $policyError = validatePasswordStrength($newPass, [
+                'username' => $ctx['username'] ?? null,
+                'email' => $ctx['email'] ?? null,
+            ]);
+            if ($policyError !== null) {
+                $error = $policyError;
+            } else {
+                $hash = password_hash($newPass, PASSWORD_DEFAULT);
+                $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([$hash, $userId]);
+                $pdo->prepare('UPDATE password_reset_tokens SET used_at = NOW() WHERE token_hash = ?')->execute([hash('sha256', $token)]);
+                header('Location: index.php?reset=1');
+                exit;
+            }
         } catch (PDOException $e) {
             $error = 'Unable to reset password. Please try again.';
         }
@@ -74,12 +83,13 @@ $pageTitle = 'Reset Password';
                     <input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
                     <div class="form-group">
                         <label for="new_password">New Password</label>
-                        <input type="password" id="new_password" name="new_password" required minlength="6">
+                        <input type="password" id="new_password" name="new_password" required autocomplete="new-password" minlength="<?= (int)passwordPolicyMinLength() ?>" maxlength="<?= (int)passwordPolicyMaxLength() ?>">
                     </div>
                     <div class="form-group">
                         <label for="confirm_password">Confirm Password</label>
-                        <input type="password" id="confirm_password" name="confirm_password" required minlength="6">
+                        <input type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password" minlength="<?= (int)passwordPolicyMinLength() ?>" maxlength="<?= (int)passwordPolicyMaxLength() ?>">
                     </div>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 1rem;"><?= htmlspecialchars(passwordPolicyRequirementsText(), ENT_QUOTES, 'UTF-8') ?></p>
                     <button type="submit" class="login-btn">Update Password</button>
                 </form>
             <?php endif; ?>
