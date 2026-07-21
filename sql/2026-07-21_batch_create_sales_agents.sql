@@ -4,8 +4,10 @@
 -- Temp passwords: Welcome2026!EhN (N=1..21) — plaintext list kept out of this file; see agent reply
 -- password_hash: PHP password_hash()/password_verify()-compatible bcrypt ($2y$, cost 10)
 -- Skips existing usernames. Capabilities inserted only if missing (safe re-run).
+-- If a username already existed, password_hash was NOT updated — run
+-- sql/2026-07-21_batch_reset_sales_agent_passwords.sql to force-set temps.
 -- After create: assign client/project access in Users Management.
--- Login with temp password → Profile → change password (current = temp).
+-- Login with username (e.g. GeorgeF) + temp password → Profile → change password.
 
 START TRANSACTION;
 
