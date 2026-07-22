@@ -1494,17 +1494,58 @@ require_once 'header.php';
             window._holdExtendMinJustification = parseInt(data.extend_min_justification, 10) || 25;
             const colCount = isAgent ? 5 : (canManage ? 7 : 6);
 
-            const uniqueProjects = [...new Set(data.holds.map(h => h.project_name))].sort();
+            const uniqueProjects = [...new Set(data.holds.map(h => h.project_name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
             const projectOptions = uniqueProjects.map(p => `<option value="${escapeHtmlAttr(p)}">${escapeHtmlText(p)}</option>`).join('');
+
+            const agentMap = new Map();
+            data.holds.forEach(h => {
+                const aid = h.held_by_agent_id ? String(h.held_by_agent_id) : '0';
+                if (agentMap.has(aid)) return;
+                const label = h.held_by_agent_id
+                    ? (`${h.first_name || ''} ${h.last_name || ''}`.trim() || h.username || ('Agent #' + aid))
+                    : 'Legacy/System';
+                agentMap.set(aid, label);
+            });
+            const agentOptions = [...agentMap.entries()]
+                .sort((a, b) => a[1].localeCompare(b[1]))
+                .map(([id, label]) => `<option value="${escapeHtmlAttr(id)}">${escapeHtmlText(label)}</option>`)
+                .join('');
+
+            const filterSelectStyle = 'width: auto; min-width: 140px; margin: 0; padding: 6px 10px; font-size: 0.8rem; cursor: pointer;';
 
             let html = `
             <div>
                 <div style="position: sticky; top: 0; background: var(--sh-bg-panel); padding-bottom: 15px; z-index: 10; border-bottom: 1px solid var(--sh-border); margin-bottom: 15px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
                         <h3 style="color: #fff; margin: 0;">${isAgent ? 'My Active Holds' : 'Global Holds Ledger'}</h3>
-                        <select id="ledgerProjectFilter" class="sh-select" style="width: auto; margin: 0; padding: 6px 12px; font-weight: bold; cursor: pointer;" onchange="filterLedgerTable()">
+                        <span id="ledgerVisibleCount" style="color: var(--sh-text-muted); font-size: 0.8rem;"></span>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;">
+                        <select id="ledgerProjectFilter" class="sh-select" style="${filterSelectStyle}" onchange="filterLedgerTable()" title="Filter by project">
                             <option value="All">All Projects</option>
                             ${projectOptions}
+                        </select>
+                        ${!isAgent ? `<select id="ledgerAgentFilter" class="sh-select" style="${filterSelectStyle}" onchange="filterLedgerTable()" title="Filter by agent">
+                            <option value="All">All Agents</option>
+                            ${agentOptions}
+                        </select>` : ''}
+                        <select id="ledgerStatusFilter" class="sh-select" style="${filterSelectStyle}" onchange="filterLedgerTable()" title="Filter by hold status">
+                            <option value="All">All Statuses</option>
+                            <option value="active">Active</option>
+                            <option value="expiring">Expiring ≤24h</option>
+                            <option value="expired">Expired</option>
+                            <option value="legacy">Legacy</option>
+                        </select>
+                        <select id="ledgerSort" class="sh-select" style="${filterSelectStyle}" onchange="filterLedgerTable()" title="Sort ledger">
+                            <option value="expiry_asc">Expiry ↑ (soonest)</option>
+                            <option value="expiry_desc">Expiry ↓ (latest)</option>
+                            ${!isAgent ? `<option value="agent_asc">Agent A–Z</option>
+                            <option value="agent_desc">Agent Z–A</option>` : ''}
+                            <option value="project_asc">Project A–Z</option>
+                            <option value="project_desc">Project Z–A</option>
+                            <option value="unit_asc">Unit A–Z</option>
+                            <option value="unit_desc">Unit Z–A</option>
+                            <option value="status_priority">Status (expired first)</option>
                         </select>
                     </div>
                     <p style="margin: 0; color: var(--sh-text-muted); font-size: 0.8rem;">
@@ -1523,30 +1564,44 @@ require_once 'header.php';
                             <th style="padding: 10px; text-align: right;">Action</th>
                         </tr>
                     </thead>
-                    <tbody>`;
+                    <tbody id="ledgerTableBody">`;
 
             if (data.holds.length === 0) {
-                html += `<tr><td colspan="${colCount}" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`;
+                html += `<tr id="ledgerEmptyRow"><td colspan="${colCount}" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No properties currently on hold.</td></tr>`;
             } else {
                 data.holds.forEach(hold => {
-                    const agentName = hold.is_legacy
-                        ? '<span style="color:var(--sh-text-muted); font-style:italic;">Legacy/System</span>'
-                        : escapeHtmlText(`${hold.first_name || ''} ${hold.last_name || ''}`.trim());
+                    const agentLabel = hold.held_by_agent_id
+                        ? (`${hold.first_name || ''} ${hold.last_name || ''}`.trim() || hold.username || ('Agent #' + hold.held_by_agent_id))
+                        : 'Legacy/System';
+                    const agentName = hold.held_by_agent_id
+                        ? escapeHtmlText(agentLabel)
+                        : '<span style="color:var(--sh-text-muted); font-style:italic;">Legacy/System</span>';
 
+                    let statusBucket = 'active';
                     let statusHtml;
                     if (hold.is_legacy) {
+                        statusBucket = 'legacy';
                         statusHtml = '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-infinity"></i> Legacy</span>';
                     } else if (hold.is_expired) {
+                        statusBucket = 'expired';
                         statusHtml = '<span style="background: rgba(239, 68, 68, 0.2); color: var(--sh-danger); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"><i class="fas fa-exclamation-circle"></i> EXPIRED</span>';
                     } else if (hold.is_expiring_soon) {
-                        statusHtml = `<span style="color: var(--sh-danger); font-weight: bold;"><i class="fas fa-exclamation-triangle"></i> ${hold.hours_remaining}h left</span>`;
+                        statusBucket = 'expiring';
+                        statusHtml = `<span style="color: var(--sh-danger); font-weight: bold;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtmlText(String(hold.hours_remaining))}h left</span>`;
                     } else {
-                        statusHtml = `<span style="color: var(--sh-text-main);">${hold.hours_remaining}h left</span>`;
+                        statusHtml = `<span style="color: var(--sh-text-main);">${escapeHtmlText(String(hold.hours_remaining))}h left</span>`;
                     }
 
                     const expiryDisplay = hold.is_legacy
                         ? '<span style="color:var(--sh-text-muted);">N/A</span>'
                         : escapeHtmlText(new Date(hold.hold_expiry.replace(' ', 'T')).toLocaleString());
+
+                    const expirySort = hold.hold_expiry
+                        ? String(Date.parse(hold.hold_expiry.replace(' ', 'T')) || 0)
+                        : '9999999999999';
+                    const statusPriority = statusBucket === 'expired' ? '0'
+                        : (statusBucket === 'expiring' ? '1'
+                            : (statusBucket === 'active' ? '2' : '3'));
 
                     let deadlineCell = '';
                     if (canManage) {
@@ -1569,8 +1624,18 @@ require_once 'header.php';
                         }
                     }
 
+                    const agentIdAttr = hold.held_by_agent_id ? String(hold.held_by_agent_id) : '0';
+
                     html += `
-                    <tr class="ledger-row" data-project="${escapeHtmlAttr(hold.project_name)}" style="border-bottom: 1px solid var(--sh-border-light);${hold.is_expired ? ' background: rgba(239,68,68,0.08);' : ''}">
+                    <tr class="ledger-row"
+                        data-project="${escapeHtmlAttr(hold.project_name)}"
+                        data-unit="${escapeHtmlAttr(hold.unit_name || '')}"
+                        data-agent-id="${escapeHtmlAttr(agentIdAttr)}"
+                        data-agent-name="${escapeHtmlAttr(agentLabel)}"
+                        data-status-bucket="${escapeHtmlAttr(statusBucket)}"
+                        data-expiry="${escapeHtmlAttr(expirySort)}"
+                        data-status-priority="${escapeHtmlAttr(statusPriority)}"
+                        style="border-bottom: 1px solid var(--sh-border-light);${hold.is_expired ? ' background: rgba(239,68,68,0.08);' : ''}">
                         <td style="padding: 12px 10px;">${escapeHtmlText(hold.project_name)}</td>
                         <td style="padding: 12px 10px;"><strong>${escapeHtmlText(hold.unit_name)}</strong></td>
                         ${!isAgent ? `<td style="padding: 12px 10px;">${agentName}</td>` : ''}
@@ -1585,6 +1650,7 @@ require_once 'header.php';
             html += `</tbody></table></div>`;
             document.getElementById('holdLedgerContent').innerHTML = html;
             document.getElementById('holdLedgerModal').style.display = 'block';
+            filterLedgerTable();
         });
     }
 
@@ -1647,17 +1713,86 @@ require_once 'header.php';
         .catch(err => showToast('System Error: ' + err.message, 'error'));
     }
 
-    function filterLedgerTable() { 
-        let filter = document.getElementById('ledgerProjectFilter').value; 
-        let rows = document.querySelectorAll('.ledger-row'); 
-        
-        rows.forEach(row => { 
-            if (filter === 'All' || row.getAttribute('data-project') === filter) { 
-                row.style.display = ''; 
-            } else { 
-                row.style.display = 'none'; 
-            } 
-        }); 
+    function filterLedgerTable() {
+        const projectFilter = (document.getElementById('ledgerProjectFilter') || {}).value || 'All';
+        const agentFilterEl = document.getElementById('ledgerAgentFilter');
+        const agentFilter = agentFilterEl ? agentFilterEl.value : 'All';
+        const statusFilter = (document.getElementById('ledgerStatusFilter') || {}).value || 'All';
+        const sortMode = (document.getElementById('ledgerSort') || {}).value || 'expiry_asc';
+        const tbody = document.getElementById('ledgerTableBody');
+        if (!tbody) return;
+
+        const rows = Array.from(tbody.querySelectorAll('.ledger-row'));
+        let visible = 0;
+
+        rows.forEach(row => {
+            const projectOk = projectFilter === 'All' || row.getAttribute('data-project') === projectFilter;
+            const agentOk = agentFilter === 'All' || row.getAttribute('data-agent-id') === agentFilter;
+            const bucket = row.getAttribute('data-status-bucket') || '';
+            let statusOk = true;
+            if (statusFilter === 'active') {
+                statusOk = bucket === 'active' || bucket === 'expiring';
+            } else if (statusFilter !== 'All') {
+                statusOk = bucket === statusFilter;
+            }
+
+            const show = projectOk && agentOk && statusOk;
+            row.style.display = show ? '' : 'none';
+            if (show) visible += 1;
+        });
+
+        const dir = sortMode.endsWith('_desc') ? -1 : 1;
+        const key = sortMode.replace(/_asc$|_desc$/, '');
+        rows.sort((a, b) => {
+            let av;
+            let bv;
+            if (key === 'expiry') {
+                av = Number(a.getAttribute('data-expiry') || 0);
+                bv = Number(b.getAttribute('data-expiry') || 0);
+                return (av - bv) * dir;
+            }
+            if (key === 'status_priority') {
+                av = Number(a.getAttribute('data-status-priority') || 9);
+                bv = Number(b.getAttribute('data-status-priority') || 9);
+                if (av !== bv) return av - bv;
+                return Number(a.getAttribute('data-expiry') || 0) - Number(b.getAttribute('data-expiry') || 0);
+            }
+            if (key === 'agent') {
+                av = (a.getAttribute('data-agent-name') || '').toLowerCase();
+                bv = (b.getAttribute('data-agent-name') || '').toLowerCase();
+            } else if (key === 'project') {
+                av = (a.getAttribute('data-project') || '').toLowerCase();
+                bv = (b.getAttribute('data-project') || '').toLowerCase();
+            } else if (key === 'unit') {
+                av = (a.getAttribute('data-unit') || '').toLowerCase();
+                bv = (b.getAttribute('data-unit') || '').toLowerCase();
+            } else {
+                return 0;
+            }
+            return av.localeCompare(bv) * dir;
+        });
+        rows.forEach(row => tbody.appendChild(row));
+
+        const countEl = document.getElementById('ledgerVisibleCount');
+        if (countEl) {
+            countEl.textContent = rows.length
+                ? `Showing ${visible} of ${rows.length}`
+                : '';
+        }
+
+        let emptyFilterRow = document.getElementById('ledgerFilterEmptyRow');
+        if (rows.length > 0 && visible === 0) {
+            if (!emptyFilterRow) {
+                emptyFilterRow = document.createElement('tr');
+                emptyFilterRow.id = 'ledgerFilterEmptyRow';
+                const cols = tbody.closest('table') ? tbody.closest('table').querySelectorAll('thead th').length : 6;
+                emptyFilterRow.innerHTML = `<td colspan="${cols}" style="padding: 15px; text-align:center; color: var(--sh-text-muted);">No holds match these filters.</td>`;
+                tbody.appendChild(emptyFilterRow);
+            }
+            emptyFilterRow.style.display = '';
+        } else if (emptyFilterRow) {
+            emptyFilterRow.style.display = 'none';
+        }
     }
 
     function releaseHoldFromLedger(propertyId) {
