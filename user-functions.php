@@ -481,6 +481,18 @@ function salesUnitStatusIsSoldListing(?string $status): bool {
     return salesUnitStatusIsSold($status);
 }
 
+/** Clean UI label for unit status (Sold - POS / Sold - Contract → Sold). */
+function salesUnitStatusDisplayLabel(?string $status): string {
+    $status = trim((string)$status);
+    if ($status === 'Sold - POS' || $status === 'Sold - Contract') {
+        return 'Sold';
+    }
+    if ($status === 'Reserved') {
+        return 'Proceeding';
+    }
+    return $status;
+}
+
 function salesResaleExtendedColumnsAvailable(PDO $pdo): bool {
     static $cache = null;
     if ($cache !== null) {
