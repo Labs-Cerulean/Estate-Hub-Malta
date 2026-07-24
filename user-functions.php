@@ -387,6 +387,26 @@ function salesVisibilityColumnsAvailable(PDO $pdo): bool {
     return $available;
 }
 
+/** Optional column from sql/2026-07-24_project_manage_manually.sql */
+function salesManageManuallyColumnAvailable(PDO $pdo): bool {
+    static $available = null;
+    if ($available !== null) {
+        return $available;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM projects LIKE 'manage_manually'");
+        $available = $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+    } catch (Exception $e) {
+        $available = false;
+    }
+    return $available;
+}
+
+/** Allowlisted statuses for manual (non-CSV) management. */
+function salesManualManageAllowedStatuses(): array {
+    return ['Available', 'Proceeding', 'Sold - POS'];
+}
+
 function salesInHouseVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
     if (!salesVisibilityColumnsAvailable($pdo)) {
         return '';
