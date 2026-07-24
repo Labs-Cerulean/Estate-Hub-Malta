@@ -6,24 +6,121 @@ header('Content-Type: application/json');
 
 $allowed_roles = ['admin', 'sales_manager', 'system_manager', 'director'];
 if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $allowed_roles, true)) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized. Managers only.']);
-    exit;
+    salesDenyJsonAccess('Unauthorized. Managers only.');
 }
 
-$property_id = (int)($_POST['property_id'] ?? 0);
-$action = trim($_POST['action'] ?? '');
+$property_id = (int)($_POST['property_id'] ?? $_GET['property_id'] ?? 0);
+$project_id = (int)($_POST['project_id'] ?? $_GET['project_id'] ?? 0);
+$action = trim($_POST['action'] ?? $_GET['action'] ?? '');
 $new_status = trim($_POST['new_status'] ?? '');
 $resale_pricing_mode = trim($_POST['resale_pricing_mode'] ?? '');
 $resale_price = isset($_POST['resale_price']) && $_POST['resale_price'] !== '' ? (float)$_POST['resale_price'] : null;
 $resale_shell_price = isset($_POST['resale_shell_price']) && $_POST['resale_shell_price'] !== '' ? (float)$_POST['resale_shell_price'] : null;
 $resale_finishes_price = isset($_POST['resale_finishes_price']) && $_POST['resale_finishes_price'] !== '' ? (float)$_POST['resale_finishes_price'] : null;
 
-if (!$property_id) {
-    echo json_encode(['success' => false, 'message' => 'Missing property ID.']);
-    exit;
-}
+$manualStatuses = ['Available', 'Proceeding', 'Sold - POS'];
 
 try {
+    // --- Manual manage: project picker ---
+    if ($action === 'list_manual_projects') {
+        $projects = salesGetAccessibleProjectsWithUnits($pdo, false);
+        echo json_encode(['success' => true, 'projects' => $projects]);
+        exit;
+    }
+
+    // --- Manual manage: units for one project ---
+    if ($action === 'list_manual_units') {
+        if ($project_id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Project ID required.']);
+            exit;
+        }
+        if (!hasSalesProjectAccess($pdo, $project_id)) {
+            salesDenyJsonAccess();
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT id, unit_name, block, unit_type, status, shell_price, finishes_price
+             FROM sales_properties
+             WHERE project_id = ?
+             ORDER BY NULLIF(TRIM(block), \'\') ASC, unit_name ASC'
+        );
+        $stmt->execute([$project_id]);
+        $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $nameStmt = $pdo->prepare('SELECT name FROM projects WHERE id = ?');
+        $nameStmt->execute([$project_id]);
+        $projectName = (string)($nameStmt->fetchColumn() ?: '');
+
+        echo json_encode([
+            'success' => true,
+            'project_id' => $project_id,
+            'project_name' => $projectName,
+            'units' => $units,
+            'allowed_statuses' => $manualStatuses,
+        ]);
+        exit;
+    }
+
+    // --- Manual manage: set Available / Proceeding / Sold - POS ---
+    if ($action === 'manual_set_status') {
+        if ($property_id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Missing property ID.']);
+            exit;
+        }
+        if (!in_array($new_status, $manualStatuses, true)) {
+            echo json_encode(['success' => false, 'message' => 'Status must be Available, Proceeding, or Sold - POS.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare('SELECT status, project_id FROM sales_properties WHERE id = ?');
+        $stmt->execute([$property_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            echo json_encode(['success' => false, 'message' => 'Property not found.']);
+            exit;
+        }
+        if (!hasSalesProjectAccess($pdo, (int)$row['project_id'])) {
+            salesDenyJsonAccess();
+        }
+
+        $old_status = trim((string)$row['status']);
+        if ($old_status === $new_status) {
+            echo json_encode(['success' => true, 'message' => 'Status unchanged.', 'status' => $new_status]);
+            exit;
+        }
+
+        $clearHold = salesClearHoldFieldsSql($pdo);
+        $extendedResale = salesResaleExtendedColumnsAvailable($pdo);
+        $sql = "UPDATE sales_properties SET status = ?, {$clearHold}";
+        if ($extendedResale) {
+            $sql .= ', resale_price = NULL, resale_pricing_mode = NULL, resale_shell_price = NULL, resale_finishes_price = NULL, resale_prior_status = NULL';
+        } else {
+            $sql .= ', resale_price = NULL';
+        }
+        $sql .= ' WHERE id = ?';
+
+        $update = $pdo->prepare($sql);
+        $update->execute([$new_status, $property_id]);
+
+        $justification = 'Manual status update (non-CSV site management)';
+        $log = $pdo->prepare('INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)');
+        $log->execute([$property_id, $_SESSION['user_id'], 'Manual Status Update', $old_status, $new_status, $justification]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => "Status set to {$new_status}.",
+            'status' => $new_status,
+            'old_status' => $old_status,
+        ]);
+        exit;
+    }
+
+    // --- Existing resale flows below ---
+    if (!$property_id) {
+        echo json_encode(['success' => false, 'message' => 'Missing property ID.']);
+        exit;
+    }
+
     $extendedResale = salesResaleExtendedColumnsAvailable($pdo);
 
     $stmt = $pdo->prepare('SELECT status, project_id FROM sales_properties WHERE id = ?');
@@ -179,6 +276,6 @@ try {
 
     echo json_encode(['success' => true, 'message' => 'Unit listed for resale.']);
 } catch (Exception $e) {
-    error_log('Resale status update failed: ' . $e->getMessage());
+    error_log('Manager status update failed: ' . $e->getMessage());
     echo json_encode(['success' => false, 'message' => 'Update failed. Please try again.']);
 }

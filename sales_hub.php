@@ -1276,7 +1276,7 @@ require_once 'header.php';
             controlWrapper.style.paddingTop = '15px'; 
             controlWrapper.style.borderTop = '1px solid var(--sh-border)';
 
-            let controls = `<div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; margin-bottom:10px;">Status: <span style="color:#fff;">${escapeHtmlText(rawStatus)}</span></div>`;
+            let controls = `<div style="font-weight:bold; color:var(--sh-text-muted); font-size:0.85rem; text-transform:uppercase; text-align:center; margin-bottom:10px;">Status: <span style="color:#fff;">${escapeHtmlText(status)}</span></div>`;
 
             if (currentViewMode === 'manager') {
                 if (status === 'Available' || status === 'BOM') {

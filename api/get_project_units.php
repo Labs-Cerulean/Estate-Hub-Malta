@@ -84,6 +84,7 @@ try {
             $total_price = floatval($u['shell_price']) + floatval($u['finishes_price']);
             $status = trim((string)($u['status'] ?? ''));
             $statusSafe = htmlspecialchars($status, ENT_QUOTES, 'UTF-8');
+            $statusDisplaySafe = htmlspecialchars(salesUnitStatusDisplayLabel($status), ENT_QUOTES, 'UTF-8');
             $unitNameSafe = htmlspecialchars((string)($u['unit_name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $descriptionSafe = htmlspecialchars((string)($u['description'] ?? ''), ENT_QUOTES, 'UTF-8');
             $unitTypeSafe = htmlspecialchars((string)($u['unit_type'] ?? ''), ENT_QUOTES, 'UTF-8');
@@ -149,7 +150,7 @@ try {
                             </h5>
                             <div class='text-muted mt-1' style='font-size: 0.85rem;'><i class='fas fa-layer-group text-secondary'></i> Level {$floorLevelSafe} &nbsp;&bull;&nbsp; {$descriptionSafe}</div>
                         </div>
-                        <span class='badge shadow-sm' style='background-color: {$badgeBg}; color: {$badgeText}; font-size: 0.8rem; padding: 6px 12px; border-radius: 8px;'>{$statusSafe}</span>
+                        <span class='badge shadow-sm' style='background-color: {$badgeBg}; color: {$badgeText}; font-size: 0.8rem; padding: 6px 12px; border-radius: 8px;'>{$statusDisplaySafe}</span>
                       </div>";
             
             $html .= $agentTag;
@@ -213,18 +214,7 @@ try {
             // --- ACTION BUTTONS (VERTICAL BLOCK LAYOUT) ---
             $html .= "<div style='display: block; width: 100%; margin-top: 20px;'>"; 
             
-            if ($is_manager) {
-                $statuses = ['Available', 'On Hold', 'Proceeding', 'Proceeding Pending Approval', 'Sold - POS', 'Sold - Contract', 'Resale', 'BOM'];
-                $html .= "<div style='margin-bottom: 12px;'>
-                            <select class='form-control bg-dark text-light border-secondary' style='display: block; width: 100%; font-size: 0.95rem; border-radius: 8px; padding: 10px 12px; height: auto;' onchange='managerUpdateStatus({$unitId}, this.value, this)'>";
-                foreach ($statuses as $st) {
-                    $selected = ($status === $st) ? 'selected' : '';
-                    $stSafe = htmlspecialchars($st, ENT_QUOTES, 'UTF-8');
-                    $html .= "<option value='{$stSafe}' {$selected}>{$stSafe}</option>";
-                }
-                $html .= "  </select>
-                          </div>";
-            } elseif (!$is_external) {
+            if (!$is_manager && !$is_external) {
                 if ($status === 'Available' || $status === 'Resale') {
                     $html .= "<div style='margin-bottom: 12px;'>
                                 <button class='btn' style='display: block; width: 100%; background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; font-size: 0.9rem; font-weight: 600; padding: 12px 0;' onclick='holdProperty({$unitId})'><i class='fas fa-hand-paper' style='margin-right: 5px;'></i> Put on Hold</button>

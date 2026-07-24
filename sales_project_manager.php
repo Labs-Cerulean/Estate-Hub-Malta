@@ -74,23 +74,40 @@ if (isset($_POST['action'])) {
             }
 
             if (salesVisibilityColumnsAvailable($pdo)) {
-                $stmtVisibility = $pdo->prepare('SELECT show_for_sale, show_for_sale_external FROM projects WHERE id = ?');
+                $visCols = 'show_for_sale, show_for_sale_external';
+                if (salesManageManuallyColumnAvailable($pdo)) {
+                    $visCols .= ', manage_manually';
+                }
+                $stmtVisibility = $pdo->prepare("SELECT {$visCols} FROM projects WHERE id = ?");
                 $stmtVisibility->execute([$pid]);
                 $visibilityRow = $stmtVisibility->fetch(PDO::FETCH_ASSOC) ?: [];
                 $visibility = [
                     'columns_available' => true,
                     'show_for_sale' => (int)($visibilityRow['show_for_sale'] ?? 1),
                     'show_for_sale_external' => (int)($visibilityRow['show_for_sale_external'] ?? 0),
+                    'manage_manually' => salesManageManuallyColumnAvailable($pdo)
+                        ? (int)($visibilityRow['manage_manually'] ?? 0)
+                        : 0,
+                    'manage_manually_column' => salesManageManuallyColumnAvailable($pdo),
                 ];
             } else {
                 $visibility = [
                     'columns_available' => false,
                     'show_for_sale' => 1,
                     'show_for_sale_external' => 0,
+                    'manage_manually' => 0,
+                    'manage_manually_column' => salesManageManuallyColumnAvailable($pdo),
                 ];
             }
 
-            echo json_encode(['success' => true, 'units' => $units, 'media' => $media, 'visibility' => $visibility]);
+            echo json_encode([
+                'success' => true,
+                'units' => $units,
+                'media' => $media,
+                'visibility' => $visibility,
+                'manual_statuses' => salesManualManageAllowedStatuses(),
+                'manual_status_options' => salesManualManageStatusOptions(),
+            ]);
             exit;
         }
 
@@ -98,7 +115,7 @@ if (isset($_POST['action'])) {
             $pid = (int)$_POST['project_id'];
             salesAssertProjectAccess($pdo, $pid);
 
-            $allowedVisibilityRoles = ['admin', 'sales_manager', 'director'];
+            $allowedVisibilityRoles = ['admin', 'sales_manager', 'director', 'system_manager'];
             if (!in_array($_SESSION['role'], $allowedVisibilityRoles, true)) {
                 salesDenyJsonAccess('Unauthorized.');
             }
@@ -113,15 +130,31 @@ if (isset($_POST['action'])) {
 
             $showForSale = !empty($_POST['show_for_sale']) ? 1 : 0;
             $showExternal = !empty($_POST['show_for_sale_external']) ? 1 : 0;
+            $manageManually = !empty($_POST['manage_manually']) ? 1 : 0;
 
-            $stmt = $pdo->prepare('UPDATE projects SET show_for_sale = ?, show_for_sale_external = ? WHERE id = ?');
-            $stmt->execute([$showForSale, $showExternal, $pid]);
+            if (salesManageManuallyColumnAvailable($pdo)) {
+                $stmt = $pdo->prepare('UPDATE projects SET show_for_sale = ?, show_for_sale_external = ?, manage_manually = ? WHERE id = ?');
+                $stmt->execute([$showForSale, $showExternal, $manageManually, $pid]);
+            } else {
+                $stmt = $pdo->prepare('UPDATE projects SET show_for_sale = ?, show_for_sale_external = ? WHERE id = ?');
+                $stmt->execute([$showForSale, $showExternal, $pid]);
+                if ($manageManually) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => 'Run sql/2026-07-24_project_manage_manually.sql in phpMyAdmin to enable Manage Manually.',
+                    ]);
+                    exit;
+                }
+            }
 
             echo json_encode([
                 'success' => true,
                 'visibility' => [
+                    'columns_available' => true,
                     'show_for_sale' => $showForSale,
                     'show_for_sale_external' => $showExternal,
+                    'manage_manually' => salesManageManuallyColumnAvailable($pdo) ? $manageManually : 0,
+                    'manage_manually_column' => salesManageManuallyColumnAvailable($pdo),
                 ],
             ]);
             exit;
@@ -132,18 +165,43 @@ if (isset($_POST['action'])) {
             salesAssertProjectAccess($pdo, $pid);
             $unitsData = json_decode($_POST['units'], true);
             $userId = $_SESSION['user_id'];
+
+            if (!is_array($unitsData)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid units payload.']);
+                exit;
+            }
+
+            $manualManageEnabled = false;
+            if (salesManageManuallyColumnAvailable($pdo)) {
+                $mmStmt = $pdo->prepare('SELECT manage_manually FROM projects WHERE id = ?');
+                $mmStmt->execute([$pid]);
+                $manualManageEnabled = ((int)$mmStmt->fetchColumn() === 1);
+            }
             
             $pdo->beginTransaction();
             $stmtUpdate = $pdo->prepare("UPDATE sales_properties SET unit_name=?, block=?, floor_level=?, unit_type=?, description=?, internal_sqm=?, external_sqm=?, shell_price=?, finishes_price=? WHERE id=? AND project_id=?");
             $stmtInsert = $pdo->prepare("INSERT INTO sales_properties (project_id, unit_name, block, floor_level, unit_type, description, internal_sqm, external_sqm, shell_price, finishes_price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available')");
             
-            $stmtGetOld = $pdo->prepare("SELECT * FROM sales_properties WHERE id = ?");
+            $stmtGetOld = $pdo->prepare("SELECT * FROM sales_properties WHERE id = ? AND project_id = ?");
             $stmtLog = $pdo->prepare("INSERT INTO sales_property_logs (property_id, user_id, action, old_status, new_status, justification) VALUES (?, ?, ?, ?, ?, ?)");
+            $clearHoldSql = salesClearHoldFieldsSql($pdo);
+            $extendedResale = salesResaleExtendedColumnsAvailable($pdo);
+            $statusSql = "UPDATE sales_properties SET status = ?, {$clearHoldSql}";
+            if ($extendedResale) {
+                $statusSql .= ', resale_price = NULL, resale_pricing_mode = NULL, resale_shell_price = NULL, resale_finishes_price = NULL, resale_prior_status = NULL';
+            } else {
+                $statusSql .= ', resale_price = NULL';
+            }
+            $statusSql .= ' WHERE id = ? AND project_id = ?';
+            $stmtStatus = $pdo->prepare($statusSql);
             
             foreach ($unitsData as $u) {
                 if (!empty($u['id']) && $u['id'] > 0) {
-                    $stmtGetOld->execute([$u['id']]);
+                    $stmtGetOld->execute([(int)$u['id'], $pid]);
                     $oldUnit = $stmtGetOld->fetch(PDO::FETCH_ASSOC);
+                    if (!$oldUnit) {
+                        continue;
+                    }
 
                     $stmtUpdate->execute([
                         $u['unit_name'], $u['block'], $u['floor_level'], $u['unit_type'], $u['description'], 
@@ -187,6 +245,27 @@ if (isset($_POST['action'])) {
                                 $oldUnit['status'], 
                                 $oldUnit['status'], 
                                 substr($justification, 0, 255) 
+                            ]);
+                        }
+                    }
+
+                    if ($manualManageEnabled && isset($u['status'])) {
+                        $newStatus = salesNormalizeManualManageStatus((string)$u['status']);
+                        $oldStatus = trim((string)($oldUnit['status'] ?? ''));
+                        if ($newStatus === null) {
+                            $pdo->rollBack();
+                            echo json_encode(['success' => false, 'message' => 'Invalid manual status. Use Available, Proceeding, or Sold.']);
+                            exit;
+                        }
+                        if ($newStatus !== $oldStatus) {
+                            $stmtStatus->execute([$newStatus, (int)$u['id'], $pid]);
+                            $stmtLog->execute([
+                                (int)$u['id'],
+                                $userId,
+                                'Manual Status Update',
+                                $oldStatus,
+                                $newStatus,
+                                'Manual status via Sales Project Manager (manage_manually)',
                             ]);
                         }
                     }
@@ -554,8 +633,17 @@ try {
                     <label style="display: flex; align-items: center; gap: 8px; color: var(--pm-text-main); font-weight: 600; cursor: pointer;">
                         <input type="checkbox" id="showForSaleExternalToggle"> Show for sale — external agents
                     </label>
+                    <label style="display: flex; align-items: center; gap: 8px; color: var(--pm-text-main); font-weight: 600; cursor: pointer;" title="For sites not managed by daily CSV sync">
+                        <input type="checkbox" id="manageManuallyToggle" onchange="onManageManuallyToggle()"> Manage manually
+                    </label>
                     <button type="button" class="btn-heavy btn-blue" onclick="saveSaleVisibility()"><i class="fas fa-save"></i> Save Visibility</button>
                 </div>
+                <p id="manageManuallyHint" style="display:none; margin: 12px 0 0 0; color: var(--pm-text-muted); font-size: 0.82rem;">
+                    Manual mode: Status dropdowns are enabled in the Live Frame Editor. Allowed: Available, Proceeding, Sold. Changes are logged when you save the frame.
+                </p>
+                <p id="manageManuallyMigrationNote" style="display:none; margin: 12px 0 0 0; color: #f59e0b; font-size: 0.85rem; font-weight: 600;">
+                    Run sql/2026-07-24_project_manage_manually.sql in phpMyAdmin to enable Manage Manually.
+                </p>
             </div>
 
             <div class="tabs">
@@ -586,6 +674,7 @@ try {
                                 <th style="width: 90px;">Ext SQM</th>
                                 <th style="width: 120px;">Shell Price (€)</th>
                                 <th style="width: 120px;">Finishes (€)</th>
+                                <th class="manual-status-col" style="width: 150px; display:none;">Status</th>
                                 <th style="width: 60px; text-align: center;">Action</th>
                             </tr>
                         </thead>
@@ -741,7 +830,13 @@ try {
 
     let currentUnits = [];
     let currentMedia = [];
-    let currentVisibility = { show_for_sale: 1, show_for_sale_external: 0 };
+    let currentVisibility = { show_for_sale: 1, show_for_sale_external: 0, manage_manually: 0, manage_manually_column: false };
+    let manualStatuses = ['Available', 'Proceeding', 'Sold - POS'];
+    let manualStatusOptions = [
+        { value: 'Available', label: 'Available' },
+        { value: 'Proceeding', label: 'Proceeding' },
+        { value: 'Sold - POS', label: 'Sold' },
+    ];
 
     function escapeHtml(value) {
         return String(value ?? '')
@@ -757,16 +852,71 @@ try {
         return filePath.split('?')[0].split('/').pop() || '';
     }
 
+    function isManualManageOn() {
+        const el = document.getElementById('manageManuallyToggle');
+        return !!(el && el.checked);
+    }
+
+    function applyManualStatusColumnVisibility() {
+        const show = isManualManageOn();
+        document.querySelectorAll('.manual-status-col').forEach(el => {
+            el.style.display = show ? '' : 'none';
+        });
+        const hint = document.getElementById('manageManuallyHint');
+        if (hint) hint.style.display = show ? 'block' : 'none';
+    }
+
+    function onManageManuallyToggle() {
+        applyManualStatusColumnVisibility();
+        // Persist flag immediately so frame save can apply status changes
+        const pid = document.getElementById('projectSelect').value;
+        if (!pid || !currentVisibility.manage_manually_column) return;
+
+        const fd = new FormData();
+        fd.append('action', 'update_sale_visibility');
+        fd.append('project_id', pid);
+        if (document.getElementById('showForSaleToggle').checked) fd.append('show_for_sale', '1');
+        if (document.getElementById('showForSaleExternalToggle').checked) fd.append('show_for_sale_external', '1');
+        if (document.getElementById('manageManuallyToggle').checked) fd.append('manage_manually', '1');
+
+        fetch('sales_project_manager.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                currentVisibility = Object.assign({}, currentVisibility, data.visibility || {});
+                renderFrameTable();
+            } else {
+                alert(data.message || 'Could not save Manage Manually setting.');
+                document.getElementById('manageManuallyToggle').checked = !!currentVisibility.manage_manually;
+                applyManualStatusColumnVisibility();
+            }
+        })
+        .catch(() => {
+            alert('Could not save Manage Manually setting.');
+            document.getElementById('manageManuallyToggle').checked = !!currentVisibility.manage_manually;
+            applyManualStatusColumnVisibility();
+        });
+    }
+
     function renderVisibilityPanel() {
         const migrationNote = document.getElementById('saleVisibilityMigrationNote');
         const controls = document.getElementById('saleVisibilityControls');
         const columnsReady = currentVisibility.columns_available !== false;
+        const mmColReady = !!currentVisibility.manage_manually_column;
+        const mmNote = document.getElementById('manageManuallyMigrationNote');
+        const mmToggle = document.getElementById('manageManuallyToggle');
 
         if (migrationNote) migrationNote.style.display = columnsReady ? 'none' : 'block';
         if (controls) controls.style.display = columnsReady ? 'flex' : 'none';
+        if (mmNote) mmNote.style.display = mmColReady ? 'none' : 'block';
+        if (mmToggle) {
+            mmToggle.disabled = !mmColReady;
+            mmToggle.checked = mmColReady && !!currentVisibility.manage_manually;
+        }
 
         document.getElementById('showForSaleToggle').checked = !!currentVisibility.show_for_sale;
         document.getElementById('showForSaleExternalToggle').checked = !!currentVisibility.show_for_sale_external;
+        applyManualStatusColumnVisibility();
     }
 
     function saveSaleVisibility() {
@@ -778,13 +928,16 @@ try {
         fd.append('project_id', pid);
         if (document.getElementById('showForSaleToggle').checked) fd.append('show_for_sale', '1');
         if (document.getElementById('showForSaleExternalToggle').checked) fd.append('show_for_sale_external', '1');
+        if (document.getElementById('manageManuallyToggle').checked) fd.append('manage_manually', '1');
 
         fetch('sales_project_manager.php', { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                currentVisibility = data.visibility || currentVisibility;
-                alert('Sales visibility updated.');
+                currentVisibility = Object.assign({}, currentVisibility, data.visibility || {});
+                renderVisibilityPanel();
+                renderFrameTable();
+                alert('Sales visibility / manual manage settings updated.');
             } else {
                 alert(data.message || 'Could not update visibility.');
             }
@@ -816,7 +969,13 @@ try {
         .then(data => {
             currentUnits = data.units || [];
             currentMedia = data.media || [];
-            currentVisibility = data.visibility || { show_for_sale: 1, show_for_sale_external: 0 };
+            currentVisibility = data.visibility || { show_for_sale: 1, show_for_sale_external: 0, manage_manually: 0, manage_manually_column: false };
+            if (Array.isArray(data.manual_statuses) && data.manual_statuses.length) {
+                manualStatuses = data.manual_statuses;
+            }
+            if (Array.isArray(data.manual_status_options) && data.manual_status_options.length) {
+                manualStatusOptions = data.manual_status_options;
+            }
             renderVisibilityPanel();
             renderFrameTable();
             renderMediaManagers();
@@ -831,6 +990,7 @@ try {
         tbody.innerHTML = '';
         currentUnits.forEach((u, index) => { tbody.appendChild(createRow(u, index)); });
         if(currentUnits.length === 0) addNewRow();
+        applyManualStatusColumnVisibility();
     }
 
     function createRow(u, index) {
@@ -838,17 +998,30 @@ try {
         tr.setAttribute('data-id', u.id || 0);
         
         let typeOpts = unitTypes.map(t => `<option value="${t.val}" ${u.unit_type === t.val ? 'selected' : ''}>${t.label}</option>`).join('');
+        const currentStatus = u.status || 'Available';
+        let statusOpts = manualStatusOptions.map(opt => {
+            const sel = currentStatus === opt.value ? 'selected' : '';
+            return `<option value="${escapeHtml(opt.value)}" ${sel}>${escapeHtml(opt.label)}</option>`;
+        }).join('');
+        const allowValues = manualStatusOptions.map(opt => opt.value);
+        if (allowValues.indexOf(currentStatus) === -1) {
+            statusOpts = `<option value="${escapeHtml(currentStatus)}" selected>${escapeHtml(currentStatus)} (current)</option>` + statusOpts;
+        }
+        const statusDisplay = isManualManageOn() ? 'table-cell' : 'none';
 
         tr.innerHTML = `
-            <td><input type="text" class="frame-input inp-name" value="${u.unit_name || ''}" placeholder="Apt 1"></td>
-            <td><input type="text" class="frame-input inp-block" value="${u.block || ''}" placeholder="A"></td>
-            <td><input type="text" class="frame-input inp-level" value="${u.floor_level || ''}" placeholder="1"></td>
+            <td><input type="text" class="frame-input inp-name" value="${escapeHtml(u.unit_name || '')}" placeholder="Apt 1"></td>
+            <td><input type="text" class="frame-input inp-block" value="${escapeHtml(u.block || '')}" placeholder="A"></td>
+            <td><input type="text" class="frame-input inp-level" value="${escapeHtml(u.floor_level || '')}" placeholder="1"></td>
             <td><select class="frame-select inp-type">${typeOpts}</select></td>
-            <td><input type="text" class="frame-input inp-desc" value="${u.description || ''}" placeholder="e.g. 1 BED & STUDY"></td>
+            <td><input type="text" class="frame-input inp-desc" value="${escapeHtml(u.description || '')}" placeholder="e.g. 1 BED & STUDY"></td>
             <td><input type="number" step="0.01" class="frame-input inp-int" value="${u.internal_sqm || 0}"></td>
             <td><input type="number" step="0.01" class="frame-input inp-ext" value="${u.external_sqm || 0}"></td>
             <td><input type="number" step="0.01" class="frame-input inp-shell" value="${u.shell_price || 0}"></td>
             <td><input type="number" step="0.01" class="frame-input inp-fin" value="${u.finishes_price || 0}"></td>
+            <td class="manual-status-col" style="display:${statusDisplay};">
+                <select class="frame-select inp-status">${statusOpts}</select>
+            </td>
             <td style="text-align:center;">
                 <button class="btn-heavy btn-red" style="padding: 6px 10px;" onclick="deleteUnit(${u.id || 0}, this)"><i class="fas fa-trash"></i></button>
             </td>
@@ -885,7 +1058,7 @@ try {
         let payload = [];
 
         rows.forEach(row => {
-            payload.push({
+            const rowData = {
                 id: row.getAttribute('data-id'),
                 unit_name: row.querySelector('.inp-name').value,
                 block: row.querySelector('.inp-block').value,
@@ -896,7 +1069,12 @@ try {
                 external_sqm: row.querySelector('.inp-ext').value,
                 shell_price: row.querySelector('.inp-shell').value,
                 finishes_price: row.querySelector('.inp-fin').value,
-            });
+            };
+            const statusEl = row.querySelector('.inp-status');
+            if (isManualManageOn() && statusEl) {
+                rowData.status = statusEl.value;
+            }
+            payload.push(rowData);
         });
 
         const btn = event.target; 

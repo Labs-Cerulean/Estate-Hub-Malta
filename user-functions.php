@@ -387,6 +387,44 @@ function salesVisibilityColumnsAvailable(PDO $pdo): bool {
     return $available;
 }
 
+/** Optional column from sql/2026-07-24_project_manage_manually.sql */
+function salesManageManuallyColumnAvailable(PDO $pdo): bool {
+    static $available = null;
+    if ($available !== null) {
+        return $available;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM projects LIKE 'manage_manually'");
+        $available = $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+    } catch (Exception $e) {
+        $available = false;
+    }
+    return $available;
+}
+
+/** Allowlisted statuses for manual (non-CSV) management. */
+function salesManualManageAllowedStatuses(): array {
+    return ['Available', 'Proceeding', 'Sold - POS'];
+}
+
+/** Dropdown options: DB value + clean label (Sold - POS shown as Sold). */
+function salesManualManageStatusOptions(): array {
+    return [
+        ['value' => 'Available', 'label' => 'Available'],
+        ['value' => 'Proceeding', 'label' => 'Proceeding'],
+        ['value' => 'Sold - POS', 'label' => 'Sold'],
+    ];
+}
+
+/** Normalize UI/manual status input to a stored allowlisted value, or null if invalid. */
+function salesNormalizeManualManageStatus(string $status): ?string {
+    $status = trim($status);
+    if ($status === 'Sold') {
+        $status = 'Sold - POS';
+    }
+    return in_array($status, salesManualManageAllowedStatuses(), true) ? $status : null;
+}
+
 function salesInHouseVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
     if (!salesVisibilityColumnsAvailable($pdo)) {
         return '';
@@ -441,6 +479,18 @@ function salesUnitStatusIsSoldListing(?string $status): bool {
         return false;
     }
     return salesUnitStatusIsSold($status);
+}
+
+/** Clean UI label for unit status (Sold - POS / Sold - Contract → Sold). */
+function salesUnitStatusDisplayLabel(?string $status): string {
+    $status = trim((string)$status);
+    if ($status === 'Sold - POS' || $status === 'Sold - Contract') {
+        return 'Sold';
+    }
+    if ($status === 'Reserved') {
+        return 'Proceeding';
+    }
+    return $status;
 }
 
 function salesResaleExtendedColumnsAvailable(PDO $pdo): bool {
