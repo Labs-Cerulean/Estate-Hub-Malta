@@ -370,23 +370,6 @@ require_once 'header.php';
     </div>
 </div>
 
-<div id="manualStatusModal" class="vanilla-modal" style="display:none;">
-    <div class="vanilla-modal-content large" style="max-width: 900px; height: 85vh; display: flex; flex-direction: column; background: var(--sh-bg-panel); border: 1px solid var(--sh-border); color: #fff;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap;">
-            <h4 style="margin:0; font-weight:800;"><i class="fas fa-sliders-h" style="color:#10b981;"></i> Manage Manually</h4>
-            <span class="vanilla-close" onclick="closeManualStatusManager()" style="cursor:pointer; font-size:1.5rem;">&times;</span>
-        </div>
-        <p style="color:var(--sh-text-muted); font-size:0.85rem; margin:0 0 14px;">
-            For sites not in the daily CSV sync. Set unit status to <strong>Available</strong>, <strong>Proceeding</strong>, or <strong>Sold - POS</strong>. Holds/resale flags are cleared when you save.
-        </p>
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
-            <label class="sh-label" style="margin:0;">Project</label>
-            <select id="manualStatusProject" class="sh-select" style="margin:0; flex:1; min-width:220px;" onchange="loadManualStatusUnits()"></select>
-        </div>
-        <div id="manualStatusContent" style="flex:1; overflow-y:auto; padding-right:8px;"></div>
-    </div>
-</div>
-
 <div id="sh-toast-container"></div>
 
 <div id="sh-lightbox" class="sh-lightbox">
@@ -470,9 +453,6 @@ require_once 'header.php';
                 </button>
                 <button type="button" id="viewExternalBtn" class="sh-btn sh-btn-info" onclick="openExternalAgentPreview()">
                     <i class="fas fa-external-link-alt"></i> View as External Agent
-                </button>
-                <button type="button" id="manualManageBtn" class="sh-btn" style="background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.35);" onclick="openManualStatusManager()">
-                    <i class="fas fa-sliders-h"></i> Manage Manually
                 </button>
             </div>
         <?php endif; ?>
@@ -575,152 +555,6 @@ require_once 'header.php';
 
     function openExternalAgentPreview() {
         window.open('sales_library.php?preview_external=1', '_blank');
-    }
-
-    function openManualStatusManager() {
-        if (!isManagerUser) {
-            showToast('Managers only.', 'error');
-            return;
-        }
-        const content = document.getElementById('manualStatusContent');
-        const select = document.getElementById('manualStatusProject');
-        content.innerHTML = '<p style="color:var(--sh-text-muted);">Loading projects…</p>';
-        select.innerHTML = '<option value="">Loading…</option>';
-        document.getElementById('manualStatusModal').style.display = 'block';
-
-        const fd = new FormData();
-        fd.append('action', 'list_manual_projects');
-        fetch('api/manager_update_status.php', { method: 'POST', body: fd })
-            .then(r => r.json())
-            .then(data => {
-                if (!data.success) {
-                    content.innerHTML = `<p style="color:var(--sh-danger);">${escapeHtmlText(data.message || 'Could not load projects.')}</p>`;
-                    return;
-                }
-                const projects = data.projects || [];
-                if (!projects.length) {
-                    select.innerHTML = '<option value="">No projects with units</option>';
-                    content.innerHTML = '<p style="color:var(--sh-text-muted);">No accessible projects with units.</p>';
-                    return;
-                }
-                let preferred = '';
-                const sidebar = document.getElementById('sidebarProjectName');
-                const sidebarPid = sidebar ? sidebar.getAttribute('data-pid') : '';
-                if (sidebarPid && sidebarPid !== 'multi' && projects.some(p => String(p.id) === String(sidebarPid))) {
-                    preferred = String(sidebarPid);
-                }
-                select.innerHTML = projects.map(p => {
-                    const label = (p.city ? `${p.city} — ` : '') + p.name;
-                    return `<option value="${escapeHtmlAttr(String(p.id))}">${escapeHtmlText(label)}</option>`;
-                }).join('');
-                if (preferred) select.value = preferred;
-                loadManualStatusUnits();
-            })
-            .catch(err => {
-                content.innerHTML = `<p style="color:var(--sh-danger);">${escapeHtmlText(err.message || 'Load failed')}</p>`;
-            });
-    }
-
-    function closeManualStatusManager() {
-        document.getElementById('manualStatusModal').style.display = 'none';
-    }
-
-    function loadManualStatusUnits() {
-        const projectId = document.getElementById('manualStatusProject').value;
-        const content = document.getElementById('manualStatusContent');
-        if (!projectId) {
-            content.innerHTML = '<p style="color:var(--sh-text-muted);">Select a project.</p>';
-            return;
-        }
-        content.innerHTML = '<p style="color:var(--sh-text-muted);">Loading units…</p>';
-        const fd = new FormData();
-        fd.append('action', 'list_manual_units');
-        fd.append('project_id', projectId);
-        fetch('api/manager_update_status.php', { method: 'POST', body: fd })
-            .then(r => r.json())
-            .then(data => {
-                if (!data.success) {
-                    content.innerHTML = `<p style="color:var(--sh-danger);">${escapeHtmlText(data.message || 'Could not load units.')}</p>`;
-                    return;
-                }
-                const units = data.units || [];
-                const allowed = data.allowed_statuses || ['Available', 'Proceeding', 'Sold - POS'];
-                if (!units.length) {
-                    content.innerHTML = '<p style="color:var(--sh-text-muted);">No units on this project.</p>';
-                    return;
-                }
-                let html = `<table class="table" style="width:100%; border-collapse:collapse; color:#fff; font-size:0.9rem;">
-                    <thead><tr style="border-bottom:2px solid var(--sh-border);">
-                        <th style="padding:8px; text-align:left;">Unit</th>
-                        <th style="padding:8px; text-align:left;">Current</th>
-                        <th style="padding:8px; text-align:left;">Set status</th>
-                        <th style="padding:8px; text-align:right;">Action</th>
-                    </tr></thead><tbody>`;
-                units.forEach(u => {
-                    const opts = allowed.map(st => {
-                        const sel = (u.status === st) ? ' selected' : '';
-                        return `<option value="${escapeHtmlAttr(st)}"${sel}>${escapeHtmlText(st)}</option>`;
-                    }).join('');
-                    // Keep current status visible even if outside allowlist (e.g. On Hold)
-                    const currentOutside = allowed.indexOf(u.status) === -1
-                        ? `<option value="${escapeHtmlAttr(u.status)}" selected>${escapeHtmlText(u.status)} (current)</option>`
-                        : '';
-                    html += `<tr style="border-bottom:1px solid var(--sh-border-light);">
-                        <td style="padding:10px 8px;"><strong>${escapeHtmlText(u.unit_name || '')}</strong>${u.block ? `<div style="color:var(--sh-text-muted);font-size:0.75rem;">Block ${escapeHtmlText(u.block)}</div>` : ''}</td>
-                        <td style="padding:10px 8px;" id="manualCurStatus_${u.id}">${escapeHtmlText(u.status || '')}</td>
-                        <td style="padding:10px 8px;">
-                            <select id="manualStatusSelect_${u.id}" class="sh-select" style="margin:0; width:100%; padding:6px 8px; font-size:0.85rem;">
-                                ${currentOutside}${opts}
-                            </select>
-                        </td>
-                        <td style="padding:10px 8px; text-align:right;">
-                            <button type="button" class="sh-btn sh-btn-success" style="margin:0; padding:6px 12px; width:auto; font-size:0.8rem;" onclick="saveManualUnitStatus(${parseInt(u.id, 10)})">Save</button>
-                        </td>
-                    </tr>`;
-                });
-                html += '</tbody></table>';
-                content.innerHTML = html;
-            })
-            .catch(err => {
-                content.innerHTML = `<p style="color:var(--sh-danger);">${escapeHtmlText(err.message || 'Load failed')}</p>`;
-            });
-    }
-
-    function saveManualUnitStatus(propertyId) {
-        const select = document.getElementById('manualStatusSelect_' + propertyId);
-        if (!select) return;
-        const newStatus = select.value;
-        const allowed = ['Available', 'Proceeding', 'Sold - POS'];
-        if (allowed.indexOf(newStatus) === -1) {
-            showToast('Choose Available, Proceeding, or Sold - POS.', 'error');
-            return;
-        }
-        if (!confirm('Set this unit to "' + newStatus + '"? Any hold/resale flags will be cleared.')) return;
-
-        const fd = new FormData();
-        fd.append('action', 'manual_set_status');
-        fd.append('property_id', propertyId);
-        fd.append('new_status', newStatus);
-        fetch('api/manager_update_status.php', { method: 'POST', body: fd })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    showToast(data.message || 'Status updated.', 'success');
-                    const cur = document.getElementById('manualCurStatus_' + propertyId);
-                    if (cur) cur.textContent = newStatus;
-                    // Refresh dropdown so current matches allowlist selection
-                    select.innerHTML = allowed.map(st => {
-                        const sel = (st === newStatus) ? ' selected' : '';
-                        return `<option value="${escapeHtmlAttr(st)}"${sel}>${escapeHtmlText(st)}</option>`;
-                    }).join('');
-                    if (lastLoadedProjects.length > 0) {
-                        setTimeout(() => loadMultipleProjects(lastLoadedProjects, false), 400);
-                    }
-                } else {
-                    showToast('Error: ' + (data.message || 'Update failed'), 'error');
-                }
-            })
-            .catch(err => showToast('System Error: ' + err.message, 'error'));
     }
 
     let currentGallery = [];
