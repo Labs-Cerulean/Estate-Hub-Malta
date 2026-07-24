@@ -106,6 +106,7 @@ if (isset($_POST['action'])) {
                 'media' => $media,
                 'visibility' => $visibility,
                 'manual_statuses' => salesManualManageAllowedStatuses(),
+                'manual_status_options' => salesManualManageStatusOptions(),
             ]);
             exit;
         }
@@ -176,7 +177,6 @@ if (isset($_POST['action'])) {
                 $mmStmt->execute([$pid]);
                 $manualManageEnabled = ((int)$mmStmt->fetchColumn() === 1);
             }
-            $manualStatuses = salesManualManageAllowedStatuses();
             
             $pdo->beginTransaction();
             $stmtUpdate = $pdo->prepare("UPDATE sales_properties SET unit_name=?, block=?, floor_level=?, unit_type=?, description=?, internal_sqm=?, external_sqm=?, shell_price=?, finishes_price=? WHERE id=? AND project_id=?");
@@ -250,14 +250,14 @@ if (isset($_POST['action'])) {
                     }
 
                     if ($manualManageEnabled && isset($u['status'])) {
-                        $newStatus = trim((string)$u['status']);
+                        $newStatus = salesNormalizeManualManageStatus((string)$u['status']);
                         $oldStatus = trim((string)($oldUnit['status'] ?? ''));
+                        if ($newStatus === null) {
+                            $pdo->rollBack();
+                            echo json_encode(['success' => false, 'message' => 'Invalid manual status. Use Available, Proceeding, or Sold.']);
+                            exit;
+                        }
                         if ($newStatus !== $oldStatus) {
-                            if (!in_array($newStatus, $manualStatuses, true)) {
-                                $pdo->rollBack();
-                                echo json_encode(['success' => false, 'message' => 'Invalid manual status. Use Available, Proceeding, or Sold - POS.']);
-                                exit;
-                            }
                             $stmtStatus->execute([$newStatus, (int)$u['id'], $pid]);
                             $stmtLog->execute([
                                 (int)$u['id'],
@@ -639,7 +639,7 @@ try {
                     <button type="button" class="btn-heavy btn-blue" onclick="saveSaleVisibility()"><i class="fas fa-save"></i> Save Visibility</button>
                 </div>
                 <p id="manageManuallyHint" style="display:none; margin: 12px 0 0 0; color: var(--pm-text-muted); font-size: 0.82rem;">
-                    Manual mode: Status dropdowns are enabled in the Live Frame Editor. Allowed: Available, Proceeding, Sold - POS. Changes are logged when you save the frame.
+                    Manual mode: Status dropdowns are enabled in the Live Frame Editor. Allowed: Available, Proceeding, Sold. Changes are logged when you save the frame.
                 </p>
                 <p id="manageManuallyMigrationNote" style="display:none; margin: 12px 0 0 0; color: #f59e0b; font-size: 0.85rem; font-weight: 600;">
                     Run sql/2026-07-24_project_manage_manually.sql in phpMyAdmin to enable Manage Manually.
@@ -832,6 +832,11 @@ try {
     let currentMedia = [];
     let currentVisibility = { show_for_sale: 1, show_for_sale_external: 0, manage_manually: 0, manage_manually_column: false };
     let manualStatuses = ['Available', 'Proceeding', 'Sold - POS'];
+    let manualStatusOptions = [
+        { value: 'Available', label: 'Available' },
+        { value: 'Proceeding', label: 'Proceeding' },
+        { value: 'Sold - POS', label: 'Sold' },
+    ];
 
     function escapeHtml(value) {
         return String(value ?? '')
@@ -968,6 +973,9 @@ try {
             if (Array.isArray(data.manual_statuses) && data.manual_statuses.length) {
                 manualStatuses = data.manual_statuses;
             }
+            if (Array.isArray(data.manual_status_options) && data.manual_status_options.length) {
+                manualStatusOptions = data.manual_status_options;
+            }
             renderVisibilityPanel();
             renderFrameTable();
             renderMediaManagers();
@@ -991,11 +999,12 @@ try {
         
         let typeOpts = unitTypes.map(t => `<option value="${t.val}" ${u.unit_type === t.val ? 'selected' : ''}>${t.label}</option>`).join('');
         const currentStatus = u.status || 'Available';
-        let statusOpts = manualStatuses.map(st => {
-            const sel = currentStatus === st ? 'selected' : '';
-            return `<option value="${escapeHtml(st)}" ${sel}>${escapeHtml(st)}</option>`;
+        let statusOpts = manualStatusOptions.map(opt => {
+            const sel = currentStatus === opt.value ? 'selected' : '';
+            return `<option value="${escapeHtml(opt.value)}" ${sel}>${escapeHtml(opt.label)}</option>`;
         }).join('');
-        if (manualStatuses.indexOf(currentStatus) === -1) {
+        const allowValues = manualStatusOptions.map(opt => opt.value);
+        if (allowValues.indexOf(currentStatus) === -1) {
             statusOpts = `<option value="${escapeHtml(currentStatus)}" selected>${escapeHtml(currentStatus)} (current)</option>` + statusOpts;
         }
         const statusDisplay = isManualManageOn() ? 'table-cell' : 'none';

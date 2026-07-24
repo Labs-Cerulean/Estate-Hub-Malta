@@ -407,6 +407,24 @@ function salesManualManageAllowedStatuses(): array {
     return ['Available', 'Proceeding', 'Sold - POS'];
 }
 
+/** Dropdown options: DB value + clean label (Sold - POS shown as Sold). */
+function salesManualManageStatusOptions(): array {
+    return [
+        ['value' => 'Available', 'label' => 'Available'],
+        ['value' => 'Proceeding', 'label' => 'Proceeding'],
+        ['value' => 'Sold - POS', 'label' => 'Sold'],
+    ];
+}
+
+/** Normalize UI/manual status input to a stored allowlisted value, or null if invalid. */
+function salesNormalizeManualManageStatus(string $status): ?string {
+    $status = trim($status);
+    if ($status === 'Sold') {
+        $status = 'Sold - POS';
+    }
+    return in_array($status, salesManualManageAllowedStatuses(), true) ? $status : null;
+}
+
 function salesInHouseVisibilitySql(PDO $pdo, string $projectAlias = 'p'): string {
     if (!salesVisibilityColumnsAvailable($pdo)) {
         return '';
