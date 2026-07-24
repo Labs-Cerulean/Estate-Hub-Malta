@@ -84,6 +84,7 @@ try {
             $total_price = floatval($u['shell_price']) + floatval($u['finishes_price']);
             $status = trim((string)($u['status'] ?? ''));
             $statusSafe = htmlspecialchars($status, ENT_QUOTES, 'UTF-8');
+            $statusDisplaySafe = htmlspecialchars(salesUnitStatusDisplayLabel($status), ENT_QUOTES, 'UTF-8');
             $unitNameSafe = htmlspecialchars((string)($u['unit_name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $descriptionSafe = htmlspecialchars((string)($u['description'] ?? ''), ENT_QUOTES, 'UTF-8');
             $unitTypeSafe = htmlspecialchars((string)($u['unit_type'] ?? ''), ENT_QUOTES, 'UTF-8');
@@ -149,7 +150,7 @@ try {
                             </h5>
                             <div class='text-muted mt-1' style='font-size: 0.85rem;'><i class='fas fa-layer-group text-secondary'></i> Level {$floorLevelSafe} &nbsp;&bull;&nbsp; {$descriptionSafe}</div>
                         </div>
-                        <span class='badge shadow-sm' style='background-color: {$badgeBg}; color: {$badgeText}; font-size: 0.8rem; padding: 6px 12px; border-radius: 8px;'>{$statusSafe}</span>
+                        <span class='badge shadow-sm' style='background-color: {$badgeBg}; color: {$badgeText}; font-size: 0.8rem; padding: 6px 12px; border-radius: 8px;'>{$statusDisplaySafe}</span>
                       </div>";
             
             $html .= $agentTag;
