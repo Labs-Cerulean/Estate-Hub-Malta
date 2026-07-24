@@ -31,18 +31,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $phone = trim($_POST['phone'] ?? '');
         $firstName = trim($_POST['first_name'] ?? '');
         $lastName = trim($_POST['last_name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
 
-        try {
-            $stmt = $pdo->prepare("UPDATE users SET phone = ?, first_name = ?, last_name = ? WHERE id = ?");
-            $stmt->execute([$phone, $firstName, $lastName, $userId]);
-            $_SESSION['first_name'] = $firstName;
-            $_SESSION['last_name'] = $lastName;
-            $message = "Profile details updated successfully.";
-            $user['phone'] = $phone;
-            $user['first_name'] = $firstName;
-            $user['last_name'] = $lastName;
-        } catch (Exception $e) {
-            $error = "Update failed: " . $e->getMessage();
+        if ($email === '') {
+            $error = 'Email address is required.';
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $error = 'Please enter a valid email address.';
+        } elseif (strlen($email) > 255) {
+            $error = 'Email address is too long.';
+        } else {
+            try {
+                $dupStmt = $pdo->prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id <> ? LIMIT 1');
+                $dupStmt->execute([$email, $userId]);
+                if ($dupStmt->fetch()) {
+                    $error = 'That email address is already in use.';
+                } else {
+                    $stmt = $pdo->prepare('UPDATE users SET phone = ?, first_name = ?, last_name = ?, email = ? WHERE id = ?');
+                    $stmt->execute([$phone, $firstName, $lastName, $email, $userId]);
+                    $_SESSION['first_name'] = $firstName;
+                    $_SESSION['last_name'] = $lastName;
+                    $message = 'Profile details updated successfully.';
+                    $user['phone'] = $phone;
+                    $user['first_name'] = $firstName;
+                    $user['last_name'] = $lastName;
+                    $user['email'] = $email;
+                }
+            } catch (Exception $e) {
+                error_log('Profile update failed for user ' . (int)$userId . ': ' . $e->getMessage());
+                $error = 'Update failed. Please try again.';
+            }
         }
     }
 
@@ -169,7 +186,8 @@ require_once 'header.php';
 
                 <div class="form-group">
                     <label>Email Address</label>
-                    <input type="email" value="<?= htmlspecialchars($user['email']) ?>" disabled style="opacity: 0.6; cursor: not-allowed;">
+                    <input type="email" name="email" value="<?= htmlspecialchars($user['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required maxlength="255" autocomplete="email">
+                    <small class="info-text">Used for login and password reset. Must be unique.</small>
                 </div>
 
                 <div class="form-group">
